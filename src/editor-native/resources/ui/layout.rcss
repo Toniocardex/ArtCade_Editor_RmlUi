@@ -1,0 +1,90 @@
+/* layout.rcss — fixed split layout, three splitters, transparent viewport hole.
+   Flat surfaces; raylib draws the scene behind the transparent viewport.
+   Lengths in `dp` (DPI-scaled); 1px borders stay physical hairlines. */
+
+body {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background-color: transparent;
+}
+
+#menubar {
+    height: 30dp;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 0 6dp;
+    background-color: #18181b;
+    border-bottom: 1px #27272a;
+}
+
+#toolbar {
+    height: 44dp;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 0 10dp;
+    background-color: #18181b;
+    border-bottom: 1px #27272a;
+}
+
+#workspace {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
+    background-color: transparent;
+}
+
+#left-col {
+    width: 264dp;
+    min-width: 200dp;
+    max-width: 480dp;
+    display: flex;
+    flex-direction: column;
+}
+
+#viewport {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background-color: transparent;
+}
+
+#right-col {
+    width: 312dp;
+    min-width: 240dp;
+    max-width: 520dp;
+    display: flex;
+    flex-direction: column;
+}
+
+#console {
+    height: 176dp;
+    min-height: 80dp;
+    max-height: 600dp;
+    display: flex;
+    flex-direction: column;
+    background-color: #161619;
+    border-top: 1px #27272a;
+}
+
+/* Splitters — slim, light up to accent on hover/drag. */
+.vsplit {
+    width: 5dp;
+    background-color: #0e0e10;
+    drag: drag;
+    transition: background-color 0.1s;
+}
+.vsplit:hover  { background-color: #3b82f6; }
+.vsplit:active { background-color: #60a0ff; }
+
+.hsplit {
+    height: 5dp;
+    background-color: #0e0e10;
+    drag: drag;
+    transition: background-color 0.1s;
+}
+.hsplit:hover  { background-color: #3b82f6; }
+.hsplit:active { background-color: #60a0ff; }

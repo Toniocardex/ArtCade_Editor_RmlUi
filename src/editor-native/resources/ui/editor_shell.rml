@@ -1,0 +1,96 @@
+<rml>
+<head>
+    <title>ArtCade Native Editor</title>
+    <link type="text/rcss" href="theme.rcss"/>
+    <link type="text/rcss" href="layout.rcss"/>
+    <link type="text/rcss" href="panels.rcss"/>
+    <link type="text/rcss" href="controls.rcss"/>
+</head>
+<body>
+    <div id="menubar">
+        <span class="brand">ArtCade</span>
+        <div class="menu-item has-menu">
+            <span class="menu-label">File</span>
+            <div class="menu-dropdown">
+                <div class="menu-entry" data-action="new-project"><span class="icon">&#xeb0b;</span>New</div>
+                <div class="menu-entry" data-action="open-project"><span class="icon">&#xeaad;</span>Open</div>
+                <div class="menu-entry" data-action="save-project"><span class="icon">&#xea7a;</span>Save</div>
+                <div class="menu-entry" data-action="save-project-as"><span class="icon">&#xeae0;</span>Save As</div>
+            </div>
+        </div>
+        <span class="menu-item">Edit</span>
+        <span class="menu-item">View</span>
+    </div>
+
+    <div id="toolbar">
+        <button id="btn-play-project" class="tool-btn" data-action="play-project"><span class="icon">&#xed46;</span>Play Project</button>
+        <button id="btn-play-scene" class="tool-btn" data-action="play-current-scene"><span class="icon">&#xed46;</span>Play Scene</button>
+        <button id="btn-stop" class="tool-btn" data-action="stop"><span class="icon">&#xed4a;</span>Stop</button>
+        <span class="tool-sep"></span>
+        <button id="btn-undo" class="tool-btn" data-action="undo"><span class="icon">&#xeb77;</span>Undo</button>
+        <button id="btn-redo" class="tool-btn" data-action="redo"><span class="icon">&#xeb13;</span>Redo</button>
+        <span class="tool-sep"></span>
+        <button class="tool-btn" data-action="zoom-out"><span class="icon">&#xeb57;</span>Zoom -</button>
+        <button class="tool-btn" data-action="zoom-in"><span class="icon">&#xeb56;</span>Zoom +</button>
+        <span id="toolbar-zoom" class="toolbar-zoom" data-action="reset-zoom">100%</span>
+        <span class="tool-sep"></span>
+        <button id="btn-grid-visible" class="tool-btn" data-action="toggle-grid-visible" title="Show Grid"><span class="icon">&#xedba;</span>Grid</button>
+        <button id="btn-grid-snap" class="tool-btn" data-action="toggle-grid-snap" title="Snap to Grid"><span class="icon">&#xeae3;</span>Snap to Grid</button>
+        <div id="grid-size-control" class="grid-size-control">
+            <button id="btn-grid-size" class="tool-btn grid-size-trigger" title="Grid Cell Size">48 &#x25be;</button>
+            <div class="grid-size-popover">
+                <div class="grid-size-title">Grid Size</div>
+                <input id="grid-cell-size-input" type="text" class="grid-size-input" data-action="commit-grid-cell-size" value="48"/>
+                <div class="grid-size-presets">
+                    <button class="grid-size-preset" data-action="set-grid-cell-size" data-arg="8">8</button>
+                    <button class="grid-size-preset" data-action="set-grid-cell-size" data-arg="16">16</button>
+                    <button class="grid-size-preset" data-action="set-grid-cell-size" data-arg="32">32</button>
+                    <button class="grid-size-preset" data-action="set-grid-cell-size" data-arg="64">64</button>
+                </div>
+            </div>
+        </div>
+        <span id="toolbar-status" class="toolbar-status"></span>
+    </div>
+
+    <div id="workspace">
+        <div id="left-col" class="panel">
+            <div class="panel-header"><span class="icon">&#xee9e;</span>HIERARCHY</div>
+            <div id="scene-tabs" class="scene-tabs"></div>
+            <div class="panel-actions">
+                <button id="btn-add-scene" class="panel-btn" data-action="add-scene"><span class="icon">&#xeb0b;</span>Scene</button>
+                <button id="btn-del-scene" class="panel-btn" data-action="delete-scene"><span class="icon">&#xeb41;</span>Scene</button>
+                <button id="btn-set-start" class="panel-btn" data-action="set-start-scene"><span class="icon">&#xeb2e;</span>Start</button>
+                <button id="btn-add-entity" class="panel-btn" data-action="add-entity"><span class="icon">&#xeb0b;</span>Entity</button>
+                <button id="btn-add-instance" class="panel-btn" data-action="add-instance"><span class="icon">&#xeb0b;</span>Instance</button>
+                <button id="btn-del-entity" class="panel-btn" data-action="delete-entity"><span class="icon">&#xeb41;</span>Entity</button>
+            </div>
+            <div id="hierarchy-list" class="tree"></div>
+            <div class="panel-header"><span class="icon">&#xeaad;</span>ASSETS</div>
+            <div id="assets-list" class="assets"></div>
+        </div>
+
+        <div id="split-left" class="vsplit" data-action="resize-left"></div>
+
+        <div id="viewport"></div>
+
+        <div id="split-right" class="vsplit" data-action="resize-right"></div>
+
+        <div id="right-col" class="panel">
+            <div class="panel-header"><span class="icon">&#xea03;</span>INSPECTOR</div>
+            <div id="inspector-body" class="inspector"></div>
+        </div>
+    </div>
+
+    <div id="split-console" class="hsplit" data-action="resize-console"></div>
+
+    <div id="console" class="panel">
+        <div class="panel-header"><span class="icon">&#xebdc;</span>CONSOLE<button id="btn-console-copy" class="header-btn disabled" data-action="copy-console">Copy</button></div>
+        <div id="console-list" class="console"></div>
+    </div>
+
+    <div id="viewport-context-menu" class="context-menu hidden">
+        <div class="context-entry" data-action="create-entity-here"><span class="icon">&#xeb0b;</span>Create Entity Here</div>
+        <div id="ctx-create-instance" class="context-entry" data-action="create-instance-here"><span class="icon">&#xeb0b;</span>Create Instance Here</div>
+    </div>
+</body>
+</rml>

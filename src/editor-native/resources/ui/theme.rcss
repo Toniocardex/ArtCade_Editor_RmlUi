@@ -1,0 +1,61 @@
+/* theme.rcss — ArtCade Studio dark theme (zinc + blue accent).
+   Flat surfaces, low radius, single-accent selection. Palette mirrors the
+   ArtCade web style guide and the native UI mockup.
+
+   Units: lengths use `dp` (density-independent pixels) so the whole UI scales
+   crisply with the display's DPI. Only intentional hairlines/separators keep
+   `px` (a 1px physical line stays 1px at any scale). At 100% scaling dp == px. */
+
+body {
+    font-family: JetBrains Mono;
+    font-size: 11dp;
+    font-weight: 400;
+    color: #d4d4d8;
+}
+
+/* Section / panel eyebrow labels — tracked uppercase, muted. */
+.panel-header {
+    font-size: 10dp;
+    font-weight: 700;
+    letter-spacing: 1.2dp;
+    text-transform: uppercase;
+    color: #52525b;
+}
+
+.accent { color: #3b82f6; }
+
+/* Icon glyphs (Tabler Icons, PUA codepoints). Size tracks the surrounding text
+   (a touch larger); colour inherits. Always normal weight — the icon font has
+   a single face. */
+.icon {
+    font-family: tabler-icons;
+    font-weight: normal;
+    font-size: 1.2em;
+    vertical-align: middle;
+    margin-right: 6dp;
+}
+/* Hierarchy row type icon — muted, slightly smaller gap. */
+.row-icon {
+    color: #6b7280;
+    font-size: 1.25em;
+    margin-right: 8dp;
+}
+.tree-row.selected .row-icon { color: #93b4f5; }
+/* Start-scene star marker. */
+.ico-start { color: #eab308; }
+
+/* Scrollable areas */
+.tree, .console, .inspector { overflow-y: auto; }
+
+scrollbarvertical { width: 10dp; }
+scrollbarvertical slidertrack { background-color: #111113; }
+scrollbarvertical sliderbar {
+    background-color: #27272a;
+    border-radius: 3dp;
+    margin-left: 2dp;
+    margin-right: 2dp;
+    min-height: 32dp;
+    transition: background-color 0.1s;
+}
+scrollbarvertical sliderbar:hover  { background-color: #3f3f46; }
+scrollbarvertical sliderbar:active { background-color: #3b82f6; }

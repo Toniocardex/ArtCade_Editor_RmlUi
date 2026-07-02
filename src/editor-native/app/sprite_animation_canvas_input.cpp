@@ -1,0 +1,139 @@
+#include "editor-native/app/sprite_animation_canvas_input.h"
+
+#include "editor-native/app/sprite_animation_preview_renderer.h"
+#include "editor-native/commands/sprite_animation_commands.h"
+#include "editor-native/model/sprite_animation_slicing.h"
+
+#include <raylib.h>
+
+#include <algorithm>
+#include <optional>
+#include <utility>
+
+namespace ArtCade::EditorNative {
+
+namespace {
+
+const SpriteAnimationClipDef* findAnimationClip(const SpriteAnimationAssetDef& asset,
+                                                const std::optional<std::string>& clipId) {
+    if (!clipId) return nullptr;
+    for (const SpriteAnimationClipDef& clip : asset.clips) {
+        if (clip.id == *clipId) return &clip;
+    }
+    return nullptr;
+}
+
+} // namespace
+
+void routeSpriteAnimationCanvasInput(
+    EditorCoordinator& coordinator,
+    const ViewportRect& canvasRect,
+    const RmlInputResult& rml,
+    TextureCache& textureCache,
+    const std::unordered_map<AssetId, TextureRequest>& requests) {
+    if (rml.textFocus) return;
+    if (!canvasRect.contains(GetMouseX(), GetMouseY())) return;
+
+    const SpriteAnimationEditorState& editorState = coordinator.state().spriteAnimationEditor;
+    if (!editorState.openAssetId) return;
+    const SpriteAnimationAssetDef* asset =
+        coordinator.document().findSpriteAnimationAsset(*editorState.openAssetId);
+    if (!asset) return;
+
+    SceneFrameSprite requestSprite;
+    requestSprite.assetId = asset->imageId;
+    requestSprite.visible = true;
+    textureCache.prepare({requestSprite}, requests);
+    const TextureResource* resource = textureCache.find(asset->imageId);
+    if (!resource || !resource->loaded) return;
+
+    const float mouseX = static_cast<float>(GetMouseX());
+    const float mouseY = static_cast<float>(GetMouseY());
+
+    // Zoom under the cursor: keep the texture point beneath the mouse fixed,
+    // mirroring the Scene View gesture. Both rects come from the one shared
+    // destination function, so the correction matches what is drawn.
+    const float wheel = GetMouseWheelMove();
+    if (wheel != 0.0f) {
+        const Rectangle before =
+            spriteAnimationSheetDestination(*resource, canvasRect, editorState);
+        const float scaleBefore =
+            before.width / static_cast<float>(resource->texture.width);
+        coordinator.apply(SetSpriteSheetZoomIntent{
+            editorState.sheetZoom * (1.0f + wheel * 0.1f)});
+        const SpriteAnimationEditorState& zoomed =
+            coordinator.state().spriteAnimationEditor;
+        const Rectangle after =
+            spriteAnimationSheetDestination(*resource, canvasRect, zoomed);
+        const float scaleAfter =
+            after.width / static_cast<float>(resource->texture.width);
+        const float u = (mouseX - before.x) / scaleBefore;
+        const float v = (mouseY - before.y) / scaleBefore;
+        coordinator.apply(PanSpriteSheetIntent{{
+            mouseX - (after.x + u * scaleAfter),
+            mouseY - (after.y + v * scaleAfter)}});
+    }
+
+    // Pan: middle-mouse, or Space + left-mouse (canvas pixels, like drawn).
+    const bool spacePan = IsKeyDown(KEY_SPACE) && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+    if (IsMouseButtonDown(MOUSE_BUTTON_MIDDLE) || spacePan) {
+        const Vector2 d = GetMouseDelta();
+        if (d.x != 0.f || d.y != 0.f) {
+            coordinator.apply(PanSpriteSheetIntent{{d.x, d.y}});
+        }
+        return;   // a pan gesture is not a cell toggle
+    }
+
+    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) return;
+    const SpriteAnimationClipDef* clip = findAnimationClip(*asset, editorState.selectedClipId);
+    if (!clip) return;
+
+    const Rectangle dest =
+        spriteAnimationSheetDestination(*resource, canvasRect,
+                                        coordinator.state().spriteAnimationEditor);
+    if (mouseX < dest.x || mouseX >= dest.x + dest.width
+        || mouseY < dest.y || mouseY >= dest.y + dest.height) {
+        return;
+    }
+
+    const SpriteAnimationSliceGrid grid{
+        editorState.sliceFrameWidth,
+        editorState.sliceFrameHeight,
+        editorState.sliceMargin,
+        editorState.sliceSpacing,
+    };
+    const int cells =
+        spriteAnimationSliceCellCount(resource->texture.width, resource->texture.height, grid);
+    if (cells <= 0) return;
+    const float scaleX = dest.width / static_cast<float>(resource->texture.width);
+    const float scaleY = dest.height / static_cast<float>(resource->texture.height);
+    const int sourceX = static_cast<int>((mouseX - dest.x) / scaleX);
+    const int sourceY = static_cast<int>((mouseY - dest.y) / scaleY);
+    int cell = -1;
+    for (int candidate = 0; candidate < cells; ++candidate) {
+        const std::optional<SpriteAnimationFrameDef> frame =
+            spriteAnimationFrameForCell(resource->texture.width, resource->texture.height,
+                                        grid, candidate);
+        if (frame && sourceX >= frame->x && sourceX < frame->x + frame->width
+            && sourceY >= frame->y && sourceY < frame->y + frame->height) {
+            cell = candidate;
+            break;
+        }
+    }
+    if (cell < 0) return;
+    const std::optional<SpriteAnimationFrameDef> frame =
+        spriteAnimationFrameForCell(resource->texture.width, resource->texture.height, grid, cell);
+    if (!frame) return;
+
+    std::vector<SpriteAnimationFrameDef> frames =
+        spriteAnimationFramesMatchingGrid(resource->texture.width, resource->texture.height,
+                                          grid, clip->frames);
+    const auto existing = std::find(frames.begin(), frames.end(), *frame);
+    if (existing == frames.end()) frames.push_back(*frame);
+    else frames.erase(existing);
+
+    coordinator.execute(SetAnimationClipFramesCommand{
+        asset->id, clip->id, std::move(frames)});
+}
+
+} // namespace ArtCade::EditorNative

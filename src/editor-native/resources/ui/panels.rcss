@@ -1,0 +1,218 @@
+/* panels.rcss — panel surfaces, headers, console rows, inspector sections.
+   Lengths in `dp` (DPI-scaled); 1px borders stay physical hairlines. */
+
+.panel { background-color: #18181b; }
+
+#left-col  { border-right: 1px #27272a; }
+#right-col { border-left: 1px #27272a; }
+
+.panel-header {
+    display: block;
+    position: relative;
+    height: 32dp;
+    line-height: 32dp;
+    padding: 0 12dp;
+    background-color: #18181b;
+    border-bottom: 1px #27272a;
+}
+
+/* Right-aligned action in a panel header (Console Copy). */
+.header-btn {
+    position: absolute;
+    top: 5dp;
+    right: 8dp;
+    display: inline-block;
+    height: 22dp;
+    line-height: 22dp;
+    padding: 0 10dp;
+    background-color: transparent;
+    border: 1px #323236;
+    border-radius: 3dp;
+    color: #a1a1aa;
+    font-size: 11dp;
+    font-weight: 500;
+    transition: background-color 0.1s, border-color 0.1s, color 0.1s;
+}
+.header-btn:hover  { border-color: #3b82f6; color: #3b82f6; }
+.header-btn.disabled { border-color: #242427; color: #3f3f46; }
+
+.assets {
+    display: block;
+    padding: 6dp 8dp;
+}
+.assets-empty {
+    display: block;
+    padding: 6dp 4dp;
+    color: #52525b;
+    font-size: 11dp;
+}
+.asset-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin: 2dp 0;
+}
+.asset-name {
+    flex: 1;
+    color: #c4c4c8;
+    font-size: 12dp;
+}
+.asset-meta {
+    color: #6b7280;
+    font-size: 11dp;
+    margin-right: 6dp;
+}
+.asset-group-title {
+    display: block;
+    margin: 8dp 0 4dp 0;
+    color: #71717a;
+    font-size: 10dp;
+    font-weight: 600;
+    letter-spacing: 0.5dp;
+}
+
+/* Console */
+.console {
+    display: block;
+    flex: 1;
+    padding: 8dp 12dp;
+    font-size: 11dp;
+}
+.log {
+    display: block;
+    padding: 2dp 6dp;
+    border-radius: 3dp;
+    color: #a1a1aa;
+    transition: background-color 0.1s;
+}
+.log:hover      { background-color: #1c1c1f; }
+.log.selected   { background-color: #3b82f626; color: #d4d4d8; }
+.log-info    { color: #a1a1aa; }
+.log-warning { color: #d8b44a; }
+.log-error   { color: #e5706b; }
+
+/* Inspector */
+.inspector {
+    display: block;
+    flex: 1;
+    padding: 0 14dp 14dp 14dp;
+}
+.inspector-empty {
+    color: #52525b;
+    padding: 14dp 0;
+}
+
+/* Section eyebrow + bottom hairline (flat, no accent outline). */
+.prop-group-title {
+    display: block;
+    height: 28dp;
+    line-height: 28dp;
+    margin-top: 14dp;
+    margin-bottom: 6dp;
+    border-bottom: 1px #27272a;
+    font-size: 10dp;
+    font-weight: 700;
+    letter-spacing: 1.1dp;
+    text-transform: uppercase;
+    color: #8a8a93;
+}
+
+/* Component section header: eyebrow title + ownership badge + remove (x). */
+.comp-header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 28dp;
+    margin-top: 14dp;
+    margin-bottom: 6dp;
+    border-bottom: 1px #27272a;
+}
+.comp-title {
+    flex: 1;
+    line-height: 28dp;
+    font-size: 10dp;
+    font-weight: 700;
+    letter-spacing: 1.1dp;
+    text-transform: uppercase;
+    color: #8a8a93;
+}
+.comp-badge {
+    display: inline-block;
+    height: 16dp;
+    line-height: 16dp;
+    padding: 0 6dp;
+    margin-right: 4dp;
+    border-radius: 3dp;
+    background-color: #1c1c1f;
+    border: 1px #2f2f33;
+    color: #71717a;
+    font-size: 9dp;
+    font-weight: 600;
+    letter-spacing: 0.6dp;
+}
+.comp-badge.override { color: #7aa2e8; border-color: #3b82f655; }
+.comp-remove {
+    display: inline-block;
+    width: 22dp;
+    height: 22dp;
+    line-height: 22dp;
+    text-align: center;
+    border-radius: 3dp;
+    color: #6b6b73;
+    transition: background-color 0.1s, color 0.1s;
+}
+.comp-remove:hover { background-color: #2a1f20; color: #e5706b; }
+.comp-remove.disabled { color: #3f3f46; }
+
+.prop-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 28dp;
+    margin-bottom: 5dp;
+}
+.prop-label {
+    width: 92dp;
+    color: #8a8a93;
+    font-size: 11dp;
+}
+.prop-readonly {
+    flex: 1;
+    color: #d4d4d8;
+    font-size: 12dp;
+}
+.mode-block {
+    display: block;
+    margin: 2dp 0 8dp 0;
+}
+.mode-label {
+    display: block;
+    margin-bottom: 4dp;
+    color: #8a8a93;
+    font-size: 11dp;
+}
+.mode-options {
+    display: block;
+    height: 28dp;
+}
+.mode-option {
+    margin: 0 5dp 0 0;
+}
+
+/* A non-zero diagnostic count reads as a soft warning. */
+.prop-readonly.warn { color: #d8b44a; font-weight: 600; }
+/* Unit suffix after a numeric field (e.g. "wu"). */
+.prop-unit {
+    margin-left: 6dp;
+    color: #52525b;
+    font-size: 11dp;
+}
+.outside-warning {
+    display: block;
+    margin: 2dp 0 7dp 0;
+    padding: 6dp 8dp;
+    border-left: 2dp #d8b44a;
+    background-color: #241f13;
+    color: #d8b44a;
+    font-size: 11dp;
+}

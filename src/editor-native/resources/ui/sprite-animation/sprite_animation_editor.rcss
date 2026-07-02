@@ -1,0 +1,237 @@
+body {
+    width: 100%;
+    height: 100%;
+    display: block;
+    background-color: #0e0e10;
+}
+
+.animation-editor {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #0e0e10;
+}
+
+.anim-editor-shell {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    padding: 14dp;
+    background-color: #0e0e10;
+}
+
+.anim-editor-title {
+    height: 36dp;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    color: #d4d4d8;
+    font-size: 13dp;
+    border-bottom: 1dp #26272d;
+    margin-bottom: 10dp;
+}
+
+.anim-editor-title .panel-btn {
+    margin-left: auto;
+    float: right;
+}
+
+.anim-editor-main {
+    display: flex;
+    flex-direction: row;
+    height: 70%;
+}
+
+.anim-clips {
+    width: 200dp;
+    margin-right: 10dp;
+    padding: 10dp;
+    background: #141417;
+    border: 1dp #2c2d33;
+}
+
+.anim-sheet {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    margin-right: 10dp;
+    padding: 10dp;
+    background: #101013;
+    border: 1dp #2c2d33;
+}
+
+.anim-settings {
+    width: 292dp;
+    padding: 10dp;
+    background: #141417;
+    border: 1dp #2c2d33;
+}
+
+.anim-sheet-head {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    min-height: 82dp;
+    margin-bottom: 10dp;
+}
+
+.anim-sheet-title-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 8dp;
+}
+
+.anim-sheet-title-block {
+    display: flex;
+    flex-direction: column;
+}
+
+.anim-sheet-title-row .sheet-view-reset {
+    margin-left: auto;
+}
+
+.anim-sprite-canvas {
+    flex: 1;
+    min-height: 160dp;
+    padding: 8dp;
+    background-color: #0b0b0d;
+    border: 1dp #24252b;
+}
+
+.anim-slice-controls {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    min-height: 34dp;
+    padding: 7dp 8dp;
+    color: #8a8a93;
+    background-color: #151519;
+    border: 1dp #2a2b31;
+    font-size: 11dp;
+}
+
+.anim-tool-group {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin-right: 14dp;
+}
+
+.anim-tool-label {
+    color: #d4d4d8;
+    font-size: 10dp;
+    margin-right: 10dp;
+    text-transform: uppercase;
+}
+
+.anim-tool-group > span {
+    margin-left: 5dp;
+}
+
+.anim-tool-group > .anim-tool-label {
+    margin-left: 0;
+}
+
+/* .prop-input is flex:1 (basis 0) for Inspector rows; inside this auto-sized
+   flex container that collapses the fields to their padding. Pin them. */
+.anim-slice-controls .prop-input {
+    flex: 0 0 auto;
+    width: 48dp;
+    margin-left: 5dp;
+}
+
+.anim-slice-controls .slice-action {
+    margin-left: 10dp;
+}
+
+.anim-slice-controls .primary {
+    color: #f8fbff;
+    background-color: #1e4f8f;
+    border-color: #3b82f6;
+}
+
+.anim-slice-controls .primary:hover {
+    background-color: #2563b8;
+}
+
+.anim-preview-title {
+    margin-top: 12dp;
+}
+
+.anim-preview-canvas {
+    height: 160dp;
+    margin-bottom: 8dp;
+    background-color: #0b0b0d;
+    border: 1dp #24252b;
+}
+
+.anim-preview-toggle {
+    margin-bottom: 6dp;
+}
+
+.anim-settings-actions {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+
+.anim-settings-actions .panel-btn {
+    margin-right: 6dp;
+}
+
+/* The toggle carries both icon/label pairs; "active" (= preview playing) picks
+   which pair shows. Keeps play state out of the generated panel markup. */
+.anim-preview-toggle .preview-when-playing { display: none; }
+.anim-preview-toggle.active .preview-when-playing { display: inline; }
+.anim-preview-toggle.active .preview-when-stopped { display: none; }
+
+.anim-section-title {
+    color: #71717a;
+    font-size: 10dp;
+    letter-spacing: 0;
+    margin-bottom: 8dp;
+    text-transform: uppercase;
+}
+
+.anim-clip {
+    height: 26dp;
+    padding: 6dp 8dp;
+    margin-bottom: 4dp;
+    color: #d4d4d8;
+    background: #18181b;
+    border: 1dp #2c2d33;
+}
+
+.anim-clip.selected {
+    background: #1e3a5f;
+    border-color: #3b82f6;
+}
+
+.anim-sheet-hint {
+    color: #a1a1aa;
+    font-size: 12dp;
+}
+
+.anim-timeline {
+    height: 96dp;
+    margin-top: 10dp;
+    padding: 10dp;
+    background: #141417;
+    border: 1dp #2c2d33;
+}
+
+.anim-frame {
+    display: inline-block;
+    min-width: 64dp;
+    height: 32dp;
+    padding: 8dp;
+    margin-right: 6dp;
+    color: #d4d4d8;
+    background: #18181b;
+    border: 1dp #3f3f46;
+}

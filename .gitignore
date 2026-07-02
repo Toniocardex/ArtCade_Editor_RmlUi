@@ -1,0 +1,17 @@
+build/
+.vs/
+.vscode/
+.claude/
+*.user
+*.suo
+compile_commands.json
+
+# CMake FetchContent (under build tree)
+_deps/
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Junction target is local — use submodule in git; do not commit a copy of runtime
+vendor/artcade-runtime/

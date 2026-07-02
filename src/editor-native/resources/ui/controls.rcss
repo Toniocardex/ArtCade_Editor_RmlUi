@@ -1,0 +1,488 @@
+/* controls.rcss — menu, toolbar, tabs, tree rows, inputs, buttons.
+   Flat fills (no gradients), low radius, single-accent selection. State classes
+   (.disabled/.active/.selected) come from C++ and must win, so they come last.
+   NOTE: raw text must not sit inside a display:flex element in RmlUi (it won't
+   render) — text-bearing controls are block/inline-block, centred via line-height.
+   Lengths in `dp` (DPI-scaled); 1px borders/separators stay physical hairlines. */
+
+/* -- Menu bar -------------------------------------------------------------- */
+.brand {
+    display: inline-block;
+    line-height: 30dp;
+    padding: 0 12dp 0 6dp;
+    color: #e4e4e7;
+    font-size: 12dp;
+    font-weight: 700;
+    letter-spacing: 0.4dp;
+}
+.menu-item {
+    display: inline-block;
+    position: relative;
+    height: 22dp;
+    line-height: 22dp;
+    padding: 0 10dp;
+    margin: 0 1dp;
+    border-radius: 3dp;
+    color: #a1a1aa;
+    font-size: 12dp;
+    font-weight: 400;
+    transition: background-color 0.1s, color 0.1s;
+}
+.menu-item:hover { background-color: #222226; color: #d4d4d8; }
+
+/* -- File menu dropdown (open state is local visual state, hover-driven) ---- */
+.menu-dropdown {
+    display: none;
+    position: absolute;
+    top: 25dp;
+    left: 0;
+    z-index: 100;
+    min-width: 168dp;
+    padding: 4dp;
+    background-color: #1c1c1f;
+    border: 1px #323236;
+    border-radius: 6dp;
+}
+.menu-item:hover .menu-dropdown { display: block; }
+.menu-entry {
+    display: block;
+    height: 28dp;
+    line-height: 28dp;
+    padding: 0 10dp;
+    border-radius: 4dp;
+    color: #a1a1aa;
+    font-size: 13dp;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: background-color 0.1s, color 0.1s;
+}
+.menu-entry:hover { background-color: #222226; color: #d4d4d8; }
+
+/* -- Toolbar buttons — flat ------------------------------------------------ */
+.tool-btn {
+    display: inline-block;
+    height: 28dp;
+    line-height: 28dp;
+    text-align: center;
+    margin: 0 4dp;
+    padding: 0 17dp;
+    background-color: #1c1c1f;
+    border: 1px #27272a;
+    border-radius: 4dp;
+    color: #a1a1aa;
+    font-size: 13dp;
+    font-weight: 500;
+    transition: background-color 0.1s, border-color 0.1s, color 0.1s;
+}
+.tool-btn:hover  { background-color: #222226; border-color: #323236; color: #d4d4d8; }
+.tool-btn:active { background-color: #3b82f626; border-color: #3b82f6; color: #d4d4d8; }
+.tool-btn.active {
+    background-color: #3b82f626;
+    border-color: #3b82f6;
+    color: #d4d4d8;
+}
+
+/* Primary call-to-action: Play Project (accent). */
+#btn-play-project {
+    background-color: #3b82f6;
+    border: 1px #3b82f6;
+    color: #ffffff;
+    font-weight: 600;
+}
+#btn-play-project:hover { background-color: #2f74e6; border-color: #2f74e6; }
+
+/* Stop — restrained danger (only enabled while playing). */
+#btn-stop { color: #e5706b; }
+#btn-stop:hover { background-color: #2a1f20; border-color: #7f3b38; color: #f0918c; }
+
+.tool-sep {
+    display: block;
+    width: 1px;
+    height: 18dp;
+    margin: 0 7dp;
+    background-color: #323236;
+}
+
+.toolbar-status {
+    display: inline-block;
+    line-height: 44dp;
+    margin-left: auto;
+    padding: 0 4dp 0 12dp;
+    color: #52525b;
+    font-size: 11dp;
+    font-weight: 500;
+    letter-spacing: 0.4dp;
+}
+
+/* Clickable zoom readout: shows the active scene zoom %, click resets to 100%. */
+.toolbar-zoom {
+    display: inline-block;
+    height: 24dp;
+    line-height: 24dp;
+    margin: 0 2dp;
+    padding: 0 8dp;
+    border-radius: 4dp;
+    color: #a1a1aa;
+    font-size: 12dp;
+    font-weight: 500;
+    transition: background-color 0.1s, color 0.1s;
+}
+.toolbar-zoom:hover { background-color: #222226; color: #d4d4d8; }
+
+.grid-size-control {
+    display: inline-block;
+    position: relative;
+}
+.grid-size-trigger {
+    min-width: 58dp;
+    padding: 0 12dp;
+}
+.grid-size-popover {
+    display: none;
+    position: absolute;
+    top: 34dp;
+    left: 4dp;
+    z-index: 120;
+    width: 154dp;
+    padding: 8dp;
+    background-color: #1c1c1f;
+    border: 1px #323236;
+    border-radius: 6dp;
+}
+.grid-size-control:hover .grid-size-popover { display: block; }
+.grid-size-title {
+    display: block;
+    height: 16dp;
+    line-height: 16dp;
+    margin: 0 0 6dp 0;
+    color: #71717a;
+    font-size: 10dp;
+    font-weight: 700;
+    letter-spacing: 0.5dp;
+}
+.grid-size-input {
+    display: block;
+    width: 136dp;
+    height: 26dp;
+    line-height: 26dp;
+    margin: 0 0 7dp 0;
+    padding: 0 8dp;
+    background-color: #111113;
+    border: 1px #323236;
+    border-radius: 3dp;
+    color: #e4e4e7;
+    font-family: "JetBrains Mono";
+    font-size: 12dp;
+}
+.grid-size-input:focus { border-color: #3b82f6; }
+.grid-size-presets {
+    display: block;
+    height: 24dp;
+}
+.grid-size-preset {
+    display: inline-block;
+    height: 24dp;
+    line-height: 24dp;
+    min-width: 30dp;
+    margin: 0 4dp 0 0;
+    padding: 0 6dp;
+    background-color: transparent;
+    border: 1px #323236;
+    border-radius: 3dp;
+    color: #a1a1aa;
+    font-size: 11dp;
+}
+.grid-size-preset:hover {
+    border-color: #3b82f6;
+    color: #3b82f6;
+}
+.grid-size-control.disabled .grid-size-popover { display: none; }
+
+/* Disabled toolbar buttons (state class wins). */
+.tool-btn.disabled,
+#btn-play-project.disabled,
+#btn-play-scene.disabled,
+#btn-stop.disabled,
+#btn-grid-visible.disabled,
+#btn-grid-snap.disabled,
+#btn-grid-size.disabled {
+    background-color: #161618;
+    border: 1px #242427;
+    color: #3f3f46;
+}
+
+/* -- Hierarchy action row — flat outline buttons --------------------------- */
+.panel-actions {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    padding: 8dp 8dp 4dp 10dp;
+}
+.panel-btn {
+    display: inline-block;
+    height: 24dp;
+    line-height: 24dp;
+    text-align: center;
+    margin: 0 5dp 5dp 0;
+    padding: 0 9dp;
+    background-color: transparent;
+    border: 1px #323236;
+    border-radius: 3dp;
+    color: #a1a1aa;
+    font-size: 11dp;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: background-color 0.1s, border-color 0.1s, color 0.1s;
+}
+.panel-btn:hover  { border-color: #3b82f6; color: #3b82f6; }
+.panel-btn:active { background-color: #3b82f626; border-color: #3b82f6; color: #d4d4d8; }
+.panel-btn.active {
+    background-color: #3b82f626;
+    border-color: #3b82f6;
+    color: #d4d4d8;
+}
+
+/* Destructive remove buttons hint red on hover. */
+#btn-del-scene:hover,
+#btn-del-entity:hover { border-color: #7f3b38; color: #e5706b; }
+
+.panel-btn.disabled,
+#btn-del-scene.disabled,
+#btn-del-entity.disabled {
+    background-color: transparent;
+    border: 1px #242427;
+    color: #3f3f46;
+}
+
+/* -- Inspector "Add Component" menu (in-flow toggle, not a popup) ----------- */
+.add-component { display: block; margin: 16dp 0 4dp 0; }
+.add-component-btn {
+    display: block;
+    height: 30dp;
+    line-height: 30dp;
+    text-align: center;
+    border: 1px #3a3a40;
+    border-radius: 4dp;
+    color: #a1a1aa;
+    font-size: 12dp;
+    font-weight: 500;
+    transition: background-color 0.1s, border-color 0.1s, color 0.1s;
+}
+.add-component-btn:hover { border-color: #3b82f6; color: #3b82f6; }
+.add-component-btn.open  { border-color: #3b82f6; color: #d4d4d8; background-color: #3b82f618; }
+.add-component-btn.disabled { border-color: #242427; color: #3f3f46; background-color: transparent; }
+.add-list {
+    display: block;
+    margin-top: 4dp;
+    padding: 4dp;
+    background-color: #1c1c1f;
+    border: 1px #2f2f33;
+    border-radius: 4dp;
+}
+.add-entry {
+    display: block;
+    height: 26dp;
+    line-height: 26dp;
+    padding: 0 10dp;
+    border-radius: 3dp;
+    color: #a1a1aa;
+    font-size: 12dp;
+    transition: background-color 0.1s, color 0.1s;
+}
+.add-entry:hover { background-color: #222226; color: #d4d4d8; }
+
+/* -- Inspector asset picker ------------------------------------------------ */
+.asset-options { display: block; margin: 6dp 0 8dp 0; }
+.asset-option {
+    display: block;
+    padding: 5dp 9dp;
+    color: #a1a1aa;
+    background-color: #1c1c1f;
+    border: 1px #27272a;
+    border-radius: 3dp;
+    margin-bottom: 3dp;
+    font-size: 11dp;
+    transition: background-color 0.1s, border-color 0.1s, color 0.1s;
+}
+.asset-option:hover { background-color: #222226; border-color: #323236; color: #d4d4d8; }
+.asset-option.selected {
+    color: #d4d4d8;
+    background-color: #3b82f626;
+    border-color: #3b82f6;
+}
+.asset-option.disabled {
+    color: #3f3f46;
+    background-color: #161618;
+    border-color: #242427;
+}
+
+/* -- Viewport context menu ------------------------------------------------- */
+.context-menu {
+    display: block;
+    position: absolute;
+    z-index: 200;
+    min-width: 188dp;
+    padding: 4dp;
+    background-color: #1c1c1f;
+    border: 1px #323236;
+    border-radius: 6dp;
+}
+.context-entry {
+    display: block;
+    height: 28dp;
+    line-height: 28dp;
+    padding: 0 10dp;
+    border-radius: 4dp;
+    color: #a1a1aa;
+    font-size: 12dp;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: background-color 0.1s, color 0.1s;
+}
+.context-entry:hover { background-color: #222226; color: #d4d4d8; }
+.hidden { display: none; }
+
+/* -- Scene Inspector: layer rows ------------------------------------------- */
+.layer-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 26dp;
+    padding: 0 4dp;
+    border-radius: 3dp;
+    color: #a1a1aa;
+    transition: background-color 0.1s, color 0.1s;
+}
+.layer-row:hover { background-color: #1c1c1f; }
+.layer-row.active { background-color: #3b82f626; color: #d4d4d8; }
+.layer-row.hidden { color: #52525b; }
+.layer-eye {
+    display: inline-block;
+    width: 22dp;
+    text-align: center;
+    color: #8a8a93;
+}
+.layer-row.hidden .layer-eye { color: #3f3f46; }
+.layer-name { flex: 1; font-size: 12dp; padding: 0 4dp; }
+.layer-rename-input {
+    flex: 1;
+    height: 22dp;
+    line-height: 22dp;
+    padding: 0 6dp;
+    background-color: #111113;
+    border: 1px #3b82f6;
+    border-radius: 3dp;
+    color: #d4d4d8;
+    font-size: 12dp;
+}
+.layer-rename-error {
+    display: block;
+    margin: 0 0 4dp 28dp;
+    color: #e5706b;
+    font-size: 10dp;
+}
+.layer-btn {
+    display: inline-block;
+    width: 20dp;
+    text-align: center;
+    color: #6b6b73;
+    font-size: 13dp;
+    border-radius: 3dp;
+    transition: background-color 0.1s, color 0.1s;
+}
+.layer-btn:hover { background-color: #222226; color: #d4d4d8; }
+.layer-remove {
+    display: inline-block;
+    width: 20dp;
+    text-align: center;
+    color: #6b6b73;
+    font-size: 13dp;
+    border-radius: 3dp;
+    transition: background-color 0.1s, color 0.1s;
+}
+.layer-remove:hover { background-color: #2a1f20; color: #e5706b; }
+
+/* -- Scene tabs — flat ----------------------------------------------------- */
+.scene-tabs {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    padding: 8dp 8dp 4dp 10dp;
+    background-color: #18181b;
+    border-bottom: 1px #27272a;
+}
+.tab {
+    display: inline-block;
+    height: 26dp;
+    line-height: 26dp;
+    text-align: center;
+    padding: 0 12dp;
+    margin: 0 5dp 5dp 0;
+    border-radius: 3dp;
+    color: #a1a1aa;
+    background-color: transparent;
+    font-size: 11dp;
+    font-weight: 500;
+    transition: background-color 0.1s, color 0.1s;
+}
+.tab:hover  { background-color: #222226; color: #d4d4d8; }
+.tab.active { color: #d4d4d8; background-color: #3b82f626; }
+
+/* -- Hierarchy tree — flat rows, accent-tint selection + left bar ---------- */
+.tree {
+    display: block;
+    flex: 1;
+    padding: 4dp 0;
+}
+.tree-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 26dp;
+    padding: 0 10dp;
+    border-left: 2dp transparent;
+    color: #a1a1aa;
+    transition: background-color 0.1s, color 0.1s;
+}
+.tree-row:hover { background-color: #222226; color: #d4d4d8; }
+.tree-row.selected {
+    background-color: #3b82f626;
+    border-left: 2dp #3b82f6;
+    color: #d4d4d8;
+}
+.row-name { flex: 1; font-size: 12dp; }
+.row-type {
+    color: #52525b;
+    font-size: 9dp;
+    font-weight: 600;
+    letter-spacing: 0.6dp;
+    text-transform: uppercase;
+}
+.tree-row.selected .row-type { color: #7aa2e8; }
+.tree-empty {
+    display: block;
+    padding: 10dp;
+    color: #52525b;
+}
+
+/* -- Text inputs — flat, accent border on focus (no glow) ------------------ */
+.prop-input {
+    flex: 1;
+    height: 26dp;
+    line-height: 26dp;
+    padding: 0 8dp;
+    background-color: #111113;
+    border: 1px #27272a;
+    border-radius: 3dp;
+    color: #d4d4d8;
+    font-size: 12dp;
+    transition: border-color 0.1s;
+}
+.prop-input:hover { border-color: #323236; }
+.prop-input:focus { border-color: #3b82f6; }
+/* Frozen while Play runs: the field is non-editable, so it reads as inert. */
+.prop-input:disabled {
+    background-color: #161618;
+    border-color: #242427;
+    color: #52525b;
+}
