@@ -1,8 +1,9 @@
-# Demo sprite sheets
+# Demo assets
 
-Pixel-art sprite sheets for trying the Sprite Animation Editor. Each is a single
-horizontal row of equal frames, so slicing is one step: **Import Sheet → set
-`Cols` to the frame count (`Rows` = 1) → Slice into Frames**.
+Pixel-art sprite sheets for trying the Sprite Animation Editor, plus a couple
+of static terrain tiles for building a quick test level. Each sheet is a
+single horizontal row of equal frames, so slicing is one step: **Import
+Sheet → set `Cols` to the frame count (`Rows` = 1) → Slice into Frames**.
 
 | File | Size | Frames (`Cols`) | Cell | Animation |
 |------|------|-----------------|------|-----------|
@@ -15,6 +16,35 @@ horizontal row of equal frames, so slicing is one step: **Import Sheet → set
 | `flag-wave.png`   | 120×24 | 5 | 24×24 | Flag rippling on a pole — the one **odd** frame count in the set |
 | `torch-flicker.png` | 96×24 | 4 | 24×24 | Torch flame flickering in height and lean, layered outer/mid/core color |
 | `switch-states.png` | 72×48 | 3×2 | 24×24 | **Two animations in one sheet** (3-wide, unlike `orb-states`' 4-wide): row 0 = grey "off" idle wobble, row 1 = green "on" glow pulse |
+| `hero-walk.png`   | 96×24 | 4 | 24×24 | Simple humanoid walk cycle (legs/arms swing, tiny body bob) |
+| `critter-hop.png` | 96×24 | 4 | 24×24 | Small round critter hop cycle (squash → stretch → peak → land) |
+
+## Movement testing: characters and terrain tiles
+
+`hero-walk.png` and `critter-hop.png` slice like any other sheet above, but are
+meant to be **used on an entity with a movement component**, not just previewed:
+
+- **Hero** (`hero-walk.anim`): add a `TopDownController` + `BoxCollider2D`
+  (e.g. offset `{0, 4}`, size `14×10` — a footprint smaller than the sprite,
+  so the collider is at the feet, not the whole 24×24 cell).
+- **Critter** (`critter-hop.anim`): add a `LinearMover` (e.g. speed `30`,
+  direction `{1, 0}`) + `BoxCollider2D`, for a simple patrol that bounces off
+  whatever it hits.
+
+`tile-wall.png` and `tile-ground.png` are **not** sprite sheets — each is one
+static 48×48 image (48 = this editor's default Grid/Snap cell size, so they
+place edge-to-edge with no gaps or overlap):
+
+- `tile-wall.png` — brick block. Import as a plain Image asset, use it on an
+  object type with a `BoxCollider2D` (mode `solid`, size `48×48`) so a
+  `TopDownController`/`LinearMover` entity actually stops at it.
+- `tile-ground.png` — grass-over-dirt floor. No collider — just the walkable
+  background under everything else.
+
+Build a quick test room: turn on **Grid** + **Snap to Grid**, place
+`tile-wall` instances around a rectangle, fill the inside with `tile-ground`,
+then drop a Hero and a Critter inside and Play to confirm the wall actually
+blocks them.
 
 ## Multiple animations in one sheet (`orb-states.png`, `switch-states.png`)
 
