@@ -130,6 +130,8 @@ private:
                                      const std::string& value);
     bool handleHierarchyAction(const std::string& action, const std::string& arg,
                                const std::string& value, EntityId selected);
+    bool handleInspectorAction(const std::string& action, const std::string& arg,
+                               const std::string& value, EntityId selected);
 
     void applyInvalidations(EditorInvalidation flags);
     void refreshSpriteAnimationEditor();

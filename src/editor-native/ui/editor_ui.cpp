@@ -840,7 +840,11 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     if (handleToolbarAction(action, arg, value)) return;
     if (handleSpriteAnimationAction(action, arg, value)) return;
     if (handleHierarchyAction(action, arg, value, selected)) return;
+    if (handleInspectorAction(action, arg, value, selected)) return;
+}
 
+bool EditorUi::handleInspectorAction(const std::string& action, const std::string& arg,
+                                     const std::string& value, EntityId selected) {
     if (action == "add-sprite-renderer") {
         addSpriteRenderer(coordinator_);
     } else if (action == "remove-sprite-renderer") {
@@ -888,7 +892,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
             }
         }
     } else if (action == "set-box-mode") {
-        if (coordinator_.isPlaying()) return;
+        if (coordinator_.isPlaying()) return true;
         const std::optional<BoxColliderMode> mode = parseBoxColliderModeArg(arg);
         if (mode.has_value()) setBoxColliderMode(coordinator_, *mode);
     } else if (action == "commit-box-offset-x" || action == "commit-box-offset-y"
@@ -901,7 +905,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
             if (typeIt != types.end() && typeIt->second.boxCollider2D) {
                 const BoxCollider2DComponent& collider = *typeIt->second.boxCollider2D;
                 const std::optional<float> parsed = parseNumberField(value);
-                if (!parsed.has_value()) return;
+                if (!parsed.has_value()) return true;
                 if (action == "commit-box-offset-x")
                     setBoxColliderOffset(coordinator_, Vec2{*parsed, collider.offset.y});
                 else if (action == "commit-box-offset-y")
@@ -926,7 +930,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
             if (typeIt != types.end() && typeIt->second.linearMover) {
                 const LinearMoverComponent& m = *typeIt->second.linearMover;
                 const std::optional<float> parsed = parseNumberField(value);
-                if (!parsed.has_value()) return;
+                if (!parsed.has_value()) return true;
                 if (action == "commit-mover-dir-x")
                     setLinearMoverDirection(coordinator_, Vec2{*parsed, m.directionY});
                 else if (action == "commit-mover-dir-y")
@@ -976,7 +980,10 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
             else                                size.y = *parsed;
             coordinator_.execute(SetSceneSizeCommand{coordinator_.state().activeSceneId, size});
         }
+    } else {
+        return false;
     }
+    return true;
 }
 
 bool EditorUi::handleToolbarAction(const std::string& action, const std::string& arg,
