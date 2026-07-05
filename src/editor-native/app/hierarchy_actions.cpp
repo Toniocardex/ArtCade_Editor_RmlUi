@@ -165,29 +165,22 @@ EditorOperationResult addEntity(EditorCoordinator& coordinator) {
             scene->worldSize));
 }
 
-EditorOperationResult addInstanceOfSelectedTypeAt(EditorCoordinator& coordinator,
-                                                  Vec2 spawnPosition) {
+EditorOperationResult addInstanceOfTypeAt(EditorCoordinator& coordinator,
+                                          const std::string& objectTypeId,
+                                          Vec2 spawnPosition) {
     const SceneId& sceneId = coordinator.state().activeSceneId;
     const SceneDef* scene = coordinator.document().findScene(sceneId);
     if (sceneId.empty() || !scene) {
         return EditorOperationResult::failure("No active scene to add an instance to");
     }
-    const EntityId selected = coordinator.selection().primaryEntity;
-    const SceneInstanceDef* source =
-        coordinator.document().findInstanceInScene(sceneId, selected);
-    if (!source) {
-        return EditorOperationResult::failure("Select an entity to instance its type");
-    }
-    const std::string objectTypeId = source->objectTypeId;
     // The chosen type must really exist in the catalog (no "Entity" fallback, no
     // first-available guess); otherwise fail without mutating anything.
     const EntityDef* type = coordinator.document().findObjectType(objectTypeId);
     if (!type) {
-        return EditorOperationResult::failure("Selected entity has no object type");
+        return EditorOperationResult::failure("Unknown object type");
     }
     const EntityId id = nextAvailableEntityId(coordinator.document(), sceneId);
-    const std::string name =
-        makeUniqueInstanceName(*coordinator.document().findScene(sceneId), type->name);
+    const std::string name = makeUniqueInstanceName(*scene, type->name);
     // Reuse the existing structural command — a new instance bound to the existing
     // type (shared components, no ObjectTypeDef duplicated).
     const EditorOperationResult result =
@@ -197,6 +190,29 @@ EditorOperationResult addInstanceOfSelectedTypeAt(EditorCoordinator& coordinator
     // Select the new instance — workspace state, not an undo-history entry.
     if (result.ok) coordinator.apply(SelectEntityIntent{id});
     return result;
+}
+
+EditorOperationResult addInstanceOfType(EditorCoordinator& coordinator,
+                                        const std::string& objectTypeId) {
+    const SceneDef* scene = coordinator.document().findScene(coordinator.state().activeSceneId);
+    if (!scene) return EditorOperationResult::failure("No active scene to add an instance to");
+    return addInstanceOfTypeAt(
+        coordinator, objectTypeId,
+        normalizeSpawnPosition(
+            Vec2{scene->worldSize.x * 0.5f, scene->worldSize.y * 0.5f},
+            scene->worldSize));
+}
+
+EditorOperationResult addInstanceOfSelectedTypeAt(EditorCoordinator& coordinator,
+                                                  Vec2 spawnPosition) {
+    const SceneId& sceneId = coordinator.state().activeSceneId;
+    const EntityId selected = coordinator.selection().primaryEntity;
+    const SceneInstanceDef* source =
+        coordinator.document().findInstanceInScene(sceneId, selected);
+    if (!source) {
+        return EditorOperationResult::failure("Select an entity to instance its type");
+    }
+    return addInstanceOfTypeAt(coordinator, source->objectTypeId, spawnPosition);
 }
 
 EditorOperationResult addInstanceOfSelectedType(EditorCoordinator& coordinator) {

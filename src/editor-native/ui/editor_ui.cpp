@@ -1006,6 +1006,13 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         else if (value.empty()) coordinator_.logError("Name cannot be empty");
         else coordinator_.execute(
                 RenameEntityCommand{coordinator_.state().activeSceneId, selected, value});
+    } else if (action == "commit-type-name") {
+        const SceneInstanceDef* inst = (selected != INVALID_ENTITY)
+            ? coordinator_.document().findInstanceInScene(coordinator_.state().activeSceneId, selected)
+            : nullptr;
+        if (!inst) coordinator_.logError("No selected instance");
+        else if (value.empty()) coordinator_.logError("Type name cannot be empty");
+        else coordinator_.execute(RenameObjectTypeCommand{inst->objectTypeId, value});
     } else if (action == "commit-scene-name") {
         if (value.empty()) coordinator_.logError("Scene name cannot be empty");
         else coordinator_.execute(RenameSceneCommand{coordinator_.state().activeSceneId, value});
@@ -1276,6 +1283,9 @@ bool EditorUi::handleHierarchyAction(const std::string& action, const std::strin
         hideContextMenus();
         if (addInstanceRequest_) addInstanceRequest_();
         else addInstanceOfSelectedType(coordinator_);
+    } else if (action == "add-instance-of-type") {
+        hideContextMenus();
+        addInstanceOfType(coordinator_, arg);
     } else if (action == "select-layer") {
         coordinator_.apply(SetActiveLayerIntent{coordinator_.state().activeSceneId, arg});
     } else if (action == "toggle-layer-visible") {

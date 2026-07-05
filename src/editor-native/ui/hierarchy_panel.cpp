@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <map>
 #include <string>
+#include <vector>
 
 namespace ArtCade::EditorNative {
 
@@ -37,6 +38,31 @@ const char* typeIcon(const std::string& typeId) {
 
 void setHtml(Rml::ElementDocument* document, const char* id, const std::string& html) {
     if (Rml::Element* el = document->GetElementById(id)) el->SetInnerRML(html);
+}
+
+// "Use Existing Type": one .menu-entry per catalog EntityDef, sorted by
+// display name (ProjectDoc.objectTypes is an unordered_map; iteration order
+// is not stable or meaningful to a user). Each entry places a new instance of
+// that type via add-instance-of-type, without needing a prior selection —
+// the counterpart to "Create Instance", which derives its type from one.
+std::string useExistingTypeList(const ProjectDocument& doc, bool disabled) {
+    std::vector<const EntityDef*> sorted;
+    sorted.reserve(doc.data().objectTypes.size());
+    for (const auto& [id, type] : doc.data().objectTypes) sorted.push_back(&type);
+    std::sort(sorted.begin(), sorted.end(), [](const EntityDef* a, const EntityDef* b) {
+        return a->name < b->name;
+    });
+
+    if (sorted.empty()) return {};   // no dead separator when the catalog is empty
+
+    std::string html = "<div class=\"menu-separator\"></div>";
+    for (const EntityDef* type : sorted) {
+        html += "<div class=\"menu-entry";
+        if (disabled) html += " disabled";
+        html += "\" data-action=\"add-instance-of-type\" data-arg=\""
+              + escapeRml(type->className) + "\">" + escapeRml(type->name) + "</div>";
+    }
+    return html;
 }
 
 } // namespace
@@ -124,6 +150,7 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
     // Create Instance needs a selected entity to know which object type to
     // instance; an empty catalog therefore disables it (no entity -> no selection).
     setEnabled("create-instance-entry", hasSelection && !playing);
+    setHtml(document, "create-instance-of-type-list", useExistingTypeList(doc, playing));
 }
 
 } // namespace ArtCade::EditorNative

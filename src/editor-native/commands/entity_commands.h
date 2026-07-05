@@ -110,4 +110,21 @@ private:
     bool        captured_ = false;
 };
 
+/** Rename an object type's display name (shared by every instance of that
+    type - not the same as RenameEntityCommand, which renames one instance). */
+class RenameObjectTypeCommand final : public EditorCommand {
+public:
+    RenameObjectTypeCommand(std::string objectTypeId, std::string name);
+
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "RenameObjectType"; }
+
+private:
+    std::string objectTypeId_;
+    std::string newName_;
+    std::string oldName_;
+    bool        captured_ = false;
+};
+
 } // namespace ArtCade::EditorNative

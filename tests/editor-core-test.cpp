@@ -1803,6 +1803,38 @@ int main() {
         CHECK(reloaded.document().hasObjectType("Hero"));
     }
 
+    // -- Use Existing Type: places an instance of an EXPLICIT type id, no
+    // selection required (unlike +Instance, which derives the type from it) ---
+    {
+        EditorCoordinator c{makeInheritedDoc()};             // catalog has "Hero"
+        // Deliberately no SelectEntityIntent applied - proves this path does not
+        // depend on the current selection at all.
+        CHECK(addInstanceOfType(c, "Hero").ok);
+        const EntityId newId = nextAvailableEntityId(c.document(), kSceneA) - 1;
+        const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, newId);
+        CHECK(inst != nullptr);
+        CHECK(inst->objectTypeId == "Hero");
+        CHECK(c.selection().primaryEntity == newId);         // still auto-selects the new instance
+    }
+
+    // -- Use Existing Type: unknown type id fails without mutation -------------
+    {
+        EditorCoordinator c{makeInheritedDoc()};
+        const std::size_t before = c.document().findScene(kSceneA)->instances.size();
+        CHECK(!addInstanceOfType(c, "NoSuchType").ok);
+        CHECK(c.document().findScene(kSceneA)->instances.size() == before);
+    }
+
+    // -- Use Existing Type at an explicit position (the *At variant) -----------
+    {
+        EditorCoordinator c{makeInheritedDoc()};
+        CHECK(addInstanceOfTypeAt(c, "Hero", Vec2{77.f, 88.f}).ok);
+        const EntityId newId = nextAvailableEntityId(c.document(), kSceneA) - 1;
+        const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, newId);
+        CHECK(inst->transform.position.x == 77.f);
+        CHECK(inst->transform.position.y == 88.f);
+    }
+
     // -- (10) Empty catalog: Add Instance is a no-op, never a placeholder ------
     {
         ProjectDoc fresh; fresh.activeSceneId = "s";
@@ -3536,6 +3568,28 @@ int main() {
         CHECK(c.document().findScene(kSceneA)->name == "Scene A");
         CHECK(c.redo().ok);
         CHECK(c.document().findScene(kSceneA)->name == "Level 1");
+    }
+
+    // -- Rename object type: applies (shared by every instance of that type),
+    // rejects empty/unknown id, same name is a no-op, undo/redo ---------------
+    {
+        EditorCoordinator c{makeInheritedDoc()};   // catalog already has "Hero"
+        CHECK(c.execute(RenameObjectTypeCommand{"Hero", "Champion"}).ok);
+        CHECK(c.document().findObjectType("Hero")->name == "Champion");
+
+        CHECK(!c.execute(RenameObjectTypeCommand{"Hero", ""}).ok);        // empty rejected
+        CHECK(!c.execute(RenameObjectTypeCommand{"Missing", "X"}).ok);    // unknown id rejected
+        CHECK(c.document().findObjectType("Hero")->name == "Champion");  // unaffected by rejects
+
+        // Same name is a no-op: succeeds, but nothing invalidates and no undo entry.
+        const std::size_t undoBefore = c.undoSize();
+        CHECK(c.execute(RenameObjectTypeCommand{"Hero", "Champion"}).ok);
+        CHECK(c.undoSize() == undoBefore);
+
+        CHECK(c.undo().ok);
+        CHECK(c.document().findObjectType("Hero")->name == "Hero");      // back to original
+        CHECK(c.redo().ok);
+        CHECK(c.document().findObjectType("Hero")->name == "Champion");
     }
 
     // -- Set scene size: validation, integer normalize, never moves instances -

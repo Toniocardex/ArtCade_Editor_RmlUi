@@ -174,6 +174,7 @@ private:
     friend class SetSpriteAnimatorAutoPlayCommand;
     friend class SetStartSceneCommand;
     friend class RenameProjectCommand;
+    friend class RenameObjectTypeCommand;
 
     // ---- Patch (authoring mutations; called by commands) --------------------
     bool setProjectName(std::string name);
@@ -201,6 +202,7 @@ private:
     // rejects a duplicate id; removeObjectType is its exact inverse.
     bool createObjectType(EntityDef type);
     bool removeObjectType(const std::string& id);
+    bool setObjectTypeName(const std::string& id, std::string name);
     // Per-scene render layers. `layers` is the single order authority (index 0 =
     // background). addSceneLayer inserts at an index; moveSceneLayer reorders in
     // place; removeSceneLayer drops a layer (caller enforces the empty/non-default

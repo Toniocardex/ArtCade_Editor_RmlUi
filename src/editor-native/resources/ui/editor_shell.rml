@@ -87,6 +87,7 @@
                         <div id="create-scene-entry" class="menu-entry" data-action="add-scene">Create Scene</div>
                         <div id="create-entity-entry" class="menu-entry" data-action="add-entity">Create Entity</div>
                         <div id="create-instance-entry" class="menu-entry" data-action="add-instance">Create Instance</div>
+                        <div id="create-instance-of-type-list"></div>
                     </div>
                 </div>
             </div>

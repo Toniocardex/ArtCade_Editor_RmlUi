@@ -443,9 +443,12 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     // -- Identity (not a component) -------------------------------------------
     html += header("&#xeb34;", "Identity", "", "", "", playing);
     html += field("Name", "commit-name", inst->instanceName, playing);
+    // Renaming this field renames the shared ObjectTypeDef (every instance of
+    // this type reflects the new name), not just this instance - unlike "Name"
+    // above. Disabled when objectTypeId doesn't resolve to a real catalog entry
+    // (legacy/dangling data), since there is nothing to rename in that case.
     const std::string typeLabel = type ? type->name : inst->objectTypeId;
-    html += "<div class=\"prop-row\"><span class=\"prop-label\">Type</span>"
-            "<span class=\"prop-readonly\">" + escapeRml(typeLabel) + "</span></div>";
+    html += field("Type", "commit-type-name", typeLabel, playing || !type);
 
     // Layer picker (only when the scene declares layers; legacy scenes have none).
     const SceneDef* instScene = coordinator.document().findScene(coordinator.state().activeSceneId);

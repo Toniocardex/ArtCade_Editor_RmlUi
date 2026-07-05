@@ -69,13 +69,27 @@ EditorOperationResult addEntityAt(EditorCoordinator& coordinator, Vec2 spawnPosi
 EditorOperationResult addEntity(EditorCoordinator& coordinator);
 
 /**
- * "+Instance": place another instance of the SELECTED entity's object type. The
- * new instance gets a fresh EntityId and its own Transform but reuses the chosen
- * ObjectTypeId, so the object-type-owned components (sprite, collider, movement)
- * are intentionally shared — no ObjectTypeDef is duplicated and no component is
- * copied. Reuses the existing CreateEntityCommand (no second command), then
- * selects the new instance via intent (workspace state, not in the undo history).
- * No selection / unknown type / no scene → failure without mutation.
+ * "+Instance" / "Use Existing Type": place a new instance of @p objectTypeId in
+ * the active scene. The new instance gets a fresh EntityId and its own
+ * Transform but reuses the given ObjectTypeId, so the object-type-owned
+ * components (sprite, collider, movement) are intentionally shared — no
+ * ObjectTypeDef is duplicated and no component is copied. Reuses the existing
+ * CreateEntityCommand (no second command), then selects the new instance via
+ * intent (workspace state, not in the undo history). Unknown type / no scene
+ * → failure without mutation. This is the one shared implementation behind
+ * both entry points: "+Instance" (the selected entity's type, below) and
+ * "Use Existing Type" (an explicit type id from the Create dropdown).
+ */
+EditorOperationResult addInstanceOfTypeAt(EditorCoordinator& coordinator,
+                                          const std::string& objectTypeId,
+                                          Vec2 spawnPosition);
+EditorOperationResult addInstanceOfType(EditorCoordinator& coordinator,
+                                        const std::string& objectTypeId);
+
+/**
+ * "+Instance": place another instance of the SELECTED entity's object type —
+ * resolves objectTypeId from the current selection, then delegates to
+ * addInstanceOfTypeAt. No selection → failure without mutation.
  */
 EditorOperationResult addInstanceOfSelectedTypeAt(EditorCoordinator& coordinator,
                                                   Vec2 spawnPosition);

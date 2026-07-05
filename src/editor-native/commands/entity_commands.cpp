@@ -237,4 +237,38 @@ EditorOperationResult RenameEntityCommand::undo(ProjectDocument& document) {
         kRenameInvalidation, DomainChange::entityChanged(sceneId_, id_));
 }
 
+// ----------------------------------------------------------------------------
+// RenameObjectTypeCommand
+// ----------------------------------------------------------------------------
+RenameObjectTypeCommand::RenameObjectTypeCommand(std::string objectTypeId, std::string name)
+    : objectTypeId_(std::move(objectTypeId)), newName_(std::move(name)) {}
+
+EditorOperationResult RenameObjectTypeCommand::apply(ProjectDocument& document) {
+    const EntityDef* type = document.findObjectType(objectTypeId_);
+    if (!type) {
+        return EditorOperationResult::failure("No object type with that id");
+    }
+    if (newName_.empty()) {
+        return EditorOperationResult::failure("Name cannot be empty");
+    }
+    if (type->name == newName_) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+    if (!captured_) {
+        oldName_ = type->name;
+        captured_ = true;
+    }
+    if (!document.setObjectTypeName(objectTypeId_, newName_)) {
+        return EditorOperationResult::failure("Failed to rename object type");
+    }
+    return EditorOperationResult::success(kRenameInvalidation, DomainChange::projectChanged());
+}
+
+EditorOperationResult RenameObjectTypeCommand::undo(ProjectDocument& document) {
+    if (!captured_ || !document.setObjectTypeName(objectTypeId_, oldName_)) {
+        return EditorOperationResult::failure("Cannot undo object type rename");
+    }
+    return EditorOperationResult::success(kRenameInvalidation, DomainChange::projectChanged());
+}
+
 } // namespace ArtCade::EditorNative

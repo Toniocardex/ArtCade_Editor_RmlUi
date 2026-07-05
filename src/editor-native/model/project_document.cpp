@@ -271,6 +271,14 @@ bool ProjectDocument::removeObjectType(const std::string& id) {
     return true;
 }
 
+bool ProjectDocument::setObjectTypeName(const std::string& id, std::string name) {
+    const auto it = doc_.objectTypes.find(id);
+    if (it == doc_.objectTypes.end()) return false;
+    it->second.name = std::move(name);
+    markDirty();
+    return true;
+}
+
 bool ProjectDocument::createInstance(const SceneId& sceneId, SceneInstanceDef instance) {
     SceneDef* scene = mutableScene(sceneId);
     if (!scene) return false;
