@@ -130,6 +130,20 @@ body {
 }
 .anim-asset-name { flex: 1; font-size: 12dp; }
 .anim-asset.selected .anim-clip-count { color: #7aa2e8; }
+/* Same grey-to-red "remove" language as the Inspector's .comp-remove: quiet
+   until hovered, never competing with the row's own open-sprite-animation. */
+.anim-asset-remove {
+    display: inline-block;
+    width: 18dp;
+    height: 18dp;
+    line-height: 18dp;
+    margin-left: 6dp;
+    text-align: center;
+    border-radius: 3dp;
+    color: #6b6b73;
+    transition: background-color 0.1s, color 0.1s;
+}
+.anim-asset-remove:hover { background-color: #2a1f20; color: #e5706b; }
 
 /* Gap before the Clips sub-section title. */
 .anim-section-gap { margin-top: 6dp; }

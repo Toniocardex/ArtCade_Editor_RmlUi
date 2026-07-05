@@ -374,7 +374,15 @@ void EditorUi::refreshSpriteAnimationEditor() {
               + escapeRml(a.id) + "\">"
                 "<span class=\"anim-asset-name\">" + escapeRml(a.name) + "</span>"
                 "<span class=\"anim-clip-count\">" + std::to_string(a.clips.size())
-              + "</span></div>";
+              + "</span>"
+                // Same remove-sprite-animation entry point the Assets panel's trash
+                // icon uses; nested inside a row with its own data-action, but the
+                // listener resolves the nearest ancestor's data-action first, so a
+                // click here never also triggers open-sprite-animation.
+                "<button class=\"anim-asset-remove\" data-action=\"remove-sprite-animation\""
+                " data-arg=\"" + escapeRml(a.id) + "\" title=\"Delete this animation\">"
+                "<span class=\"icon\">&#xeb41;</span></button>"
+                "</div>";
     }
     html += "</div><button class=\"anim-import-sheet\" data-action=\"import-animation-sheet\""
             " title=\"Import an image and start a new animation on it\">"
