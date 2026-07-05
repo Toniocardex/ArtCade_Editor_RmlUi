@@ -124,6 +124,13 @@ private:
     void showPendingHierarchyMenu();   // consumes the deferred menu request
     // Applies EditorUiState.consoleVisible to the actual panel (Layout invalidation).
     void refreshLayout();
+    // The scene the Scene View camera (zoom/pan) is currently showing: the
+    // PlaySession's scene while playing (it can differ from the workspace's
+    // activeSceneId if the user navigated Hierarchy meanwhile), otherwise the
+    // workspace's own active scene. One shared definition so every zoom/pan
+    // read agrees on "which scene" — a previous copy of this ternary omitted
+    // the Play case and drifted from the other three.
+    SceneId currentViewSceneId() const;
 
     EditorCoordinator&                  coordinator_;
     Rml::ElementDocument*               document_;

@@ -559,14 +559,18 @@ void EditorUi::updateSpriteAnimationPlayhead() {
     }
 }
 
+SceneId EditorUi::currentViewSceneId() const {
+    return (coordinator_.isPlaying() && coordinator_.playSession())
+        ? coordinator_.playSession()->sceneId()
+        : coordinator_.state().activeSceneId;
+}
+
 void EditorUi::updateZoomReadout() {
     if (!document_) return;
     Rml::Element* el = document_->GetElementById("toolbar-zoom");
     if (!el) return;
-    const SceneId active = (coordinator_.isPlaying() && coordinator_.playSession())
-        ? coordinator_.playSession()->sceneId()
-        : coordinator_.state().activeSceneId;
-    const int pct = static_cast<int>(coordinator_.sceneView(active).zoom * 100.f + 0.5f);
+    const int pct = static_cast<int>(
+        coordinator_.sceneView(currentViewSceneId()).zoom * 100.f + 0.5f);
     el->SetInnerRML(std::to_string(pct) + "%");
 }
 
@@ -717,16 +721,23 @@ void EditorUi::refreshToolbar() {
         if (Rml::Element* el = document_->GetElementById(id))
             el->SetClass("disabled", !enabled);
     };
+    // A toolbar control and its View/Edit-menu twin are two entry points for
+    // one canonical action, so they always share one enabled/active value —
+    // set both from a single call instead of repeating each condition twice.
+    const auto setEnabledBoth = [&](const char* toolbarId, const char* menuId, bool enabled) {
+        setEnabled(toolbarId, enabled);
+        setEnabled(menuId, enabled);
+    };
+    const auto setActiveBoth = [&](const char* toolbarId, const char* menuId, bool active) {
+        if (Rml::Element* el = document_->GetElementById(toolbarId)) el->SetClass("active", active);
+        if (Rml::Element* el = document_->GetElementById(menuId))    el->SetClass("active", active);
+    };
     setEnabled("btn-play-project", !playing && coordinator_.canPlayProject());
     setEnabled("btn-play-scene",   !playing && coordinator_.canPlayCurrentScene());
     setEnabled("btn-stop",         playing);
     // Undo/Redo are derived affordances: available only with history and outside Play.
-    setEnabled("btn-undo",         !playing && coordinator_.canUndo());
-    setEnabled("btn-redo",         !playing && coordinator_.canRedo());
-    // Edit menu mirrors the same toolbar affordances (single canonical action,
-    // two entry points).
-    setEnabled("menu-undo", !playing && coordinator_.canUndo());
-    setEnabled("menu-redo", !playing && coordinator_.canRedo());
+    setEnabledBoth("btn-undo", "menu-undo", !playing && coordinator_.canUndo());
+    setEnabledBoth("btn-redo", "menu-redo", !playing && coordinator_.canRedo());
     setEnabled("menu-delete-entity",
               !playing && coordinator_.selection().primaryEntity != INVALID_ENTITY);
 
@@ -736,43 +747,28 @@ void EditorUi::refreshToolbar() {
     // with no scene there is nothing to frame or draw a grid over, so a click
     // would be a no-op the coordinator now also rejects (defence in depth,
     // not just a greyed-out button).
-    setEnabled("btn-fit-view",  !playing && hasScene);
-    setEnabled("menu-fit-view", !playing && hasScene);
-    setEnabled("btn-grid-visible", !playing && hasScene);
-    setEnabled("btn-grid-snap",    !playing && hasScene);
-    setEnabled("btn-grid-size",    !playing && hasScene);
+    const bool gridActionable = !playing && hasScene;
+    setEnabledBoth("btn-fit-view",     "menu-fit-view",     gridActionable);
+    setEnabledBoth("btn-grid-visible", "menu-grid-visible", gridActionable);
+    setEnabledBoth("btn-grid-snap",    "menu-grid-snap",    gridActionable);
+    setEnabled("btn-grid-size", gridActionable);
     // Zoom, unlike Grid/Snap/Fit, tracks the PlaySession's scene while
     // playing (see the zoom-in/out and reset-zoom handlers) — Play always has
     // a real scene, so it stays available then. Only truly nothing-to-zoom
     // (no scene, not playing) disables it.
     const bool canZoom = playing || hasScene;
-    setEnabled("btn-zoom-in",   canZoom);
-    setEnabled("btn-zoom-out",  canZoom);
-    setEnabled("toolbar-zoom",  canZoom);
-    setEnabled("menu-zoom-in",   canZoom);
-    setEnabled("menu-zoom-out",  canZoom);
-    setEnabled("menu-reset-zoom", canZoom);
-    setEnabled("menu-grid-visible", !playing && hasScene);
-    setEnabled("menu-grid-snap",    !playing && hasScene);
+    setEnabledBoth("btn-zoom-in",  "menu-zoom-in",   canZoom);
+    setEnabledBoth("btn-zoom-out", "menu-zoom-out",  canZoom);
+    setEnabledBoth("toolbar-zoom", "menu-reset-zoom", canZoom);
 
     // Central Scene View empty state: shown only when no scene exists to edit.
     if (Rml::Element* empty = document_->GetElementById("viewport-empty")) {
         empty->SetClass("hidden", hasScene || playing);
     }
 
-    const SceneId active = (playing && coordinator_.playSession())
-        ? coordinator_.playSession()->sceneId()
-        : coordinator_.state().activeSceneId;
-    const EditorSceneViewState& view = coordinator_.sceneView(active);
-    const bool gridActionable = !playing && hasScene;
-    if (Rml::Element* el = document_->GetElementById("btn-grid-visible"))
-        el->SetClass("active", view.gridVisible && gridActionable);
-    if (Rml::Element* el = document_->GetElementById("btn-grid-snap"))
-        el->SetClass("active", view.gridSnapEnabled && gridActionable);
-    if (Rml::Element* el = document_->GetElementById("menu-grid-visible"))
-        el->SetClass("active", view.gridVisible && gridActionable);
-    if (Rml::Element* el = document_->GetElementById("menu-grid-snap"))
-        el->SetClass("active", view.gridSnapEnabled && gridActionable);
+    const EditorSceneViewState& view = coordinator_.sceneView(currentViewSceneId());
+    setActiveBoth("btn-grid-visible", "menu-grid-visible", view.gridVisible && gridActionable);
+    setActiveBoth("btn-grid-snap",    "menu-grid-snap",    view.gridSnapEnabled && gridActionable);
     const std::string cellSize = compactNumber(view.gridCellSize);
     if (Rml::Element* el = document_->GetElementById("btn-grid-size"))
         el->SetInnerRML(escapeRml(cellSize) + " <span class=\"icon-caret\">&#xeb5d;</span>");
@@ -1222,10 +1218,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     } else if (action == "redo") {
         coordinator_.redo();
     } else if (action == "reset-zoom") {
-        const SceneId active = (coordinator_.isPlaying() && coordinator_.playSession())
-            ? coordinator_.playSession()->sceneId()
-            : coordinator_.state().activeSceneId;
-        coordinator_.apply(SetViewportZoomIntent{active, 1.0f});   // target unchanged
+        coordinator_.apply(SetViewportZoomIntent{currentViewSceneId(), 1.0f});   // target unchanged
     } else if (action == "toggle-grid-visible") {
         if (!coordinator_.isPlaying()) {
             const SceneId active = coordinator_.state().activeSceneId;
@@ -1243,12 +1236,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     } else if (action == "set-grid-cell-size") {
         commitGridCellSize(arg);
     } else if (action == "zoom-in" || action == "zoom-out") {
-        // Same target resolution as "reset-zoom" / updateZoomReadout(): during
-        // Play, zoom tracks the running scene, which can differ from the
-        // workspace's activeSceneId if the user navigated Hierarchy meanwhile.
-        const SceneId active = (coordinator_.isPlaying() && coordinator_.playSession())
-            ? coordinator_.playSession()->sceneId()
-            : coordinator_.state().activeSceneId;
+        const SceneId active = currentViewSceneId();
         const float current = coordinator_.sceneView(active).zoom;
         const float factor = (action == "zoom-in") ? 1.2f : (1.0f / 1.2f);
         coordinator_.apply(SetViewportZoomIntent{active, current * factor});

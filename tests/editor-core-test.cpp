@@ -4262,6 +4262,10 @@ int main() {
         CHECK(ser.value.find("selection") == std::string::npos);
         CHECK(ser.value.find("Inspector") == std::string::npos);
         CHECK(ser.value.find("expanded") == std::string::npos);
+        // EditorUiState fields added this session (console filter/level toggles):
+        // same guarantee, extended to what's new since this test was written.
+        CHECK(ser.value.find("consoleFilter") == std::string::npos);
+        CHECK(ser.value.find("hierarchyFilter") == std::string::npos);
     }
 
     // -- (13b) Multiple sprite animation assets survive real save/reload -------
