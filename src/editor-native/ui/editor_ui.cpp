@@ -287,7 +287,7 @@ void EditorUi::processFrame() {
     showPendingHierarchyMenu();
     // The preview playhead advances without invalidation (workspace tick), so
     // the timeline highlight and Play/Pause affordance follow it live here,
-    // class-only â€” never via a markup rebuild that would steal input focus.
+    // class-only — never via a markup rebuild that would steal input focus.
     updateSpriteAnimationPlayhead();
 }
 
@@ -716,13 +716,13 @@ void EditorUi::refreshToolbar() {
         status->SetInnerRML(escapeRml(text));
     }
 
-    // Play affordances derive straight from the authorities â€” never stored.
+    // Play affordances derive straight from the authorities — never stored.
     const auto setEnabled = [&](const char* id, bool enabled) {
         if (Rml::Element* el = document_->GetElementById(id))
             el->SetClass("disabled", !enabled);
     };
     // A toolbar control and its View/Edit-menu twin are two entry points for
-    // one canonical action, so they always share one enabled/active value â€”
+    // one canonical action, so they always share one enabled/active value —
     // set both from a single call instead of repeating each condition twice.
     const auto setEnabledBoth = [&](const char* toolbarId, const char* menuId, bool enabled) {
         setEnabled(toolbarId, enabled);
@@ -753,7 +753,7 @@ void EditorUi::refreshToolbar() {
     setEnabledBoth("btn-grid-snap",    "menu-grid-snap",    gridActionable);
     setEnabled("btn-grid-size", gridActionable);
     // Zoom, unlike Grid/Snap/Fit, tracks the PlaySession's scene while
-    // playing (see the zoom-in/out and reset-zoom handlers) â€” Play always has
+    // playing (see the zoom-in/out and reset-zoom handlers) — Play always has
     // a real scene, so it stays available then. Only truly nothing-to-zoom
     // (no scene, not playing) disables it.
     const bool canZoom = playing || hasScene;
@@ -848,7 +848,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     } else if (action == "add-scene") {
         addScene(coordinator_);
     } else if (action == "delete-scene") {
-        // No arg â†’ the active scene; the coordinator reconciles the workspace.
+        // No arg → the active scene; the coordinator reconciles the workspace.
         hideContextMenus();
         deleteScene(coordinator_, arg.empty() ? coordinator_.state().activeSceneId : arg);
     } else if (action == "add-entity") {
