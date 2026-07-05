@@ -836,6 +836,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
 
     if (handleProjectFileAction(action, arg, value)) return;
     if (handleConsoleAction(action, arg, value)) return;
+    if (handleAssetsAction(action, arg, value)) return;
 
     if (action == "select-entity") {
         coordinator_.apply(SelectEntityIntent{
@@ -1247,7 +1248,13 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         coordinator_.playCurrentScene();   // guarded; no-op without an active scene
     } else if (action == "stop") {
         coordinator_.stopPlaying();
-    } else if (action == "import-image") {
+    }
+}
+
+bool EditorUi::handleAssetsAction(const std::string& action, const std::string& arg,
+                                  const std::string& value) {
+    (void)value;
+    if (action == "import-image") {
         if (importAssetRequest_) importAssetRequest_(AssetKind::Image);
     } else if (action == "import-audio") {
         if (importAssetRequest_) importAssetRequest_(AssetKind::Audio);
@@ -1259,7 +1266,10 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         if (!arg.empty()) coordinator_.execute(RemoveAudioAssetCommand{arg});
     } else if (action == "remove-font-asset") {
         if (!arg.empty()) coordinator_.execute(RemoveFontAssetCommand{arg});
+    } else {
+        return false;
     }
+    return true;
 }
 
 bool EditorUi::handleConsoleAction(const std::string& action, const std::string& arg,

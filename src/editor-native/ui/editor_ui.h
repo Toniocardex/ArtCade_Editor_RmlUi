@@ -122,6 +122,8 @@ private:
                                  const std::string& value);
     bool handleConsoleAction(const std::string& action, const std::string& arg,
                              const std::string& value);
+    bool handleAssetsAction(const std::string& action, const std::string& arg,
+                            const std::string& value);
 
     void applyInvalidations(EditorInvalidation flags);
     void refreshSpriteAnimationEditor();
