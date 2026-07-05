@@ -26,7 +26,7 @@ std::string importMenu(bool disabled) {
     };
     return std::string("<div class=\"create-menu asset-import\">")
          + "<button class=\"" + btnClass(disabled)
-         + "\"><span class=\"icon\">&#xeb0b;</span>Import &#x25be;</button>"
+         + "\"><span class=\"icon\">&#xeb0b;</span>Import <span class=\"icon-caret\">&#xeb5d;</span></button>"
            "<div class=\"create-dropdown\">"
          + entry("import-image", "Image")
          + entry("import-audio", "Audio")

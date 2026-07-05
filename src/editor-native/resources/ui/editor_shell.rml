@@ -35,10 +35,10 @@
         <button class="tool-btn tool-icon" data-action="zoom-in" title="Zoom In"><span class="icon">&#xeb56;</span></button>
         <button id="btn-fit-view" class="tool-btn" data-action="fit-view-to-bounds" title="Fit View to Bounds">Fit</button>
         <span class="tool-sep"></span>
-        <button id="btn-grid-visible" class="tool-btn" data-action="toggle-grid-visible" title="Show Grid"><span class="icon">&#xedba;</span>Grid</button>
+        <button id="btn-grid-visible" class="tool-btn" data-action="toggle-grid-visible" title="Show Grid"><span class="icon">&#xea3b;</span>Grid</button>
         <button id="btn-grid-snap" class="tool-btn" data-action="toggle-grid-snap" title="Snap to Grid"><span class="icon">&#xeae3;</span>Snap to Grid</button>
         <div id="grid-size-control" class="grid-size-control">
-            <button id="btn-grid-size" class="tool-btn grid-size-trigger" title="Grid Cell Size">48 &#x25be;</button>
+            <button id="btn-grid-size" class="tool-btn grid-size-trigger" title="Grid Cell Size">48 <span class="icon-caret">&#xeb5d;</span></button>
             <div class="grid-size-popover">
                 <div class="grid-size-title">Grid Size</div>
                 <input id="grid-cell-size-input" type="text" class="grid-size-input" data-action="commit-grid-cell-size" value="48"/>
@@ -60,7 +60,7 @@
             <div id="scene-tabs" class="scene-tabs"></div>
             <div class="panel-actions">
                 <div class="create-menu">
-                    <button id="btn-create" class="panel-btn"><span class="icon">&#xeb0b;</span>Create &#x25be;</button>
+                    <button id="btn-create" class="panel-btn"><span class="icon">&#xeb0b;</span>Create <span class="icon-caret">&#xeb5d;</span></button>
                     <div class="create-dropdown">
                         <div id="create-scene-entry" class="menu-entry" data-action="add-scene">Create Scene</div>
                         <div id="create-entity-entry" class="menu-entry" data-action="add-entity">Create Entity</div>
@@ -97,6 +97,13 @@
 
     <div id="console" class="panel">
         <div class="panel-header"><span class="icon">&#xebdc;</span>CONSOLE<span id="console-counts" class="console-counts"></span><button id="btn-console-copy" class="header-btn disabled" data-action="copy-console">Copy</button></div>
+        <div class="console-toolbar">
+            <button id="btn-console-info" class="console-toggle" data-action="toggle-console-info" title="Show log messages">Log</button>
+            <button id="btn-console-warning" class="console-toggle" data-action="toggle-console-warning" title="Show warnings">Warn</button>
+            <button id="btn-console-error" class="console-toggle" data-action="toggle-console-error" title="Show errors">Error</button>
+            <span id="console-search-slot" class="console-search-slot"></span>
+            <button id="btn-console-clear" class="console-clear-btn" data-action="clear-console" title="Clear console">Clear</button>
+        </div>
         <div id="console-list" class="console"></div>
     </div>
 

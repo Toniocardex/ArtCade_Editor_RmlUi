@@ -4,10 +4,15 @@
 
    Units: lengths use `dp` (density-independent pixels) so the whole UI scales
    crisply with the display's DPI. Only intentional hairlines/separators keep
-   `px` (a 1px physical line stays 1px at any scale). At 100% scaling dp == px. */
+   `px` (a 1px physical line stays 1px at any scale). At 100% scaling dp == px.
+
+   Typography: Inter is the UI-wide default (menus, panels, buttons, labels,
+   tree rows) per the font guidelines — JetBrains Mono is reserved for content
+   where fixed-width alignment matters: Console log lines and the pointer
+   world-coordinate readout (see panels.rcss / controls.rcss). */
 
 body {
-    font-family: JetBrains Mono;
+    font-family: Inter;
     font-size: 11dp;
     font-weight: 400;
     color: #d4d4d8;
@@ -40,6 +45,16 @@ body {
     color: #6b7280;
     font-size: 1.25em;
     margin-right: 8dp;
+}
+/* Trailing dropdown-indicator caret (Tabler icon), after a label — e.g.
+   "Create [caret]", a scene tab, a hierarchy row. Never raw Unicode: Inter's
+   Latin-only subset has no glyph for the arrow shapes, so the icon font is
+   the only reliable source (see the audit's "no Unicode icons" rule). */
+.icon-caret {
+    font-family: tabler-icons;
+    font-weight: normal;
+    font-size: 1em;
+    margin-left: 4dp;
 }
 .tree-row.selected .row-icon { color: #93b4f5; }
 /* Start-scene star marker. */

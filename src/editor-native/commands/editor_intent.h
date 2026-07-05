@@ -100,6 +100,25 @@ struct SetHierarchyFilterIntent {
     std::string filter;
 };
 
+struct SetConsoleFilterIntent {
+    std::string filter;
+};
+
+// Level visibility toggles (workspace). Three explicit intents, mirroring
+// SetSceneGridVisibilityIntent/SetSceneGridSnapEnabledIntent, rather than one
+// intent parameterized by level — editor_intent.h must not depend back on
+// ConsoleMessage::Level (defined in editor_coordinator.h, which includes this
+// header first).
+struct SetConsoleShowInfoIntent {
+    bool visible = true;
+};
+struct SetConsoleShowWarningIntent {
+    bool visible = true;
+};
+struct SetConsoleShowErrorIntent {
+    bool visible = true;
+};
+
 // The layer new entities go into (workspace, per scene). Validated against the
 // scene's layers; an invalid id is ignored.
 struct SetActiveLayerIntent {

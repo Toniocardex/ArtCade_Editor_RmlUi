@@ -61,7 +61,7 @@ body {
 }
 
 #console {
-    height: 110dp;
+    height: 136dp;
     min-height: 80dp;
     max-height: 600dp;
     display: flex;

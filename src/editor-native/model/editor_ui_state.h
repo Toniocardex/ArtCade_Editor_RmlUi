@@ -30,8 +30,12 @@ struct EditorUiState {
 
     std::string hierarchyFilter;
     std::string assetFilter;
+    std::string consoleFilter;
 
     bool consoleVisible = true;
+    bool consoleShowInfo    = true;
+    bool consoleShowWarning = true;
+    bool consoleShowError   = true;
     std::unordered_set<EntityId> expandedHierarchyItems;
 
     bool transformSectionExpanded = true;

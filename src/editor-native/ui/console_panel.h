@@ -32,6 +32,9 @@ private:
     // Error/warning tally in the panel header ("N errors · N warnings").
     void updateCounts(Rml::ElementDocument* document,
                       const EditorCoordinator& coordinator) const;
+    // Level-toggle active states + the search field's authoritative value.
+    void updateToolbar(Rml::ElementDocument* document,
+                       const EditorCoordinator& coordinator) const;
 
     std::optional<std::size_t> selected_;
 };

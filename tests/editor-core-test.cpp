@@ -1116,6 +1116,49 @@ int main() {
         CHECK(c.state().activeTool == EditorTool::Pan);
     }
 
+    // -- Console filter/level intents: workspace-only, Console invalidation ---
+    {
+        EditorCoordinator c{makeDoc()};
+        CHECK(c.uiState().consoleShowInfo);
+        CHECK(c.uiState().consoleShowWarning);
+        CHECK(c.uiState().consoleShowError);
+
+        const auto filter = c.apply(SetConsoleFilterIntent{"missing texture"});
+        CHECK(filter.ok);
+        CHECK(filter.invalidation == EditorInvalidation::Console);
+        CHECK(c.uiState().consoleFilter == "missing texture");
+
+        CHECK(c.apply(SetConsoleShowInfoIntent{false}).ok);
+        CHECK(!c.uiState().consoleShowInfo);
+        CHECK(c.apply(SetConsoleShowWarningIntent{false}).ok);
+        CHECK(!c.uiState().consoleShowWarning);
+        const auto errorToggle = c.apply(SetConsoleShowErrorIntent{false});
+        CHECK(errorToggle.invalidation == EditorInvalidation::Console);
+        CHECK(!c.uiState().consoleShowError);
+
+        // Filters are workspace-only: no revision, no dirty, no undo entry.
+        CHECK(c.document().revision() == 0);
+        CHECK(!c.document().isDirty());
+        CHECK(!c.canUndo());
+    }
+
+    // -- clearConsole(): direct mutator like logInfo/Warning/Error, not a
+    // Command (console history isn't authoring) or an Intent (nothing in
+    // EditorState/EditorUiState changes) ---------------------------------------
+    {
+        EditorCoordinator c{makeDoc()};
+        c.logInfo("one");
+        c.logWarning("two");
+        c.consumeInvalidations();
+        CHECK(c.consoleLog().size() == 2);
+
+        c.clearConsole();
+        CHECK(c.consoleLog().empty());
+        CHECK(c.consumeInvalidations() == EditorInvalidation::Console);
+        CHECK(c.document().revision() == 0);
+        CHECK(!c.canUndo());
+    }
+
     // -- Contract: public coordinator access is read-only ----------------------
     {
         EditorCoordinator c{makeDoc()};

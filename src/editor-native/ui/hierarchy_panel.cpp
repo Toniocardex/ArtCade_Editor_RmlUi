@@ -63,7 +63,7 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
         tabs += escapeRml(name);
         // Per-scene menu (Set as Start / Delete) — its own action wins over the tab's.
         tabs += "<span class=\"tab-menu\" data-action=\"open-scene-menu\" data-arg=\""
-              + escapeRml(id) + "\">&#x25be;</span>";
+              + escapeRml(id) + "\">&#xeb5d;</span>";
         tabs += "</div>";
     }
     setHtml(document, "scene-tabs", tabs);
@@ -88,7 +88,7 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
             rows += "<span class=\"row-type\">" + escapeRml(inst.objectTypeId) + "</span>";
             // Per-entity menu (Create Instance / Delete).
             rows += "<span class=\"row-menu\" data-action=\"open-entity-menu\" data-arg=\""
-                  + std::to_string(inst.id) + "\">&#x25be;</span>";
+                  + std::to_string(inst.id) + "\">&#xeb5d;</span>";
             rows += "</div>";
         }
     }

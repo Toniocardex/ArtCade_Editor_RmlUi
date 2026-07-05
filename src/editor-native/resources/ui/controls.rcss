@@ -107,13 +107,15 @@
 .tool-icon { padding: 0 10dp; }
 .tool-icon .icon { margin-right: 0; }
 
-/* Pointer world position readout (Edit mode, mouse over the scene). */
+/* Pointer world position readout (Edit mode, mouse over the scene). Monospace
+   so the X/Y digits don't shift width as the pointer moves. */
 .toolbar-coords {
     display: inline-block;
     line-height: 44dp;
     margin-left: auto;
     padding: 0 10dp;
     color: #8a8a93;
+    font-family: JetBrains Mono;
     font-size: 11dp;
     font-weight: 500;
     letter-spacing: 0.4dp;
@@ -255,7 +257,8 @@
 .menu-entry.disabled { color: #3f3f46; }
 .menu-entry.disabled:hover { background-color: transparent; color: #3f3f46; }
 
-/* Per-row menu affordance on scene tabs and tree rows. */
+/* Per-row menu affordance on scene tabs and tree rows. Glyph is a Tabler icon
+   (caret-down), not raw Unicode — Inter's Latin-only subset has no arrow glyphs. */
 .tab-menu,
 .row-menu {
     display: inline-block;
@@ -264,6 +267,8 @@
     margin-left: 4dp;
     border-radius: 3dp;
     color: #6b6b73;
+    font-family: tabler-icons;
+    font-weight: normal;
     transition: background-color 0.1s, color 0.1s;
 }
 .tab-menu:hover,

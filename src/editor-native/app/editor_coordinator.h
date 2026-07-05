@@ -127,6 +127,10 @@ public:
     EditorOperationResult apply(const SetAnimationPreviewFrameIntent& intent);
     EditorOperationResult apply(const StepAnimationPreviewIntent& intent);
     EditorOperationResult apply(const SetHierarchyFilterIntent& intent);
+    EditorOperationResult apply(const SetConsoleFilterIntent& intent);
+    EditorOperationResult apply(const SetConsoleShowInfoIntent& intent);
+    EditorOperationResult apply(const SetConsoleShowWarningIntent& intent);
+    EditorOperationResult apply(const SetConsoleShowErrorIntent& intent);
     EditorOperationResult apply(const SetActiveLayerIntent& intent);
     EditorOperationResult apply(const ToggleLayerEditorVisibilityIntent& intent);
     EditorOperationResult apply(const SetActiveToolIntent& intent);
@@ -137,6 +141,10 @@ public:
     void logInfo(std::string text);
     void logWarning(std::string text);
     void logError(std::string text);
+    // Diagnostic output only: not authoring, not undoable. Same category as
+    // logInfo/logWarning/logError above, so clearing it is a direct mutator
+    // rather than a Command or Intent.
+    void clearConsole();
 
     // ---- frame ---------------------------------------------------------------
     /** Returns the accumulated invalidation and clears it (once per frame). */

@@ -643,6 +643,30 @@ EditorOperationResult EditorCoordinator::apply(const SetHierarchyFilterIntent& i
     return EditorOperationResult::success(EditorInvalidation::Hierarchy);
 }
 
+EditorOperationResult EditorCoordinator::apply(const SetConsoleFilterIntent& intent) {
+    uiState_.consoleFilter = intent.filter;
+    accumulate(EditorInvalidation::Console);
+    return EditorOperationResult::success(EditorInvalidation::Console);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetConsoleShowInfoIntent& intent) {
+    uiState_.consoleShowInfo = intent.visible;
+    accumulate(EditorInvalidation::Console);
+    return EditorOperationResult::success(EditorInvalidation::Console);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetConsoleShowWarningIntent& intent) {
+    uiState_.consoleShowWarning = intent.visible;
+    accumulate(EditorInvalidation::Console);
+    return EditorOperationResult::success(EditorInvalidation::Console);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetConsoleShowErrorIntent& intent) {
+    uiState_.consoleShowError = intent.visible;
+    accumulate(EditorInvalidation::Console);
+    return EditorOperationResult::success(EditorInvalidation::Console);
+}
+
 EditorOperationResult EditorCoordinator::apply(const SetActiveLayerIntent& intent) {
     if (!document_.hasLayer(intent.sceneId, intent.layerId)) {
         return EditorOperationResult::failure("Unknown layer id");
@@ -726,6 +750,11 @@ void EditorCoordinator::logWarning(std::string text) {
 }
 void EditorCoordinator::logError(std::string text) {
     appendConsole(ConsoleMessage::Level::Error, std::move(text));
+}
+
+void EditorCoordinator::clearConsole() {
+    console_.clear();
+    accumulate(EditorInvalidation::Console);
 }
 
 // ----------------------------------------------------------------------------

@@ -736,7 +736,7 @@ void EditorUi::refreshToolbar() {
         el->SetClass("active", view.gridSnapEnabled && !playing);
     const std::string cellSize = compactNumber(view.gridCellSize);
     if (Rml::Element* el = document_->GetElementById("btn-grid-size"))
-        el->SetInnerRML(escapeRml(cellSize) + " &#x25be;");
+        el->SetInnerRML(escapeRml(cellSize) + " <span class=\"icon-caret\">&#xeb5d;</span>");
     if (Rml::Element* el = document_->GetElementById("grid-size-control"))
         el->SetClass("disabled", playing);
     if (Rml::Element* el = document_->GetElementById("grid-cell-size-input")) {
@@ -1233,6 +1233,16 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
                         document_, coordinator_);
     } else if (action == "copy-console") {
         copySelectedConsoleMessage();
+    } else if (action == "clear-console") {
+        coordinator_.clearConsole();
+    } else if (action == "toggle-console-info") {
+        coordinator_.apply(SetConsoleShowInfoIntent{!coordinator_.uiState().consoleShowInfo});
+    } else if (action == "toggle-console-warning") {
+        coordinator_.apply(SetConsoleShowWarningIntent{!coordinator_.uiState().consoleShowWarning});
+    } else if (action == "toggle-console-error") {
+        coordinator_.apply(SetConsoleShowErrorIntent{!coordinator_.uiState().consoleShowError});
+    } else if (action == "commit-console-filter") {
+        coordinator_.apply(SetConsoleFilterIntent{value});
     } else if (action == "open-project") {
         if (openProjectRequest_) openProjectRequest_();
     } else if (action == "save-project") {

@@ -137,11 +137,87 @@
 .console-counts .count-err  { color: #e5706b; font-weight: 600; }
 .console-counts .count-warn { color: #d8b44a; font-weight: 600; }
 
-/* Console */
+/* Console toolbar — level toggles, search, Clear. Local visual state only:
+   nothing here is authoring, so a click is a plain Intent, not a Command. */
+.console-toolbar {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 30dp;
+    padding: 0 10dp;
+    background-color: #161619;
+    border-bottom: 1px #27272a;
+}
+.console-toggle {
+    display: inline-block;
+    height: 22dp;
+    line-height: 22dp;
+    margin-right: 5dp;
+    padding: 0 9dp;
+    background-color: transparent;
+    border: 1px #323236;
+    border-radius: 3dp;
+    color: #6b7280;
+    font-size: 10dp;
+    font-weight: 600;
+    transition: background-color 0.1s, border-color 0.1s, color 0.1s;
+}
+.console-toggle:hover { border-color: #323236; color: #c4c4c8; }
+/* Same blue-accent active convention as the toolbar's Grid/Snap toggles;
+   Warn/Error override with their own log-level colour. */
+.console-toggle.active { color: #d4d4d8; border-color: #3b82f6; background-color: #3b82f626; }
+#btn-console-warning.active { color: #d8b44a; border-color: #5c4c26; background-color: #3a2f1526; }
+#btn-console-error.active   { color: #e5706b; border-color: #6b3532; background-color: #3a1f1e26; }
+/* Flex-sizing shell for the search field. Elements parsed statically from RML
+   at document load do not render as text inputs in this RmlUi build — every
+   working text field in this app (Name, Width, Height, ...) is injected via
+   SetInnerRML at runtime instead, so the slot holds a place in the flex row
+   and ConsolePanel injects the real <input> into it once. */
+.console-search-slot {
+    display: block;
+    flex: 1;
+    height: 22dp;
+    margin-right: 8dp;
+}
+.console-search-field {
+    display: block;
+    width: 100%;
+    height: 22dp;
+    line-height: 22dp;
+    padding: 0 8dp;
+    background-color: #111113;
+    border: 1px #27272a;
+    border-radius: 3dp;
+    color: #d4d4d8;
+    font-size: 11dp;
+    transition: border-color 0.1s;
+}
+.console-search-field:hover { border-color: #323236; }
+.console-search-field:focus { border-color: #3b82f6; }
+/* In-flow Clear button — unlike .header-btn (absolute, for the panel-header
+   row), this one lives in the normal toolbar flex flow. */
+.console-clear-btn {
+    display: inline-block;
+    height: 22dp;
+    line-height: 22dp;
+    padding: 0 10dp;
+    background-color: transparent;
+    border: 1px #323236;
+    border-radius: 3dp;
+    color: #a1a1aa;
+    font-size: 11dp;
+    font-weight: 500;
+    transition: background-color 0.1s, border-color 0.1s, color 0.1s;
+}
+.console-clear-btn:hover { border-color: #7f3b38; color: #e5706b; }
+
+/* Console — monospace: log lines are technical output, fixed-width helps
+   scanning stack-like or tabular messages. */
 .console {
     display: block;
     flex: 1;
     padding: 8dp 12dp;
+    font-family: JetBrains Mono;
     font-size: 11dp;
 }
 .log {
