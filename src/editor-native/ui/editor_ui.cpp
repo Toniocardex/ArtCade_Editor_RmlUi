@@ -837,6 +837,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     if (handleProjectFileAction(action, arg, value)) return;
     if (handleConsoleAction(action, arg, value)) return;
     if (handleAssetsAction(action, arg, value)) return;
+    if (handleToolbarAction(action, arg, value)) return;
 
     if (action == "select-entity") {
         coordinator_.apply(SelectEntityIntent{
@@ -1203,8 +1204,6 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     } else if (action == "commit-scene-name") {
         if (!value.empty())
             coordinator_.execute(RenameSceneCommand{coordinator_.state().activeSceneId, value});
-    } else if (action == "fit-view-to-bounds") {
-        if (fitViewRequest_) fitViewRequest_();   // workspace-only (camera), no command
     } else if (action == "commit-scene-width" || action == "commit-scene-height") {
         const SceneDef* scene =
             coordinator_.document().findScene(coordinator_.state().activeSceneId);
@@ -1215,6 +1214,13 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
             else                                size.y = *parsed;
             coordinator_.execute(SetSceneSizeCommand{coordinator_.state().activeSceneId, size});
         }
+    }
+}
+
+bool EditorUi::handleToolbarAction(const std::string& action, const std::string& arg,
+                                   const std::string& value) {
+    if (action == "fit-view-to-bounds") {
+        if (fitViewRequest_) fitViewRequest_();   // workspace-only (camera), no command
     } else if (action == "undo") {
         coordinator_.undo();
     } else if (action == "redo") {
@@ -1248,7 +1254,10 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         coordinator_.playCurrentScene();   // guarded; no-op without an active scene
     } else if (action == "stop") {
         coordinator_.stopPlaying();
+    } else {
+        return false;
     }
+    return true;
 }
 
 bool EditorUi::handleAssetsAction(const std::string& action, const std::string& arg,
