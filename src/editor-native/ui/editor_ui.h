@@ -126,6 +126,8 @@ private:
                             const std::string& value);
     bool handleToolbarAction(const std::string& action, const std::string& arg,
                              const std::string& value);
+    bool handleSpriteAnimationAction(const std::string& action, const std::string& arg,
+                                     const std::string& value);
 
     void applyInvalidations(EditorInvalidation flags);
     void refreshSpriteAnimationEditor();

@@ -287,7 +287,7 @@ void EditorUi::processFrame() {
     showPendingHierarchyMenu();
     // The preview playhead advances without invalidation (workspace tick), so
     // the timeline highlight and Play/Pause affordance follow it live here,
-    // class-only — never via a markup rebuild that would steal input focus.
+    // class-only â€” never via a markup rebuild that would steal input focus.
     updateSpriteAnimationPlayhead();
 }
 
@@ -716,13 +716,13 @@ void EditorUi::refreshToolbar() {
         status->SetInnerRML(escapeRml(text));
     }
 
-    // Play affordances derive straight from the authorities — never stored.
+    // Play affordances derive straight from the authorities â€” never stored.
     const auto setEnabled = [&](const char* id, bool enabled) {
         if (Rml::Element* el = document_->GetElementById(id))
             el->SetClass("disabled", !enabled);
     };
     // A toolbar control and its View/Edit-menu twin are two entry points for
-    // one canonical action, so they always share one enabled/active value —
+    // one canonical action, so they always share one enabled/active value â€”
     // set both from a single call instead of repeating each condition twice.
     const auto setEnabledBoth = [&](const char* toolbarId, const char* menuId, bool enabled) {
         setEnabled(toolbarId, enabled);
@@ -753,7 +753,7 @@ void EditorUi::refreshToolbar() {
     setEnabledBoth("btn-grid-snap",    "menu-grid-snap",    gridActionable);
     setEnabled("btn-grid-size", gridActionable);
     // Zoom, unlike Grid/Snap/Fit, tracks the PlaySession's scene while
-    // playing (see the zoom-in/out and reset-zoom handlers) — Play always has
+    // playing (see the zoom-in/out and reset-zoom handlers) â€” Play always has
     // a real scene, so it stays available then. Only truly nothing-to-zoom
     // (no scene, not playing) disables it.
     const bool canZoom = playing || hasScene;
@@ -838,6 +838,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     if (handleConsoleAction(action, arg, value)) return;
     if (handleAssetsAction(action, arg, value)) return;
     if (handleToolbarAction(action, arg, value)) return;
+    if (handleSpriteAnimationAction(action, arg, value)) return;
 
     if (action == "select-entity") {
         coordinator_.apply(SelectEntityIntent{
@@ -847,7 +848,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     } else if (action == "add-scene") {
         addScene(coordinator_);
     } else if (action == "delete-scene") {
-        // No arg → the active scene; the coordinator reconciles the workspace.
+        // No arg â†’ the active scene; the coordinator reconciles the workspace.
         hideContextMenus();
         deleteScene(coordinator_, arg.empty() ? coordinator_.state().activeSceneId : arg);
     } else if (action == "add-entity") {
@@ -946,168 +947,6 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
             coordinator_.execute(SetSpriteAnimatorAutoPlayCommand{
                 coordinator_.state().activeSceneId, selected, !inst->spriteAnimator->autoPlay});
         }
-    } else if (action == "create-sprite-animation") {
-        if (!coordinator_.isPlaying() && coordinator_.document().hasImageAsset(arg)) {
-            const std::string id = uniqueAnimationAssetId(coordinator_.document(), arg);
-            const std::string name = id;
-            if (coordinator_.execute(AddSpriteAnimationAssetCommand{id, name}).ok) {
-                // The asset is only a container: its first clip carries the sheet.
-                if (const SpriteAnimationAssetDef* asset =
-                        coordinator_.document().findSpriteAnimationAsset(id)) {
-                    coordinator_.execute(AddAnimationClipCommand{
-                        id, uniqueClipId(*asset), uniqueClipName(*asset), arg});
-                }
-                coordinator_.apply(OpenSpriteAnimationEditorIntent{id});
-            }
-        }
-    } else if (action == "open-sprite-animation") {
-        if (!coordinator_.isPlaying()) coordinator_.apply(OpenSpriteAnimationEditorIntent{arg});
-    } else if (action == "close-sprite-animation") {
-        coordinator_.apply(CloseSpriteAnimationEditorIntent{});
-    } else if (action == "remove-sprite-animation") {
-        if (!arg.empty()) coordinator_.execute(RemoveSpriteAnimationAssetCommand{arg});
-    } else if (action == "select-animation-clip") {
-        const std::vector<std::string> parts = splitPipe(arg);
-        if (parts.size() == 2) coordinator_.apply(SelectAnimationClipIntent{parts[0], parts[1]});
-    } else if (action == "add-animation-clip") {
-        const SpriteAnimationAssetDef* asset =
-            coordinator_.document().findSpriteAnimationAsset(arg);
-        if (asset) {
-            // The new clip inherits the sheet currently shown in the editor.
-            const std::string clipId = uniqueClipId(*asset);
-            if (coordinator_.execute(AddAnimationClipCommand{
-                    arg, clipId, uniqueClipName(*asset),
-                    editorSheetImageId(*asset,
-                        coordinator_.state().spriteAnimationEditor.selectedClipId)}).ok) {
-                coordinator_.apply(SelectAnimationClipIntent{arg, clipId});
-            }
-        }
-    } else if (action == "import-animation-sheet") {
-        // Import a sprite sheet without leaving the editor: the same importAsset
-        // pipeline the Assets panel uses returns the image id, then we start a new
-        // animation on it via the same path as create-sprite-animation and open
-        // it. A new asset with a first clip carrying the imported sheet.
-        if (coordinator_.isPlaying() || !importImageForAnimationRequest_) return;
-        const std::optional<AssetId> imageId = importImageForAnimationRequest_();
-        if (!imageId || !coordinator_.document().hasImageAsset(*imageId)) return;
-        const std::string id = uniqueAnimationAssetId(coordinator_.document(), *imageId);
-        if (coordinator_.execute(AddSpriteAnimationAssetCommand{id, id}).ok) {
-            if (const SpriteAnimationAssetDef* asset =
-                    coordinator_.document().findSpriteAnimationAsset(id)) {
-                coordinator_.execute(AddAnimationClipCommand{
-                    id, uniqueClipId(*asset), uniqueClipName(*asset), *imageId});
-            }
-            coordinator_.apply(OpenSpriteAnimationEditorIntent{id});
-        }
-    } else if (action == "commit-animation-clip-name") {
-        const std::vector<std::string> parts = splitPipe(arg);
-        if (parts.size() == 2 && !value.empty()) {
-            coordinator_.execute(RenameAnimationClipCommand{parts[0], parts[1], value});
-        }
-    } else if (action == "commit-animation-clip-fps") {
-        const std::vector<std::string> parts = splitPipe(arg);
-        const std::optional<float> parsed = parseNumberField(value);
-        if (parts.size() == 2 && parsed.has_value()) {
-            coordinator_.execute(SetAnimationClipFrameRateCommand{parts[0], parts[1], *parsed});
-        }
-    } else if (action == "commit-animation-columns"
-               || action == "commit-animation-rows"
-               || action == "commit-animation-margin"
-               || action == "commit-animation-spacing") {
-        const std::optional<float> parsed = parseNumberField(value);
-        if (parsed.has_value()) {
-            const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
-            SetAnimationSliceGridIntent intent{
-                state.sliceColumns,
-                state.sliceRows,
-                state.sliceMargin,
-                state.sliceSpacing,
-            };
-            const int rounded = static_cast<int>(std::round(*parsed));
-            if (action == "commit-animation-columns") intent.columns = rounded;
-            else if (action == "commit-animation-rows") intent.rows = rounded;
-            else if (action == "commit-animation-margin") intent.margin = rounded;
-            else intent.spacing = rounded;
-            coordinator_.apply(intent);
-        }
-    } else if (action == "slice-animation-grid") {
-        // Slice always targets the OPEN animation. Create + select a fresh clip
-        // when the open asset has no clip matching the current selection - either
-        // no clip yet (fresh Import Sheet) or a selection left over from another
-        // animation. This makes the selected clip and the open asset always agree,
-        // so a slice can never land on a different animation. Re-slicing a clip
-        // that does belong to the open asset is unchanged (fills it in place).
-        const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
-        if (state.openAssetId) {
-            const SpriteAnimationAssetDef* asset =
-                coordinator_.document().findSpriteAnimationAsset(*state.openAssetId);
-            if (asset) {
-                const bool selectionBelongsToOpenAsset =
-                    state.selectedClipId
-                    && std::any_of(asset->clips.begin(), asset->clips.end(),
-                                   [&](const SpriteAnimationClipDef& clip) {
-                                       return clip.id == *state.selectedClipId;
-                                   });
-                if (!selectionBelongsToOpenAsset) {
-                    const std::string clipId = uniqueClipId(*asset);
-                    if (coordinator_.execute(AddAnimationClipCommand{
-                            *state.openAssetId, clipId, uniqueClipName(*asset),
-                            editorSheetImageId(*asset, state.selectedClipId)}).ok) {
-                        coordinator_.apply(SelectAnimationClipIntent{*state.openAssetId, clipId});
-                    }
-                }
-            }
-        }
-        if (sliceAnimationRequest_) sliceAnimationRequest_();
-    } else if (action == "toggle-animation-preview") {
-        coordinator_.apply(SetAnimationPreviewPlayingIntent{
-            !coordinator_.state().spriteAnimationEditor.previewPlaying});
-    } else if (action == "step-animation-preview") {
-        coordinator_.apply(StepAnimationPreviewIntent{arg == "-1" ? -1 : 1});
-    } else if (action == "set-animation-preview-frame") {
-        const std::optional<float> parsed = parseNumberField(arg);
-        if (parsed.has_value() && *parsed >= 0.f) {
-            coordinator_.apply(SetAnimationPreviewFrameIntent{
-                static_cast<std::size_t>(*parsed)});
-        }
-    } else if (action == "clear-animation-frames") {
-        const std::vector<std::string> parts = splitPipe(arg);
-        if (parts.size() == 2) {
-            coordinator_.execute(SetAnimationClipFramesCommand{parts[0], parts[1], {}});
-        }
-    } else if (action == "remove-animation-frame") {
-        // Removes the i-th timeline chip, which maps 1:1 to the clip's frames.
-        const std::optional<float> parsed = parseNumberField(arg);
-        const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
-        if (parsed.has_value() && *parsed >= 0.f && state.openAssetId) {
-            const SpriteAnimationAssetDef* asset =
-                coordinator_.document().findSpriteAnimationAsset(*state.openAssetId);
-            const SpriteAnimationClipDef* clip =
-                asset ? selectedAnimationClip(*asset, state) : nullptr;
-            if (clip) {
-                std::vector<SpriteAnimationFrameDef> frames = clip->frames;
-                const std::size_t index = static_cast<std::size_t>(*parsed);
-                if (index < frames.size()) {
-                    frames.erase(frames.begin() + static_cast<std::ptrdiff_t>(index));
-                    coordinator_.execute(SetAnimationClipFramesCommand{
-                        asset->id, clip->id, std::move(frames)});
-                }
-            }
-        }
-    } else if (action == "reset-sheet-view") {
-        const Vec2 pan = coordinator_.state().spriteAnimationEditor.sheetPan;
-        coordinator_.apply(SetSpriteSheetZoomIntent{1.f});
-        coordinator_.apply(PanSpriteSheetIntent{{-pan.x, -pan.y}});
-    } else if (action == "set-animation-playback") {
-        const std::vector<std::string> parts = splitPipe(arg);
-        if (parts.size() == 3) {
-            const AnimationPlaybackMode mode =
-                parts[2] == "once" ? AnimationPlaybackMode::Once : AnimationPlaybackMode::Loop;
-            coordinator_.execute(SetAnimationClipPlaybackModeCommand{parts[0], parts[1], mode});
-        }
-    } else if (action == "remove-animation-clip") {
-        const std::vector<std::string> parts = splitPipe(arg);
-        if (parts.size() == 2) coordinator_.execute(RemoveAnimationClipCommand{parts[0], parts[1]});
     } else if (action == "bring-entity-into-scene") {
         bringSelectedEntityIntoScene(coordinator_);
     } else if (action == "add-box-collider") {
@@ -1254,6 +1093,176 @@ bool EditorUi::handleToolbarAction(const std::string& action, const std::string&
         coordinator_.playCurrentScene();   // guarded; no-op without an active scene
     } else if (action == "stop") {
         coordinator_.stopPlaying();
+    } else {
+        return false;
+    }
+    return true;
+}
+
+bool EditorUi::handleSpriteAnimationAction(const std::string& action, const std::string& arg,
+                                           const std::string& value) {
+    if (action == "create-sprite-animation") {
+        if (!coordinator_.isPlaying() && coordinator_.document().hasImageAsset(arg)) {
+            const std::string id = uniqueAnimationAssetId(coordinator_.document(), arg);
+            const std::string name = id;
+            if (coordinator_.execute(AddSpriteAnimationAssetCommand{id, name}).ok) {
+                // The asset is only a container: its first clip carries the sheet.
+                if (const SpriteAnimationAssetDef* asset =
+                        coordinator_.document().findSpriteAnimationAsset(id)) {
+                    coordinator_.execute(AddAnimationClipCommand{
+                        id, uniqueClipId(*asset), uniqueClipName(*asset), arg});
+                }
+                coordinator_.apply(OpenSpriteAnimationEditorIntent{id});
+            }
+        }
+    } else if (action == "open-sprite-animation") {
+        if (!coordinator_.isPlaying()) coordinator_.apply(OpenSpriteAnimationEditorIntent{arg});
+    } else if (action == "close-sprite-animation") {
+        coordinator_.apply(CloseSpriteAnimationEditorIntent{});
+    } else if (action == "remove-sprite-animation") {
+        if (!arg.empty()) coordinator_.execute(RemoveSpriteAnimationAssetCommand{arg});
+    } else if (action == "select-animation-clip") {
+        const std::vector<std::string> parts = splitPipe(arg);
+        if (parts.size() == 2) coordinator_.apply(SelectAnimationClipIntent{parts[0], parts[1]});
+    } else if (action == "add-animation-clip") {
+        const SpriteAnimationAssetDef* asset =
+            coordinator_.document().findSpriteAnimationAsset(arg);
+        if (asset) {
+            // The new clip inherits the sheet currently shown in the editor.
+            const std::string clipId = uniqueClipId(*asset);
+            if (coordinator_.execute(AddAnimationClipCommand{
+                    arg, clipId, uniqueClipName(*asset),
+                    editorSheetImageId(*asset,
+                        coordinator_.state().spriteAnimationEditor.selectedClipId)}).ok) {
+                coordinator_.apply(SelectAnimationClipIntent{arg, clipId});
+            }
+        }
+    } else if (action == "import-animation-sheet") {
+        // Import a sprite sheet without leaving the editor: the same importAsset
+        // pipeline the Assets panel uses returns the image id, then we start a new
+        // animation on it via the same path as create-sprite-animation and open
+        // it. A new asset with a first clip carrying the imported sheet.
+        if (coordinator_.isPlaying() || !importImageForAnimationRequest_) return true;
+        const std::optional<AssetId> imageId = importImageForAnimationRequest_();
+        if (!imageId || !coordinator_.document().hasImageAsset(*imageId)) return true;
+        const std::string id = uniqueAnimationAssetId(coordinator_.document(), *imageId);
+        if (coordinator_.execute(AddSpriteAnimationAssetCommand{id, id}).ok) {
+            if (const SpriteAnimationAssetDef* asset =
+                    coordinator_.document().findSpriteAnimationAsset(id)) {
+                coordinator_.execute(AddAnimationClipCommand{
+                    id, uniqueClipId(*asset), uniqueClipName(*asset), *imageId});
+            }
+            coordinator_.apply(OpenSpriteAnimationEditorIntent{id});
+        }
+    } else if (action == "commit-animation-clip-name") {
+        const std::vector<std::string> parts = splitPipe(arg);
+        if (parts.size() == 2 && !value.empty()) {
+            coordinator_.execute(RenameAnimationClipCommand{parts[0], parts[1], value});
+        }
+    } else if (action == "commit-animation-clip-fps") {
+        const std::vector<std::string> parts = splitPipe(arg);
+        const std::optional<float> parsed = parseNumberField(value);
+        if (parts.size() == 2 && parsed.has_value()) {
+            coordinator_.execute(SetAnimationClipFrameRateCommand{parts[0], parts[1], *parsed});
+        }
+    } else if (action == "commit-animation-columns"
+               || action == "commit-animation-rows"
+               || action == "commit-animation-margin"
+               || action == "commit-animation-spacing") {
+        const std::optional<float> parsed = parseNumberField(value);
+        if (parsed.has_value()) {
+            const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
+            SetAnimationSliceGridIntent intent{
+                state.sliceColumns,
+                state.sliceRows,
+                state.sliceMargin,
+                state.sliceSpacing,
+            };
+            const int rounded = static_cast<int>(std::round(*parsed));
+            if (action == "commit-animation-columns") intent.columns = rounded;
+            else if (action == "commit-animation-rows") intent.rows = rounded;
+            else if (action == "commit-animation-margin") intent.margin = rounded;
+            else intent.spacing = rounded;
+            coordinator_.apply(intent);
+        }
+    } else if (action == "slice-animation-grid") {
+        // Slice always targets the OPEN animation. Create + select a fresh clip
+        // when the open asset has no clip matching the current selection - either
+        // no clip yet (fresh Import Sheet) or a selection left over from another
+        // animation. This makes the selected clip and the open asset always agree,
+        // so a slice can never land on a different animation. Re-slicing a clip
+        // that does belong to the open asset is unchanged (fills it in place).
+        const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
+        if (state.openAssetId) {
+            const SpriteAnimationAssetDef* asset =
+                coordinator_.document().findSpriteAnimationAsset(*state.openAssetId);
+            if (asset) {
+                const bool selectionBelongsToOpenAsset =
+                    state.selectedClipId
+                    && std::any_of(asset->clips.begin(), asset->clips.end(),
+                                   [&](const SpriteAnimationClipDef& clip) {
+                                       return clip.id == *state.selectedClipId;
+                                   });
+                if (!selectionBelongsToOpenAsset) {
+                    const std::string clipId = uniqueClipId(*asset);
+                    if (coordinator_.execute(AddAnimationClipCommand{
+                            *state.openAssetId, clipId, uniqueClipName(*asset),
+                            editorSheetImageId(*asset, state.selectedClipId)}).ok) {
+                        coordinator_.apply(SelectAnimationClipIntent{*state.openAssetId, clipId});
+                    }
+                }
+            }
+        }
+        if (sliceAnimationRequest_) sliceAnimationRequest_();
+    } else if (action == "toggle-animation-preview") {
+        coordinator_.apply(SetAnimationPreviewPlayingIntent{
+            !coordinator_.state().spriteAnimationEditor.previewPlaying});
+    } else if (action == "step-animation-preview") {
+        coordinator_.apply(StepAnimationPreviewIntent{arg == "-1" ? -1 : 1});
+    } else if (action == "set-animation-preview-frame") {
+        const std::optional<float> parsed = parseNumberField(arg);
+        if (parsed.has_value() && *parsed >= 0.f) {
+            coordinator_.apply(SetAnimationPreviewFrameIntent{
+                static_cast<std::size_t>(*parsed)});
+        }
+    } else if (action == "clear-animation-frames") {
+        const std::vector<std::string> parts = splitPipe(arg);
+        if (parts.size() == 2) {
+            coordinator_.execute(SetAnimationClipFramesCommand{parts[0], parts[1], {}});
+        }
+    } else if (action == "remove-animation-frame") {
+        // Removes the i-th timeline chip, which maps 1:1 to the clip's frames.
+        const std::optional<float> parsed = parseNumberField(arg);
+        const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
+        if (parsed.has_value() && *parsed >= 0.f && state.openAssetId) {
+            const SpriteAnimationAssetDef* asset =
+                coordinator_.document().findSpriteAnimationAsset(*state.openAssetId);
+            const SpriteAnimationClipDef* clip =
+                asset ? selectedAnimationClip(*asset, state) : nullptr;
+            if (clip) {
+                std::vector<SpriteAnimationFrameDef> frames = clip->frames;
+                const std::size_t index = static_cast<std::size_t>(*parsed);
+                if (index < frames.size()) {
+                    frames.erase(frames.begin() + static_cast<std::ptrdiff_t>(index));
+                    coordinator_.execute(SetAnimationClipFramesCommand{
+                        asset->id, clip->id, std::move(frames)});
+                }
+            }
+        }
+    } else if (action == "reset-sheet-view") {
+        const Vec2 pan = coordinator_.state().spriteAnimationEditor.sheetPan;
+        coordinator_.apply(SetSpriteSheetZoomIntent{1.f});
+        coordinator_.apply(PanSpriteSheetIntent{{-pan.x, -pan.y}});
+    } else if (action == "set-animation-playback") {
+        const std::vector<std::string> parts = splitPipe(arg);
+        if (parts.size() == 3) {
+            const AnimationPlaybackMode mode =
+                parts[2] == "once" ? AnimationPlaybackMode::Once : AnimationPlaybackMode::Loop;
+            coordinator_.execute(SetAnimationClipPlaybackModeCommand{parts[0], parts[1], mode});
+        }
+    } else if (action == "remove-animation-clip") {
+        const std::vector<std::string> parts = splitPipe(arg);
+        if (parts.size() == 2) coordinator_.execute(RemoveAnimationClipCommand{parts[0], parts[1]});
     } else {
         return false;
     }
