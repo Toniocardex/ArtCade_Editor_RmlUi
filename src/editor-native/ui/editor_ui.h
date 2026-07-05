@@ -112,6 +112,15 @@ public:
 private:
     class Listener;   // defined in editor_ui.cpp
 
+    // handleAction() dispatch, split by domain (one else-if chain per group,
+    // moved verbatim out of the single ~470-line function it used to be).
+    // Each returns whether it recognized the action; handleAction() tries
+    // them in turn and returns on the first match, same as the flat chain
+    // did. Only the two domains that read the current selection take it as
+    // a parameter instead of re-reading coordinator_.selection() themselves.
+    bool handleProjectFileAction(const std::string& action, const std::string& arg,
+                                 const std::string& value);
+
     void applyInvalidations(EditorInvalidation flags);
     void refreshSpriteAnimationEditor();
     // Per-frame, class-only sync of the preview transport and timeline playhead.
