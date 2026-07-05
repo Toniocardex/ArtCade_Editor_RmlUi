@@ -811,9 +811,15 @@ void EditorUi::showPointerWorldPosition(const std::optional<Vec2>& worldPosition
 }
 
 void EditorUi::commitGridCellSize(const std::string& text) {
-    if (coordinator_.isPlaying()) return;
+    if (coordinator_.isPlaying()) {
+        coordinator_.logWarning("Stop Play before editing the grid");
+        return;
+    }
     const std::optional<float> parsed = parseNumberField(text);
-    if (!parsed.has_value()) return;
+    if (!parsed.has_value()) {
+        coordinator_.logError("Grid cell size is not a number");
+        return;
+    }
     coordinator_.apply(SetSceneGridCellSizeIntent{coordinator_.state().activeSceneId, *parsed});
 }
 
@@ -863,7 +869,11 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         }
     } else if (action == "commit-animator-speed") {
         const std::optional<float> parsed = parseNumberField(value);
-        if (parsed.has_value() && selected != INVALID_ENTITY) {
+        if (!parsed.has_value()) {
+            coordinator_.logError("Animator speed is not a number");
+        } else if (selected == INVALID_ENTITY) {
+            coordinator_.logError("No selected instance");
+        } else {
             coordinator_.execute(SetSpriteAnimatorPlaybackSpeedCommand{
                 coordinator_.state().activeSceneId, selected, *parsed});
         }
@@ -892,28 +902,38 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
             }
         }
     } else if (action == "set-box-mode") {
-        if (coordinator_.isPlaying()) return true;
-        const std::optional<BoxColliderMode> mode = parseBoxColliderModeArg(arg);
-        if (mode.has_value()) setBoxColliderMode(coordinator_, *mode);
+        if (coordinator_.isPlaying()) {
+            coordinator_.logWarning("Stop Play before editing components");
+        } else {
+            const std::optional<BoxColliderMode> mode = parseBoxColliderModeArg(arg);
+            if (!mode.has_value()) coordinator_.logError("Unknown box collider mode");
+            else setBoxColliderMode(coordinator_, *mode);
+        }
     } else if (action == "commit-box-offset-x" || action == "commit-box-offset-y"
                || action == "commit-box-size-x" || action == "commit-box-size-y") {
         const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
             coordinator_.state().activeSceneId, coordinator_.selection().primaryEntity);
-        if (inst) {
+        if (!inst) {
+            coordinator_.logError("No selected instance");
+        } else {
             const auto& types = coordinator_.document().data().objectTypes;
             const auto typeIt = types.find(inst->objectTypeId);
-            if (typeIt != types.end() && typeIt->second.boxCollider2D) {
+            if (typeIt == types.end() || !typeIt->second.boxCollider2D) {
+                coordinator_.logError("Selected instance has no Box Collider");
+            } else {
                 const BoxCollider2DComponent& collider = *typeIt->second.boxCollider2D;
                 const std::optional<float> parsed = parseNumberField(value);
-                if (!parsed.has_value()) return true;
-                if (action == "commit-box-offset-x")
+                if (!parsed.has_value()) {
+                    coordinator_.logError("Box Collider value is not a number");
+                } else if (action == "commit-box-offset-x") {
                     setBoxColliderOffset(coordinator_, Vec2{*parsed, collider.offset.y});
-                else if (action == "commit-box-offset-y")
+                } else if (action == "commit-box-offset-y") {
                     setBoxColliderOffset(coordinator_, Vec2{collider.offset.x, *parsed});
-                else if (action == "commit-box-size-x")
+                } else if (action == "commit-box-size-x") {
                     setBoxColliderSize(coordinator_, Vec2{*parsed, collider.size.y});
-                else
+                } else {
                     setBoxColliderSize(coordinator_, Vec2{collider.size.x, *parsed});
+                }
             }
         }
     } else if (action == "add-linear-mover") {
@@ -924,19 +944,25 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
                || action == "commit-mover-speed") {
         const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
             coordinator_.state().activeSceneId, coordinator_.selection().primaryEntity);
-        if (inst) {
+        if (!inst) {
+            coordinator_.logError("No selected instance");
+        } else {
             const auto& types = coordinator_.document().data().objectTypes;
             const auto typeIt = types.find(inst->objectTypeId);
-            if (typeIt != types.end() && typeIt->second.linearMover) {
+            if (typeIt == types.end() || !typeIt->second.linearMover) {
+                coordinator_.logError("Selected instance has no Linear Mover");
+            } else {
                 const LinearMoverComponent& m = *typeIt->second.linearMover;
                 const std::optional<float> parsed = parseNumberField(value);
-                if (!parsed.has_value()) return true;
-                if (action == "commit-mover-dir-x")
+                if (!parsed.has_value()) {
+                    coordinator_.logError("Linear Mover value is not a number");
+                } else if (action == "commit-mover-dir-x") {
                     setLinearMoverDirection(coordinator_, Vec2{*parsed, m.directionY});
-                else if (action == "commit-mover-dir-y")
+                } else if (action == "commit-mover-dir-y") {
                     setLinearMoverDirection(coordinator_, Vec2{m.directionX, *parsed});
-                else
+                } else {
                     setLinearMoverSpeed(coordinator_, *parsed);
+                }
             }
         }
     } else if (action == "add-top-down") {
@@ -945,36 +971,45 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         removeTopDownController(coordinator_);
     } else if (action == "commit-topdown-speed") {
         const std::optional<float> parsed = parseNumberField(value);
-        if (parsed.has_value()) setTopDownControllerSpeed(coordinator_, *parsed);
+        if (!parsed.has_value()) coordinator_.logError("Top Down speed is not a number");
+        else setTopDownControllerSpeed(coordinator_, *parsed);
     } else if (action == "add-platformer") {
         addPlatformerController(coordinator_);
     } else if (action == "remove-platformer") {
         removePlatformerController(coordinator_);
     } else if (action == "commit-platformer-move") {
         const std::optional<float> parsed = parseNumberField(value);
-        if (parsed.has_value()) setPlatformerMoveSpeed(coordinator_, *parsed);
+        if (!parsed.has_value()) coordinator_.logError("Platformer move speed is not a number");
+        else setPlatformerMoveSpeed(coordinator_, *parsed);
     } else if (action == "commit-platformer-jump") {
         const std::optional<float> parsed = parseNumberField(value);
-        if (parsed.has_value()) setPlatformerJumpSpeed(coordinator_, *parsed);
+        if (!parsed.has_value()) coordinator_.logError("Platformer jump speed is not a number");
+        else setPlatformerJumpSpeed(coordinator_, *parsed);
     } else if (action == "commit-platformer-gravity") {
         const std::optional<float> parsed = parseNumberField(value);
-        if (parsed.has_value()) setPlatformerGravity(coordinator_, *parsed);
+        if (!parsed.has_value()) coordinator_.logError("Platformer gravity is not a number");
+        else setPlatformerGravity(coordinator_, *parsed);
     } else if (action == "commit-pos-x") {
         commitInspectorPositionX(coordinator_, selected, value);
     } else if (action == "commit-pos-y") {
         commitInspectorPositionY(coordinator_, selected, value);
     } else if (action == "commit-name") {
-        if (selected != INVALID_ENTITY && !value.empty())
-            coordinator_.execute(
+        if (selected == INVALID_ENTITY) coordinator_.logError("No selected instance");
+        else if (value.empty()) coordinator_.logError("Name cannot be empty");
+        else coordinator_.execute(
                 RenameEntityCommand{coordinator_.state().activeSceneId, selected, value});
     } else if (action == "commit-scene-name") {
-        if (!value.empty())
-            coordinator_.execute(RenameSceneCommand{coordinator_.state().activeSceneId, value});
+        if (value.empty()) coordinator_.logError("Scene name cannot be empty");
+        else coordinator_.execute(RenameSceneCommand{coordinator_.state().activeSceneId, value});
     } else if (action == "commit-scene-width" || action == "commit-scene-height") {
         const SceneDef* scene =
             coordinator_.document().findScene(coordinator_.state().activeSceneId);
         const std::optional<float> parsed = parseNumberField(value);
-        if (scene && parsed.has_value()) {
+        if (!scene) {
+            coordinator_.logError("No selected scene");
+        } else if (!parsed.has_value()) {
+            coordinator_.logError("Scene size is not a number");
+        } else {
             Vec2 size = scene->worldSize;
             if (action == "commit-scene-width") size.x = *parsed;
             else                                size.y = *parsed;
@@ -997,13 +1032,17 @@ bool EditorUi::handleToolbarAction(const std::string& action, const std::string&
     } else if (action == "reset-zoom") {
         coordinator_.apply(SetViewportZoomIntent{currentViewSceneId(), 1.0f});   // target unchanged
     } else if (action == "toggle-grid-visible") {
-        if (!coordinator_.isPlaying()) {
+        if (coordinator_.isPlaying()) {
+            coordinator_.logWarning("Stop Play before editing the grid");
+        } else {
             const SceneId active = coordinator_.state().activeSceneId;
             coordinator_.apply(SetSceneGridVisibilityIntent{
                 active, !coordinator_.sceneView(active).gridVisible});
         }
     } else if (action == "toggle-grid-snap") {
-        if (!coordinator_.isPlaying()) {
+        if (coordinator_.isPlaying()) {
+            coordinator_.logWarning("Stop Play before editing the grid");
+        } else {
             const SceneId active = coordinator_.state().activeSceneId;
             coordinator_.apply(SetSceneGridSnapEnabledIntent{
                 active, !coordinator_.sceneView(active).gridSnapEnabled});
@@ -1086,13 +1125,21 @@ bool EditorUi::handleSpriteAnimationAction(const std::string& action, const std:
         }
     } else if (action == "commit-animation-clip-name") {
         const std::vector<std::string> parts = splitPipe(arg);
-        if (parts.size() == 2 && !value.empty()) {
+        if (parts.size() != 2) {
+            coordinator_.logError("Invalid animation clip reference");
+        } else if (value.empty()) {
+            coordinator_.logError("Clip name cannot be empty");
+        } else {
             coordinator_.execute(RenameAnimationClipCommand{parts[0], parts[1], value});
         }
     } else if (action == "commit-animation-clip-fps") {
         const std::vector<std::string> parts = splitPipe(arg);
         const std::optional<float> parsed = parseNumberField(value);
-        if (parts.size() == 2 && parsed.has_value()) {
+        if (parts.size() != 2) {
+            coordinator_.logError("Invalid animation clip reference");
+        } else if (!parsed.has_value()) {
+            coordinator_.logError("FPS is not a number");
+        } else {
             coordinator_.execute(SetAnimationClipFrameRateCommand{parts[0], parts[1], *parsed});
         }
     } else if (action == "commit-animation-columns"
@@ -1100,7 +1147,9 @@ bool EditorUi::handleSpriteAnimationAction(const std::string& action, const std:
                || action == "commit-animation-margin"
                || action == "commit-animation-spacing") {
         const std::optional<float> parsed = parseNumberField(value);
-        if (parsed.has_value()) {
+        if (!parsed.has_value()) {
+            coordinator_.logError("Slice grid value is not a number");
+        } else {
             const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
             SetAnimationSliceGridIntent intent{
                 state.sliceColumns,

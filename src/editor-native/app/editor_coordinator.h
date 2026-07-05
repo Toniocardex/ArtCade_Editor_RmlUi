@@ -153,6 +153,13 @@ public:
 
 private:
     EditorOperationResult executeOwned(std::unique_ptr<EditorCommand> command);
+    // Every apply(SomeIntent) overload funnels its result through here before
+    // returning, exactly as executeOwned() does for commands: a rejected
+    // intent is still a real error and must be visible (contract: "ogni
+    // errore deve essere... non silenzioso"), not just a return value the
+    // caller happens to discard. Warning, not Error - an intent is workspace
+    // -only, never a rejected authoring mutation like a failed command.
+    EditorOperationResult finishIntent(EditorOperationResult result);
     void accumulate(EditorInvalidation invalidation) { pending_ |= invalidation; }
     void appendConsole(ConsoleMessage::Level level, std::string text);
 

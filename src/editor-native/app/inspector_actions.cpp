@@ -28,12 +28,23 @@ bool selectedObjectType(const EditorCoordinator& coordinator, std::string& objec
     objectTypeId = instance->objectTypeId;
     return true;
 }
+
+// Every helper below is a thin select-target-then-execute wrapper: when
+// execute() runs, a rejection is already logged automatically, but a missing
+// target short-circuits before that and would otherwise return a failure
+// nobody ever sees. Routed through here once instead of repeating the same
+// log call at each of this file's ~25 call sites (contract: "ogni errore
+// deve essere... non silenzioso").
+EditorOperationResult fail(EditorCoordinator& coordinator, std::string message) {
+    coordinator.logError(message);
+    return EditorOperationResult::failure(std::move(message));
+}
 } // namespace
 
 EditorOperationResult addSpriteRenderer(EditorCoordinator& coordinator) {
     SceneId sceneId; EntityId id;
     if (!selectedTarget(coordinator, sceneId, id)) {
-        return EditorOperationResult::failure("No selected entity");
+        return fail(coordinator, "No selected entity");
     }
     return coordinator.execute(AddSpriteRendererCommand{sceneId, id});
 }
@@ -41,7 +52,7 @@ EditorOperationResult addSpriteRenderer(EditorCoordinator& coordinator) {
 EditorOperationResult removeSpriteRenderer(EditorCoordinator& coordinator) {
     SceneId sceneId; EntityId id;
     if (!selectedTarget(coordinator, sceneId, id)) {
-        return EditorOperationResult::failure("No selected entity");
+        return fail(coordinator, "No selected entity");
     }
     return coordinator.execute(RemoveSpriteRendererCommand{sceneId, id});
 }
@@ -49,7 +60,7 @@ EditorOperationResult removeSpriteRenderer(EditorCoordinator& coordinator) {
 EditorOperationResult setSpriteRendererVisible(EditorCoordinator& coordinator, bool visible) {
     SceneId sceneId; EntityId id;
     if (!selectedTarget(coordinator, sceneId, id)) {
-        return EditorOperationResult::failure("No selected entity");
+        return fail(coordinator, "No selected entity");
     }
     return coordinator.execute(SetSpriteRendererVisibleCommand{sceneId, id, visible});
 }
@@ -57,7 +68,7 @@ EditorOperationResult setSpriteRendererVisible(EditorCoordinator& coordinator, b
 EditorOperationResult setSpriteRendererAsset(EditorCoordinator& coordinator, const AssetId& assetId) {
     SceneId sceneId; EntityId id;
     if (!selectedTarget(coordinator, sceneId, id)) {
-        return EditorOperationResult::failure("No selected entity");
+        return fail(coordinator, "No selected entity");
     }
     return coordinator.execute(SetSpriteRendererAssetCommand{sceneId, id, assetId});
 }
@@ -66,7 +77,7 @@ EditorOperationResult setSpriteRendererAnimation(EditorCoordinator& coordinator,
                                                  const AssetId& assetId) {
     SceneId sceneId; EntityId id;
     if (!selectedTarget(coordinator, sceneId, id)) {
-        return EditorOperationResult::failure("No selected entity");
+        return fail(coordinator, "No selected entity");
     }
     return coordinator.execute(SetSpriteRendererAnimationCommand{sceneId, id, assetId});
 }
@@ -74,19 +85,19 @@ EditorOperationResult setSpriteRendererAnimation(EditorCoordinator& coordinator,
 EditorOperationResult bringSelectedEntityIntoScene(EditorCoordinator& coordinator) {
     SceneId sceneId; EntityId id;
     if (!selectedTarget(coordinator, sceneId, id)) {
-        return EditorOperationResult::failure("No selected entity");
+        return fail(coordinator, "No selected entity");
     }
     const SceneInstanceDef* instance = coordinator.document().findInstanceInScene(sceneId, id);
     const SceneDef* scene = coordinator.document().findScene(sceneId);
     if (!instance || !scene) {
-        return EditorOperationResult::failure("No selected entity");
+        return fail(coordinator, "No selected entity");
     }
 
     const SceneFrameSnapshot frame =
         collectSceneFrameSnapshot(coordinator.document(), sceneId, id);
     const std::optional<WorldRect> bounds = editorBoundsForEntity(frame, id);
     if (!bounds) {
-        return EditorOperationResult::failure("No editor bounds for selected entity");
+        return fail(coordinator, "No editor bounds for selected entity");
     }
     if (classifySceneContainment(*bounds, frame.worldSize) == SceneContainment::Inside) {
         return EditorOperationResult::success(EditorInvalidation::None);
@@ -94,7 +105,7 @@ EditorOperationResult bringSelectedEntityIntoScene(EditorCoordinator& coordinato
     const std::optional<Vec2> next =
         positionToBringBoundsInsideScene(*bounds, instance->transform.position, frame.worldSize);
     if (!next) {
-        return EditorOperationResult::failure("Cannot bring selected entity into scene");
+        return fail(coordinator, "Cannot bring selected entity into scene");
     }
     if (next->x == instance->transform.position.x && next->y == instance->transform.position.y) {
         return EditorOperationResult::success(EditorInvalidation::None);
@@ -105,7 +116,7 @@ EditorOperationResult bringSelectedEntityIntoScene(EditorCoordinator& coordinato
 EditorOperationResult addBoxCollider(EditorCoordinator& coordinator) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(AddBoxColliderCommand{objectTypeId});
 }
@@ -113,7 +124,7 @@ EditorOperationResult addBoxCollider(EditorCoordinator& coordinator) {
 EditorOperationResult removeBoxCollider(EditorCoordinator& coordinator) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(RemoveBoxColliderCommand{objectTypeId});
 }
@@ -121,7 +132,7 @@ EditorOperationResult removeBoxCollider(EditorCoordinator& coordinator) {
 EditorOperationResult setBoxColliderOffset(EditorCoordinator& coordinator, Vec2 offset) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(SetBoxColliderOffsetCommand{objectTypeId, offset});
 }
@@ -129,7 +140,7 @@ EditorOperationResult setBoxColliderOffset(EditorCoordinator& coordinator, Vec2 
 EditorOperationResult setBoxColliderSize(EditorCoordinator& coordinator, Vec2 size) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(SetBoxColliderSizeCommand{objectTypeId, size});
 }
@@ -137,7 +148,7 @@ EditorOperationResult setBoxColliderSize(EditorCoordinator& coordinator, Vec2 si
 EditorOperationResult setBoxColliderEnabled(EditorCoordinator& coordinator, bool enabled) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(SetBoxColliderEnabledCommand{objectTypeId, enabled});
 }
@@ -145,7 +156,7 @@ EditorOperationResult setBoxColliderEnabled(EditorCoordinator& coordinator, bool
 EditorOperationResult setBoxColliderMode(EditorCoordinator& coordinator, BoxColliderMode mode) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(SetBoxColliderModeCommand{objectTypeId, mode});
 }
@@ -153,7 +164,7 @@ EditorOperationResult setBoxColliderMode(EditorCoordinator& coordinator, BoxColl
 EditorOperationResult addLinearMover(EditorCoordinator& coordinator) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(AddLinearMoverCommand{objectTypeId});
 }
@@ -161,7 +172,7 @@ EditorOperationResult addLinearMover(EditorCoordinator& coordinator) {
 EditorOperationResult removeLinearMover(EditorCoordinator& coordinator) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(RemoveLinearMoverCommand{objectTypeId});
 }
@@ -169,7 +180,7 @@ EditorOperationResult removeLinearMover(EditorCoordinator& coordinator) {
 EditorOperationResult setLinearMoverDirection(EditorCoordinator& coordinator, Vec2 direction) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(SetLinearMoverDirectionCommand{objectTypeId, direction});
 }
@@ -177,7 +188,7 @@ EditorOperationResult setLinearMoverDirection(EditorCoordinator& coordinator, Ve
 EditorOperationResult setLinearMoverSpeed(EditorCoordinator& coordinator, float speed) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(SetLinearMoverSpeedCommand{objectTypeId, speed});
 }
@@ -185,7 +196,7 @@ EditorOperationResult setLinearMoverSpeed(EditorCoordinator& coordinator, float 
 EditorOperationResult addTopDownController(EditorCoordinator& coordinator) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(AddTopDownControllerCommand{objectTypeId});
 }
@@ -193,7 +204,7 @@ EditorOperationResult addTopDownController(EditorCoordinator& coordinator) {
 EditorOperationResult removeTopDownController(EditorCoordinator& coordinator) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(RemoveTopDownControllerCommand{objectTypeId});
 }
@@ -201,7 +212,7 @@ EditorOperationResult removeTopDownController(EditorCoordinator& coordinator) {
 EditorOperationResult setTopDownControllerSpeed(EditorCoordinator& coordinator, float speed) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(SetTopDownControllerSpeedCommand{objectTypeId, speed});
 }
@@ -209,7 +220,7 @@ EditorOperationResult setTopDownControllerSpeed(EditorCoordinator& coordinator, 
 EditorOperationResult addPlatformerController(EditorCoordinator& coordinator) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(AddPlatformerControllerCommand{objectTypeId});
 }
@@ -217,7 +228,7 @@ EditorOperationResult addPlatformerController(EditorCoordinator& coordinator) {
 EditorOperationResult removePlatformerController(EditorCoordinator& coordinator) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(RemovePlatformerControllerCommand{objectTypeId});
 }
@@ -225,7 +236,7 @@ EditorOperationResult removePlatformerController(EditorCoordinator& coordinator)
 EditorOperationResult setPlatformerMoveSpeed(EditorCoordinator& coordinator, float value) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(
         SetPlatformerValueCommand{objectTypeId, PlatformerField::MoveSpeed, value});
@@ -234,7 +245,7 @@ EditorOperationResult setPlatformerMoveSpeed(EditorCoordinator& coordinator, flo
 EditorOperationResult setPlatformerJumpSpeed(EditorCoordinator& coordinator, float value) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(
         SetPlatformerValueCommand{objectTypeId, PlatformerField::JumpSpeed, value});
@@ -243,7 +254,7 @@ EditorOperationResult setPlatformerJumpSpeed(EditorCoordinator& coordinator, flo
 EditorOperationResult setPlatformerGravity(EditorCoordinator& coordinator, float value) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
-        return EditorOperationResult::failure("No selected object type");
+        return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(
         SetPlatformerValueCommand{objectTypeId, PlatformerField::Gravity, value});

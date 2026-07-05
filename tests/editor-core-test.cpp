@@ -1941,7 +1941,9 @@ int main() {
         CHECK(!r.ok);                                  // (3) application-level rejection
         CHECK(!c.isPlaying());                         // (4) no PlaySession created
         CHECK(c.playSession() == nullptr);
-        CHECK(c.consumeInvalidations() == EditorInvalidation::None); // nothing invalidated
+        // The rejection is logged to the Console rather than silently dropped,
+        // which is itself an invalidation.
+        CHECK(c.consumeInvalidations() == EditorInvalidation::Console);
     }
 
     // -- (5) Creating the first scene invalidates the Toolbar ------------------
@@ -2160,6 +2162,27 @@ int main() {
         CHECK(c.consoleLog().size() == logBefore + 1);
         CHECK(c.consoleLog().back().level == ConsoleMessage::Level::Warning);
         CHECK(c.consumeInvalidations() == EditorInvalidation::Console);
+    }
+
+    // -- A rejected Intent is just as visible as a rejected Command: every
+    // apply(SomeIntent) overload funnels through finishIntent(), which logs a
+    // Console warning on failure. Unlike execute(), an Intent's return value
+    // is fire-and-forget at every UI call site, so this is the only place a
+    // rejected intent is ever surfaced. --
+    {
+        EditorCoordinator c{makeInheritedDoc()};
+        c.consumeInvalidations();
+        const std::size_t logBefore = c.consoleLog().size();
+
+        CHECK(!c.apply(SelectSceneIntent{"no-such-scene"}).ok);
+        CHECK(c.consoleLog().size() == logBefore + 1);
+        CHECK(c.consoleLog().back().level == ConsoleMessage::Level::Warning);
+        CHECK(c.consumeInvalidations() == EditorInvalidation::Console);
+
+        // A successful apply() logs nothing new.
+        const std::size_t logAfterFailure = c.consoleLog().size();
+        CHECK(c.apply(SelectSceneIntent{kSceneA}).ok);
+        CHECK(c.consoleLog().size() == logAfterFailure);
     }
 
     // -- Workspace intents remain allowed during Play and do not retarget Play -
@@ -3704,7 +3727,10 @@ int main() {
         CHECK(!c.apply(SetSceneGridCellSizeIntent{
             kSceneA, std::numeric_limits<float>::infinity()}).ok);
         CHECK(c.sceneView(kSceneA).gridCellSize == 48.0f);
-        CHECK(c.pendingInvalidations() == EditorInvalidation::None);
+        // Each rejected intent is still a real, user-visible failure (never
+        // silent) - it logs a Console warning, which is itself an invalidation.
+        CHECK(c.pendingInvalidations() == EditorInvalidation::Console);
+        c.consumeInvalidations();
 
         const EditorOperationResult same =
             c.apply(SetSceneGridCellSizeIntent{kSceneA, 48.0f});
@@ -4645,8 +4671,15 @@ int main() {
         CHECK(c.document().data().objectTypes.at("Hero").boxCollider2D.has_value());
 
         EditorCoordinator empty{makeInheritedDoc()};
+        // A rejected inspector_actions helper is not silent either: every one
+        // of these select-target-then-execute wrappers logs through the same
+        // fail() helper before returning, whether or not the caller (a UI
+        // action handler) happens to check the result.
+        const std::size_t logBefore = empty.consoleLog().size();
         CHECK(!addBoxCollider(empty).ok);
         CHECK(empty.undoSize() == 0);
+        CHECK(empty.consoleLog().size() == logBefore + 1);
+        CHECK(empty.consoleLog().back().level == ConsoleMessage::Level::Error);
     }
 
     // -- (6) Bounds projection updates every instance of the same object type -

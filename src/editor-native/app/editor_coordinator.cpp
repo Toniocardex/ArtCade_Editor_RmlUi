@@ -116,6 +116,7 @@ EditorOperationResult EditorCoordinator::undo() {
     }
 
     if (!history_.canUndo()) {
+        appendConsole(ConsoleMessage::Level::Warning, "Nothing to undo");
         return EditorOperationResult::failure("Nothing to undo");
     }
     // Same revision-based contract as executeOwned, applied to the inverse: a
@@ -152,6 +153,7 @@ EditorOperationResult EditorCoordinator::redo() {
     }
 
     if (!history_.canRedo()) {
+        appendConsole(ConsoleMessage::Level::Warning, "Nothing to redo");
         return EditorOperationResult::failure("Nothing to redo");
     }
     // Redo re-applies the same command with its already-captured values; it does
@@ -240,6 +242,8 @@ EditorInvalidation EditorCoordinator::reconcileWorkspace() {
 
 EditorOperationResult EditorCoordinator::replaceProject(ProjectDocument replacement) {
     if (isPlaying()) {
+        appendConsole(ConsoleMessage::Level::Warning,
+                      "Cannot replace project while Play is running");
         return EditorOperationResult::failure("Cannot replace project while Play is running");
     }
 
@@ -280,15 +284,20 @@ bool EditorCoordinator::canPlayCurrentScene() const {
 
 EditorOperationResult EditorCoordinator::playProject() {
     if (isPlaying()) {
+        appendConsole(ConsoleMessage::Level::Warning, "Already playing");
         return EditorOperationResult::failure("Already playing");
     }
     if (!canPlayProject()) {
+        appendConsole(ConsoleMessage::Level::Warning,
+                      "Cannot play project: no valid start scene");
         return EditorOperationResult::failure("Cannot play project: no valid start scene");
     }
     std::string error;
     std::optional<PlaySession> session = PlaySession::startProject(document_, &error);
     if (!session.has_value()) {
-        return EditorOperationResult::failure(error.empty() ? "Cannot start Play" : error);
+        const std::string message = error.empty() ? "Cannot start Play" : error;
+        appendConsole(ConsoleMessage::Level::Error, message);
+        return EditorOperationResult::failure(message);
     }
     playSession_.emplace(std::move(*session));
     state_.spriteAnimationEditor = SpriteAnimationEditorState{};
@@ -302,16 +311,21 @@ EditorOperationResult EditorCoordinator::playProject() {
 
 EditorOperationResult EditorCoordinator::playCurrentScene() {
     if (isPlaying()) {
+        appendConsole(ConsoleMessage::Level::Warning, "Already playing");
         return EditorOperationResult::failure("Already playing");
     }
     if (!canPlayCurrentScene()) {
+        appendConsole(ConsoleMessage::Level::Warning,
+                      "Cannot play current scene: no active scene");
         return EditorOperationResult::failure("Cannot play current scene: no active scene");
     }
     std::string error;
     std::optional<PlaySession> session =
         PlaySession::startActiveScene(document_, state_.activeSceneId, &error);
     if (!session.has_value()) {
-        return EditorOperationResult::failure(error.empty() ? "Cannot start Play" : error);
+        const std::string message = error.empty() ? "Cannot start Play" : error;
+        appendConsole(ConsoleMessage::Level::Error, message);
+        return EditorOperationResult::failure(message);
     }
     playSession_.emplace(std::move(*session));
     state_.spriteAnimationEditor = SpriteAnimationEditorState{};
@@ -325,6 +339,7 @@ EditorOperationResult EditorCoordinator::playCurrentScene() {
 
 EditorOperationResult EditorCoordinator::stopPlaying() {
     if (!isPlaying()) {
+        appendConsole(ConsoleMessage::Level::Warning, "Not playing");
         return EditorOperationResult::failure("Not playing");
     }
     playSession_.reset();   // RAII: back to the untouched authoring document
@@ -347,10 +362,14 @@ void EditorCoordinator::updateRuntime(const RuntimeInputSnapshot& input, float d
 // ----------------------------------------------------------------------------
 // Intent path — workspace state only; never the ProjectDocument, never undo.
 // ----------------------------------------------------------------------------
+EditorOperationResult EditorCoordinator::finishIntent(EditorOperationResult result) {
+    if (!result.ok) appendConsole(ConsoleMessage::Level::Warning, result.error);
+    return result;
+}
 EditorOperationResult EditorCoordinator::apply(const SelectEntityIntent& intent) {
     if (intent.entityId != INVALID_ENTITY
         && !document_.findInstanceInScene(state_.activeSceneId, intent.entityId)) {
-        return EditorOperationResult::failure("Unknown entity id in active scene");
+        return finishIntent(EditorOperationResult::failure("Unknown entity id in active scene"));
     }
     state_.selection.primaryEntity = intent.entityId;
     accumulate(kSelectionInvalidation);
@@ -359,7 +378,7 @@ EditorOperationResult EditorCoordinator::apply(const SelectEntityIntent& intent)
 
 EditorOperationResult EditorCoordinator::apply(const SelectSceneIntent& intent) {
     if (!document_.hasScene(intent.sceneId)) {
-        return EditorOperationResult::failure("Unknown scene id");
+        return finishIntent(EditorOperationResult::failure("Unknown scene id"));
     }
     // Editorial focus only — workspace state, not ProjectDocument.
     state_.activeSceneId = intent.sceneId;
@@ -378,7 +397,7 @@ EditorOperationResult EditorCoordinator::apply(const SetViewportZoomIntent& inte
     // — a click/scroll still reaches the coordinator regardless of how a
     // control is styled).
     if (!document_.hasScene(intent.sceneId)) {
-        return EditorOperationResult::failure("Unknown scene");
+        return finishIntent(EditorOperationResult::failure("Unknown scene"));
     }
     state_.sceneViews[intent.sceneId].zoom = clampZoom(intent.zoom);
     accumulate(EditorInvalidation::Viewport);
@@ -387,7 +406,7 @@ EditorOperationResult EditorCoordinator::apply(const SetViewportZoomIntent& inte
 
 EditorOperationResult EditorCoordinator::apply(const PanViewportIntent& intent) {
     if (!document_.hasScene(intent.sceneId)) {
-        return EditorOperationResult::failure("Unknown scene");
+        return finishIntent(EditorOperationResult::failure("Unknown scene"));
     }
     EditorSceneViewState& view = state_.sceneViews[intent.sceneId];
     view.pan.x += intent.delta.x;
@@ -401,7 +420,7 @@ EditorOperationResult EditorCoordinator::apply(const SetSceneGridVisibilityInten
     // between this and a nonexistent scene: without it, `sceneViews[id]`
     // would silently create workspace state for a scene that isn't real.
     if (!document_.hasScene(intent.sceneId)) {
-        return EditorOperationResult::failure("Unknown scene");
+        return finishIntent(EditorOperationResult::failure("Unknown scene"));
     }
     state_.sceneViews[intent.sceneId].gridVisible = intent.visible;
     const EditorInvalidation inv = EditorInvalidation::Viewport | EditorInvalidation::Toolbar;
@@ -411,7 +430,7 @@ EditorOperationResult EditorCoordinator::apply(const SetSceneGridVisibilityInten
 
 EditorOperationResult EditorCoordinator::apply(const SetSceneGridSnapEnabledIntent& intent) {
     if (!document_.hasScene(intent.sceneId)) {
-        return EditorOperationResult::failure("Unknown scene");
+        return finishIntent(EditorOperationResult::failure("Unknown scene"));
     }
     state_.sceneViews[intent.sceneId].gridSnapEnabled = intent.enabled;
     const EditorInvalidation inv = EditorInvalidation::Viewport | EditorInvalidation::Toolbar;
@@ -421,10 +440,11 @@ EditorOperationResult EditorCoordinator::apply(const SetSceneGridSnapEnabledInte
 
 EditorOperationResult EditorCoordinator::apply(const SetSceneGridCellSizeIntent& intent) {
     if (!document_.hasScene(intent.sceneId)) {
-        return EditorOperationResult::failure("Unknown scene");
+        return finishIntent(EditorOperationResult::failure("Unknown scene"));
     }
     if (!std::isfinite(intent.cellSize) || intent.cellSize <= 0.0f) {
-        return EditorOperationResult::failure("Grid cell size must be a positive number");
+        return finishIntent(
+            EditorOperationResult::failure("Grid cell size must be a positive number"));
     }
     EditorSceneViewState& view = state_.sceneViews[intent.sceneId];
     if (view.gridCellSize == intent.cellSize) {
@@ -440,7 +460,7 @@ EditorOperationResult EditorCoordinator::apply(const OpenSpriteAnimationEditorIn
     const SpriteAnimationAssetDef* asset =
         document_.findSpriteAnimationAsset(intent.assetId);
     if (!asset) {
-        return EditorOperationResult::failure("Unknown sprite animation asset");
+        return finishIntent(EditorOperationResult::failure("Unknown sprite animation asset"));
     }
     SpriteAnimationEditorState& editor = state_.spriteAnimationEditor;
     editor.openAssetId = intent.assetId;
@@ -483,7 +503,7 @@ EditorOperationResult EditorCoordinator::apply(const SelectAnimationClipIntent& 
     const SpriteAnimationAssetDef* asset =
         document_.findSpriteAnimationAsset(intent.assetId);
     if (!asset) {
-        return EditorOperationResult::failure("Unknown sprite animation asset");
+        return finishIntent(EditorOperationResult::failure("Unknown sprite animation asset"));
     }
     for (const SpriteAnimationClipDef& clip : asset->clips) {
         if (clip.id == intent.clipId) {
@@ -497,7 +517,7 @@ EditorOperationResult EditorCoordinator::apply(const SelectAnimationClipIntent& 
             return EditorOperationResult::success(EditorInvalidation::Viewport);
         }
     }
-    return EditorOperationResult::failure("Unknown animation clip");
+    return finishIntent(EditorOperationResult::failure("Unknown animation clip"));
 }
 
 EditorOperationResult EditorCoordinator::apply(
@@ -525,7 +545,7 @@ EditorOperationResult EditorCoordinator::apply(
 
 EditorOperationResult EditorCoordinator::apply(const SetSpriteSheetZoomIntent& intent) {
     if (!state_.spriteAnimationEditor.openAssetId) {
-        return EditorOperationResult::failure("Sprite Animation Editor is not open");
+        return finishIntent(EditorOperationResult::failure("Sprite Animation Editor is not open"));
     }
     state_.spriteAnimationEditor.sheetZoom = clampSheetZoom(intent.zoom);
     accumulate(EditorInvalidation::Viewport);
@@ -534,7 +554,7 @@ EditorOperationResult EditorCoordinator::apply(const SetSpriteSheetZoomIntent& i
 
 EditorOperationResult EditorCoordinator::apply(const PanSpriteSheetIntent& intent) {
     if (!state_.spriteAnimationEditor.openAssetId) {
-        return EditorOperationResult::failure("Sprite Animation Editor is not open");
+        return finishIntent(EditorOperationResult::failure("Sprite Animation Editor is not open"));
     }
     SpriteAnimationEditorState& editor = state_.spriteAnimationEditor;
     editor.sheetPan.x += intent.delta.x;
@@ -546,7 +566,7 @@ EditorOperationResult EditorCoordinator::apply(const PanSpriteSheetIntent& inten
 EditorOperationResult EditorCoordinator::apply(const SetAnimationPreviewPlayingIntent& intent) {
     SpriteAnimationEditorState& editor = state_.spriteAnimationEditor;
     if (!editor.openAssetId || !editor.selectedClipId) {
-        return EditorOperationResult::failure("No animation clip selected");
+        return finishIntent(EditorOperationResult::failure("No animation clip selected"));
     }
     editor.previewPlaying = intent.playing;
     if (intent.playing) {
@@ -571,7 +591,7 @@ EditorOperationResult EditorCoordinator::apply(const SetAnimationPreviewPlayingI
 EditorOperationResult EditorCoordinator::apply(const SetAnimationPreviewFrameIntent& intent) {
     SpriteAnimationEditorState& editor = state_.spriteAnimationEditor;
     if (!editor.openAssetId || !editor.selectedClipId) {
-        return EditorOperationResult::failure("No animation clip selected");
+        return finishIntent(EditorOperationResult::failure("No animation clip selected"));
     }
     const SpriteAnimationAssetDef* asset =
         document_.findSpriteAnimationAsset(*editor.openAssetId);
@@ -582,7 +602,7 @@ EditorOperationResult EditorCoordinator::apply(const SetAnimationPreviewFrameInt
         }
     }
     if (!clip || clip->frames.empty()) {
-        return EditorOperationResult::failure("Clip has no frames to scrub");
+        return finishIntent(EditorOperationResult::failure("Clip has no frames to scrub"));
     }
     editor.previewPlaying = false;
     editor.previewFrameIndex = std::min(intent.frameIndex, clip->frames.size() - 1);
@@ -594,7 +614,7 @@ EditorOperationResult EditorCoordinator::apply(const SetAnimationPreviewFrameInt
 EditorOperationResult EditorCoordinator::apply(const StepAnimationPreviewIntent& intent) {
     SpriteAnimationEditorState& editor = state_.spriteAnimationEditor;
     if (!editor.openAssetId || !editor.selectedClipId) {
-        return EditorOperationResult::failure("No animation clip selected");
+        return finishIntent(EditorOperationResult::failure("No animation clip selected"));
     }
     const SpriteAnimationAssetDef* asset =
         document_.findSpriteAnimationAsset(*editor.openAssetId);
@@ -605,7 +625,7 @@ EditorOperationResult EditorCoordinator::apply(const StepAnimationPreviewIntent&
         }
     }
     if (!clip || clip->frames.empty()) {
-        return EditorOperationResult::failure("Clip has no frames to step");
+        return finishIntent(EditorOperationResult::failure("Clip has no frames to step"));
     }
     const std::size_t count = clip->frames.size();
     const std::size_t current = std::min(editor.previewFrameIndex, count - 1);
@@ -693,7 +713,7 @@ EditorOperationResult EditorCoordinator::apply(const SetConsoleShowErrorIntent& 
 
 EditorOperationResult EditorCoordinator::apply(const SetActiveLayerIntent& intent) {
     if (!document_.hasLayer(intent.sceneId, intent.layerId)) {
-        return EditorOperationResult::failure("Unknown layer id");
+        return finishIntent(EditorOperationResult::failure("Unknown layer id"));
     }
     state_.sceneViews[intent.sceneId].activeLayerId = intent.layerId;
     accumulate(EditorInvalidation::Inspector);
@@ -702,7 +722,7 @@ EditorOperationResult EditorCoordinator::apply(const SetActiveLayerIntent& inten
 
 EditorOperationResult EditorCoordinator::apply(const ToggleLayerEditorVisibilityIntent& intent) {
     if (!document_.hasLayer(intent.sceneId, intent.layerId)) {
-        return EditorOperationResult::failure("Unknown layer id");
+        return finishIntent(EditorOperationResult::failure("Unknown layer id"));
     }
     auto& hidden = state_.sceneViews[intent.sceneId].hiddenLayerIds;
     if (hidden.erase(intent.layerId) == 0) hidden.insert(intent.layerId);
