@@ -863,10 +863,10 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
     } else if (action == "set-sprite-asset") {
         setSpriteRendererAsset(coordinator_, arg);   // arg = assetId ("" clears)
     } else if (action == "set-sprite-animation") {
-        if (!coordinator_.isPlaying()
-            && setSpriteRendererAnimation(coordinator_, arg).ok) {
-            coordinator_.apply(OpenSpriteAnimationEditorIntent{arg});
-        }
+        // Assign-only: opening the editor for review already has its own
+        // dedicated action (open-sprite-animation, the Edit button), so this
+        // no longer pops the editor open as a side effect of picking a clip.
+        if (!coordinator_.isPlaying()) setSpriteRendererAnimation(coordinator_, arg);
     } else if (action == "commit-animator-speed") {
         const std::optional<float> parsed = parseNumberField(value);
         if (!parsed.has_value()) {

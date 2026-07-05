@@ -15,6 +15,7 @@
 #include <cmath>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace ArtCade::EditorNative {
 
@@ -47,6 +48,18 @@ std::string animationClipDisplayName(const EditorCoordinator& coordinator,
         }
     }
     return clipId;
+}
+
+// True once some clip in some Sprite Animation asset already sources this
+// image - i.e. the raw sheet has been turned into an animation, so offering
+// it again as a plain static Source is clutter, not a real choice.
+bool imageHasDerivedAnimation(const EditorCoordinator& coordinator, const AssetId& imageId) {
+    for (const SpriteAnimationAssetDef& asset : coordinator.document().data().spriteAnimationAssets) {
+        for (const SpriteAnimationClipDef& clip : asset.clips) {
+            if (clip.imageId == imageId) return true;
+        }
+    }
+    return false;
 }
 
 // An editable property row. Disabled (read-only) while Play freezes the document.
@@ -490,18 +503,36 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         }
         html += "<div class=\"asset-options\">";
         html += "<div class=\"" + opt + "\" data-action=\"set-sprite-asset\" data-arg=\"\">(none)</div>";
+
+        // An image already turned into an animation is dropped from the
+        // Images group (you almost always want the animation from then on) -
+        // unless it's the instance's current source, so the picker never
+        // hides what's actually assigned.
+        std::vector<const ImageAssetDef*> pickableImages;
         for (const ImageAssetDef& asset : coordinator.document().data().imageAssets) {
-            html += "<div class=\"" + opt;
-            if (sr.animationAssetId.empty() && asset.assetId == sr.imageAssetId) html += " selected";
-            html += "\" data-action=\"set-sprite-asset\" data-arg=\"" + escapeRml(asset.assetId)
-                  + "\">" + escapeRml(asset.assetId) + "</div>";
+            const bool isCurrent = sr.animationAssetId.empty() && asset.assetId == sr.imageAssetId;
+            if (isCurrent || !imageHasDerivedAnimation(coordinator, asset.assetId)) {
+                pickableImages.push_back(&asset);
+            }
         }
-        for (const SpriteAnimationAssetDef& asset :
-             coordinator.document().data().spriteAnimationAssets) {
-            html += "<div class=\"" + opt;
-            if (asset.id == sr.animationAssetId) html += " selected";
-            html += "\" data-action=\"set-sprite-animation\" data-arg=\"" + escapeRml(asset.id)
-                  + "\">" + escapeRml(asset.id) + "</div>";
+        if (!pickableImages.empty()) {
+            html += "<div class=\"asset-group-title\">Images</div>";
+            for (const ImageAssetDef* asset : pickableImages) {
+                html += "<div class=\"" + opt;
+                if (sr.animationAssetId.empty() && asset->assetId == sr.imageAssetId) html += " selected";
+                html += "\" data-action=\"set-sprite-asset\" data-arg=\"" + escapeRml(asset->assetId)
+                      + "\">" + escapeRml(asset->assetId) + "</div>";
+            }
+        }
+        const auto& animations = coordinator.document().data().spriteAnimationAssets;
+        if (!animations.empty()) {
+            html += "<div class=\"asset-group-title\">Animations</div>";
+            for (const SpriteAnimationAssetDef& asset : animations) {
+                html += "<div class=\"" + opt;
+                if (asset.id == sr.animationAssetId) html += " selected";
+                html += "\" data-action=\"set-sprite-animation\" data-arg=\"" + escapeRml(asset.id)
+                      + "\">" + escapeRml(asset.id) + "</div>";
+            }
         }
         html += "</div>";
         if (inst->spriteAnimator.has_value()) {
