@@ -30,11 +30,15 @@
 }
 .menu-item:hover { background-color: #222226; color: #d4d4d8; }
 
-/* -- File menu dropdown (open state is local visual state, hover-driven) ---- */
+/* -- File menu dropdown (open state is local visual state, hover-driven) ----
+   `top` overlaps the trigger by 1dp (menu-item is 22dp tall) rather than
+   sitting flush below it: any real gap is a dead zone the pointer can slip
+   through while moving from the label to the dropdown, dropping :hover and
+   snapping the menu shut before the cursor arrives. */
 .menu-dropdown {
     display: none;
     position: absolute;
-    top: 25dp;
+    top: 21dp;
     left: 0;
     z-index: 100;
     min-width: 168dp;
@@ -57,6 +61,14 @@
     transition: background-color 0.1s, color 0.1s;
 }
 .menu-entry:hover { background-color: #222226; color: #d4d4d8; }
+.menu-entry.active { color: #7aa2e8; }
+.menu-entry.disabled { color: #3f3f46; }
+.menu-entry.disabled:hover { background-color: transparent; color: #3f3f46; }
+.menu-separator {
+    height: 1px;
+    margin: 4dp 6dp;
+    background-color: #323236;
+}
 
 /* -- Toolbar buttons — flat ------------------------------------------------ */
 .tool-btn {
@@ -154,10 +166,11 @@
     min-width: 58dp;
     padding: 0 12dp;
 }
+/* top overlaps the 28dp trigger by 1dp — see .menu-dropdown for why. */
 .grid-size-popover {
     display: none;
     position: absolute;
-    top: 34dp;
+    top: 27dp;
     left: 4dp;
     z-index: 120;
     width: 154dp;
@@ -241,10 +254,11 @@
     display: inline-block;
     position: relative;
 }
+/* top overlaps the 24dp trigger by 1dp — see .menu-dropdown for why. */
 .create-dropdown {
     display: none;
     position: absolute;
-    top: 25dp;
+    top: 23dp;
     left: 0;
     z-index: 120;
     min-width: 168dp;
@@ -254,8 +268,6 @@
     border-radius: 6dp;
 }
 .create-menu:hover .create-dropdown { display: block; }
-.menu-entry.disabled { color: #3f3f46; }
-.menu-entry.disabled:hover { background-color: transparent; color: #3f3f46; }
 
 /* Per-row menu affordance on scene tabs and tree rows. Glyph is a Tabler icon
    (caret-down), not raw Unicode — Inter's Latin-only subset has no arrow glyphs. */
@@ -466,30 +478,34 @@
 .layer-remove:hover { background-color: #2a1f20; color: #e5706b; }
 
 /* -- Scene tabs — flat ----------------------------------------------------- */
+/* A distinct background (not the bare panel colour) reads as its own toolbar
+   strip rather than blending into the rest of the Hierarchy (UX feedback: the
+   scene switcher was easy to miss). */
 .scene-tabs {
     display: flex;
     flex-direction: row;
     flex-wrap: wrap;
-    padding: 8dp 8dp 4dp 10dp;
-    background-color: #18181b;
+    padding: 6dp 8dp 8dp 10dp;
+    background-color: #1c1c1f;
     border-bottom: 1px #27272a;
 }
 .tab {
     display: inline-block;
-    height: 26dp;
-    line-height: 26dp;
+    height: 28dp;
+    line-height: 28dp;
     text-align: center;
-    padding: 0 12dp;
+    padding: 0 14dp;
     margin: 0 5dp 5dp 0;
     border-radius: 3dp;
+    border: 1px #27272a;
     color: #c4c4c8;
-    background-color: transparent;
-    font-size: 11dp;
+    background-color: #18181b;
+    font-size: 12dp;
     font-weight: 500;
-    transition: background-color 0.1s, color 0.1s;
+    transition: background-color 0.1s, border-color 0.1s, color 0.1s;
 }
-.tab:hover  { background-color: #222226; color: #d4d4d8; }
-.tab.active { color: #d4d4d8; background-color: #3b82f626; }
+.tab:hover  { background-color: #222226; border-color: #323236; color: #d4d4d8; }
+.tab.active { color: #d4d4d8; background-color: #3b82f626; border-color: #3b82f6; }
 
 /* -- Hierarchy tree — flat rows, accent-tint selection + left bar ---------- */
 .tree {

@@ -69,6 +69,9 @@ body {
     background-color: #161619;
     border-top: 1px #27272a;
 }
+/* .hidden alone can't win here: #console's own display:flex is an ID rule and
+   outranks a plain class by specificity, so the override needs the ID too. */
+#console.hidden { display: none; }
 
 /* Splitters — slim, light up to accent on hover/drag. */
 .vsplit {

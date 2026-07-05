@@ -18,8 +18,29 @@
                 <div class="menu-entry" data-action="save-project-as"><span class="icon">&#xeae0;</span>Save As</div>
             </div>
         </div>
-        <span class="menu-item">Edit</span>
-        <span class="menu-item">View</span>
+        <div class="menu-item has-menu">
+            <span class="menu-label">Edit</span>
+            <div class="menu-dropdown">
+                <div id="menu-undo" class="menu-entry" data-action="undo"><span class="icon">&#xeb77;</span>Undo</div>
+                <div id="menu-redo" class="menu-entry" data-action="redo"><span class="icon">&#xeb13;</span>Redo</div>
+                <div class="menu-separator"></div>
+                <div id="menu-delete-entity" class="menu-entry" data-action="delete-entity"><span class="icon">&#xeb41;</span>Delete Entity</div>
+            </div>
+        </div>
+        <div class="menu-item has-menu">
+            <span class="menu-label">View</span>
+            <div class="menu-dropdown">
+                <div class="menu-entry" data-action="zoom-in"><span class="icon">&#xeb56;</span>Zoom In</div>
+                <div class="menu-entry" data-action="zoom-out"><span class="icon">&#xeb57;</span>Zoom Out</div>
+                <div class="menu-entry" data-action="reset-zoom">Reset Zoom to 100%</div>
+                <div id="menu-fit-view" class="menu-entry" data-action="fit-view-to-bounds"><span class="icon">&#xf22f;</span>Fit View to Bounds</div>
+                <div class="menu-separator"></div>
+                <div id="menu-grid-visible" class="menu-entry" data-action="toggle-grid-visible"><span class="icon">&#xea3b;</span>Show Grid</div>
+                <div id="menu-grid-snap" class="menu-entry" data-action="toggle-grid-snap"><span class="icon">&#xeae3;</span>Snap to Grid</div>
+                <div class="menu-separator"></div>
+                <div class="menu-entry" data-action="toggle-console"><span class="icon">&#xebdc;</span>Toggle Console</div>
+            </div>
+        </div>
     </div>
 
     <div id="toolbar">
@@ -57,6 +78,7 @@
     <div id="workspace">
         <div id="left-col" class="panel">
             <div class="panel-header"><span class="icon">&#xee9e;</span>HIERARCHY</div>
+            <div class="tree-section">Scenes</div>
             <div id="scene-tabs" class="scene-tabs"></div>
             <div class="panel-actions">
                 <div class="create-menu">

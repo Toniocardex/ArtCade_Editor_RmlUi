@@ -122,6 +122,8 @@ private:
     void updateZoomReadout();   // toolbar zoom %, refreshed on Viewport invalidation
     void commitGridCellSize(const std::string& text);
     void showPendingHierarchyMenu();   // consumes the deferred menu request
+    // Applies EditorUiState.consoleVisible to the actual panel (Layout invalidation).
+    void refreshLayout();
 
     EditorCoordinator&                  coordinator_;
     Rml::ElementDocument*               document_;

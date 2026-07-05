@@ -111,7 +111,14 @@ EditorOperationResult addScene(EditorCoordinator& coordinator) {
     const SceneId id = makeUniqueSceneId(coordinator.document());
     // Display name mirrors the id's ordinal: "scene-3" -> "Scene 3".
     const std::string name = "Scene " + id.substr(std::string("scene-").size());
-    return coordinator.execute(CreateSceneCommand{id, name});
+    const EditorOperationResult result = coordinator.execute(CreateSceneCommand{id, name});
+    // "Create Scene" means create-and-open: the command only ever touches
+    // ProjectDocument (never the workspace), so without this the new scene sits
+    // in the Hierarchy tab list while the viewport/Inspector keep showing
+    // whatever was active before (or the empty state, if this was the first
+    // scene) until the user clicks its tab.
+    if (result.ok) coordinator.apply(SelectSceneIntent{id});
+    return result;
 }
 
 EditorOperationResult deleteScene(EditorCoordinator& coordinator, const SceneId& sceneId) {

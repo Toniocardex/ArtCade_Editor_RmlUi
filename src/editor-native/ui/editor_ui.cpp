@@ -276,7 +276,7 @@ void EditorUi::bind() {
     coordinator_.consumeInvalidations();
     applyInvalidations(EditorInvalidation::Hierarchy | EditorInvalidation::Inspector
                        | EditorInvalidation::Console  | EditorInvalidation::Toolbar
-                       | EditorInvalidation::Assets);
+                       | EditorInvalidation::Assets   | EditorInvalidation::Layout);
     updateZoomReadout();   // initial paint (zoom % is Viewport-driven, not in the set)
 }
 
@@ -308,6 +308,17 @@ void EditorUi::applyInvalidations(EditorInvalidation flags) {
         refreshToolbar();
     if (has(flags, EditorInvalidation::Viewport))
         updateZoomReadout();
+    if (has(flags, EditorInvalidation::Layout))
+        refreshLayout();
+}
+
+void EditorUi::refreshLayout() {
+    if (!document_) return;
+    const bool consoleVisible = coordinator_.uiState().consoleVisible;
+    if (Rml::Element* console = document_->GetElementById("console"))
+        console->SetClass("hidden", !consoleVisible);
+    if (Rml::Element* splitter = document_->GetElementById("split-console"))
+        splitter->SetClass("hidden", !consoleVisible);
 }
 
 void EditorUi::refreshSpriteAnimationEditor() {
@@ -715,11 +726,18 @@ void EditorUi::refreshToolbar() {
     setEnabled("btn-grid-visible", !playing);
     setEnabled("btn-grid-snap",    !playing);
     setEnabled("btn-grid-size",    !playing);
+    // Edit menu mirrors the same toolbar affordances (single canonical action,
+    // two entry points).
+    setEnabled("menu-undo", !playing && coordinator_.canUndo());
+    setEnabled("menu-redo", !playing && coordinator_.canRedo());
+    setEnabled("menu-delete-entity",
+              !playing && coordinator_.selection().primaryEntity != INVALID_ENTITY);
 
     const bool hasScene = coordinator_.document().findScene(
         coordinator_.state().activeSceneId) != nullptr;
     // Fit is a workspace camera action; it needs a scene surface to frame.
-    setEnabled("btn-fit-view", !playing && hasScene);
+    setEnabled("btn-fit-view",  !playing && hasScene);
+    setEnabled("menu-fit-view", !playing && hasScene);
 
     // Central Scene View empty state: shown only when no scene exists to edit.
     if (Rml::Element* empty = document_->GetElementById("viewport-empty")) {
@@ -733,6 +751,12 @@ void EditorUi::refreshToolbar() {
     if (Rml::Element* el = document_->GetElementById("btn-grid-visible"))
         el->SetClass("active", view.gridVisible && !playing);
     if (Rml::Element* el = document_->GetElementById("btn-grid-snap"))
+        el->SetClass("active", view.gridSnapEnabled && !playing);
+    setEnabled("menu-grid-visible", !playing);
+    setEnabled("menu-grid-snap",    !playing);
+    if (Rml::Element* el = document_->GetElementById("menu-grid-visible"))
+        el->SetClass("active", view.gridVisible && !playing);
+    if (Rml::Element* el = document_->GetElementById("menu-grid-snap"))
         el->SetClass("active", view.gridSnapEnabled && !playing);
     const std::string cellSize = compactNumber(view.gridCellSize);
     if (Rml::Element* el = document_->GetElementById("btn-grid-size"))
@@ -1235,6 +1259,8 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         copySelectedConsoleMessage();
     } else if (action == "clear-console") {
         coordinator_.clearConsole();
+    } else if (action == "toggle-console") {
+        coordinator_.apply(ToggleConsoleIntent{});
     } else if (action == "toggle-console-info") {
         coordinator_.apply(SetConsoleShowInfoIntent{!coordinator_.uiState().consoleShowInfo});
     } else if (action == "toggle-console-warning") {

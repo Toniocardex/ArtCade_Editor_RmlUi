@@ -1856,14 +1856,14 @@ int main() {
         CHECK(c.undoSize() == undoBefore);
     }
 
-    // -- (8) Add Scene does not directly change EditorState --------------------
+    // -- (8) Add Scene opens the new scene (create-and-open), via an Intent, not
+    // by the command reaching into EditorState itself --------------------------
     {
         EditorCoordinator c{makeDoc()};
-        const SceneId activeBefore = c.state().activeSceneId;
-        const SceneId expectedId   = makeUniqueSceneId(c.document());   // "scene-1"
+        const SceneId expectedId = makeUniqueSceneId(c.document());   // "scene-1"
         const auto r = addScene(c);
         CHECK(r.ok);
-        CHECK(c.state().activeSceneId == activeBefore);   // active scene unchanged
+        CHECK(c.state().activeSceneId == expectedId);      // new scene is now open
         CHECK(!c.state().selection.hasEntity());
         CHECK(c.document().hasScene(expectedId));          // the new scene now exists
     }
@@ -1918,8 +1918,9 @@ int main() {
         EditorCoordinator c{makeDoc()};
         const uint32_t replacesBefore = c.document().replaceCount();
         CHECK(addScene(c).ok);
-        CHECK(addEntity(c).ok);
-        c.apply(SelectEntityIntent{nextAvailableEntityId(c.document(), kSceneA) - 1});
+        const SceneId newScene = c.state().activeSceneId;   // addScene opens what it created
+        CHECK(addEntity(c).ok);                             // lands in the new scene
+        c.apply(SelectEntityIntent{nextAvailableEntityId(c.document(), newScene) - 1});
         CHECK(deleteSelectedEntity(c).ok);
         CHECK(deleteScene(c, kSceneB).ok);
         CHECK(c.document().replaceCount() == replacesBefore);   // Patch, never Replace
