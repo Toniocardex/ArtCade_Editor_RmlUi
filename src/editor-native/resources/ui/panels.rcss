@@ -28,7 +28,7 @@
     background-color: transparent;
     border: 1px #323236;
     border-radius: 3dp;
-    color: #a1a1aa;
+    color: #c4c4c8;
     font-size: 11dp;
     font-weight: 500;
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
@@ -43,7 +43,7 @@
 .assets-empty {
     display: block;
     padding: 6dp 4dp;
-    color: #52525b;
+    color: #6b7280;
     font-size: 11dp;
 }
 .asset-row {
@@ -70,6 +70,72 @@
     font-weight: 600;
     letter-spacing: 0.5dp;
 }
+/* Item count beside a category title. */
+.asset-count {
+    margin-left: 6dp;
+    padding: 0 5dp;
+    border-radius: 3dp;
+    background-color: #1c1c1f;
+    color: #8a8a93;
+    font-size: 9dp;
+    font-weight: 600;
+}
+/* The unified Import dropdown sits above the categories. */
+.asset-import { margin: 2dp 0 6dp 0; }
+
+/* Scene View empty state — centred guidance instead of a bare corner note.
+   Sits over the transparent viewport (raylib backdrop behind). */
+.viewport-empty {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.viewport-empty-box { display: block; text-align: center; }
+.viewport-empty-title {
+    display: block;
+    font-size: 17dp;
+    font-weight: 600;
+    color: #d4d4d8;
+    margin-bottom: 7dp;
+}
+.viewport-empty-sub {
+    display: block;
+    font-size: 12dp;
+    color: #8a8a93;
+    margin-bottom: 18dp;
+}
+.viewport-empty-btn {
+    display: inline-block;
+    height: 32dp;
+    line-height: 32dp;
+    padding: 0 20dp;
+    background-color: #3b82f6;
+    border: 1px #3b82f6;
+    border-radius: 4dp;
+    color: #ffffff;
+    font-size: 13dp;
+    font-weight: 600;
+    transition: background-color 0.1s, border-color 0.1s;
+}
+.viewport-empty-btn:hover { background-color: #2f74e6; border-color: #2f74e6; }
+
+/* Console error/warning tally in the header: reads the log's health without
+   opening it. Counts light up only when non-zero. */
+.console-counts {
+    margin-left: 12dp;
+    font-size: 10dp;
+    font-weight: 500;
+    letter-spacing: 0.4dp;
+    text-transform: none;
+    color: #6b7280;
+}
+.console-counts .count-err  { color: #e5706b; font-weight: 600; }
+.console-counts .count-warn { color: #d8b44a; font-weight: 600; }
 
 /* Console */
 .console {
@@ -98,7 +164,7 @@
     padding: 0 14dp 14dp 14dp;
 }
 .inspector-empty {
-    color: #52525b;
+    color: #6b7280;
     padding: 14dp 0;
 }
 

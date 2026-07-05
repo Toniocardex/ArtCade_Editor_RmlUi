@@ -64,11 +64,11 @@ RuntimeSpriteAnimationAsset materializeSpriteAnimationAsset(
     const SpriteAnimationAssetDef& asset) {
     RuntimeSpriteAnimationAsset runtime;
     runtime.id = asset.id;
-    runtime.imageAssetId = asset.imageId;
     runtime.clips.reserve(asset.clips.size());
     for (const SpriteAnimationClipDef& clip : asset.clips) {
         runtime.clips.push_back(RuntimeSpriteAnimationClip{
             clip.id,
+            clip.imageId,
             clip.frames,
             clip.framesPerSecond,
             clip.playbackMode,
@@ -243,6 +243,21 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
                     if (error) *error = "Cannot start Play: initial animation clip is missing";
                     return std::nullopt;
                 }
+                // Preload every clip's sheet up front so a clip switch never does
+                // file I/O inside the game loop (each clip owns its own image).
+                for (const SpriteAnimationClipDef& c : animation->clips) {
+                    const ImageAssetDef* clipImage = findImageAsset(document, c.imageId);
+                    if (!clipImage) {
+                        if (error) {
+                            *error = "Cannot start Play: animation clip references missing image "
+                                   + c.imageId;
+                        }
+                        return std::nullopt;
+                    }
+                    session.assets_.imageAssets.emplace(
+                        clipImage->assetId,
+                        RuntimeImageAsset{clipImage->assetId, clipImage->sourcePath});
+                }
                 if (session.spriteAnimationAssets_.find(animation->id)
                     == session.spriteAnimationAssets_.end()) {
                     session.spriteAnimationAssets_.emplace(
@@ -254,6 +269,8 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
                 animator.playbackSpeed = instance.spriteAnimator->playbackSpeed;
                 animator.playing = instance.spriteAnimator->autoPlay && !clip->frames.empty();
                 animator.finished = false;
+                // The rendered image follows the active clip's own sheet.
+                entity.sprite->assetId = clip->imageId;
                 if (!clip->frames.empty()) {
                     entity.sprite->sourceRect = frameRect(clip->frames.front());
                     entity.sprite->hasSourceRect = true;
@@ -363,6 +380,9 @@ void PlaySession::advance(float dt) {
         }
         const std::size_t index =
             std::min(animator.currentFrameIndex, clip->frames.size() - 1);
+        // Texture follows the active clip's sheet (all clip images are preloaded),
+        // so a future clip switch changes both the region and the image with no I/O.
+        entity.sprite->assetId = clip->imageAssetId;
         entity.sprite->sourceRect = frameRect(clip->frames[index]);
         entity.sprite->hasSourceRect = true;
     }

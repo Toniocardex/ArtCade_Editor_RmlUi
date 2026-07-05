@@ -30,9 +30,10 @@
         <button id="btn-undo" class="tool-btn" data-action="undo"><span class="icon">&#xeb77;</span>Undo</button>
         <button id="btn-redo" class="tool-btn" data-action="redo"><span class="icon">&#xeb13;</span>Redo</button>
         <span class="tool-sep"></span>
-        <button class="tool-btn" data-action="zoom-out"><span class="icon">&#xeb57;</span>Zoom -</button>
-        <button class="tool-btn" data-action="zoom-in"><span class="icon">&#xeb56;</span>Zoom +</button>
-        <span id="toolbar-zoom" class="toolbar-zoom" data-action="reset-zoom">100%</span>
+        <button class="tool-btn tool-icon" data-action="zoom-out" title="Zoom Out"><span class="icon">&#xeb57;</span></button>
+        <span id="toolbar-zoom" class="toolbar-zoom" data-action="reset-zoom" title="Reset Zoom to 100%">100%</span>
+        <button class="tool-btn tool-icon" data-action="zoom-in" title="Zoom In"><span class="icon">&#xeb56;</span></button>
+        <button id="btn-fit-view" class="tool-btn" data-action="fit-view-to-bounds" title="Fit View to Bounds">Fit</button>
         <span class="tool-sep"></span>
         <button id="btn-grid-visible" class="tool-btn" data-action="toggle-grid-visible" title="Show Grid"><span class="icon">&#xedba;</span>Grid</button>
         <button id="btn-grid-snap" class="tool-btn" data-action="toggle-grid-snap" title="Snap to Grid"><span class="icon">&#xeae3;</span>Snap to Grid</button>
@@ -49,6 +50,7 @@
                 </div>
             </div>
         </div>
+        <span id="toolbar-coords" class="toolbar-coords"></span>
         <span id="toolbar-status" class="toolbar-status"></span>
     </div>
 
@@ -57,12 +59,14 @@
             <div class="panel-header"><span class="icon">&#xee9e;</span>HIERARCHY</div>
             <div id="scene-tabs" class="scene-tabs"></div>
             <div class="panel-actions">
-                <button id="btn-add-scene" class="panel-btn" data-action="add-scene"><span class="icon">&#xeb0b;</span>Scene</button>
-                <button id="btn-del-scene" class="panel-btn" data-action="delete-scene"><span class="icon">&#xeb41;</span>Scene</button>
-                <button id="btn-set-start" class="panel-btn" data-action="set-start-scene"><span class="icon">&#xeb2e;</span>Start</button>
-                <button id="btn-add-entity" class="panel-btn" data-action="add-entity"><span class="icon">&#xeb0b;</span>Entity</button>
-                <button id="btn-add-instance" class="panel-btn" data-action="add-instance"><span class="icon">&#xeb0b;</span>Instance</button>
-                <button id="btn-del-entity" class="panel-btn" data-action="delete-entity"><span class="icon">&#xeb41;</span>Entity</button>
+                <div class="create-menu">
+                    <button id="btn-create" class="panel-btn"><span class="icon">&#xeb0b;</span>Create &#x25be;</button>
+                    <div class="create-dropdown">
+                        <div id="create-scene-entry" class="menu-entry" data-action="add-scene">Create Scene</div>
+                        <div id="create-entity-entry" class="menu-entry" data-action="add-entity">Create Entity</div>
+                        <div id="create-instance-entry" class="menu-entry" data-action="add-instance">Create Instance</div>
+                    </div>
+                </div>
             </div>
             <div id="hierarchy-list" class="tree"></div>
             <div class="panel-header"><span class="icon">&#xeaad;</span>ASSETS</div>
@@ -71,7 +75,15 @@
 
         <div id="split-left" class="vsplit" data-action="resize-left"></div>
 
-        <div id="viewport"></div>
+        <div id="viewport">
+            <div id="viewport-empty" class="viewport-empty hidden">
+                <div class="viewport-empty-box">
+                    <div class="viewport-empty-title">No scene open</div>
+                    <div class="viewport-empty-sub">Create a scene to start building your game.</div>
+                    <button class="viewport-empty-btn" data-action="add-scene"><span class="icon">&#xeb0b;</span>Create Scene</button>
+                </div>
+            </div>
+        </div>
 
         <div id="split-right" class="vsplit" data-action="resize-right"></div>
 
@@ -84,13 +96,20 @@
     <div id="split-console" class="hsplit" data-action="resize-console"></div>
 
     <div id="console" class="panel">
-        <div class="panel-header"><span class="icon">&#xebdc;</span>CONSOLE<button id="btn-console-copy" class="header-btn disabled" data-action="copy-console">Copy</button></div>
+        <div class="panel-header"><span class="icon">&#xebdc;</span>CONSOLE<span id="console-counts" class="console-counts"></span><button id="btn-console-copy" class="header-btn disabled" data-action="copy-console">Copy</button></div>
         <div id="console-list" class="console"></div>
     </div>
 
     <div id="viewport-context-menu" class="context-menu hidden">
         <div class="context-entry" data-action="create-entity-here"><span class="icon">&#xeb0b;</span>Create Entity Here</div>
         <div id="ctx-create-instance" class="context-entry" data-action="create-instance-here"><span class="icon">&#xeb0b;</span>Create Instance Here</div>
+    </div>
+
+    <div id="hierarchy-context-menu" class="context-menu hidden">
+        <div id="hctx-set-start" class="context-entry" data-action="set-start-scene"><span class="icon">&#xeb2e;</span>Set as Start Scene</div>
+        <div id="hctx-del-scene" class="context-entry destructive" data-action="delete-scene"><span class="icon">&#xeb41;</span>Delete Scene</div>
+        <div id="hctx-add-instance" class="context-entry" data-action="add-instance"><span class="icon">&#xeb0b;</span>Create Instance</div>
+        <div id="hctx-del-entity" class="context-entry destructive" data-action="delete-entity"><span class="icon">&#xeb41;</span>Delete Entity</div>
     </div>
 </body>
 </rml>

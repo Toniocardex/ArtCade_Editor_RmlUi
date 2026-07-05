@@ -557,7 +557,7 @@ bool ProjectDocument::removeImageAsset(const AssetId& assetId) {
 }
 
 bool ProjectDocument::addSpriteAnimationAsset(SpriteAnimationAssetDef asset) {
-    if (asset.id.empty() || asset.imageId.empty() || hasSpriteAnimationAsset(asset.id)) {
+    if (asset.id.empty() || hasSpriteAnimationAsset(asset.id)) {
         return false;
     }
     doc_.spriteAnimationAssets.push_back(std::move(asset));
@@ -586,6 +586,8 @@ bool ProjectDocument::addAnimationClip(const AssetId& assetId,
             if (existing.id == clip.id || existing.name == clip.name) return false;
         }
         asset.clips.push_back(std::move(clip));
+        // The first clip becomes the asset's default (what entities play).
+        if (asset.clips.size() == 1) asset.defaultClipId = asset.clips.front().id;
         markDirty();
         return true;
     }
@@ -619,6 +621,11 @@ bool ProjectDocument::removeAnimationClip(const AssetId& assetId,
         for (auto it = asset.clips.begin(); it != asset.clips.end(); ++it) {
             if (it->id == clipId) {
                 asset.clips.erase(it);
+                // Keep the default pointing at a real clip (first remaining).
+                if (asset.defaultClipId == clipId) {
+                    asset.defaultClipId = asset.clips.empty()
+                        ? std::string() : asset.clips.front().id;
+                }
                 markDirty();
                 return true;
             }

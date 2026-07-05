@@ -40,11 +40,12 @@ void routeSpriteAnimationCanvasInput(
         coordinator.document().findSpriteAnimationAsset(*editorState.openAssetId);
     if (!asset) return;
 
+    const AssetId sheetId = editorSheetImageId(*asset, editorState.selectedClipId);
     SceneFrameSprite requestSprite;
-    requestSprite.assetId = asset->imageId;
+    requestSprite.assetId = sheetId;
     requestSprite.visible = true;
     textureCache.prepare({requestSprite}, requests);
-    const TextureResource* resource = textureCache.find(asset->imageId);
+    const TextureResource* resource = textureCache.find(sheetId);
     if (!resource || !resource->loaded) return;
 
     const float mouseX = static_cast<float>(GetMouseX());
@@ -96,12 +97,14 @@ void routeSpriteAnimationCanvasInput(
         return;
     }
 
-    const SpriteAnimationSliceGrid grid{
-        editorState.sliceFrameWidth,
-        editorState.sliceFrameHeight,
-        editorState.sliceMargin,
-        editorState.sliceSpacing,
-    };
+    // Same derived grid the overlay draws: cell size from the frame counts.
+    const std::optional<SpriteAnimationSliceGrid> derived =
+        spriteAnimationGridFromCellCounts(
+            resource->texture.width, resource->texture.height,
+            editorState.sliceColumns, editorState.sliceRows,
+            editorState.sliceMargin, editorState.sliceSpacing);
+    if (!derived) return;
+    const SpriteAnimationSliceGrid grid = *derived;
     const int cells =
         spriteAnimationSliceCellCount(resource->texture.width, resource->texture.height, grid);
     if (cells <= 0) return;
@@ -125,9 +128,10 @@ void routeSpriteAnimationCanvasInput(
         spriteAnimationFrameForCell(resource->texture.width, resource->texture.height, grid, cell);
     if (!frame) return;
 
-    std::vector<SpriteAnimationFrameDef> frames =
-        spriteAnimationFramesMatchingGrid(resource->texture.width, resource->texture.height,
-                                          grid, clip->frames);
+    // Toggle the clicked cell directly against the clip's own frames: append if
+    // absent, drop if already there. The clip's sequence is preserved; no stale
+    // frames from a previous grid are silently discarded.
+    std::vector<SpriteAnimationFrameDef> frames = clip->frames;
     const auto existing = std::find(frames.begin(), frames.end(), *frame);
     if (existing == frames.end()) frames.push_back(*frame);
     else frames.erase(existing);

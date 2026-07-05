@@ -8,6 +8,7 @@
 #include <raylib.h>
 
 #include <unordered_map>
+#include <vector>
 
 namespace ArtCade::EditorNative {
 
@@ -31,6 +32,16 @@ void renderSpriteAnimationClipPreview(
     const SpriteAnimationAssetDef& asset,
     const SpriteAnimationEditorState& editorState,
     const ViewportRect& previewRect,
+    TextureCache& textureCache,
+    const std::unordered_map<AssetId, TextureRequest>& requests);
+
+// Timeline thumbnails: draws each clip frame's texture region into the matching
+// per-chip thumb rect. thumbRects is parallel to clip.frames (index i -> frame
+// i); an invalid rect is skipped, so a chip not yet laid out just waits a frame.
+void renderSpriteAnimationTimelineThumbnails(
+    const SpriteAnimationAssetDef& asset,
+    const SpriteAnimationClipDef& clip,
+    const std::vector<ViewportRect>& thumbRects,
     TextureCache& textureCache,
     const std::unordered_map<AssetId, TextureRequest>& requests);
 

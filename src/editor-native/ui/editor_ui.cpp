@@ -114,33 +114,6 @@ const SpriteAnimationClipDef* selectedAnimationClip(const SpriteAnimationAssetDe
     return nullptr;
 }
 
-bool frameMatchesEditorGrid(const SpriteAnimationFrameDef& frame,
-                            const SpriteAnimationEditorState& state) {
-    if (frame.width != state.sliceFrameWidth || frame.height != state.sliceFrameHeight) {
-        return false;
-    }
-    if (frame.x < state.sliceMargin || frame.y < state.sliceMargin) return false;
-    const int stepX = state.sliceFrameWidth + state.sliceSpacing;
-    const int stepY = state.sliceFrameHeight + state.sliceSpacing;
-    if (stepX <= 0 || stepY <= 0) return false;
-    return (frame.x - state.sliceMargin) % stepX == 0
-        && (frame.y - state.sliceMargin) % stepY == 0;
-}
-
-std::vector<SpriteAnimationFrameDef> framesVisibleInEditorGrid(
-    const SpriteAnimationClipDef& clip,
-    const SpriteAnimationEditorState& state) {
-    std::vector<SpriteAnimationFrameDef> frames;
-    frames.reserve(clip.frames.size());
-    for (const SpriteAnimationFrameDef& frame : clip.frames) {
-        if (!frameMatchesEditorGrid(frame, state)) continue;
-        if (std::find(frames.begin(), frames.end(), frame) == frames.end()) {
-            frames.push_back(frame);
-        }
-    }
-    return frames;
-}
-
 std::string uniqueAnimationAssetId(const ProjectDocument& document, const AssetId& imageId) {
     std::string base = imageId.empty() ? "animation" : imageId;
     std::string id = base + ".anim";
@@ -210,6 +183,20 @@ public:
             }
         }
         if (action.empty()) return;
+
+        // Hierarchy context menu triggers carry the click position; the show is
+        // deferred to processFrame (see requestHierarchyContextMenu).
+        if (type == "click"
+            && (action == "open-scene-menu" || action == "open-entity-menu")) {
+            if (action == "open-entity-menu") ui_.handleAction("select-entity", arg, {});
+            ui_.requestHierarchyContextMenu(
+                action == "open-scene-menu" ? HierarchyMenuKind::Scene
+                                            : HierarchyMenuKind::Entity,
+                arg,
+                static_cast<int>(event.GetParameter<float>("mouse_x", 0.f)),
+                static_cast<int>(event.GetParameter<float>("mouse_y", 0.f)));
+            return;
+        }
 
         const bool isCommit = action.rfind("commit-", 0) == 0;
         const bool isResize = action.rfind("resize-", 0) == 0;
@@ -295,6 +282,13 @@ void EditorUi::bind() {
 
 void EditorUi::processFrame() {
     applyInvalidations(coordinator_.consumeInvalidations());
+    // Deferred hierarchy context menu: shown here, after the application's
+    // outside-click check for this frame has already run.
+    showPendingHierarchyMenu();
+    // The preview playhead advances without invalidation (workspace tick), so
+    // the timeline highlight and Play/Pause affordance follow it live here,
+    // class-only — never via a markup rebuild that would steal input focus.
+    updateSpriteAnimationPlayhead();
 }
 
 void EditorUi::applyInvalidations(EditorInvalidation flags) {
@@ -323,6 +317,7 @@ void EditorUi::refreshSpriteAnimationEditor() {
     const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
     if (!state.openAssetId) {
         animationDocument_->Hide();
+        spriteAnimationTimelineCount_ = 0;
         if (!spriteAnimationEditorMarkup_.empty()) {
             spriteAnimationEditorMarkup_.clear();
             panel->SetInnerRML("");
@@ -333,6 +328,7 @@ void EditorUi::refreshSpriteAnimationEditor() {
         coordinator_.document().findSpriteAnimationAsset(*state.openAssetId);
     if (!asset) {
         animationDocument_->Hide();
+        spriteAnimationTimelineCount_ = 0;
         if (!spriteAnimationEditorMarkup_.empty()) {
             spriteAnimationEditorMarkup_.clear();
             panel->SetInnerRML("");
@@ -343,72 +339,106 @@ void EditorUi::refreshSpriteAnimationEditor() {
     animationDocument_->Show();
     animationDocument_->PullToFront();
     const SpriteAnimationClipDef* selected = selectedAnimationClip(*asset, state);
-    const std::vector<SpriteAnimationFrameDef> visibleFrames =
-        selected ? framesVisibleInEditorGrid(*selected, state)
-                 : std::vector<SpriteAnimationFrameDef>{};
-    const bool useVisibleFrames = selected && !visibleFrames.empty();
-    const std::size_t displayedFrameCount =
-        selected ? (useVisibleFrames ? visibleFrames.size() : selected->frames.size()) : 0;
+    // The clip's frames are the sequence, shown 1:1 in the timeline.
+    const std::size_t displayedFrameCount = selected ? selected->frames.size() : 0;
     std::string html;
     html += "<div class=\"anim-editor-shell\">";
-    html += "<div class=\"anim-editor-title\"><span>Sprite Animation Editor - "
-          + escapeRml(asset->name) + "</span>"
-          + "<button class=\"panel-btn\" data-action=\"close-sprite-animation\">Close</button></div>";
+    html += "<div class=\"anim-editor-title\">"
+            "<span class=\"anim-editor-eyebrow\">Sprite Animation Editor</span>"
+            "<span class=\"anim-editor-name\">" + escapeRml(asset->name) + "</span>"
+            "<button class=\"panel-btn\" data-action=\"close-sprite-animation\">Close</button></div>";
     html += "<div class=\"anim-editor-main\">";
-    html += "<div class=\"anim-clips\"><div class=\"anim-section-title\">Clips</div>";
+
+    // -- Left column: Animations (asset switcher) over Clips ------------------
+    // The editor edits one animation asset at a time; this list shows every
+    // animation in the project so a new one (Import Sheet) is clearly an add, not
+    // a replace, and all of them stay reachable after a reload. Each row reuses
+    // the same open-sprite-animation entry point as the Assets panel.
+    html += "<div class=\"anim-clips\"><div class=\"anim-panel-title\">Animations</div>"
+            "<div class=\"anim-asset-list\">";
+    for (const SpriteAnimationAssetDef& a : coordinator_.document().data().spriteAnimationAssets) {
+        std::string cls = "anim-asset";
+        if (a.id == asset->id) cls += " selected";
+        html += "<div class=\"" + cls + "\" data-action=\"open-sprite-animation\" data-arg=\""
+              + escapeRml(a.id) + "\">"
+                "<span class=\"anim-asset-name\">" + escapeRml(a.name) + "</span>"
+                "<span class=\"anim-clip-count\">" + std::to_string(a.clips.size())
+              + "</span></div>";
+    }
+    html += "</div><button class=\"anim-import-sheet\" data-action=\"import-animation-sheet\""
+            " title=\"Import an image and start a new animation on it\">"
+            "<span class=\"icon\">&#xea7a;</span>Import Sheet</button>";
+
+    html += "<div class=\"anim-panel-title anim-section-gap\">Clips</div>"
+            "<div class=\"anim-clip-list\">";
     for (const SpriteAnimationClipDef& clip : asset->clips) {
         std::string cls = "anim-clip";
         if (state.selectedClipId && *state.selectedClipId == clip.id) cls += " selected";
         html += "<div class=\"" + cls + "\" data-action=\"select-animation-clip\" data-arg=\""
-              + escapeRml(asset->id + "|" + clip.id) + "\">" + escapeRml(clip.name) + "</div>";
+              + escapeRml(asset->id + "|" + clip.id) + "\">"
+                "<span class=\"anim-clip-name\">" + escapeRml(clip.name) + "</span>"
+                "<span class=\"anim-clip-count\">" + std::to_string(clip.frames.size())
+              + "</span></div>";
     }
-    if (asset->clips.empty()) html += "<div class=\"assets-empty\">No clips</div>";
-    html += "<button class=\"panel-btn\" data-action=\"add-animation-clip\" data-arg=\""
-          + escapeRml(asset->id) + "\"><span class=\"icon\">&#xeb0b;</span>Add Clip</button>";
-    html += "</div>";
+    if (asset->clips.empty()) html += "<div class=\"assets-empty\">No clips yet</div>";
+    html += "</div><button class=\"anim-add-clip\" data-action=\"add-animation-clip\""
+            " data-arg=\"" + escapeRml(asset->id)
+          + "\" title=\"Add another clip on this same sheet\">"
+            "<span class=\"icon\">&#xeb0b;</span>Add Clip</button></div>";
 
+    // -- Sheet column -----------------------------------------------------------
     html += "<div class=\"anim-sheet\"><div class=\"anim-sheet-head\">"
-            "<div class=\"anim-sheet-title-row\"><div class=\"anim-sheet-title-block\">"
-            "<div class=\"anim-section-title\">Sprite Sheet</div>"
-            "<div class=\"anim-sheet-hint\">" + escapeRml(asset->imageId)
-          + "  -  " + std::to_string(state.sliceFrameWidth) + "x"
-          + std::to_string(state.sliceFrameHeight) + "</div></div>"
+            "<div class=\"anim-panel-title\">Sprite Sheet</div>"
+            "<span class=\"anim-sheet-meta\">"
+          + escapeRml(editorSheetImageId(*asset, state.selectedClipId))
+          + "</span>"
             "<button class=\"panel-btn sheet-view-reset\" data-action=\"reset-sheet-view\""
             " title=\"Reset zoom and pan\">Reset View</button></div>"
             "<div class=\"anim-slice-controls\">"
-            "<div class=\"anim-tool-group atlas-grid\"><span class=\"anim-tool-label\">Atlas Grid</span>"
-            "<span>Cols</span><input type=\"text\" class=\"prop-input compact\""
+            "<div class=\"anim-tool-group\"><span class=\"anim-tool-label\">Frames</span>"
+            "<span class=\"anim-tool-field\">Cols</span><input type=\"text\" class=\"prop-input compact\""
             " data-action=\"commit-animation-columns\" value=\""
           + std::to_string(state.sliceColumns)
           + "\"/>"
-            "<span>Rows</span><input type=\"text\" class=\"prop-input compact\""
+            "<span class=\"anim-tool-field\">Rows</span><input type=\"text\" class=\"prop-input compact\""
             " data-action=\"commit-animation-rows\" value=\""
           + std::to_string(state.sliceRows)
-          + "\"/>"
-            "<button class=\"panel-btn primary slice-action\" data-action=\"slice-animation-grid\""
-            " title=\"Fill the selected clip from Cols x Rows\">Apply Grid</button></div>"
-            "<div class=\"anim-tool-group\"><span class=\"anim-tool-label\">Cell</span>"
-            "<span>W</span><input type=\"text\" class=\"prop-input compact\""
-            " data-action=\"commit-animation-frame-width\" value=\""
-          + std::to_string(state.sliceFrameWidth)
-          + "\"/>"
-            "<span>H</span><input type=\"text\" class=\"prop-input compact\""
-            " data-action=\"commit-animation-frame-height\" value=\""
-          + std::to_string(state.sliceFrameHeight)
           + "\"/></div>"
             "<div class=\"anim-tool-group\"><span class=\"anim-tool-label\">Gaps</span>"
-            "<span>Margin</span><input type=\"text\" class=\"prop-input compact\""
+            "<span class=\"anim-tool-field\">Margin</span><input type=\"text\" class=\"prop-input compact\""
             " data-action=\"commit-animation-margin\" value=\""
           + std::to_string(state.sliceMargin)
           + "\"/>"
-            "<span>Spacing</span><input type=\"text\" class=\"prop-input compact\""
+            "<span class=\"anim-tool-field\">Spacing</span><input type=\"text\" class=\"prop-input compact\""
             " data-action=\"commit-animation-spacing\" value=\""
           + std::to_string(state.sliceSpacing)
           + "\"/></div>"
-            "</div></div><div id=\"animation-sprite-canvas\""
-            " class=\"anim-sprite-canvas\"></div></div>";
+            "<button class=\"panel-btn primary slice-action\" data-action=\"slice-animation-grid\""
+            " title=\"Divide the sheet into Cols x Rows frames, in reading order\">"
+            "Slice into Frames</button>"
+            "</div>";
+    if (asset->clips.empty()) {
+        // Empty state sits where the user is looking (above the sheet), with
+        // the primary action inline; the sidebar Add Clip stays as secondary
+        // entry. Both converge on the same add-animation-clip action. In-flow
+        // on purpose: raylib paints the sheet after RmlUi, so an overlay inside
+        // the canvas rect would be drawn over.
+        html += "<div class=\"anim-canvas-empty\">"
+                "<div class=\"anim-canvas-empty-text\">"
+                "<div class=\"anim-canvas-empty-title\">Ready to slice</div>"
+                "<div class=\"anim-canvas-empty-hint\">Set how many frames the sheet holds"
+                " and click Slice into Frames - the clip is created for you.</div></div>"
+                "<button class=\"anim-canvas-empty-cta\" data-action=\"slice-animation-grid\""
+                " title=\"Create a clip and fill it from the grid in one step\">"
+                "Slice into Frames</button></div>";
+    }
+    html += "<div id=\"animation-sprite-canvas\" class=\"anim-sprite-canvas\"></div>"
+            "<div class=\"anim-sheet-footer\">Click a cell to add or remove it"
+            "&nbsp;&nbsp;&#183;&nbsp;&nbsp;Wheel to zoom"
+            "&nbsp;&nbsp;&#183;&nbsp;&nbsp;Middle mouse or Space + drag to pan</div></div>";
 
-    html += "<div class=\"anim-settings\"><div class=\"anim-section-title\">Clip Settings</div>";
+    // -- Clip settings column ----------------------------------------------------
+    html += "<div class=\"anim-settings\"><div class=\"anim-panel-title\">Clip Settings</div>";
     if (selected) {
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Name</span>"
                 "<input type=\"text\" class=\"prop-input\" data-action=\"commit-animation-clip-name\""
@@ -433,44 +463,88 @@ void EditorUi::refreshSpriteAnimationEditor() {
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Frames</span>"
                 "<span class=\"prop-readonly\">" + std::to_string(displayedFrameCount)
               + "</span></div>";
-        html += "<div class=\"anim-section-title anim-preview-title\">Preview</div>"
+        // Static markup on purpose: play state is reflected through the "active"
+        // class in updateSpriteAnimationPlayhead(), so a Once clip finishing
+        // mid-typing never triggers a SetInnerRML rebuild (focus steal).
+        html += "<div class=\"anim-panel-title anim-preview-title\">Preview</div>"
                 "<div id=\"animation-preview-canvas\" class=\"anim-preview-canvas\"></div>"
-                "<div class=\"anim-settings-actions\">";
-        // Static markup on purpose: the play state is reflected by the "active"
-        // class set below, so a Once clip finishing mid-typing never triggers a
-        // SetInnerRML rebuild (which would steal focus from Name/FPS inputs).
-        html += "<button id=\"anim-preview-toggle\" class=\"panel-btn anim-preview-toggle\""
-                " data-action=\"toggle-animation-preview\">"
+                "<div class=\"anim-transport\">"
+                "<button class=\"panel-btn\" data-action=\"step-animation-preview\""
+                " data-arg=\"-1\" title=\"Previous frame\"><span class=\"icon\">&#xed48;</span></button>"
+                "<button id=\"anim-preview-toggle\" class=\"panel-btn anim-preview-toggle\""
+                " data-action=\"toggle-animation-preview\" title=\"Play / Pause\">"
                 "<span class=\"icon preview-when-stopped\">&#xed46;</span>"
-                "<span class=\"icon preview-when-playing\">&#xed45;</span>"
-                "<span class=\"preview-when-stopped\">Play</span>"
-                "<span class=\"preview-when-playing\">Pause</span>"
-                "</button>";
-        html += "<button class=\"panel-btn\" data-action=\"remove-animation-clip\" data-arg=\""
+                "<span class=\"icon preview-when-playing\">&#xed45;</span></button>"
+                "<button class=\"panel-btn\" data-action=\"step-animation-preview\""
+                " data-arg=\"1\" title=\"Next frame\"><span class=\"icon\">&#xed49;</span></button>"
+                "</div>";
+        html += "<div class=\"anim-settings-spacer\"></div>"
+                "<button class=\"anim-remove-clip\" data-action=\"remove-animation-clip\" data-arg=\""
               + escapeRml(asset->id + "|" + selected->id)
-              + "\"><span class=\"icon\">&#xeb41;</span>Remove Clip</button></div>";
+              + "\"><span class=\"icon\">&#xeb41;</span>Remove Clip</button>";
     } else {
         html += "<div class=\"assets-empty\">Select or add a clip</div>";
     }
     html += "</div></div>";
 
-    html += "<div class=\"anim-timeline\"><div class=\"anim-section-title\">Timeline</div>";
+    // -- Timeline strip -----------------------------------------------------------
+    html += "<div class=\"anim-timeline\"><div class=\"anim-timeline-head\">"
+            "<div class=\"anim-panel-title\">Timeline</div>";
+    if (selected && displayedFrameCount > 0) {
+        html += "<span class=\"anim-timeline-readout\">"
+              + std::to_string(displayedFrameCount) + " frames &#183; "
+              + compactNumber(selected->framesPerSecond) + " fps</span>"
+                "<button class=\"panel-btn\" data-action=\"clear-animation-frames\" data-arg=\""
+              + escapeRml(asset->id + "|" + selected->id)
+              + "\" title=\"Remove every frame from the clip\">Clear</button>";
+    }
+    html += "</div><div class=\"anim-timeline-track\">";
     if (selected && displayedFrameCount > 0) {
         for (std::size_t i = 0; i < displayedFrameCount; ++i) {
-            html += "<span class=\"anim-frame\">Frame " + std::to_string(i + 1) + "</span>";
+            const std::string index = std::to_string(i);
+            // Head strip carries the order + remove (RmlUi, clickable); the thumb
+            // sub-div below is the rect raylib paints the frame image into, so the
+            // controls are never covered by the raylib overlay.
+            html += "<div id=\"anim-frame-chip-" + index + "\" class=\"anim-frame\""
+                    " data-action=\"set-animation-preview-frame\" data-arg=\"" + index
+                  + "\" title=\"Show this frame in the preview\">"
+                    "<div class=\"anim-frame-head\">"
+                    "<span class=\"anim-frame-order\">" + std::to_string(i + 1) + "</span>"
+                    "<span class=\"anim-frame-remove\" data-action=\"remove-animation-frame\""
+                    " data-arg=\"" + index + "\" title=\"Remove this frame\">&#xd7;</span>"
+                    "</div>"
+                    "<div id=\"anim-frame-thumb-" + index + "\" class=\"anim-frame-thumb\"></div>"
+                    "</div>";
         }
     } else {
-        html += "<span class=\"assets-empty\">No frames</span>";
+        html += "<span class=\"assets-empty\">No frames - set Cols x Rows and click"
+                " Slice into Frames, or click cells on the sheet</span>";
     }
-    html += "</div></div>";
+    html += "</div></div></div>";
     if (html != spriteAnimationEditorMarkup_) {
         spriteAnimationEditorMarkup_ = html;
         panel->SetInnerRML(html);
     }
-    // Play state lives outside the generated markup (see the toggle button):
-    // toggled here on the live element, never via a panel rebuild.
+    // Playhead highlight + play state live outside the generated markup; they are
+    // applied per frame in updateSpriteAnimationPlayhead() via classes only.
+    spriteAnimationTimelineCount_ = displayedFrameCount;
+}
+
+void EditorUi::updateSpriteAnimationPlayhead() {
+    if (!animationDocument_) return;
+    const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
+    if (!state.openAssetId) return;
     if (Rml::Element* toggle = animationDocument_->GetElementById("anim-preview-toggle")) {
         toggle->SetClass("active", state.previewPlaying);
+    }
+    if (spriteAnimationTimelineCount_ == 0) return;
+    const std::size_t current =
+        std::min(state.previewFrameIndex, spriteAnimationTimelineCount_ - 1);
+    for (std::size_t i = 0; i < spriteAnimationTimelineCount_; ++i) {
+        if (Rml::Element* chip = animationDocument_->GetElementById(
+                "anim-frame-chip-" + std::to_string(i))) {
+            chip->SetClass("current", i == current);
+        }
     }
 }
 
@@ -501,6 +575,10 @@ void EditorUi::setImportHandler(ImportAssetRequest importAsset) {
     importAssetRequest_ = std::move(importAsset);
 }
 
+void EditorUi::setImportImageForAnimationHandler(ImportImageRequest importImage) {
+    importImageForAnimationRequest_ = std::move(importImage);
+}
+
 void EditorUi::setFitViewHandler(WorkspaceRequest fitView) {
     fitViewRequest_ = std::move(fitView);
 }
@@ -522,6 +600,7 @@ void EditorUi::setEntityPlacementHandlers(EntityPlacementRequest addEntity,
 void EditorUi::showViewportContextMenu(int physicalX, int physicalY,
                                        bool canCreateInstance) {
     if (!document_) return;
+    hideContextMenus();   // only one context menu open at a time
     if (Rml::Element* menu = document_->GetElementById("viewport-context-menu")) {
         menu->SetProperty("left", std::to_string(physicalX) + "px");
         menu->SetProperty("top", std::to_string(physicalY) + "px");
@@ -533,31 +612,82 @@ void EditorUi::showViewportContextMenu(int physicalX, int physicalY,
     }
 }
 
-void EditorUi::hideViewportContextMenu() {
+void EditorUi::requestHierarchyContextMenu(HierarchyMenuKind kind, std::string targetId,
+                                           int physicalX, int physicalY) {
+    pendingHierarchyMenu_ = PendingHierarchyMenu{kind, std::move(targetId),
+                                                 physicalX, physicalY};
+}
+
+void EditorUi::showPendingHierarchyMenu() {
+    if (!pendingHierarchyMenu_ || !document_) {
+        pendingHierarchyMenu_.reset();
+        return;
+    }
+    const PendingHierarchyMenu request = *pendingHierarchyMenu_;
+    pendingHierarchyMenu_.reset();
+    // Every entry mutates the authoring document; while Play runs the menu has
+    // nothing to offer (the coordinator would reject the commands anyway).
+    if (coordinator_.isPlaying()) return;
+    Rml::Element* menu = document_->GetElementById("hierarchy-context-menu");
+    if (!menu) return;
+    hideContextMenus();
+
+    const bool sceneKind = request.kind == HierarchyMenuKind::Scene;
+    const bool alreadyStart =
+        sceneKind && coordinator_.document().startSceneId() == request.targetId;
+    const auto setEntry = [&](const char* id, bool shown) {
+        if (Rml::Element* entry = document_->GetElementById(id)) {
+            entry->SetClass("hidden", !shown);
+            entry->SetAttribute("data-arg", request.targetId);
+        }
+    };
+    setEntry("hctx-set-start",    sceneKind && !alreadyStart);
+    setEntry("hctx-del-scene",    sceneKind);
+    setEntry("hctx-add-instance", !sceneKind);
+    setEntry("hctx-del-entity",   !sceneKind);
+
+    menu->SetProperty("left", std::to_string(request.x) + "px");
+    menu->SetProperty("top",  std::to_string(request.y) + "px");
+    menu->SetClass("hidden", false);
+    hierarchyContextMenuVisible_ = true;
+}
+
+void EditorUi::hideContextMenus() {
     if (!document_) return;
     if (Rml::Element* menu = document_->GetElementById("viewport-context-menu")) {
         menu->SetClass("hidden", true);
     }
+    if (Rml::Element* menu = document_->GetElementById("hierarchy-context-menu")) {
+        menu->SetClass("hidden", true);
+    }
     viewportContextMenuVisible_ = false;
+    hierarchyContextMenuVisible_ = false;
 }
 
-bool EditorUi::isViewportContextMenuHit(int physicalX, int physicalY) const {
-    if (!document_ || !viewportContextMenuVisible_) return false;
-    Rml::Element* menu = document_->GetElementById("viewport-context-menu");
-    if (!menu) return false;
-    const Rml::Vector2f offset = menu->GetAbsoluteOffset();
-    const float left = offset.x;
-    const float top = offset.y;
-    const float right = left + menu->GetClientWidth();
-    const float bottom = top + menu->GetClientHeight();
-    const float x = static_cast<float>(physicalX);
-    const float y = static_cast<float>(physicalY);
-    return x >= left && x < right && y >= top && y < bottom;
+bool EditorUi::isContextMenuHit(int physicalX, int physicalY) const {
+    if (!document_) return false;
+    const auto hits = [&](const char* id, bool visible) {
+        if (!visible) return false;
+        Rml::Element* menu = document_->GetElementById(id);
+        if (!menu) return false;
+        const Rml::Vector2f offset = menu->GetAbsoluteOffset();
+        const float left = offset.x;
+        const float top = offset.y;
+        const float right = left + menu->GetClientWidth();
+        const float bottom = top + menu->GetClientHeight();
+        const float x = static_cast<float>(physicalX);
+        const float y = static_cast<float>(physicalY);
+        return x >= left && x < right && y >= top && y < bottom;
+    };
+    return hits("viewport-context-menu", viewportContextMenuVisible_)
+        || hits("hierarchy-context-menu", hierarchyContextMenuVisible_);
 }
 
 void EditorUi::refreshToolbar() {
     if (!document_) return;
     const bool playing = coordinator_.isPlaying();
+    // Entering Play freezes authoring: an open context menu must not linger.
+    if (playing) hideContextMenus();
 
     if (Rml::Element* status = document_->GetElementById("toolbar-status")) {
         std::string text;
@@ -585,6 +715,16 @@ void EditorUi::refreshToolbar() {
     setEnabled("btn-grid-visible", !playing);
     setEnabled("btn-grid-snap",    !playing);
     setEnabled("btn-grid-size",    !playing);
+
+    const bool hasScene = coordinator_.document().findScene(
+        coordinator_.state().activeSceneId) != nullptr;
+    // Fit is a workspace camera action; it needs a scene surface to frame.
+    setEnabled("btn-fit-view", !playing && hasScene);
+
+    // Central Scene View empty state: shown only when no scene exists to edit.
+    if (Rml::Element* empty = document_->GetElementById("viewport-empty")) {
+        empty->SetClass("hidden", hasScene || playing);
+    }
 
     const SceneId active = (playing && coordinator_.playSession())
         ? coordinator_.playSession()->sceneId()
@@ -621,6 +761,20 @@ void EditorUi::showEntityPositionPreview(EntityId entity, Vec2 position) {
     inspector_.showEntityPositionPreview(document_, coordinator_, entity, position);
 }
 
+void EditorUi::showPointerWorldPosition(const std::optional<Vec2>& worldPosition) {
+    if (!document_) return;
+    std::string text;
+    if (worldPosition) {
+        text = "X " + std::to_string(static_cast<long>(std::lround(worldPosition->x)))
+             + "  Y " + std::to_string(static_cast<long>(std::lround(worldPosition->y)));
+    }
+    if (text == pointerReadout_) return;   // per-frame call: write only on change
+    pointerReadout_ = text;
+    if (Rml::Element* el = document_->GetElementById("toolbar-coords")) {
+        el->SetInnerRML(escapeRml(text));
+    }
+}
+
 void EditorUi::commitGridCellSize(const std::string& text) {
     if (coordinator_.isPlaying()) return;
     const std::optional<float> parsed = parseNumberField(text);
@@ -654,11 +808,13 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         addScene(coordinator_);
     } else if (action == "delete-scene") {
         // No arg → the active scene; the coordinator reconciles the workspace.
+        hideContextMenus();
         deleteScene(coordinator_, arg.empty() ? coordinator_.state().activeSceneId : arg);
     } else if (action == "add-entity") {
         if (addEntityRequest_) addEntityRequest_();
         else addEntity(coordinator_);
     } else if (action == "add-instance") {
+        hideContextMenus();
         if (addInstanceRequest_) addInstanceRequest_();
         else addInstanceOfSelectedType(coordinator_);
     } else if (action == "select-layer") {
@@ -710,14 +866,16 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
             coordinator_.execute(
                 SetEntityLayerCommand{coordinator_.state().activeSceneId, selected, arg});
     } else if (action == "create-entity-here") {
-        hideViewportContextMenu();
+        hideContextMenus();
         if (createEntityHereRequest_) createEntityHereRequest_();
     } else if (action == "create-instance-here") {
-        hideViewportContextMenu();
+        hideContextMenus();
         if (createInstanceHereRequest_) createInstanceHereRequest_();
     } else if (action == "delete-entity") {
+        hideContextMenus();
         deleteSelectedEntity(coordinator_);
     } else if (action == "set-start-scene") {
+        hideContextMenus();
         setStartScene(coordinator_, arg.empty() ? coordinator_.state().activeSceneId : arg);
     } else if (action == "add-sprite-renderer") {
         addSpriteRenderer(coordinator_);
@@ -752,7 +910,13 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         if (!coordinator_.isPlaying() && coordinator_.document().hasImageAsset(arg)) {
             const std::string id = uniqueAnimationAssetId(coordinator_.document(), arg);
             const std::string name = id;
-            if (coordinator_.execute(AddSpriteAnimationAssetCommand{id, arg, name}).ok) {
+            if (coordinator_.execute(AddSpriteAnimationAssetCommand{id, name}).ok) {
+                // The asset is only a container: its first clip carries the sheet.
+                if (const SpriteAnimationAssetDef* asset =
+                        coordinator_.document().findSpriteAnimationAsset(id)) {
+                    coordinator_.execute(AddAnimationClipCommand{
+                        id, uniqueClipId(*asset), uniqueClipName(*asset), arg});
+                }
                 coordinator_.apply(OpenSpriteAnimationEditorIntent{id});
             }
         }
@@ -769,11 +933,31 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         const SpriteAnimationAssetDef* asset =
             coordinator_.document().findSpriteAnimationAsset(arg);
         if (asset) {
+            // The new clip inherits the sheet currently shown in the editor.
             const std::string clipId = uniqueClipId(*asset);
             if (coordinator_.execute(AddAnimationClipCommand{
-                    arg, clipId, uniqueClipName(*asset)}).ok) {
+                    arg, clipId, uniqueClipName(*asset),
+                    editorSheetImageId(*asset,
+                        coordinator_.state().spriteAnimationEditor.selectedClipId)}).ok) {
                 coordinator_.apply(SelectAnimationClipIntent{arg, clipId});
             }
+        }
+    } else if (action == "import-animation-sheet") {
+        // Import a sprite sheet without leaving the editor: the same importAsset
+        // pipeline the Assets panel uses returns the image id, then we start a new
+        // animation on it via the same path as create-sprite-animation and open
+        // it. A new asset with a first clip carrying the imported sheet.
+        if (coordinator_.isPlaying() || !importImageForAnimationRequest_) return;
+        const std::optional<AssetId> imageId = importImageForAnimationRequest_();
+        if (!imageId || !coordinator_.document().hasImageAsset(*imageId)) return;
+        const std::string id = uniqueAnimationAssetId(coordinator_.document(), *imageId);
+        if (coordinator_.execute(AddSpriteAnimationAssetCommand{id, id}).ok) {
+            if (const SpriteAnimationAssetDef* asset =
+                    coordinator_.document().findSpriteAnimationAsset(id)) {
+                coordinator_.execute(AddAnimationClipCommand{
+                    id, uniqueClipId(*asset), uniqueClipName(*asset), *imageId});
+            }
+            coordinator_.apply(OpenSpriteAnimationEditorIntent{id});
         }
     } else if (action == "commit-animation-clip-name") {
         const std::vector<std::string> parts = splitPipe(arg);
@@ -786,41 +970,90 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         if (parts.size() == 2 && parsed.has_value()) {
             coordinator_.execute(SetAnimationClipFrameRateCommand{parts[0], parts[1], *parsed});
         }
-    } else if (action == "commit-animation-frame-width"
-               || action == "commit-animation-frame-height"
+    } else if (action == "commit-animation-columns"
+               || action == "commit-animation-rows"
                || action == "commit-animation-margin"
                || action == "commit-animation-spacing") {
         const std::optional<float> parsed = parseNumberField(value);
         if (parsed.has_value()) {
             const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
-            SetAnimationSlicingIntent intent{
-                state.sliceFrameWidth,
-                state.sliceFrameHeight,
+            SetAnimationSliceGridIntent intent{
+                state.sliceColumns,
+                state.sliceRows,
                 state.sliceMargin,
                 state.sliceSpacing,
             };
             const int rounded = static_cast<int>(std::round(*parsed));
-            if (action == "commit-animation-frame-width") intent.frameWidth = rounded;
-            else if (action == "commit-animation-frame-height") intent.frameHeight = rounded;
+            if (action == "commit-animation-columns") intent.columns = rounded;
+            else if (action == "commit-animation-rows") intent.rows = rounded;
             else if (action == "commit-animation-margin") intent.margin = rounded;
             else intent.spacing = rounded;
             coordinator_.apply(intent);
         }
-    } else if (action == "commit-animation-columns" || action == "commit-animation-rows") {
-        const std::optional<float> parsed = parseNumberField(value);
-        if (parsed.has_value()) {
-            const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
-            SetAnimationSliceGridIntent intent{state.sliceColumns, state.sliceRows};
-            const int rounded = static_cast<int>(std::round(*parsed));
-            if (action == "commit-animation-columns") intent.columns = rounded;
-            else intent.rows = rounded;
-            coordinator_.apply(intent);
-        }
     } else if (action == "slice-animation-grid") {
+        // Slice always targets the OPEN animation. Create + select a fresh clip
+        // when the open asset has no clip matching the current selection - either
+        // no clip yet (fresh Import Sheet) or a selection left over from another
+        // animation. This makes the selected clip and the open asset always agree,
+        // so a slice can never land on a different animation. Re-slicing a clip
+        // that does belong to the open asset is unchanged (fills it in place).
+        const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
+        if (state.openAssetId) {
+            const SpriteAnimationAssetDef* asset =
+                coordinator_.document().findSpriteAnimationAsset(*state.openAssetId);
+            if (asset) {
+                const bool selectionBelongsToOpenAsset =
+                    state.selectedClipId
+                    && std::any_of(asset->clips.begin(), asset->clips.end(),
+                                   [&](const SpriteAnimationClipDef& clip) {
+                                       return clip.id == *state.selectedClipId;
+                                   });
+                if (!selectionBelongsToOpenAsset) {
+                    const std::string clipId = uniqueClipId(*asset);
+                    if (coordinator_.execute(AddAnimationClipCommand{
+                            *state.openAssetId, clipId, uniqueClipName(*asset),
+                            editorSheetImageId(*asset, state.selectedClipId)}).ok) {
+                        coordinator_.apply(SelectAnimationClipIntent{*state.openAssetId, clipId});
+                    }
+                }
+            }
+        }
         if (sliceAnimationRequest_) sliceAnimationRequest_();
     } else if (action == "toggle-animation-preview") {
         coordinator_.apply(SetAnimationPreviewPlayingIntent{
             !coordinator_.state().spriteAnimationEditor.previewPlaying});
+    } else if (action == "step-animation-preview") {
+        coordinator_.apply(StepAnimationPreviewIntent{arg == "-1" ? -1 : 1});
+    } else if (action == "set-animation-preview-frame") {
+        const std::optional<float> parsed = parseNumberField(arg);
+        if (parsed.has_value() && *parsed >= 0.f) {
+            coordinator_.apply(SetAnimationPreviewFrameIntent{
+                static_cast<std::size_t>(*parsed)});
+        }
+    } else if (action == "clear-animation-frames") {
+        const std::vector<std::string> parts = splitPipe(arg);
+        if (parts.size() == 2) {
+            coordinator_.execute(SetAnimationClipFramesCommand{parts[0], parts[1], {}});
+        }
+    } else if (action == "remove-animation-frame") {
+        // Removes the i-th timeline chip, which maps 1:1 to the clip's frames.
+        const std::optional<float> parsed = parseNumberField(arg);
+        const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
+        if (parsed.has_value() && *parsed >= 0.f && state.openAssetId) {
+            const SpriteAnimationAssetDef* asset =
+                coordinator_.document().findSpriteAnimationAsset(*state.openAssetId);
+            const SpriteAnimationClipDef* clip =
+                asset ? selectedAnimationClip(*asset, state) : nullptr;
+            if (clip) {
+                std::vector<SpriteAnimationFrameDef> frames = clip->frames;
+                const std::size_t index = static_cast<std::size_t>(*parsed);
+                if (index < frames.size()) {
+                    frames.erase(frames.begin() + static_cast<std::ptrdiff_t>(index));
+                    coordinator_.execute(SetAnimationClipFramesCommand{
+                        asset->id, clip->id, std::move(frames)});
+                }
+            }
+        }
     } else if (action == "reset-sheet-view") {
         const Vec2 pan = coordinator_.state().spriteAnimationEditor.sheetPan;
         coordinator_.apply(SetSpriteSheetZoomIntent{1.f});

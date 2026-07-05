@@ -429,6 +429,16 @@ EditorOperationResult EditorCoordinator::apply(const OpenSpriteAnimationEditorIn
                                })) {
         editor.selectedClipId = asset->clips.front().id;
     }
+    // Adopt the selected clip's frame count so the grid overlay matches an
+    // already-sliced clip on open (a single row of N frames is the common case).
+    if (editor.selectedClipId) {
+        for (const SpriteAnimationClipDef& clip : asset->clips) {
+            if (clip.id != *editor.selectedClipId || clip.frames.empty()) continue;
+            editor.sliceColumns = static_cast<int>(clip.frames.size());
+            editor.sliceRows = 1;
+            break;
+        }
+    }
     editor.selectedFrameIndex = 0;
     editor.previewPlaying = false;
     editor.previewElapsed = 0.f;
@@ -467,40 +477,24 @@ EditorOperationResult EditorCoordinator::apply(const SelectAnimationClipIntent& 
 }
 
 EditorOperationResult EditorCoordinator::apply(
-    const SetAnimationSlicingIntent& intent) {
+    const SetAnimationSliceGridIntent& intent) {
     SpriteAnimationEditorState& editor = state_.spriteAnimationEditor;
     const EditorInvalidation inv = EditorInvalidation::Viewport;
-    const int frameWidth = std::clamp(intent.frameWidth, 1, 4096);
-    const int frameHeight = std::clamp(intent.frameHeight, 1, 4096);
+    const int columns = std::clamp(intent.columns, 1, 4096);
+    const int rows = std::clamp(intent.rows, 1, 4096);
     const int margin = std::clamp(intent.margin, 0, 4096);
     const int spacing = std::clamp(intent.spacing, 0, 4096);
-    if (editor.sliceFrameWidth == frameWidth
-        && editor.sliceFrameHeight == frameHeight
+    if (editor.sliceColumns == columns
+        && editor.sliceRows == rows
         && editor.sliceMargin == margin
         && editor.sliceSpacing == spacing) {
         accumulate(inv);
         return EditorOperationResult::success(inv);
     }
-    editor.sliceFrameWidth = frameWidth;
-    editor.sliceFrameHeight = frameHeight;
-    editor.sliceMargin = margin;
-    editor.sliceSpacing = spacing;
-    accumulate(inv);
-    return EditorOperationResult::success(inv);
-}
-
-EditorOperationResult EditorCoordinator::apply(
-    const SetAnimationSliceGridIntent& intent) {
-    SpriteAnimationEditorState& editor = state_.spriteAnimationEditor;
-    const int columns = std::clamp(intent.columns, 1, 4096);
-    const int rows = std::clamp(intent.rows, 1, 4096);
-    const EditorInvalidation inv = EditorInvalidation::Viewport;
-    if (editor.sliceColumns == columns && editor.sliceRows == rows) {
-        accumulate(inv);
-        return EditorOperationResult::success(inv);
-    }
     editor.sliceColumns = columns;
     editor.sliceRows = rows;
+    editor.sliceMargin = margin;
+    editor.sliceSpacing = spacing;
     accumulate(inv);
     return EditorOperationResult::success(inv);
 }
@@ -546,6 +540,59 @@ EditorOperationResult EditorCoordinator::apply(const SetAnimationPreviewPlayingI
             editor.previewElapsed = 0.f;
         }
     }
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetAnimationPreviewFrameIntent& intent) {
+    SpriteAnimationEditorState& editor = state_.spriteAnimationEditor;
+    if (!editor.openAssetId || !editor.selectedClipId) {
+        return EditorOperationResult::failure("No animation clip selected");
+    }
+    const SpriteAnimationAssetDef* asset =
+        document_.findSpriteAnimationAsset(*editor.openAssetId);
+    const SpriteAnimationClipDef* clip = nullptr;
+    if (asset) {
+        for (const SpriteAnimationClipDef& candidate : asset->clips) {
+            if (candidate.id == *editor.selectedClipId) { clip = &candidate; break; }
+        }
+    }
+    if (!clip || clip->frames.empty()) {
+        return EditorOperationResult::failure("Clip has no frames to scrub");
+    }
+    editor.previewPlaying = false;
+    editor.previewFrameIndex = std::min(intent.frameIndex, clip->frames.size() - 1);
+    editor.previewElapsed = 0.f;
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(const StepAnimationPreviewIntent& intent) {
+    SpriteAnimationEditorState& editor = state_.spriteAnimationEditor;
+    if (!editor.openAssetId || !editor.selectedClipId) {
+        return EditorOperationResult::failure("No animation clip selected");
+    }
+    const SpriteAnimationAssetDef* asset =
+        document_.findSpriteAnimationAsset(*editor.openAssetId);
+    const SpriteAnimationClipDef* clip = nullptr;
+    if (asset) {
+        for (const SpriteAnimationClipDef& candidate : asset->clips) {
+            if (candidate.id == *editor.selectedClipId) { clip = &candidate; break; }
+        }
+    }
+    if (!clip || clip->frames.empty()) {
+        return EditorOperationResult::failure("Clip has no frames to step");
+    }
+    const std::size_t count = clip->frames.size();
+    const std::size_t current = std::min(editor.previewFrameIndex, count - 1);
+    // Euclidean wrap keeps any negative delta inside [0, count).
+    const long long stepped =
+        (static_cast<long long>(current) + intent.delta) % static_cast<long long>(count);
+    editor.previewPlaying = false;
+    editor.previewFrameIndex =
+        static_cast<std::size_t>(stepped < 0 ? stepped + static_cast<long long>(count)
+                                             : stepped);
+    editor.previewElapsed = 0.f;
     accumulate(EditorInvalidation::Viewport);
     return EditorOperationResult::success(EditorInvalidation::Viewport);
 }

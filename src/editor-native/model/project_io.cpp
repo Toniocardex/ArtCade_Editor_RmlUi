@@ -2,6 +2,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <optional>
@@ -12,7 +13,9 @@ namespace ArtCade::EditorNative {
 
 namespace {
 
-constexpr int kCurrentSchemaVersion = 1;
+// v2: sprite animation source moved from asset-level imageId to per-clip imageId
+// (each clip owns its sheet), plus asset defaultClipId.
+constexpr int kCurrentSchemaVersion = 2;
 
 nlohmann::json vec2ToJson(const Vec2& v) {
     return nlohmann::json{{"x", v.x}, {"y", v.y}};
@@ -340,6 +343,7 @@ nlohmann::json animationClipToJson(const SpriteAnimationClipDef& clip) {
     return nlohmann::json{
         {"id", clip.id},
         {"name", clip.name},
+        {"imageId", clip.imageId},
         {"frames", std::move(frames)},
         {"framesPerSecond", clip.framesPerSecond},
         {"playbackMode", playbackModeToString(clip.playbackMode)},
@@ -539,14 +543,20 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
             SpriteAnimationAssetDef asset;
             asset.id = readString(item, "id", "asset_id");
             asset.name = readString(item, "name", nullptr, asset.id);
-            asset.imageId = readString(item, "imageId", "image_id");
             if (asset.id.empty()) continue;
+            // Backfill for pre-per-clip files: an old asset-level imageId is the
+            // source for every clip that doesn't carry its own (single-authority
+            // migration; the model itself never keeps an asset-level image).
+            const std::string legacyAssetImage = readString(item, "imageId", "image_id");
+            asset.defaultClipId = readString(item, "defaultClipId", "default_clip_id");
             if (item.contains("clips") && item["clips"].is_array()) {
                 for (const auto& clipJson : item["clips"]) {
                     if (!clipJson.is_object()) continue;
                     SpriteAnimationClipDef clip;
                     clip.id = readString(clipJson, "id", nullptr);
                     clip.name = readString(clipJson, "name", nullptr, clip.id);
+                    clip.imageId = readString(clipJson, "imageId", "image_id");
+                    if (clip.imageId.empty()) clip.imageId = legacyAssetImage;
                     clip.framesPerSecond =
                         readFloat(clipJson, "framesPerSecond", clip.framesPerSecond);
                     const std::string playback =
@@ -569,6 +579,16 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                     }
                     asset.clips.push_back(std::move(clip));
                 }
+            }
+            // Normalize the default clip to a real one (first) when unset/dangling.
+            const bool validDefault = !asset.defaultClipId.empty()
+                && std::any_of(asset.clips.begin(), asset.clips.end(),
+                               [&](const SpriteAnimationClipDef& c) {
+                                   return c.id == asset.defaultClipId;
+                               });
+            if (!validDefault) {
+                asset.defaultClipId = asset.clips.empty() ? std::string()
+                                                          : asset.clips.front().id;
             }
             doc.spriteAnimationAssets.push_back(std::move(asset));
         }
@@ -648,7 +668,7 @@ SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
         spriteAnimationAssets.push_back(nlohmann::json{
             {"id", asset.id},
             {"name", asset.name},
-            {"imageId", asset.imageId},
+            {"defaultClipId", asset.defaultClipId},
             {"clips", std::move(clips)},
         });
     }
@@ -859,10 +879,6 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
         if (!animationIds.insert(asset.id).second) {
             return DeserializeResult::failure("Duplicate sprite animation asset id");
         }
-        if (!document.hasImageAsset(asset.imageId)) {
-            return DeserializeResult::failure(
-                "Sprite animation asset references a missing image asset");
-        }
         std::unordered_set<std::string> clipIds;
         std::unordered_set<std::string> clipNames;
         for (const SpriteAnimationClipDef& clip : asset.clips) {
@@ -878,6 +894,11 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
             if (!clipNames.insert(clip.name).second) {
                 return DeserializeResult::failure("Duplicate animation clip name");
             }
+            // Each clip owns its sheet; the referenced image must exist.
+            if (!document.hasImageAsset(clip.imageId)) {
+                return DeserializeResult::failure(
+                    "Animation clip references a missing image asset");
+            }
             if (!std::isfinite(clip.framesPerSecond) || clip.framesPerSecond <= 0.f) {
                 return DeserializeResult::failure("Animation clip FPS must be positive");
             }
@@ -886,6 +907,11 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
                     return DeserializeResult::failure("Animation sourceRect is invalid");
                 }
             }
+        }
+        // defaultClipId, when set, must name a clip of this asset.
+        if (!asset.defaultClipId.empty() && clipIds.find(asset.defaultClipId) == clipIds.end()) {
+            return DeserializeResult::failure(
+                "Sprite animation defaultClipId does not name a clip of the asset");
         }
     }
 

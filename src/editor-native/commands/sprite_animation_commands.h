@@ -8,16 +8,17 @@
 
 namespace ArtCade::EditorNative {
 
+// An animation asset is an empty character container; clips (each with their own
+// sheet) are added afterwards via AddAnimationClipCommand.
 class AddSpriteAnimationAssetCommand final : public EditorCommand {
 public:
-    AddSpriteAnimationAssetCommand(AssetId assetId, AssetId imageId, std::string name);
+    AddSpriteAnimationAssetCommand(AssetId assetId, std::string name);
     EditorOperationResult apply(ProjectDocument& document) override;
     EditorOperationResult undo(ProjectDocument& document) override;
     const char* name() const override { return "AddSpriteAnimationAsset"; }
 
 private:
     AssetId assetId_;
-    AssetId imageId_;
     std::string name_;
 };
 
@@ -29,14 +30,28 @@ public:
     const char* name() const override { return "RemoveSpriteAnimationAsset"; }
 
 private:
+    // A renderer (and its optional animator) that referenced this animation;
+    // cleared on remove, restored verbatim on undo, so delete leaves nothing
+    // dangling on the entity.
+    struct ClearedRef {
+        SceneId  sceneId;
+        EntityId entityId;
+        bool     hadAnimator = false;
+        SpriteAnimatorComponent animator{};
+    };
     AssetId assetId_;
     SpriteAnimationAssetDef removed_{};
     bool captured_ = false;
+    std::vector<ClearedRef> clearedRefs_;
+    bool refsCaptured_ = false;
 };
 
+// Adds a clip carrying its own sheet (imageId). The first clip of an asset also
+// becomes its defaultClipId (handled by the document verb).
 class AddAnimationClipCommand final : public EditorCommand {
 public:
-    AddAnimationClipCommand(AssetId assetId, std::string clipId, std::string name);
+    AddAnimationClipCommand(AssetId assetId, std::string clipId, std::string name,
+                            AssetId imageId);
     EditorOperationResult apply(ProjectDocument& document) override;
     EditorOperationResult undo(ProjectDocument& document) override;
     const char* name() const override { return "AddAnimationClip"; }
@@ -45,6 +60,7 @@ private:
     AssetId assetId_;
     std::string clipId_;
     std::string name_;
+    AssetId imageId_;
 };
 
 class RenameAnimationClipCommand final : public EditorCommand {

@@ -61,6 +61,9 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
         // Star icon marks the start scene.
         if (id == startSceneId) tabs += "<span class=\"icon ico-start\">&#xeb2e;</span>";
         tabs += escapeRml(name);
+        // Per-scene menu (Set as Start / Delete) — its own action wins over the tab's.
+        tabs += "<span class=\"tab-menu\" data-action=\"open-scene-menu\" data-arg=\""
+              + escapeRml(id) + "\">&#x25be;</span>";
         tabs += "</div>";
     }
     setHtml(document, "scene-tabs", tabs);
@@ -83,17 +86,31 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
             rows += "</span>";
             rows += "<span class=\"row-name\">" + escapeRml(inst.instanceName) + "</span>";
             rows += "<span class=\"row-type\">" + escapeRml(inst.objectTypeId) + "</span>";
+            // Per-entity menu (Create Instance / Delete).
+            rows += "<span class=\"row-menu\" data-action=\"open-entity-menu\" data-arg=\""
+                  + std::to_string(inst.id) + "\">&#x25be;</span>";
             rows += "</div>";
         }
     }
-    if (rows.empty()) rows = "<div class=\"tree-empty\">No entities</div>";
+    if (rows.empty()) {
+        rows = scene
+            ? "<div class=\"tree-empty\">No entities in this scene.<br/>"
+              "Create an entity, then place instances.</div>"
+            : "<div class=\"tree-empty\">No entities</div>";
+    } else {
+        // What the list contains: instances of the active scene (their object
+        // type shows as the trailing tag).
+        rows = "<div class=\"tree-section\">Instances</div>" + rows;
+    }
     setHtml(document, "hierarchy-list", rows);
 
-    // -- Action button availability reflects authoritative state ---------------
+    // -- Create-menu availability reflects authoritative state -----------------
     // Disabling is UX only; the commands still validate their inputs. Every
-    // button here mutates the authoring document, so all are disabled while Play
+    // entry mutates the authoring document, so all are disabled while Play
     // runs (the authoring document is frozen). Scene tabs and entity rows above
     // stay clickable — selection and scene navigation are workspace-only.
+    // Delete / Set as Start live in the per-item context menus (open-scene-menu /
+    // open-entity-menu), not as permanent buttons.
     const bool playing        = coordinator.isPlaying();
     const bool hasActiveScene = scene != nullptr;
     const bool hasSelection   = selected != INVALID_ENTITY;
@@ -101,15 +118,12 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
         if (Rml::Element* el = document->GetElementById(id))
             el->SetClass("disabled", !enabled);
     };
-    setEnabled("btn-add-scene",  !playing);
-    setEnabled("btn-del-scene",  hasActiveScene && !playing);
-    setEnabled("btn-add-entity", hasActiveScene && !playing);
-    // +Instance needs a selected entity to know which object type to instance;
-    // an empty catalog therefore disables it (no entity -> no selection).
-    setEnabled("btn-add-instance", hasSelection && !playing);
-    setEnabled("btn-del-entity", hasSelection && !playing);
-    // "Start" sets the active scene as start scene — pointless if it already is.
-    setEnabled("btn-set-start",  hasActiveScene && activeSceneId != startSceneId && !playing);
+    setEnabled("btn-create",            !playing);
+    setEnabled("create-scene-entry",    !playing);
+    setEnabled("create-entity-entry",   hasActiveScene && !playing);
+    // Create Instance needs a selected entity to know which object type to
+    // instance; an empty catalog therefore disables it (no entity -> no selection).
+    setEnabled("create-instance-entry", hasSelection && !playing);
 }
 
 } // namespace ArtCade::EditorNative

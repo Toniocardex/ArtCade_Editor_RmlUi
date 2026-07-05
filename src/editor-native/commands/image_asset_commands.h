@@ -4,6 +4,8 @@
 #include "editor-native/commands/editor_command.h"
 
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace ArtCade::EditorNative {
 
@@ -35,6 +37,11 @@ private:
     AssetId      assetId_;
     ImageAssetDef removed_{};   // captured for an exact undo
     bool         captured_ = false;
+    // Sprite renderers that referenced this image. Removing the asset clears them
+    // (delete means delete — no dangling source on the entity); undo restores the
+    // exact reference. Captured once, reused across redo.
+    std::vector<std::pair<SceneId, EntityId>> clearedRefs_;
+    bool         refsCaptured_ = false;
 };
 
 } // namespace ArtCade::EditorNative

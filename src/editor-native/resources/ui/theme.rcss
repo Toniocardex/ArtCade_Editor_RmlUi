@@ -13,13 +13,14 @@ body {
     color: #d4d4d8;
 }
 
-/* Section / panel eyebrow labels — tracked uppercase, muted. */
+/* Section / panel eyebrow labels — tracked uppercase. Bright enough to read as
+   real headers, not separators (UI audit: weak panel hierarchy). */
 .panel-header {
     font-size: 10dp;
     font-weight: 700;
     letter-spacing: 1.2dp;
     text-transform: uppercase;
-    color: #52525b;
+    color: #a1a1aa;
 }
 
 .accent { color: #3b82f6; }

@@ -29,6 +29,9 @@ public:
 
 private:
     void updateCopyButton(Rml::ElementDocument* document) const;
+    // Error/warning tally in the panel header ("N errors · N warnings").
+    void updateCounts(Rml::ElementDocument* document,
+                      const EditorCoordinator& coordinator) const;
 
     std::optional<std::size_t> selected_;
 };

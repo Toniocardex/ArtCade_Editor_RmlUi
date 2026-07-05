@@ -28,9 +28,29 @@ void ConsolePanel::updateCopyButton(Rml::ElementDocument* document) const {
         copy->SetClass("disabled", !selected_.has_value());
 }
 
+void ConsolePanel::updateCounts(Rml::ElementDocument* document,
+                                const EditorCoordinator& coordinator) const {
+    Rml::Element* counts = document->GetElementById("console-counts");
+    if (!counts) return;
+    std::size_t errors = 0;
+    std::size_t warnings = 0;
+    for (const ConsoleMessage& message : coordinator.consoleLog()) {
+        if (message.level == ConsoleMessage::Level::Error) ++errors;
+        else if (message.level == ConsoleMessage::Level::Warning) ++warnings;
+    }
+    const auto piece = [](std::size_t n, const char* noun, const char* cls) {
+        const std::string text = std::to_string(n) + " " + noun + (n == 1 ? "" : "s");
+        if (n == 0) return text;
+        return "<span class=\"" + std::string(cls) + "\">" + text + "</span>";
+    };
+    counts->SetInnerRML(piece(errors, "error", "count-err") + " \xc2\xb7 "
+                        + piece(warnings, "warning", "count-warn"));
+}
+
 void ConsolePanel::refresh(Rml::ElementDocument* document,
                            const EditorCoordinator& coordinator) {
     if (!document) return;
+    updateCounts(document, coordinator);
     Rml::Element* list = document->GetElementById("console-list");
     if (!list) return;
 

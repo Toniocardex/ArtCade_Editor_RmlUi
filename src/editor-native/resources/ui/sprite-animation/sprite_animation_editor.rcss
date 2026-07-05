@@ -1,3 +1,10 @@
+/* sprite_animation_editor.rcss — Sprite Animation Editor overlay.
+   Same design language as the main shell (zinc surfaces, blue accent, flat
+   fills, low radius). IMPORTANT: RmlUi has no browser default stylesheet —
+   every element is display:inline unless declared otherwise, so each container
+   here sets its display explicitly. Raw text must not sit directly inside a
+   display:flex element (it won't render); text always lives in a span/div. */
+
 body {
     width: 100%;
     height: 100%;
@@ -14,224 +21,467 @@ body {
     background-color: #0e0e10;
 }
 
+/* Shell: header / main row / timeline as one vertical flex so the sheet canvas
+   takes all remaining space at any window size. */
 .anim-editor-shell {
-    position: absolute;
-    left: 0;
-    top: 0;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;   /* 100% + padding must not overflow the window */
     width: 100%;
     height: 100%;
-    padding: 14dp;
+    padding: 12dp;
     background-color: #0e0e10;
 }
 
+/* -- Header bar ------------------------------------------------------------ */
 .anim-editor-title {
-    height: 36dp;
     display: flex;
     flex-direction: row;
     align-items: center;
-    color: #d4d4d8;
-    font-size: 13dp;
-    border-bottom: 1dp #26272d;
+    height: 36dp;
     margin-bottom: 10dp;
+    border-bottom: 1px #26262a;
 }
-
-.anim-editor-title .panel-btn {
-    margin-left: auto;
-    float: right;
+.anim-editor-eyebrow {
+    display: inline-block;
+    color: #8a8a93;
+    font-size: 10dp;
+    font-weight: 700;
+    letter-spacing: 1.1dp;
+    text-transform: uppercase;
 }
+.anim-editor-name {
+    display: inline-block;
+    margin-left: 10dp;
+    color: #e4e4e7;
+    font-size: 13dp;
+    font-weight: 600;
+}
+.anim-editor-title .panel-btn { margin: 0 0 6dp auto; }
 
+/* -- Main row: clips | sheet | settings ------------------------------------- */
 .anim-editor-main {
     display: flex;
     flex-direction: row;
-    height: 70%;
+    flex: 1;
+    margin-bottom: 10dp;
 }
 
+/* Shared panel surface + eyebrow section title. */
+.anim-clips,
+.anim-sheet,
+.anim-settings {
+    background-color: #141417;
+    border: 1px #26262a;
+    border-radius: 4dp;
+}
+.anim-panel-title {
+    display: block;
+    height: 18dp;
+    line-height: 18dp;
+    margin-bottom: 8dp;
+    color: #8a8a93;
+    font-size: 10dp;
+    font-weight: 700;
+    letter-spacing: 1.1dp;
+    text-transform: uppercase;
+}
+
+/* Empty-state overrides: the shared 11dp/#52525b reads as noise on these dark
+   panels; inside this editor the guidance must stay legible. */
+.animation-editor .assets-empty {
+    font-size: 12dp;
+    color: #8a8a93;
+}
+
+/* -- Clips column ------------------------------------------------------------ */
 .anim-clips {
-    width: 200dp;
+    display: flex;
+    flex-direction: column;
+    width: 220dp;
     margin-right: 10dp;
     padding: 10dp;
-    background: #141417;
-    border: 1dp #2c2d33;
 }
+/* Animation switcher: all animation assets in the project. Capped height with
+   its own scroll so the Clips list below always stays visible. */
+.anim-asset-list {
+    display: block;
+    max-height: 150dp;
+    overflow-y: auto;
+    margin-bottom: 8dp;
+}
+.anim-asset {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 28dp;
+    padding: 0 8dp;
+    margin-bottom: 3dp;
+    border-radius: 3dp;
+    border-left: 2dp transparent;
+    color: #a1a1aa;
+    transition: background-color 0.1s, color 0.1s;
+}
+.anim-asset:hover { background-color: #1c1c1f; color: #d4d4d8; }
+.anim-asset.selected {
+    background-color: #3b82f626;
+    border-left: 2dp #3b82f6;
+    color: #d4d4d8;
+}
+.anim-asset-name { flex: 1; font-size: 12dp; }
+.anim-asset.selected .anim-clip-count { color: #7aa2e8; }
 
+/* Gap before the Clips sub-section title. */
+.anim-section-gap { margin-top: 6dp; }
+
+.anim-clip-list {
+    display: block;
+    flex: 1;
+    overflow-y: auto;
+    margin-bottom: 8dp;
+}
+.anim-clip {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 28dp;
+    padding: 0 8dp;
+    margin-bottom: 3dp;
+    border-radius: 3dp;
+    border-left: 2dp transparent;
+    color: #a1a1aa;
+    transition: background-color 0.1s, color 0.1s;
+}
+.anim-clip:hover { background-color: #1c1c1f; color: #d4d4d8; }
+.anim-clip.selected {
+    background-color: #3b82f626;
+    border-left: 2dp #3b82f6;
+    color: #d4d4d8;
+}
+.anim-clip-name { flex: 1; font-size: 12dp; }
+.anim-clip-count {
+    display: inline-block;
+    color: #71717a;
+    font-size: 11dp;
+}
+.anim-clip.selected .anim-clip-count { color: #7aa2e8; }
+
+/* Full-width dashed-style add action at the bottom of the list. */
+.anim-add-clip {
+    display: block;
+    height: 26dp;
+    line-height: 26dp;
+    text-align: center;
+    border: 1px #3a3a40;
+    border-radius: 3dp;
+    color: #a1a1aa;
+    font-size: 11dp;
+    font-weight: 500;
+    transition: border-color 0.1s, color 0.1s;
+}
+.anim-add-clip:hover { border-color: #3b82f6; color: #3b82f6; }
+
+/* Secondary: import a new sheet and start a fresh animation (asset-level). */
+.anim-import-sheet {
+    display: block;
+    height: 26dp;
+    line-height: 26dp;
+    margin-top: 6dp;
+    text-align: center;
+    border: 1px transparent;
+    border-radius: 3dp;
+    color: #71717a;
+    font-size: 11dp;
+    font-weight: 500;
+    transition: background-color 0.1s, color 0.1s;
+}
+.anim-import-sheet:hover { background-color: #1c1c1f; color: #d4d4d8; }
+
+/* -- Sheet column ------------------------------------------------------------ */
 .anim-sheet {
     display: flex;
     flex-direction: column;
     flex: 1;
     margin-right: 10dp;
     padding: 10dp;
-    background: #101013;
-    border: 1dp #2c2d33;
 }
-
-.anim-settings {
-    width: 292dp;
-    padding: 10dp;
-    background: #141417;
-    border: 1dp #2c2d33;
-}
-
 .anim-sheet-head {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    min-height: 82dp;
-    margin-bottom: 10dp;
-}
-
-.anim-sheet-title-row {
     display: flex;
     flex-direction: row;
     align-items: center;
+    height: 22dp;
     margin-bottom: 8dp;
 }
-
-.anim-sheet-title-block {
-    display: flex;
-    flex-direction: column;
+.anim-sheet-head .anim-panel-title { margin-bottom: 0; }
+.anim-sheet-meta {
+    display: inline-block;
+    margin-left: 8dp;
+    color: #71717a;
+    font-size: 12dp;
 }
+.sheet-view-reset { margin: 0 0 0 auto; }
 
-.anim-sheet-title-row .sheet-view-reset {
-    margin-left: auto;
-}
-
-.anim-sprite-canvas {
-    flex: 1;
-    min-height: 160dp;
-    padding: 8dp;
-    background-color: #0b0b0d;
-    border: 1dp #24252b;
-}
-
+/* Slicing toolbar: labelled groups on one wrapping row. */
 .anim-slice-controls {
     display: flex;
     flex-direction: row;
+    flex-wrap: wrap;
     align-items: center;
-    min-height: 34dp;
-    padding: 7dp 8dp;
-    color: #8a8a93;
-    background-color: #151519;
-    border: 1dp #2a2b31;
-    font-size: 11dp;
+    padding: 6dp 8dp;
+    margin-bottom: 8dp;
+    background-color: #101013;
+    border: 1px #222226;
+    border-radius: 3dp;
 }
-
 .anim-tool-group {
     display: flex;
     flex-direction: row;
     align-items: center;
-    margin-right: 14dp;
+    height: 26dp;
+    margin-right: 16dp;
 }
-
 .anim-tool-label {
-    color: #d4d4d8;
+    display: inline-block;
+    margin-right: 8dp;
+    color: #8a8a93;
     font-size: 10dp;
-    margin-right: 10dp;
+    font-weight: 700;
+    letter-spacing: 0.6dp;
     text-transform: uppercase;
 }
-
-.anim-tool-group > span {
-    margin-left: 5dp;
+.anim-tool-field {
+    display: inline-block;
+    margin-left: 6dp;
+    color: #8a8a93;
+    font-size: 12dp;
 }
-
-.anim-tool-group > .anim-tool-label {
-    margin-left: 0;
-}
-
 /* .prop-input is flex:1 (basis 0) for Inspector rows; inside this auto-sized
    flex container that collapses the fields to their padding. Pin them. */
 .anim-slice-controls .prop-input {
     flex: 0 0 auto;
-    width: 48dp;
-    margin-left: 5dp;
+    width: 44dp;
+    height: 24dp;
+    line-height: 24dp;
+    margin-left: 4dp;
 }
-
-.anim-slice-controls .slice-action {
-    margin-left: 10dp;
-}
-
+.anim-slice-controls .slice-action { margin: 0 0 0 10dp; }
+.anim-slice-controls .panel-btn { margin-bottom: 0; }
 .anim-slice-controls .primary {
     color: #f8fbff;
     background-color: #1e4f8f;
     border-color: #3b82f6;
 }
+.anim-slice-controls .primary:hover { background-color: #2563b8; }
 
-.anim-slice-controls .primary:hover {
-    background-color: #2563b8;
-}
-
-.anim-preview-title {
-    margin-top: 12dp;
-}
-
-.anim-preview-canvas {
-    height: 160dp;
-    margin-bottom: 8dp;
+.anim-sprite-canvas {
+    display: block;
+    flex: 1;
+    min-height: 120dp;
     background-color: #0b0b0d;
-    border: 1dp #24252b;
+    border: 1px #222226;
+    border-radius: 3dp;
+}
+.anim-sheet-footer {
+    display: block;
+    margin-top: 8dp;
+    color: #71717a;
+    font-size: 11dp;
 }
 
-.anim-preview-toggle {
-    margin-bottom: 6dp;
-}
-
-.anim-settings-actions {
+/* Empty state banner: guidance + primary CTA above the sheet. */
+.anim-canvas-empty {
     display: flex;
     flex-direction: row;
     align-items: center;
+    padding: 10dp 12dp;
+    margin-bottom: 8dp;
+    background-color: #141d30;
+    border: 1px #2b4a7a;
+    border-radius: 3dp;
+}
+.anim-canvas-empty-text { display: block; flex: 1; }
+.anim-canvas-empty-title {
+    display: block;
+    margin-bottom: 3dp;
+    color: #dbe7ff;
+    font-size: 13dp;
+    font-weight: 600;
+}
+.anim-canvas-empty-hint {
+    display: block;
+    color: #8fa8cf;
+    font-size: 11dp;
+}
+.anim-canvas-empty-cta {
+    display: inline-block;
+    height: 28dp;
+    line-height: 28dp;
+    margin-left: 12dp;
+    padding: 0 14dp;
+    background-color: #3b82f6;
+    border: 1px #3b82f6;
+    border-radius: 4dp;
+    color: #ffffff;
+    font-size: 12dp;
+    font-weight: 600;
+    transition: background-color 0.1s;
+}
+.anim-canvas-empty-cta:hover { background-color: #2f74e6; }
+
+/* -- Settings column ---------------------------------------------------------- */
+.anim-settings {
+    display: flex;
+    flex-direction: column;
+    width: 300dp;
+    padding: 10dp 12dp;
+}
+.anim-settings .prop-label { width: 64dp; }
+.anim-preview-title { margin-top: 14dp; }
+
+.anim-preview-canvas {
+    display: block;
+    height: 170dp;
+    margin-bottom: 8dp;
+    background-color: #0b0b0d;
+    border: 1px #222226;
+    border-radius: 3dp;
 }
 
-.anim-settings-actions .panel-btn {
-    margin-right: 6dp;
+/* Transport: centred icon buttons under the preview canvas. */
+.anim-transport {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 6dp;
 }
+.anim-transport .panel-btn {
+    width: 36dp;
+    padding: 0;
+    margin: 0 3dp;
+}
+.anim-transport .icon { margin-right: 0; }
 
-/* The toggle carries both icon/label pairs; "active" (= preview playing) picks
-   which pair shows. Keeps play state out of the generated panel markup. */
+/* The toggle carries both icon glyphs; "active" (= preview playing) picks
+   which one shows. Keeps play state out of the generated panel markup. */
 .anim-preview-toggle .preview-when-playing { display: none; }
 .anim-preview-toggle.active .preview-when-playing { display: inline; }
 .anim-preview-toggle.active .preview-when-stopped { display: none; }
 
-.anim-section-title {
-    color: #71717a;
-    font-size: 10dp;
-    letter-spacing: 0;
-    margin-bottom: 8dp;
-    text-transform: uppercase;
-}
-
-.anim-clip {
+/* Pushes Remove Clip to the panel bottom, away from everyday controls. */
+.anim-settings-spacer { display: block; flex: 1; }
+.anim-remove-clip {
+    display: block;
     height: 26dp;
-    padding: 6dp 8dp;
-    margin-bottom: 4dp;
-    color: #d4d4d8;
-    background: #18181b;
-    border: 1dp #2c2d33;
+    line-height: 26dp;
+    text-align: center;
+    border: 1px #3a2527;
+    border-radius: 3dp;
+    color: #b3665f;
+    font-size: 11dp;
+    font-weight: 500;
+    transition: background-color 0.1s, border-color 0.1s, color 0.1s;
+}
+.anim-remove-clip:hover {
+    background-color: #2a1f20;
+    border-color: #7f3b38;
+    color: #e5706b;
 }
 
-.anim-clip.selected {
-    background: #1e3a5f;
-    border-color: #3b82f6;
-}
-
-.anim-sheet-hint {
-    color: #a1a1aa;
-    font-size: 12dp;
-}
-
+/* -- Timeline strip ------------------------------------------------------------ */
 .anim-timeline {
-    height: 96dp;
-    margin-top: 10dp;
-    padding: 10dp;
-    background: #141417;
-    border: 1dp #2c2d33;
+    display: flex;
+    flex-direction: column;
+    height: 150dp;
+    padding: 10dp 12dp;
+    background-color: #141417;
+    border: 1px #26262a;
+    border-radius: 4dp;
 }
-
-.anim-frame {
+.anim-timeline-head {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 20dp;
+    margin-bottom: 8dp;
+}
+.anim-timeline-head .anim-panel-title { margin-bottom: 0; }
+.anim-timeline-readout {
     display: inline-block;
-    min-width: 64dp;
-    height: 32dp;
-    padding: 8dp;
-    margin-right: 6dp;
-    color: #d4d4d8;
-    background: #18181b;
-    border: 1dp #3f3f46;
+    margin-left: 8dp;
+    color: #71717a;
+    font-size: 11dp;
 }
+.anim-timeline-head .panel-btn { margin: 0 0 0 auto; }
+
+.anim-timeline-track {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    flex: 1;
+    overflow-x: auto;
+}
+.anim-frame {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;   /* keep width; overflow the track horizontally, do not shrink */
+    width: 68dp;
+    height: 84dp;
+    margin-right: 6dp;
+    background-color: #18181b;
+    border: 1px #2c2d33;
+    border-radius: 3dp;
+    transition: border-color 0.1s;
+}
+.anim-frame:hover { border-color: #3f3f46; }
+.anim-frame.current { border-color: #3b82f6; }
+
+/* Head strip: order badge (left) + remove (right). Stays above the thumb so the
+   raylib overlay, which paints only the thumb rect, never covers the controls. */
+.anim-frame-head {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 18dp;
+    padding: 0 4dp;
+}
+.anim-frame-order {
+    flex: 1;
+    color: #a1a1aa;
+    font-size: 11dp;
+    font-weight: 600;
+}
+.anim-frame.current .anim-frame-order { color: #cfe2ff; }
+.anim-frame-remove {
+    display: inline-block;
+    width: 15dp;
+    height: 15dp;
+    line-height: 15dp;
+    text-align: center;
+    border-radius: 2dp;
+    color: #6b6b73;
+    font-size: 12dp;
+    transition: background-color 0.1s, color 0.1s;
+}
+.anim-frame-remove:hover { background-color: #2a1f20; color: #e5706b; }
+
+/* Reserved rect for the raylib-drawn frame image. */
+.anim-frame-thumb {
+    display: block;
+    flex: 1;
+    margin: 0 3dp 3dp 3dp;
+    background-color: #0b0b0d;
+    border-radius: 2dp;
+}
+.anim-frame.current .anim-frame-thumb { background-color: #0d1524; }
+
+scrollbarhorizontal { height: 8dp; }
+scrollbarhorizontal slidertrack { background-color: #111113; }
+scrollbarhorizontal sliderbar {
+    background-color: #27272a;
+    border-radius: 3dp;
+    margin-top: 2dp;
+    margin-bottom: 2dp;
+    min-width: 32dp;
+}
+scrollbarhorizontal sliderbar:hover { background-color: #3f3f46; }

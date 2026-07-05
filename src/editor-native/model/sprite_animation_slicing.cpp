@@ -39,8 +39,9 @@ std::optional<SpriteAnimationSliceGrid> spriteAnimationGridFromCellCounts(
     if (columns <= 0 || rows <= 0 || margin < 0 || spacing < 0) return std::nullopt;
     const int usableW = imageWidth - margin * 2 - spacing * (columns - 1);
     const int usableH = imageHeight - margin * 2 - spacing * (rows - 1);
-    if (usableW <= 0 || usableH <= 0) return std::nullopt;
-    if (usableW % columns != 0 || usableH % rows != 0) return std::nullopt;
+    // Reject only when a cell cannot be at least 1px; otherwise floor so an
+    // imperfect division still slices (no "does not fit" dead end for the user).
+    if (usableW < columns || usableH < rows) return std::nullopt;
     SpriteAnimationSliceGrid grid;
     grid.frameWidth = usableW / columns;
     grid.frameHeight = usableH / rows;
@@ -61,23 +62,6 @@ std::vector<SpriteAnimationFrameDef> spriteAnimationFramesForGrid(
         }
     }
     return frames;
-}
-
-std::vector<SpriteAnimationFrameDef> spriteAnimationFramesMatchingGrid(
-    int imageWidth, int imageHeight, const SpriteAnimationSliceGrid& grid,
-    const std::vector<SpriteAnimationFrameDef>& frames) {
-    const std::vector<SpriteAnimationFrameDef> gridFrames =
-        spriteAnimationFramesForGrid(imageWidth, imageHeight, grid);
-    std::vector<SpriteAnimationFrameDef> filtered;
-    filtered.reserve(frames.size());
-    for (const SpriteAnimationFrameDef& frame : frames) {
-        const bool validCell = std::find(gridFrames.begin(), gridFrames.end(), frame)
-            != gridFrames.end();
-        const bool duplicate = std::find(filtered.begin(), filtered.end(), frame)
-            != filtered.end();
-        if (validCell && !duplicate) filtered.push_back(frame);
-    }
-    return filtered;
 }
 
 } // namespace ArtCade::EditorNative

@@ -30,8 +30,10 @@
 #include <raylib.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <system_error>
@@ -267,17 +269,17 @@ void routeViewportContextMenu(EditorCoordinator& coordinator, EditorUi& ui,
     if (coordinator.isPlaying()) {
         click = ViewportContextClick{};
         pendingSpawnPosition.reset();
-        ui.hideViewportContextMenu();
+        ui.hideContextMenus();
         return;
     }
 
     if ((IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE))
         && !contextMenuHit) {
-        ui.hideViewportContextMenu();
+        ui.hideContextMenus();
     }
 
     if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
-        ui.hideViewportContextMenu();
+        ui.hideContextMenus();
         pendingSpawnPosition.reset();
         const ViewportInputContext ctx{rect.contains(GetMouseX(), GetMouseY()),
                                        /*rmlConsumedEvent*/ contextMenuHit, rml.textFocus,
@@ -438,9 +440,25 @@ bool copyAssetsForSaveAs(const std::filesystem::path& previousRoot,
 int EditorApp::run(int argc, char** argv) {
     // Optional one-shot screenshot mode: "--shot <path>" renders a few frames,
     // captures the framebuffer and exits. Used to verify the shell renders.
+    // "--shot-project <file.artcade>" opens a project first, and "--shot-anim"
+    // additionally opens the Sprite Animation Editor on its first animation
+    // asset, so the overlay can be smoke-tested without interaction.
     std::string shotPath;
+    std::string shotProject;
+    bool shotAnimation = false;
+    int shotSliceColumns = 0;   // > 0: slice the open clip into N frames for the shot
+    bool shotSliceAll = false;  // slice every animation asset in turn (overwrite repro)
+    std::string shotSavePath;   // non-empty: save the project here via the real path
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--shot") == 0 && i + 1 < argc) shotPath = argv[i + 1];
+        else if (std::strcmp(argv[i], "--shot-project") == 0 && i + 1 < argc)
+            shotProject = argv[i + 1];
+        else if (std::strcmp(argv[i], "--shot-anim") == 0) shotAnimation = true;
+        else if (std::strcmp(argv[i], "--shot-slice") == 0 && i + 1 < argc)
+            shotSliceColumns = std::atoi(argv[i + 1]);
+        else if (std::strcmp(argv[i], "--shot-slice-all") == 0) shotSliceAll = true;
+        else if (std::strcmp(argv[i], "--shot-save") == 0 && i + 1 < argc)
+            shotSavePath = argv[i + 1];
     }
 
     // Start empty: the editor opens a real project (File > Open) or builds one
@@ -597,17 +615,18 @@ int EditorApp::run(int argc, char** argv) {
                 saveTo(*picked);
         });
 
-    // Import is one canonical pipeline (asset_import). This is only the trigger:
-    // pick the file for the kind, then converge on importAsset like any other UI
-    // source would.
-    ui.setImportHandler([&](AssetKind kind) {
+    // Import is one canonical pipeline (asset_import): pick the file for the kind,
+    // save the project if needed, then converge on importAsset. Returns the new
+    // asset id so callers can chain (e.g. create an animation from the image).
+    // Every import UI source flows through this one lambda - no duplicate path.
+    const auto importAssetOfKind = [&](AssetKind kind) -> std::optional<AssetId> {
         std::optional<std::filesystem::path> picked;
         switch (kind) {
             case AssetKind::Image: picked = openImageFileDialog(); break;
             case AssetKind::Audio: picked = openAudioFileDialog(); break;
             case AssetKind::Font:  picked = openFontFileDialog();  break;
         }
-        if (!picked) return;  // cancelled
+        if (!picked) return std::nullopt;  // cancelled
         bool savedForImport = false;
         // Projects are born saved (New picks a destination up front), so this
         // only triggers for the startup Untitled document: assets are copied
@@ -617,7 +636,7 @@ int EditorApp::run(int argc, char** argv) {
                 "Assets live inside the project folder - choose where to save the project");
             if (!saveCurrent()) {
                 coordinator.logWarning("Import cancelled: the project was not saved");
-                return;
+                return std::nullopt;
             }
             savedForImport = true;
         }
@@ -626,14 +645,22 @@ int EditorApp::run(int argc, char** argv) {
         request.sourcePath = *picked;
         const ImportAssetResult result =
             importAsset(coordinator, currentProjectPath.parent_path(), request);
-        if (!result.ok) coordinator.logError(result.error);
-        else {
-            coordinator.logInfo("Imported " + result.assetId);
-            if (savedForImport && !saveCurrent()) {
-                coordinator.logWarning("Imported asset is not saved in the project file yet");
-            }
+        if (!result.ok) {
+            coordinator.logError(result.error);
+            return std::nullopt;
         }
-    });
+        coordinator.logInfo("Imported " + result.assetId);
+        if (savedForImport && !saveCurrent()) {
+            coordinator.logWarning("Imported asset is not saved in the project file yet");
+        }
+        return result.assetId;
+    };
+    ui.setImportHandler([&](AssetKind kind) { importAssetOfKind(kind); });
+    // Import an image for the Sprite Animation Editor: reuses the exact same
+    // pipeline above, then hands the image id back so the editor can start a new
+    // animation on it without the user leaving for the Assets panel.
+    ui.setImportImageForAnimationHandler(
+        [&]() { return importAssetOfKind(AssetKind::Image); });
 
     // Fit View / auto-fit: frame the active scene, centred, with a small padding.
     // Workspace-only (recenter pan to 0 + zoom-to-fit via intents); the viewport
@@ -655,7 +682,7 @@ int EditorApp::run(int argc, char** argv) {
         return true;
     };
     ui.setFitViewHandler([&]() { fitActiveScene(); });
-    ui.setAnimationSliceHandler([&]() {
+    const std::function<void()> sliceAnimationHandler = [&]() {
         const SpriteAnimationEditorState& state = coordinator.state().spriteAnimationEditor;
         if (!state.openAssetId || !state.selectedClipId) {
             coordinator.logWarning("Select an animation clip before slicing");
@@ -683,44 +710,47 @@ int EditorApp::run(int argc, char** argv) {
         const std::filesystem::path assetRoot =
             currentProjectPath.empty() ? resourceRoot : currentProjectPath.parent_path();
         SceneFrameSprite requestSprite;
-        requestSprite.assetId = asset->imageId;
+        requestSprite.assetId = clip->imageId;
         requestSprite.visible = true;
         const auto requests = textureRequestsFor(coordinator.document().data(), assetRoot);
         textureCache.prepare({requestSprite}, requests);
-        const TextureResource* resource = textureCache.find(asset->imageId);
+        const TextureResource* resource = textureCache.find(clip->imageId);
         if (!resource || !resource->loaded) {
             coordinator.logError("Cannot slice: sprite sheet is not loaded");
             return;
         }
 
+        // Frame-count driven: divide the sheet into columns x rows, deriving the
+        // cell size from the sheet dimensions - the same grid the overlay draws.
         const std::optional<SpriteAnimationSliceGrid> grid =
             spriteAnimationGridFromCellCounts(
                 resource->texture.width, resource->texture.height,
                 state.sliceColumns, state.sliceRows,
                 state.sliceMargin, state.sliceSpacing);
         if (!grid.has_value()) {
-            coordinator.logError("Cannot slice: sheet size does not divide by Cols x Rows");
+            coordinator.logError("Cannot slice: "
+                                 + std::to_string(state.sliceColumns) + " x "
+                                 + std::to_string(state.sliceRows)
+                                 + " frames do not fit the sheet");
             return;
         }
-
-        std::vector<SpriteAnimationFrameDef> frames =
-            spriteAnimationFramesForGrid(resource->texture.width, resource->texture.height, *grid);
+        std::vector<SpriteAnimationFrameDef> frames = spriteAnimationFramesForGrid(
+            resource->texture.width, resource->texture.height, *grid);
         if (frames.empty()) {
             coordinator.logError("Cannot slice: no frames produced");
             return;
         }
 
-        coordinator.apply(SetAnimationSlicingIntent{
-            grid->frameWidth, grid->frameHeight, grid->margin, grid->spacing});
+        const std::size_t frameCount = frames.size();
         const EditorOperationResult result =
             coordinator.execute(SetAnimationClipFramesCommand{
                 asset->id, clip->id, std::move(frames)});
         if (result.ok) {
-            coordinator.logInfo("Sliced " + asset->id + " into "
-                                + std::to_string(state.sliceColumns * state.sliceRows)
-                                + " frames");
+            coordinator.logInfo("Sliced " + clip->name + " into "
+                                + std::to_string(frameCount) + " frames");
         }
-    });
+    };
+    ui.setAnimationSliceHandler(sliceAnimationHandler);
     const auto viewportDefaultSpawn = [&]() -> std::optional<Vec2> {
         const SceneId& active = coordinator.state().activeSceneId;
         const SceneDef* scene = coordinator.document().findScene(active);
@@ -759,6 +789,50 @@ int EditorApp::run(int argc, char** argv) {
         });
 
     refreshWindowTitle();   // empty start project -> "Untitled"
+
+    // Screenshot-mode project bootstrap: same canonical load path as File >
+    // Open, minus the dialogs (there is no interaction to guard against).
+    if (!shotPath.empty() && !shotProject.empty()) {
+        const std::filesystem::path projectPath{shotProject};
+        const ProjectLoadResult result = loadProjectFromFile(coordinator, projectPath);
+        if (!result.ok) {
+            coordinator.logError("Open failed: " + result.error.message);
+        } else {
+            textureCache.clear();
+            currentProjectPath = projectPath;
+            refreshWindowTitle();
+            if (shotAnimation) {
+                const auto& animations = coordinator.document().data().spriteAnimationAssets;
+                if (!animations.empty()) {
+                    coordinator.apply(OpenSpriteAnimationEditorIntent{animations.front().id});
+                    // Exercise the slice flow headlessly through the exact button
+                    // path (auto-creates a clip when the asset has none, then fills).
+                    if (shotSliceColumns > 0 && !shotSliceAll) {
+                        coordinator.apply(SetAnimationSliceGridIntent{shotSliceColumns, 1, 0, 0});
+                        ui.handleAction("slice-animation-grid", "", "");
+                    } else if (shotSliceColumns > 0 && shotSliceAll) {
+                        // Reproduce the user's sequence: open + slice each animation
+                        // in turn, via the real button path (open switches assets).
+                        std::vector<AssetId> ids;
+                        for (const auto& a : animations) ids.push_back(a.id);
+                        for (const AssetId& aid : ids) {
+                            coordinator.apply(OpenSpriteAnimationEditorIntent{aid});
+                            coordinator.apply(SetAnimationSliceGridIntent{shotSliceColumns, 1, 0, 0});
+                            ui.handleAction("slice-animation-grid", "", "");
+                        }
+                    }
+                }
+            }
+            // Exercise the real save path (asset copy + atomic write) so the
+            // written .artcade can be inspected for the animation persistence.
+            if (!shotSavePath.empty()) {
+                if (saveTo(std::filesystem::path{shotSavePath}))
+                    coordinator.logInfo("shot-save wrote " + shotSavePath);
+                else
+                    coordinator.logError("shot-save failed");
+            }
+        }
+    }
 
     int   frame       = 0;
     int   lastRenderW = GetRenderWidth();
@@ -815,7 +889,7 @@ int EditorApp::run(int argc, char** argv) {
             ui.beginActiveSceneLayerRename();
         }
         const ViewportRect rect = viewportRectFromDocument(host.document());
-        const bool contextMenuHit = ui.isViewportContextMenuHit(
+        const bool contextMenuHit = ui.isContextMenuHit(
             static_cast<int>(static_cast<float>(GetMouseX()) * uiPixelScaleX()),
             static_cast<int>(static_cast<float>(GetMouseY()) * uiPixelScaleY()));
         const bool animationEditorOpen =
@@ -855,6 +929,24 @@ int EditorApp::run(int argc, char** argv) {
                                      pendingContextSpawn, contextMenuHit);
         }
 
+        // Pointer world-position readout (Edit mode, mouse over the viewport).
+        // Presentation only; the UI writes the label just when the text changes.
+        {
+            std::optional<Vec2> pointerWorld;
+            if (!coordinator.isPlaying() && !animationEditorOpen
+                && rect.contains(GetMouseX(), GetMouseY())) {
+                const SceneId& active = coordinator.state().activeSceneId;
+                if (const SceneDef* scene = coordinator.document().findScene(active)) {
+                    const SceneViewCamera camera = makeSceneViewCamera(
+                        rect, coordinator.sceneView(active), scene->worldSize);
+                    pointerWorld = screenToWorld(
+                        camera, Vec2{static_cast<float>(GetMouseX()),
+                                     static_cast<float>(GetMouseY())});
+                }
+            }
+            ui.showPointerWorldPosition(pointerWorld);
+        }
+
         // Sprite source paths are relative to the loaded project; with no project
         // open yet (a new/Untitled project) they fall back to the executable resources.
         const std::filesystem::path assetRoot =
@@ -881,6 +973,31 @@ int EditorApp::run(int argc, char** argv) {
         const ViewportRect animationPreviewRect = animationEditorOpen
             ? resolveSpriteAnimationPreviewContentRect(animationDocument)
             : ViewportRect{};
+        // Per-frame timeline thumbnail slots: RmlUi lays out one thumb sub-element
+        // per chip; raylib paints each frame's texture region into it (drawn after
+        // host.render(), like the sheet/preview canvases).
+        const SpriteAnimationClipDef* timelineClip = nullptr;
+        std::vector<ViewportRect> timelineThumbRects;
+        if (animationEditorOpen) {
+            const SpriteAnimationEditorState& animState =
+                coordinator.state().spriteAnimationEditor;
+            if (animState.openAssetId && animState.selectedClipId) {
+                if (const SpriteAnimationAssetDef* a =
+                        coordinator.document().findSpriteAnimationAsset(*animState.openAssetId)) {
+                    for (const SpriteAnimationClipDef& c : a->clips) {
+                        if (c.id == *animState.selectedClipId) { timelineClip = &c; break; }
+                    }
+                }
+            }
+            if (timelineClip) {
+                timelineThumbRects.reserve(timelineClip->frames.size());
+                for (std::size_t i = 0; i < timelineClip->frames.size(); ++i) {
+                    const std::string id = "anim-frame-thumb-" + std::to_string(i);
+                    timelineThumbRects.push_back(
+                        elementContentRectFromDocument(animationDocument, id.c_str()));
+                }
+            }
+        }
 
         BeginDrawing();
         ClearBackground(Color{15, 16, 20, 255});
@@ -925,6 +1042,11 @@ int EditorApp::run(int argc, char** argv) {
             renderSpriteAnimationClipPreview(
                 *animationAsset, coordinator.state().spriteAnimationEditor,
                 animationPreviewRect, textureCache, textureRequests);
+            if (timelineClip) {
+                renderSpriteAnimationTimelineThumbnails(
+                    *animationAsset, *timelineClip, timelineThumbRects,
+                    textureCache, textureRequests);
+            }
         }
         EndDrawing();
 

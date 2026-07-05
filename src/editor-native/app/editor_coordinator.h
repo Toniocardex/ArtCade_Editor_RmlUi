@@ -120,11 +120,12 @@ public:
     EditorOperationResult apply(const OpenSpriteAnimationEditorIntent& intent);
     EditorOperationResult apply(const CloseSpriteAnimationEditorIntent& intent);
     EditorOperationResult apply(const SelectAnimationClipIntent& intent);
-    EditorOperationResult apply(const SetAnimationSlicingIntent& intent);
     EditorOperationResult apply(const SetAnimationSliceGridIntent& intent);
     EditorOperationResult apply(const SetSpriteSheetZoomIntent& intent);
     EditorOperationResult apply(const PanSpriteSheetIntent& intent);
     EditorOperationResult apply(const SetAnimationPreviewPlayingIntent& intent);
+    EditorOperationResult apply(const SetAnimationPreviewFrameIntent& intent);
+    EditorOperationResult apply(const StepAnimationPreviewIntent& intent);
     EditorOperationResult apply(const SetHierarchyFilterIntent& intent);
     EditorOperationResult apply(const SetActiveLayerIntent& intent);
     EditorOperationResult apply(const ToggleLayerEditorVisibilityIntent& intent);

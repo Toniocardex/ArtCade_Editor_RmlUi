@@ -119,6 +119,7 @@ struct RuntimeImageAsset {
 
 struct RuntimeSpriteAnimationClip {
     std::string id;
+    AssetId imageAssetId;     // the clip's own sheet
     std::vector<SpriteAnimationFrameDef> frames;
     float framesPerSecond = 8.f;
     AnimationPlaybackMode playbackMode = AnimationPlaybackMode::Loop;
@@ -126,7 +127,6 @@ struct RuntimeSpriteAnimationClip {
 
 struct RuntimeSpriteAnimationAsset {
     AssetId id;
-    AssetId imageAssetId;
     std::vector<RuntimeSpriteAnimationClip> clips;
 };
 

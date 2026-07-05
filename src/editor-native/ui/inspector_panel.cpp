@@ -319,9 +319,8 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         html += header("&#xf22f;", "World Bounds", "", "", "", playing);
         html += fieldWithUnit("Width", "commit-scene-width", num(scene->worldSize.x), "wu", playing);
         html += fieldWithUnit("Height", "commit-scene-height", num(scene->worldSize.y), "wu", playing);
-        // Fit View is workspace-only (camera), never a command — always available.
-        html += "<button class=\"panel-btn\" data-action=\"fit-view-to-bounds\">"
-                "<span class=\"icon\">&#xf22f;</span>Fit View to Bounds</button>";
+        // Fit View lives in the toolbar's view group (audit 7.4): a camera action
+        // belongs to the Scene View, not to scene properties.
 
         // -- LAYERS (per-scene render order; top row = foreground) -------------
         html += header("&#xee9e;", "Layers", "", "", "", playing);

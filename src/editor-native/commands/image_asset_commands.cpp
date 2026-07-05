@@ -49,15 +49,36 @@ RemoveImageAssetCommand::RemoveImageAssetCommand(AssetId assetId)
 EditorOperationResult RemoveImageAssetCommand::apply(ProjectDocument& document) {
     const ImageAssetDef* current = document.findImageAsset(assetId_);
     if (!current) return EditorOperationResult::failure("Unknown image asset: " + assetId_);
+    // An animation clip's sheet is this image: removing the image would orphan
+    // the clip, so require the animation to go first (a structural parent, not a
+    // loose reference). Sprite-renderer references below are cleared, not blocked.
     for (const SpriteAnimationAssetDef& animation : document.data().spriteAnimationAssets) {
-        if (animation.imageId == assetId_) {
-            return EditorOperationResult::failure(
-                "Image asset is used by a sprite animation asset");
+        for (const SpriteAnimationClipDef& clip : animation.clips) {
+            if (clip.imageId == assetId_) {
+                return EditorOperationResult::failure(
+                    "Image asset is used by a sprite animation asset - remove that first");
+            }
         }
     }
     if (!captured_) {
         removed_ = *current;
         captured_ = true;
+    }
+    // Capture every sprite renderer pointing at this image before it goes, so the
+    // clear is exact and reversible. Do this once; redo reuses the same list.
+    if (!refsCaptured_) {
+        for (const auto& [sceneId, scene] : document.data().scenes) {
+            for (const SceneInstanceDef& instance : scene.instances) {
+                if (instance.spriteRenderer
+                    && instance.spriteRenderer->imageAssetId == assetId_) {
+                    clearedRefs_.emplace_back(sceneId, instance.id);
+                }
+            }
+        }
+        refsCaptured_ = true;
+    }
+    for (const auto& [sceneId, entityId] : clearedRefs_) {
+        document.setSpriteRendererAsset(sceneId, entityId, AssetId{});   // "" = no image
     }
     if (!document.removeImageAsset(assetId_)) {
         return EditorOperationResult::failure("Failed to remove image asset");
@@ -69,7 +90,11 @@ EditorOperationResult RemoveImageAssetCommand::undo(ProjectDocument& document) {
     if (!captured_ || !document.addImageAsset(removed_)) {
         return EditorOperationResult::failure("Cannot undo image asset removal");
     }
-    return EditorOperationResult::success(kAddInvalidation, DomainChange::assetChanged(assetId_));
+    // Re-point every renderer we cleared back at the restored image.
+    for (const auto& [sceneId, entityId] : clearedRefs_) {
+        document.setSpriteRendererAsset(sceneId, entityId, assetId_);
+    }
+    return EditorOperationResult::success(kRemoveInvalidation, DomainChange::assetChanged(assetId_));
 }
 
 } // namespace ArtCade::EditorNative

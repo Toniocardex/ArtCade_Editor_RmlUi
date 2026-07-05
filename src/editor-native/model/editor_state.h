@@ -49,9 +49,10 @@ struct SpriteAnimationEditorState {
     std::optional<AssetId> openAssetId;
     std::optional<std::string> selectedClipId;
     std::size_t selectedFrameIndex = 0;
-    int sliceFrameWidth = 32;
-    int sliceFrameHeight = 32;
-    int sliceColumns = 1;
+    // Slicing is frame-count driven: the user says how many frames across/down,
+    // and the cell size is derived from the sheet's pixel dimensions (which live
+    // in the texture, not here). Margin/spacing trim padded atlases.
+    int sliceColumns = 4;
     int sliceRows = 1;
     int sliceMargin = 0;
     int sliceSpacing = 0;
@@ -61,6 +62,31 @@ struct SpriteAnimationEditorState {
     float previewElapsed = 0.0f;
     std::size_t previewFrameIndex = 0;
 };
+
+// The sheet the Sprite Animation Editor shows for an asset: the selected clip's
+// own image when the selection names a clip of this asset, else the default
+// clip's, else the first clip's, else none (fresh asset with no clips yet).
+inline const SpriteAnimationClipDef* editorSheetClip(
+    const SpriteAnimationAssetDef& asset,
+    const std::optional<std::string>& selectedClipId) {
+    if (selectedClipId) {
+        for (const SpriteAnimationClipDef& clip : asset.clips) {
+            if (clip.id == *selectedClipId) return &clip;
+        }
+    }
+    if (!asset.defaultClipId.empty()) {
+        for (const SpriteAnimationClipDef& clip : asset.clips) {
+            if (clip.id == asset.defaultClipId) return &clip;
+        }
+    }
+    return asset.clips.empty() ? nullptr : &asset.clips.front();
+}
+
+inline AssetId editorSheetImageId(const SpriteAnimationAssetDef& asset,
+                                  const std::optional<std::string>& selectedClipId) {
+    const SpriteAnimationClipDef* clip = editorSheetClip(asset, selectedClipId);
+    return clip ? clip->imageId : AssetId{};
+}
 
 enum class EditorTool {
     Select,

@@ -3,6 +3,7 @@
 #include "core/types.h"
 #include "editor-native/model/editor_state.h"
 
+#include <cstddef>
 #include <string>
 
 namespace ArtCade::EditorNative {
@@ -57,16 +58,15 @@ struct SelectAnimationClipIntent {
     std::string clipId;
 };
 
-struct SetAnimationSlicingIntent {
-    int frameWidth = 32;
-    int frameHeight = 32;
+// Frame-count driven slicing (workspace). Columns/rows are how many frames the
+// sheet is cut into; the cell size is derived from the sheet dimensions at the
+// point of use (renderer/slice), so this stays texture-free. Margin/spacing trim
+// the sheet edges and inter-cell gaps.
+struct SetAnimationSliceGridIntent {
+    int columns = 4;
+    int rows = 1;
     int margin = 0;
     int spacing = 0;
-};
-
-struct SetAnimationSliceGridIntent {
-    int columns = 1;
-    int rows = 1;
 };
 
 // Sprite sheet canvas navigation (workspace). Zoom is a multiplier over the
@@ -82,6 +82,18 @@ struct PanSpriteSheetIntent {
 // Play/Pause of the clip preview (workspace; never the PlaySession).
 struct SetAnimationPreviewPlayingIntent {
     bool playing = false;
+};
+
+// Scrub the preview to an exact frame (timeline chip click). Pauses playback so
+// the scrubbed frame holds; the index is clamped to the clip's last frame.
+struct SetAnimationPreviewFrameIntent {
+    std::size_t frameIndex = 0;
+};
+
+// Step the paused preview one frame back/forward, wrapping at both ends
+// (transport buttons). Pauses playback like a scrub.
+struct StepAnimationPreviewIntent {
+    int delta = 1;
 };
 
 struct SetHierarchyFilterIntent {

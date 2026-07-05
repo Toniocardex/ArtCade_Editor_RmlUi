@@ -138,10 +138,11 @@ static ProjectDoc makeAnimationDoc() {
     SpriteAnimationAssetDef anim;
     anim.id = "hero.anim";
     anim.name = "hero.anim";
-    anim.imageId = "img-hero";
+    anim.defaultClipId = "idle";
     SpriteAnimationClipDef idle;
     idle.id = "idle";
     idle.name = "Idle";
+    idle.imageId = "img-hero";
     idle.framesPerSecond = 8.f;
     idle.playbackMode = AnimationPlaybackMode::Loop;
     idle.frames.push_back(SpriteAnimationFrameDef{0, 0, 32, 32});
@@ -307,10 +308,9 @@ static void runSpriteAnimationTests() {
     // -- Sprite Animation Editor model: asset owns clips and serializes -------
     {
         EditorCoordinator c{makeSpriteDoc()};
-        CHECK(c.execute(AddSpriteAnimationAssetCommand{
-            "hero.anim", "img-hero", "hero.anim"}).ok);
+        CHECK(c.execute(AddSpriteAnimationAssetCommand{"hero.anim", "hero.anim"}).ok);
         CHECK(c.document().hasSpriteAnimationAsset("hero.anim"));
-        CHECK(c.execute(AddAnimationClipCommand{"hero.anim", "idle", "Idle"}).ok);
+        CHECK(c.execute(AddAnimationClipCommand{"hero.anim", "idle", "Idle", "img-hero"}).ok);
         std::vector<SpriteAnimationFrameDef> frames{
             SpriteAnimationFrameDef{0, 0, 32, 32},
             SpriteAnimationFrameDef{32, 0, 32, 32},
@@ -329,8 +329,9 @@ static void runSpriteAnimationTests() {
         const SpriteAnimationAssetDef* asset =
             validated.value.findSpriteAnimationAsset("hero.anim");
         CHECK(asset != nullptr);
-        CHECK(asset && asset->imageId == "img-hero");
         CHECK(asset && asset->clips.size() == 1);
+        CHECK(asset && asset->clips[0].imageId == "img-hero");
+        CHECK(asset && asset->defaultClipId == "idle");
         CHECK(asset && asset->clips[0].frames.size() == 2);
         CHECK(asset && asset->clips[0].framesPerSecond == 12.f);
         CHECK(asset && asset->clips[0].playbackMode == AnimationPlaybackMode::Once);
@@ -355,11 +356,12 @@ static void runSpriteAnimationTests() {
         CHECK(last && last->x == 19 && last->y == 27);
         CHECK(!spriteAnimationFrameForCell(38, 53, grid, 4).has_value());
 
+        // Frame-count driven: 4 columns x 2 rows of a 64x32 sheet -> 8 cells of
+        // 16x16 in reading order. The cell size is derived from the dimensions.
         const std::optional<SpriteAnimationSliceGrid> atlas =
             spriteAnimationGridFromCellCounts(64, 32, 4, 2, 0, 0);
         CHECK(atlas.has_value());
-        CHECK(atlas && atlas->frameWidth == 16);
-        CHECK(atlas && atlas->frameHeight == 16);
+        CHECK(atlas && atlas->frameWidth == 16 && atlas->frameHeight == 16);
         const std::vector<SpriteAnimationFrameDef> frames =
             atlas ? spriteAnimationFramesForGrid(64, 32, *atlas)
                   : std::vector<SpriteAnimationFrameDef>{};
@@ -367,20 +369,19 @@ static void runSpriteAnimationTests() {
         CHECK(frames.size() > 4 && frames[0].x == 0 && frames[0].y == 0);
         CHECK(frames.size() > 4 && frames[3].x == 48 && frames[3].y == 0);
         CHECK(frames.size() > 4 && frames[4].x == 0 && frames[4].y == 16);
-        CHECK(!spriteAnimationGridFromCellCounts(65, 32, 4, 2, 0, 0).has_value());
 
-        const SpriteAnimationSliceGrid twoCells{16, 16, 0, 0};
-        const std::vector<SpriteAnimationFrameDef> staleFrames{
-            SpriteAnimationFrameDef{0, 0, 32, 16},
-            SpriteAnimationFrameDef{0, 0, 16, 16},
-            SpriteAnimationFrameDef{16, 0, 16, 16},
-            SpriteAnimationFrameDef{16, 0, 16, 16},
-        };
-        const std::vector<SpriteAnimationFrameDef> visibleFrames =
-            spriteAnimationFramesMatchingGrid(32, 16, twoCells, staleFrames);
-        CHECK(visibleFrames.size() == 2);
-        CHECK(visibleFrames.size() > 1 && visibleFrames[0].x == 0);
-        CHECK(visibleFrames.size() > 1 && visibleFrames[1].x == 16);
+        // The user's core case: a 64x16 strip divided into 4 frames -> 16px each.
+        const std::optional<SpriteAnimationSliceGrid> strip =
+            spriteAnimationGridFromCellCounts(64, 16, 4, 1, 0, 0);
+        CHECK(strip.has_value());
+        CHECK(strip && strip->frameWidth == 16 && strip->frameHeight == 16);
+        // Non-divisible: floors the cell rather than rejecting (no dead end).
+        const std::optional<SpriteAnimationSliceGrid> odd =
+            spriteAnimationGridFromCellCounts(65, 16, 4, 1, 0, 0);
+        CHECK(odd.has_value());
+        CHECK(odd && odd->frameWidth == 16);
+        // Rejected only when a cell would be sub-pixel.
+        CHECK(!spriteAnimationGridFromCellCounts(3, 16, 4, 1, 0, 0).has_value());
     }
 
     // -- Animation slicing setup is workspace-only --------------------------
@@ -388,20 +389,14 @@ static void runSpriteAnimationTests() {
         EditorCoordinator c{makeAnimationDoc()};
         const uint64_t revision = c.document().revision();
         CHECK(c.apply(OpenSpriteAnimationEditorIntent{"hero.anim"}).ok);
-        CHECK(c.apply(SetAnimationSlicingIntent{48, 32, 4, 2}).ok);
-        CHECK(c.apply(SetAnimationSliceGridIntent{4, 2}).ok);
-        CHECK(c.state().spriteAnimationEditor.sliceFrameWidth == 48);
-        CHECK(c.state().spriteAnimationEditor.sliceFrameHeight == 32);
-        CHECK(c.state().spriteAnimationEditor.sliceColumns == 4);
+        CHECK(c.apply(SetAnimationSliceGridIntent{6, 2, 4, 2}).ok);
+        CHECK(c.state().spriteAnimationEditor.sliceColumns == 6);
         CHECK(c.state().spriteAnimationEditor.sliceRows == 2);
         CHECK(c.state().spriteAnimationEditor.sliceMargin == 4);
         CHECK(c.state().spriteAnimationEditor.sliceSpacing == 2);
         CHECK(c.document().revision() == revision);
-        CHECK(c.apply(SetAnimationSlicingIntent{-5, -7, -1, -2}).ok);
-        CHECK(c.apply(SetAnimationSliceGridIntent{-5, 0}).ok);
-        CHECK(c.state().spriteAnimationEditor.sliceFrameWidth == 1);
-        CHECK(c.state().spriteAnimationEditor.sliceFrameHeight == 1);
-        CHECK(c.state().spriteAnimationEditor.sliceColumns == 1);
+        CHECK(c.apply(SetAnimationSliceGridIntent{-5, 0, -1, -2}).ok);
+        CHECK(c.state().spriteAnimationEditor.sliceColumns == 1);   // clamped >= 1
         CHECK(c.state().spriteAnimationEditor.sliceRows == 1);
         CHECK(c.state().spriteAnimationEditor.sliceMargin == 0);
         CHECK(c.state().spriteAnimationEditor.sliceSpacing == 0);
@@ -458,6 +453,38 @@ static void runSpriteAnimationTests() {
         CHECK(c.state().spriteAnimationEditor.previewPlaying);
     }
 
+    // -- Opening the editor adopts the selected clip's frame count -----------
+    {
+        EditorCoordinator c{makeAnimationDoc()};   // "idle" clip has 2 frames
+        CHECK(c.apply(OpenSpriteAnimationEditorIntent{"hero.anim"}).ok);
+        CHECK(c.apply(SetAnimationSliceGridIntent{6, 3, 0, 0}).ok);
+        CHECK(c.apply(OpenSpriteAnimationEditorIntent{"hero.anim"}).ok);   // reopen
+        CHECK(c.state().spriteAnimationEditor.sliceColumns == 2);   // from clip
+        CHECK(c.state().spriteAnimationEditor.sliceRows == 1);
+    }
+
+    // -- Preview scrub/step pause playback and stay workspace-only -----------
+    {
+        EditorCoordinator c{makeAnimationDoc()};
+        CHECK(!c.apply(SetAnimationPreviewFrameIntent{0}).ok);   // closed editor
+        CHECK(!c.apply(StepAnimationPreviewIntent{1}).ok);
+
+        CHECK(c.apply(OpenSpriteAnimationEditorIntent{"hero.anim"}).ok);
+        const uint64_t revision = c.document().revision();
+        CHECK(c.apply(SetAnimationPreviewPlayingIntent{true}).ok);
+        CHECK(c.apply(SetAnimationPreviewFrameIntent{1}).ok);    // scrub pauses
+        CHECK(c.state().spriteAnimationEditor.previewFrameIndex == 1);
+        CHECK(!c.state().spriteAnimationEditor.previewPlaying);
+        CHECK(c.apply(SetAnimationPreviewFrameIntent{99}).ok);   // clamped to last
+        CHECK(c.state().spriteAnimationEditor.previewFrameIndex == 1);
+        CHECK(c.apply(StepAnimationPreviewIntent{1}).ok);        // wraps forward
+        CHECK(c.state().spriteAnimationEditor.previewFrameIndex == 0);
+        CHECK(c.apply(StepAnimationPreviewIntent{-1}).ok);       // wraps backward
+        CHECK(c.state().spriteAnimationEditor.previewFrameIndex == 1);
+        CHECK(c.document().revision() == revision);
+        CHECK(c.undoSize() == 0);
+    }
+
     // -- Sprite Renderer animation source requires SpriteAnimator ------------
     {
         EditorCoordinator c{makeAnimationDoc()};
@@ -482,6 +509,59 @@ static void runSpriteAnimationTests() {
         CHECK(inst && inst->spriteRenderer);
         CHECK(inst && inst->spriteRenderer->animationAssetId.empty());
         CHECK(inst && !inst->spriteAnimator.has_value());
+    }
+
+    // -- Removing an animation asset clears the entity's source + animator ----
+    {
+        EditorCoordinator c{makeAnimationDoc()};
+        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
+        CHECK(c.execute(SetSpriteRendererAnimationCommand{kSceneA, kHero, "hero.anim"}).ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)
+                  ->spriteRenderer->animationAssetId == "hero.anim");
+        // Delete means delete: the asset goes AND the entity is left clean, not
+        // blocked and not dangling.
+        CHECK(c.execute(RemoveSpriteAnimationAssetCommand{"hero.anim"}).ok);
+        CHECK(!c.document().hasSpriteAnimationAsset("hero.anim"));
+        const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(inst && inst->spriteRenderer && inst->spriteRenderer->animationAssetId.empty());
+        CHECK(inst && !inst->spriteAnimator.has_value());
+        // Undo restores the asset, the source, and the animator (with its clip).
+        CHECK(c.undo().ok);
+        CHECK(c.document().hasSpriteAnimationAsset("hero.anim"));
+        inst = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(inst && inst->spriteRenderer->animationAssetId == "hero.anim");
+        CHECK(inst && inst->spriteAnimator.has_value()
+              && inst->spriteAnimator->initialClipId == "idle");
+    }
+
+    // -- Slicing a second animation must not overwrite the first's clip -------
+    {
+        EditorCoordinator c{makeSpriteDoc()};   // img-hero + img-alt
+        // Animation 1 on img-hero, mirroring the UI Import Sheet -> Slice flow.
+        CHECK(c.execute(AddSpriteAnimationAssetCommand{"a1.anim", "a1"}).ok);
+        c.apply(OpenSpriteAnimationEditorIntent{"a1.anim"});
+        CHECK(!c.state().spriteAnimationEditor.selectedClipId.has_value());
+        CHECK(c.execute(AddAnimationClipCommand{"a1.anim", "clip-1", "Clip 1", "img-hero"}).ok);
+        c.apply(SelectAnimationClipIntent{"a1.anim", "clip-1"});
+        CHECK(c.execute(SetAnimationClipFramesCommand{"a1.anim", "clip-1",
+            {SpriteAnimationFrameDef{0, 0, 16, 16}, SpriteAnimationFrameDef{16, 0, 16, 16},
+             SpriteAnimationFrameDef{32, 0, 16, 16}}}).ok);
+        CHECK(c.document().findSpriteAnimationAsset("a1.anim")->clips[0].frames.size() == 3);
+
+        // Animation 2 on img-alt: its auto-clip also gets id "clip-1".
+        CHECK(c.execute(AddSpriteAnimationAssetCommand{"a2.anim", "a2"}).ok);
+        c.apply(OpenSpriteAnimationEditorIntent{"a2.anim"});
+        CHECK(!c.state().spriteAnimationEditor.selectedClipId.has_value());   // reset on open
+        CHECK(c.execute(AddAnimationClipCommand{"a2.anim", "clip-1", "Clip 1", "img-alt"}).ok);
+        c.apply(SelectAnimationClipIntent{"a2.anim", "clip-1"});
+        CHECK(c.execute(SetAnimationClipFramesCommand{"a2.anim", "clip-1",
+            {SpriteAnimationFrameDef{0, 0, 16, 16}, SpriteAnimationFrameDef{16, 0, 16, 16}}}).ok);
+
+        // Neither asset's clip is overwritten - each keeps its own frames.
+        const SpriteAnimationAssetDef* a1 = c.document().findSpriteAnimationAsset("a1.anim");
+        const SpriteAnimationAssetDef* a2 = c.document().findSpriteAnimationAsset("a2.anim");
+        CHECK(a1 && a1->clips.size() == 1 && a1->clips[0].frames.size() == 3);
+        CHECK(a2 && a2->clips.size() == 1 && a2->clips[0].frames.size() == 2);
     }
 
     // -- PlaySession owns per-instance playheads, document stays untouched ----
@@ -3061,6 +3141,28 @@ int main() {
         CHECK(!c.execute(RemoveImageAssetCommand{"nope"}).ok);
     }
 
+    // -- Remove clears the sprite-renderer reference (delete means delete) -----
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
+        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-hero"}).ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)
+                  ->spriteRenderer->imageAssetId == "img-hero");
+        // Removing the image drops the reference - the entity keeps no dangling id.
+        CHECK(c.execute(RemoveImageAssetCommand{"img-hero"}).ok);
+        CHECK(!c.document().hasImageAsset("img-hero"));
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)
+                  ->spriteRenderer->imageAssetId.empty());
+        // Undo restores the asset AND the exact reference; redo clears it again.
+        CHECK(c.undo().ok);
+        CHECK(c.document().hasImageAsset("img-hero"));
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)
+                  ->spriteRenderer->imageAssetId == "img-hero");
+        CHECK(c.redo().ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)
+                  ->spriteRenderer->imageAssetId.empty());
+    }
+
     // -- save/load preserves the catalog with the relative path ---------------
     {
         EditorCoordinator c{makeDoc()};
@@ -4094,6 +4196,35 @@ int main() {
         CHECK(ser.value.find("selection") == std::string::npos);
         CHECK(ser.value.find("Inspector") == std::string::npos);
         CHECK(ser.value.find("expanded") == std::string::npos);
+    }
+
+    // -- (13b) Multiple sprite animation assets survive real save/reload -------
+    {
+        EditorCoordinator c{makeAnimationDoc()};   // img-hero + hero.anim/idle (2 frames)
+        // A second animation on the same image, with its own clip + frames -
+        // the exact shape the Import Sheet flow produces.
+        CHECK(c.execute(AddSpriteAnimationAssetCommand{"hero-2.anim", "hero-2.anim"}).ok);
+        CHECK(c.execute(AddAnimationClipCommand{"hero-2.anim", "walk", "Walk", "img-hero"}).ok);
+        CHECK(c.execute(SetAnimationClipFramesCommand{"hero-2.anim", "walk",
+            {SpriteAnimationFrameDef{0, 0, 16, 16},
+             SpriteAnimationFrameDef{16, 0, 16, 16}}}).ok);
+        CHECK(c.document().data().spriteAnimationAssets.size() == 2);
+
+        const std::filesystem::path dir = testTempDir();
+        const std::filesystem::path path = dir / "anim.artcade-project";
+        CHECK(saveProjectToFile(c, path).ok);
+
+        EditorCoordinator reloaded{makeReplacementDoc()};
+        CHECK(loadProjectFromFile(reloaded, path).ok);
+        CHECK(reloaded.document().data().spriteAnimationAssets.size() == 2);
+        const SpriteAnimationAssetDef* a1 =
+            reloaded.document().findSpriteAnimationAsset("hero.anim");
+        const SpriteAnimationAssetDef* a2 =
+            reloaded.document().findSpriteAnimationAsset("hero-2.anim");
+        CHECK(a1 && a1->clips.size() == 1 && a1->clips[0].frames.size() == 2);
+        CHECK(a2 && a2->clips.size() == 1 && a2->clips[0].imageId == "img-hero");
+        CHECK(a2 && a2->clips.size() == 1 && a2->clips[0].id == "walk"
+              && a2->clips[0].frames.size() == 2);
     }
 
     // -- (14) Commands act on the explicit scene, never an implicit active one -

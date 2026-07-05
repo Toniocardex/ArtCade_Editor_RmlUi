@@ -1,13 +1,16 @@
 #pragma once
 
+#include "core/types.h"
 #include "editor-native/commands/editor_invalidation.h"
 #include "editor-native/ui/assets_panel.h"
 #include "editor-native/ui/console_panel.h"
 #include "editor-native/ui/hierarchy_panel.h"
 #include "editor-native/ui/inspector_panel.h"
 
+#include <cstddef>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace Rml { class ElementDocument; class EventListener; }
@@ -16,6 +19,9 @@ namespace ArtCade::EditorNative {
 
 class EditorCoordinator;
 enum class AssetKind;   // defined in app/asset_import.h
+
+// Target kind of the hierarchy context menu (scene tab vs entity row).
+enum class HierarchyMenuKind { Scene, Entity };
 
 /** Escape &, <, > so authored names are safe inside generated RML. */
 std::string escapeRml(const std::string& text);
@@ -53,6 +59,11 @@ public:
     // application. Every kind converges on this one handler.
     using ImportAssetRequest = std::function<void(AssetKind)>;
     void setImportHandler(ImportAssetRequest importAsset);
+    // Import an image straight from the Sprite Animation Editor, reusing the same
+    // importAsset pipeline. Returns the new image id (nullopt when cancelled or on
+    // failure) so the editor can start a new animation on it in one gesture.
+    using ImportImageRequest = std::function<std::optional<AssetId>()>;
+    void setImportImageForAnimationHandler(ImportImageRequest importImage);
     // Fit the SceneView camera to the active scene's bounds. Needs the viewport
     // pixel rect, which only the application knows; it is workspace-only (camera
     // intents, no command). Unset makes the action a no-op.
@@ -67,8 +78,14 @@ public:
                                     EntityPlacementRequest createInstanceHere);
 
     void showViewportContextMenu(int physicalX, int physicalY, bool canCreateInstance);
-    void hideViewportContextMenu();
-    bool isViewportContextMenuHit(int physicalX, int physicalY) const;
+    // Hierarchy context menu (scene tab / entity row "▾" affordance). The show is
+    // deferred to processFrame: the application's same-frame outside-click check
+    // would otherwise measure a menu whose layout is not resolved yet.
+    void requestHierarchyContextMenu(HierarchyMenuKind kind, std::string targetId,
+                                     int physicalX, int physicalY);
+    // Hide / hit-test cover every open context menu (viewport + hierarchy).
+    void hideContextMenus();
+    bool isContextMenuHit(int physicalX, int physicalY) const;
 
     // Copies the selected Console message (full model text) to the clipboard via
     // raylib's SetClipboardText. The single entry point shared by the Copy button
@@ -81,6 +98,10 @@ public:
     // Viewport drag preview for the selected entity transform. Presentation only:
     // the model still changes once, on mouse release, through SetEntityPositionCommand.
     void showEntityPositionPreview(EntityId entity, Vec2 position);
+    // Pointer world-position readout in the toolbar (Edit mode, mouse over the
+    // scene). Presentation-only per-frame update like the animation playhead:
+    // change-guarded, no invalidation, never touches authoring state.
+    void showPointerWorldPosition(const std::optional<Vec2>& worldPosition);
 
     // Called by the listener; routes one UI interaction to command/intent.
     void handleAction(const std::string& action, const std::string& arg,
@@ -93,9 +114,14 @@ private:
 
     void applyInvalidations(EditorInvalidation flags);
     void refreshSpriteAnimationEditor();
+    // Per-frame, class-only sync of the preview transport and timeline playhead.
+    // The playhead advances without invalidation, and a markup rebuild would
+    // steal focus from the Name/FPS inputs, so this never touches innerRML.
+    void updateSpriteAnimationPlayhead();
     void refreshToolbar();
     void updateZoomReadout();   // toolbar zoom %, refreshed on Viewport invalidation
     void commitGridCellSize(const std::string& text);
+    void showPendingHierarchyMenu();   // consumes the deferred menu request
 
     EditorCoordinator&                  coordinator_;
     Rml::ElementDocument*               document_;
@@ -110,6 +136,7 @@ private:
     ProjectFileRequest                  saveProjectRequest_;
     ProjectFileRequest                  saveProjectAsRequest_;
     ImportAssetRequest                  importAssetRequest_;
+    ImportImageRequest                  importImageForAnimationRequest_;
     EntityPlacementRequest              addEntityRequest_;
     EntityPlacementRequest              addInstanceRequest_;
     EntityPlacementRequest              createEntityHereRequest_;
@@ -117,7 +144,19 @@ private:
     WorkspaceRequest                    fitViewRequest_;
     WorkspaceRequest                    sliceAnimationRequest_;
     bool                                viewportContextMenuVisible_ = false;
+    bool                                hierarchyContextMenuVisible_ = false;
+    // Deferred hierarchy menu request (applied on the next processFrame).
+    struct PendingHierarchyMenu {
+        HierarchyMenuKind kind;
+        std::string       targetId;
+        int               x = 0;
+        int               y = 0;
+    };
+    std::optional<PendingHierarchyMenu> pendingHierarchyMenu_;
+    std::string                         pointerReadout_;   // last coords text shown
     std::string                         spriteAnimationEditorMarkup_;
+    // Chips currently in the timeline; bounds the playhead class sweep.
+    std::size_t                         spriteAnimationTimelineCount_ = 0;
 };
 
 } // namespace ArtCade::EditorNative

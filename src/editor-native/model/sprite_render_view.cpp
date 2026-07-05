@@ -5,23 +5,19 @@
 namespace ArtCade::EditorNative {
 
 namespace {
-AnimationFrameRect firstFrameRect(const SpriteAnimationAssetDef& asset,
-                                  const SpriteAnimatorComponent* animator) {
-    const std::string& clipId = animator ? animator->initialClipId : std::string();
-    for (const SpriteAnimationClipDef& clip : asset.clips) {
-        if (!clipId.empty() && clip.id != clipId) continue;
-        if (!clip.frames.empty()) {
-            const SpriteAnimationFrameDef& frame = clip.frames.front();
-            return AnimationFrameRect{
-                static_cast<float>(frame.x),
-                static_cast<float>(frame.y),
-                static_cast<float>(frame.width),
-                static_cast<float>(frame.height),
-            };
+// The clip an entity shows: the animator's initial clip, else the asset default,
+// else the first clip. Its imageId is the sheet to render and its first frame the
+// still shown in the editor (the runtime playhead takes over during Play).
+const SpriteAnimationClipDef* activeClip(const SpriteAnimationAssetDef& asset,
+                                         const SpriteAnimatorComponent* animator) {
+    std::string clipId = animator ? animator->initialClipId : std::string();
+    if (clipId.empty()) clipId = asset.defaultClipId;
+    if (!clipId.empty()) {
+        for (const SpriteAnimationClipDef& clip : asset.clips) {
+            if (clip.id == clipId) return &clip;
         }
-        if (!clipId.empty()) break;
     }
-    return {};
+    return asset.clips.empty() ? nullptr : &asset.clips.front();
 }
 } // namespace
 
@@ -37,10 +33,20 @@ SpriteRenderView resolveSpriteRenderer(const ProjectDocument& document,
             const SpriteAnimationAssetDef* asset =
                 document.findSpriteAnimationAsset(view.animationAssetId);
             if (!asset) return SpriteRenderView{};
-            view.assetId = asset->imageId;
-            view.sourceRect = firstFrameRect(*asset,
+            const SpriteAnimationClipDef* clip = activeClip(*asset,
                 instance->spriteAnimator ? &*instance->spriteAnimator : nullptr);
-            view.hasSourceRect = view.sourceRect.w > 0.f && view.sourceRect.h > 0.f;
+            if (!clip) return SpriteRenderView{};   // no clips: nothing to show
+            view.assetId = clip->imageId;           // the active clip's own sheet
+            if (!clip->frames.empty()) {
+                const SpriteAnimationFrameDef& frame = clip->frames.front();
+                view.sourceRect = AnimationFrameRect{
+                    static_cast<float>(frame.x), static_cast<float>(frame.y),
+                    static_cast<float>(frame.width), static_cast<float>(frame.height)};
+                view.hasSourceRect = frame.width > 0 && frame.height > 0;
+            } else {
+                view.sourceRect = AnimationFrameRect{};
+                view.hasSourceRect = false;
+            }
         }
         return view;
     }

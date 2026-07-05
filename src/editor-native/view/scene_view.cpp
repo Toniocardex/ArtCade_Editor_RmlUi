@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <string>
 
 namespace ArtCade::EditorNative {
 
@@ -101,7 +102,8 @@ void SceneView::render(const SceneFrameSnapshot& frame,
     DrawRectangle(rect.x, rect.y, rect.width, rect.height, Color{14, 14, 16, 255});
 
     if (!frame.hasScene) {
-        DrawText("No active scene", rect.x + 16, rect.y + 16, 18, Color{120, 128, 140, 255});
+        // The RmlUi #viewport-empty overlay carries the guidance; the backdrop
+        // fill above is all raylib draws here.
         EndScissorMode();
         return;
     }
@@ -133,8 +135,8 @@ void SceneView::render(const SceneFrameSnapshot& frame,
         const SceneGridDefinition grid = makeSceneGridDefinition(view);
         const int visualStride = visualGridStrideForZoom(grid, cam.zoom);
         const float visualStep = grid.cellSize * static_cast<float>(visualStride);
-        const Color gridMinor{120, 120, 130, 16};
-        const Color gridMajor{120, 120, 130, 30};
+        const Color gridMinor{120, 120, 130, 36};
+        const Color gridMajor{120, 120, 130, 68};
         if (visualStep > 0.0f && std::isfinite(visualStep)) {
             const auto firstLine = [](float origin, float step) {
                 return origin + std::ceil((0.0f - origin) / step) * step;
@@ -156,9 +158,10 @@ void SceneView::render(const SceneFrameSnapshot& frame,
         }
     }
 
-    // Subtle neutral world frame, so the accent selection stands out against it.
-    const float linePx = 1.5f / cam.zoom;
-    DrawRectangleLinesEx(Rectangle{0, 0, world.x, world.y}, linePx, Color{63, 63, 70, 200});
+    // Neutral world frame — clearly marks where the world ends, while the accent
+    // selection still stands out against it.
+    const float linePx = 2.f / cam.zoom;
+    DrawRectangleLinesEx(Rectangle{0, 0, world.x, world.y}, linePx, Color{92, 92, 102, 255});
 
     for (const SceneFrameEntity& entity : frame.entities) {
         if (hasVisibleSprite(frame, entity.entityId)) continue;
@@ -245,6 +248,38 @@ void SceneView::render(const SceneFrameSnapshot& frame,
         DrawRectangleLinesEx(box, 2.f / cam.zoom, Color{216, 180, 74, 220});
         EndMode2D();
         break;
+    }
+
+    // Placeholder entities carry no artwork: a name above the box says what the
+    // rectangle is instead of leaving an anonymous shape (UI audit 7.3).
+    for (const SceneFrameEntity& entity : frame.entities) {
+        if (hasVisibleSprite(frame, entity.entityId)) continue;
+        if (entity.name.empty()) continue;
+        const Vector2 top = GetWorldToScreen2D(
+            Vector2{entity.bounds.x, entity.bounds.y}, cam);
+        const Vector2 bottomRight = GetWorldToScreen2D(
+            Vector2{entity.bounds.x + entity.bounds.width,
+                    entity.bounds.y + entity.bounds.height}, cam);
+        if (bottomRight.x - top.x < 18.f) continue;   // too small on screen to label
+        // Dark chip behind the name so it reads on any world background colour.
+        const int nameW = MeasureText(entity.name.c_str(), 12);
+        DrawRectangleRounded(
+            Rectangle{top.x - 4.f, top.y - 20.f, static_cast<float>(nameW) + 10.f, 17.f},
+            0.35f, 4, Color{17, 17, 19, 200});
+        DrawText(entity.name.c_str(), static_cast<int>(top.x) + 1,
+                 static_cast<int>(top.y) - 17, 12, Color{212, 212, 216, 240});
+    }
+
+    // World size readout on the frame's bottom-right corner: the bounds in the
+    // Inspector become visible in the workspace itself.
+    {
+        const Vector2 corner = GetWorldToScreen2D(Vector2{world.x, world.y}, cam);
+        const std::string dims =
+            std::to_string(static_cast<int>(std::lround(world.x))) + " x "
+            + std::to_string(static_cast<int>(std::lround(world.y))) + " wu";
+        const int dimsW = MeasureText(dims.c_str(), 12);
+        DrawText(dims.c_str(), static_cast<int>(corner.x) - dimsW,
+                 static_cast<int>(corner.y) + 6, 12, Color{130, 130, 140, 230});
     }
 
     const char* label = frame.sceneName.c_str();

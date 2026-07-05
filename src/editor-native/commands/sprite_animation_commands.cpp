@@ -24,18 +24,6 @@ bool validFrame(const SpriteAnimationFrameDef& frame) {
     return frame.width > 0 && frame.height > 0 && frame.x >= 0 && frame.y >= 0;
 }
 
-bool animationAssetReferenced(const ProjectDocument& document, const AssetId& assetId) {
-    for (const auto& [_, scene] : document.data().scenes) {
-        for (const SceneInstanceDef& instance : scene.instances) {
-            if (instance.spriteRenderer
-                && instance.spriteRenderer->animationAssetId == assetId) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 bool clipReferenced(const ProjectDocument& document, const AssetId& assetId,
                     const std::string& clipId) {
     for (const auto& [_, scene] : document.data().scenes) {
@@ -53,20 +41,16 @@ bool clipReferenced(const ProjectDocument& document, const AssetId& assetId,
 } // namespace
 
 AddSpriteAnimationAssetCommand::AddSpriteAnimationAssetCommand(
-    AssetId assetId, AssetId imageId, std::string name)
-    : assetId_(std::move(assetId)), imageId_(std::move(imageId)), name_(std::move(name)) {}
+    AssetId assetId, std::string name)
+    : assetId_(std::move(assetId)), name_(std::move(name)) {}
 
 EditorOperationResult AddSpriteAnimationAssetCommand::apply(ProjectDocument& document) {
-    if (assetId_.empty() || imageId_.empty() || name_.empty()) {
+    if (assetId_.empty() || name_.empty()) {
         return EditorOperationResult::failure("Sprite animation asset is incomplete");
-    }
-    if (!document.hasImageAsset(imageId_)) {
-        return EditorOperationResult::failure("Sprite animation references a missing image asset");
     }
     SpriteAnimationAssetDef asset;
     asset.id = assetId_;
     asset.name = name_;
-    asset.imageId = imageId_;
     if (!document.addSpriteAnimationAsset(std::move(asset))) {
         return EditorOperationResult::failure("Failed to add sprite animation asset");
     }
@@ -86,12 +70,33 @@ RemoveSpriteAnimationAssetCommand::RemoveSpriteAnimationAssetCommand(AssetId ass
 EditorOperationResult RemoveSpriteAnimationAssetCommand::apply(ProjectDocument& document) {
     const SpriteAnimationAssetDef* asset = document.findSpriteAnimationAsset(assetId_);
     if (!asset) return EditorOperationResult::failure("Unknown sprite animation asset");
-    if (animationAssetReferenced(document, assetId_)) {
-        return EditorOperationResult::failure("Sprite animation asset is still referenced");
-    }
     if (!captured_) {
         removed_ = *asset;
         captured_ = true;
+    }
+    // Delete means delete: instead of refusing while referenced, clear the
+    // animation source (and the now-orphaned animator) from every entity that
+    // used it. Captured once so undo restores each entity exactly.
+    if (!refsCaptured_) {
+        for (const auto& [sceneId, scene] : document.data().scenes) {
+            for (const SceneInstanceDef& instance : scene.instances) {
+                if (!instance.spriteRenderer
+                    || instance.spriteRenderer->animationAssetId != assetId_) {
+                    continue;
+                }
+                ClearedRef ref;
+                ref.sceneId = sceneId;
+                ref.entityId = instance.id;
+                ref.hadAnimator = instance.spriteAnimator.has_value();
+                if (ref.hadAnimator) ref.animator = *instance.spriteAnimator;
+                clearedRefs_.push_back(std::move(ref));
+            }
+        }
+        refsCaptured_ = true;
+    }
+    for (const ClearedRef& ref : clearedRefs_) {
+        document.setSpriteRendererAnimation(ref.sceneId, ref.entityId, AssetId{});
+        if (ref.hadAnimator) document.removeSpriteAnimator(ref.sceneId, ref.entityId);
     }
     if (!document.removeSpriteAnimationAsset(assetId_)) {
         return EditorOperationResult::failure("Failed to remove sprite animation asset");
@@ -103,17 +108,24 @@ EditorOperationResult RemoveSpriteAnimationAssetCommand::undo(ProjectDocument& d
     if (!captured_ || !document.addSpriteAnimationAsset(removed_)) {
         return EditorOperationResult::failure("Cannot undo sprite animation asset removal");
     }
+    // Restore each entity's animation source and its animator verbatim.
+    for (const ClearedRef& ref : clearedRefs_) {
+        document.setSpriteRendererAnimation(ref.sceneId, ref.entityId, assetId_);
+        if (ref.hadAnimator) document.addSpriteAnimator(ref.sceneId, ref.entityId, ref.animator);
+    }
     return EditorOperationResult::success(kAssetInvalidation, DomainChange::assetChanged(assetId_));
 }
 
 AddAnimationClipCommand::AddAnimationClipCommand(
-    AssetId assetId, std::string clipId, std::string name)
-    : assetId_(std::move(assetId)), clipId_(std::move(clipId)), name_(std::move(name)) {}
+    AssetId assetId, std::string clipId, std::string name, AssetId imageId)
+    : assetId_(std::move(assetId)), clipId_(std::move(clipId)), name_(std::move(name)),
+      imageId_(std::move(imageId)) {}
 
 EditorOperationResult AddAnimationClipCommand::apply(ProjectDocument& document) {
     SpriteAnimationClipDef clip;
     clip.id = clipId_;
     clip.name = name_;
+    clip.imageId = imageId_;
     if (!document.addAnimationClip(assetId_, std::move(clip))) {
         return EditorOperationResult::failure("Failed to add animation clip");
     }

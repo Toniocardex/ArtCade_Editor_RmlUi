@@ -23,7 +23,7 @@
     padding: 0 10dp;
     margin: 0 1dp;
     border-radius: 3dp;
-    color: #a1a1aa;
+    color: #c4c4c8;
     font-size: 12dp;
     font-weight: 400;
     transition: background-color 0.1s, color 0.1s;
@@ -50,7 +50,7 @@
     line-height: 28dp;
     padding: 0 10dp;
     border-radius: 4dp;
-    color: #a1a1aa;
+    color: #c4c4c8;
     font-size: 13dp;
     font-weight: 500;
     white-space: nowrap;
@@ -69,7 +69,7 @@
     background-color: #1c1c1f;
     border: 1px #27272a;
     border-radius: 4dp;
-    color: #a1a1aa;
+    color: #c4c4c8;
     font-size: 13dp;
     font-weight: 500;
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
@@ -103,10 +103,25 @@
     background-color: #323236;
 }
 
-.toolbar-status {
+/* Icon-only toolbar buttons (zoom +/-): tighter padding, no icon gap. */
+.tool-icon { padding: 0 10dp; }
+.tool-icon .icon { margin-right: 0; }
+
+/* Pointer world position readout (Edit mode, mouse over the scene). */
+.toolbar-coords {
     display: inline-block;
     line-height: 44dp;
     margin-left: auto;
+    padding: 0 10dp;
+    color: #8a8a93;
+    font-size: 11dp;
+    font-weight: 500;
+    letter-spacing: 0.4dp;
+}
+
+.toolbar-status {
+    display: inline-block;
+    line-height: 44dp;
     padding: 0 4dp 0 12dp;
     color: #52525b;
     font-size: 11dp;
@@ -122,7 +137,7 @@
     margin: 0 2dp;
     padding: 0 8dp;
     border-radius: 4dp;
-    color: #a1a1aa;
+    color: #c4c4c8;
     font-size: 12dp;
     font-weight: 500;
     transition: background-color 0.1s, color 0.1s;
@@ -189,7 +204,7 @@
     background-color: transparent;
     border: 1px #323236;
     border-radius: 3dp;
-    color: #a1a1aa;
+    color: #c4c4c8;
     font-size: 11dp;
 }
 .grid-size-preset:hover {
@@ -218,6 +233,55 @@
     flex-wrap: wrap;
     padding: 8dp 8dp 4dp 10dp;
 }
+
+/* "+ Create" hover dropdown (same local-visual-state pattern as the File menu). */
+.create-menu {
+    display: inline-block;
+    position: relative;
+}
+.create-dropdown {
+    display: none;
+    position: absolute;
+    top: 25dp;
+    left: 0;
+    z-index: 120;
+    min-width: 168dp;
+    padding: 4dp;
+    background-color: #1c1c1f;
+    border: 1px #323236;
+    border-radius: 6dp;
+}
+.create-menu:hover .create-dropdown { display: block; }
+.menu-entry.disabled { color: #3f3f46; }
+.menu-entry.disabled:hover { background-color: transparent; color: #3f3f46; }
+
+/* Per-row menu affordance on scene tabs and tree rows. */
+.tab-menu,
+.row-menu {
+    display: inline-block;
+    width: 16dp;
+    text-align: center;
+    margin-left: 4dp;
+    border-radius: 3dp;
+    color: #6b6b73;
+    transition: background-color 0.1s, color 0.1s;
+}
+.tab-menu:hover,
+.row-menu:hover { background-color: #2c2c31; color: #d4d4d8; }
+
+/* Destructive context-menu entries hint red on hover only. */
+.context-entry.destructive:hover { background-color: #2a1f20; color: #e5706b; }
+
+/* Tree section eyebrow ("Instances"). */
+.tree-section {
+    display: block;
+    padding: 6dp 10dp 2dp 10dp;
+    color: #71717a;
+    font-size: 9dp;
+    font-weight: 700;
+    letter-spacing: 1dp;
+    text-transform: uppercase;
+}
 .panel-btn {
     display: inline-block;
     height: 24dp;
@@ -228,7 +292,7 @@
     background-color: transparent;
     border: 1px #323236;
     border-radius: 3dp;
-    color: #a1a1aa;
+    color: #c4c4c8;
     font-size: 11dp;
     font-weight: 500;
     white-space: nowrap;
@@ -242,13 +306,7 @@
     color: #d4d4d8;
 }
 
-/* Destructive remove buttons hint red on hover. */
-#btn-del-scene:hover,
-#btn-del-entity:hover { border-color: #7f3b38; color: #e5706b; }
-
-.panel-btn.disabled,
-#btn-del-scene.disabled,
-#btn-del-entity.disabled {
+.panel-btn.disabled {
     background-color: transparent;
     border: 1px #242427;
     color: #3f3f46;
@@ -263,7 +321,7 @@
     text-align: center;
     border: 1px #3a3a40;
     border-radius: 4dp;
-    color: #a1a1aa;
+    color: #c4c4c8;
     font-size: 12dp;
     font-weight: 500;
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
@@ -285,7 +343,7 @@
     line-height: 26dp;
     padding: 0 10dp;
     border-radius: 3dp;
-    color: #a1a1aa;
+    color: #c4c4c8;
     font-size: 12dp;
     transition: background-color 0.1s, color 0.1s;
 }
@@ -296,7 +354,7 @@
 .asset-option {
     display: block;
     padding: 5dp 9dp;
-    color: #a1a1aa;
+    color: #c4c4c8;
     background-color: #1c1c1f;
     border: 1px #27272a;
     border-radius: 3dp;
@@ -333,7 +391,7 @@
     line-height: 28dp;
     padding: 0 10dp;
     border-radius: 4dp;
-    color: #a1a1aa;
+    color: #c4c4c8;
     font-size: 12dp;
     font-weight: 500;
     white-space: nowrap;
@@ -350,7 +408,7 @@
     height: 26dp;
     padding: 0 4dp;
     border-radius: 3dp;
-    color: #a1a1aa;
+    color: #c4c4c8;
     transition: background-color 0.1s, color 0.1s;
 }
 .layer-row:hover { background-color: #1c1c1f; }
@@ -419,7 +477,7 @@
     padding: 0 12dp;
     margin: 0 5dp 5dp 0;
     border-radius: 3dp;
-    color: #a1a1aa;
+    color: #c4c4c8;
     background-color: transparent;
     font-size: 11dp;
     font-weight: 500;
@@ -441,7 +499,7 @@
     height: 26dp;
     padding: 0 10dp;
     border-left: 2dp transparent;
-    color: #a1a1aa;
+    color: #c4c4c8;
     transition: background-color 0.1s, color 0.1s;
 }
 .tree-row:hover { background-color: #222226; color: #d4d4d8; }
@@ -462,7 +520,7 @@
 .tree-empty {
     display: block;
     padding: 10dp;
-    color: #52525b;
+    color: #6b7280;
 }
 
 /* -- Text inputs — flat, accent border on focus (no glow) ------------------ */
