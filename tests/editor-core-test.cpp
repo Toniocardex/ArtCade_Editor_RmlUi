@@ -3627,6 +3627,28 @@ int main() {
         CHECK(c.undoSize() == 0);
     }
 
+    // -- Scene grid/snap intents reject a scene that doesn't exist -------------
+    // (defence in depth: the toolbar/menu also disable these with no active
+    // scene, but the coordinator must not rely on that alone).
+    {
+        EditorCoordinator c{makeDoc()};
+        const SceneId bogus{"no-such-scene"};
+        CHECK(!c.apply(SetSceneGridVisibilityIntent{bogus, false}).ok);
+        CHECK(!c.apply(SetSceneGridSnapEnabledIntent{bogus, true}).ok);
+        CHECK(!c.apply(SetSceneGridCellSizeIntent{bogus, 32.0f}).ok);
+        CHECK(c.sceneView(bogus).gridVisible);   // default, untouched by the map
+    }
+
+    // -- Zoom/Pan intents reject a scene that doesn't exist, same reason ------
+    {
+        EditorCoordinator c{makeDoc()};
+        const SceneId bogus{"no-such-scene"};
+        CHECK(!c.apply(SetViewportZoomIntent{bogus, 2.0f}).ok);
+        CHECK(!c.apply(PanViewportIntent{bogus, {10.f, 10.f}}).ok);
+        CHECK(c.sceneView(bogus).zoom == 1.0f);   // default, untouched by the map
+        CHECK(c.sceneView(bogus).pan.x == 0.f);
+    }
+
     // -- Scene grid/snap toggles are workspace-only and per-scene -------------
     {
         EditorCoordinator c{makeDoc()};

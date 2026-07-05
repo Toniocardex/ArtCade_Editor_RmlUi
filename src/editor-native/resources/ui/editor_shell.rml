@@ -30,9 +30,9 @@
         <div class="menu-item has-menu">
             <span class="menu-label">View</span>
             <div class="menu-dropdown">
-                <div class="menu-entry" data-action="zoom-in"><span class="icon">&#xeb56;</span>Zoom In</div>
-                <div class="menu-entry" data-action="zoom-out"><span class="icon">&#xeb57;</span>Zoom Out</div>
-                <div class="menu-entry" data-action="reset-zoom">Reset Zoom to 100%</div>
+                <div id="menu-zoom-in" class="menu-entry" data-action="zoom-in"><span class="icon">&#xeb56;</span>Zoom In</div>
+                <div id="menu-zoom-out" class="menu-entry" data-action="zoom-out"><span class="icon">&#xeb57;</span>Zoom Out</div>
+                <div id="menu-reset-zoom" class="menu-entry" data-action="reset-zoom">Reset Zoom to 100%</div>
                 <div id="menu-fit-view" class="menu-entry" data-action="fit-view-to-bounds"><span class="icon">&#xf22f;</span>Fit View to Bounds</div>
                 <div class="menu-separator"></div>
                 <div id="menu-grid-visible" class="menu-entry" data-action="toggle-grid-visible"><span class="icon">&#xea3b;</span>Show Grid</div>
@@ -51,9 +51,9 @@
         <button id="btn-undo" class="tool-btn" data-action="undo"><span class="icon">&#xeb77;</span>Undo</button>
         <button id="btn-redo" class="tool-btn" data-action="redo"><span class="icon">&#xeb13;</span>Redo</button>
         <span class="tool-sep"></span>
-        <button class="tool-btn tool-icon" data-action="zoom-out" title="Zoom Out"><span class="icon">&#xeb57;</span></button>
+        <button id="btn-zoom-out" class="tool-btn tool-icon" data-action="zoom-out" title="Zoom Out"><span class="icon">&#xeb57;</span></button>
         <span id="toolbar-zoom" class="toolbar-zoom" data-action="reset-zoom" title="Reset Zoom to 100%">100%</span>
-        <button class="tool-btn tool-icon" data-action="zoom-in" title="Zoom In"><span class="icon">&#xeb56;</span></button>
+        <button id="btn-zoom-in" class="tool-btn tool-icon" data-action="zoom-in" title="Zoom In"><span class="icon">&#xeb56;</span></button>
         <button id="btn-fit-view" class="tool-btn" data-action="fit-view-to-bounds" title="Fit View to Bounds">Fit</button>
         <span class="tool-sep"></span>
         <button id="btn-grid-visible" class="tool-btn" data-action="toggle-grid-visible" title="Show Grid"><span class="icon">&#xea3b;</span>Grid</button>

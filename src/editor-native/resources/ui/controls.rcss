@@ -157,6 +157,8 @@
     transition: background-color 0.1s, color 0.1s;
 }
 .toolbar-zoom:hover { background-color: #222226; color: #d4d4d8; }
+.toolbar-zoom.disabled { color: #3f3f46; }
+.toolbar-zoom.disabled:hover { background-color: transparent; }
 
 .grid-size-control {
     display: inline-block;

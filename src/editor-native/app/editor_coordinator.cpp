@@ -371,12 +371,24 @@ EditorOperationResult EditorCoordinator::apply(const SelectSceneIntent& intent) 
 }
 
 EditorOperationResult EditorCoordinator::apply(const SetViewportZoomIntent& intent) {
+    // Same guard as the grid intents below: with no real scene behind
+    // intent.sceneId, this would otherwise silently create workspace view
+    // state for a scene that doesn't exist (e.g. mouse wheel over the empty
+    // "No scene open" viewport, which the UI disabled state alone can't stop
+    // — a click/scroll still reaches the coordinator regardless of how a
+    // control is styled).
+    if (!document_.hasScene(intent.sceneId)) {
+        return EditorOperationResult::failure("Unknown scene");
+    }
     state_.sceneViews[intent.sceneId].zoom = clampZoom(intent.zoom);
     accumulate(EditorInvalidation::Viewport);
     return EditorOperationResult::success(EditorInvalidation::Viewport);
 }
 
 EditorOperationResult EditorCoordinator::apply(const PanViewportIntent& intent) {
+    if (!document_.hasScene(intent.sceneId)) {
+        return EditorOperationResult::failure("Unknown scene");
+    }
     EditorSceneViewState& view = state_.sceneViews[intent.sceneId];
     view.pan.x += intent.delta.x;
     view.pan.y += intent.delta.y;
@@ -385,6 +397,12 @@ EditorOperationResult EditorCoordinator::apply(const PanViewportIntent& intent) 
 }
 
 EditorOperationResult EditorCoordinator::apply(const SetSceneGridVisibilityIntent& intent) {
+    // Guard against the UI's disabled state being the only thing standing
+    // between this and a nonexistent scene: without it, `sceneViews[id]`
+    // would silently create workspace state for a scene that isn't real.
+    if (!document_.hasScene(intent.sceneId)) {
+        return EditorOperationResult::failure("Unknown scene");
+    }
     state_.sceneViews[intent.sceneId].gridVisible = intent.visible;
     const EditorInvalidation inv = EditorInvalidation::Viewport | EditorInvalidation::Toolbar;
     accumulate(inv);
@@ -392,6 +410,9 @@ EditorOperationResult EditorCoordinator::apply(const SetSceneGridVisibilityInten
 }
 
 EditorOperationResult EditorCoordinator::apply(const SetSceneGridSnapEnabledIntent& intent) {
+    if (!document_.hasScene(intent.sceneId)) {
+        return EditorOperationResult::failure("Unknown scene");
+    }
     state_.sceneViews[intent.sceneId].gridSnapEnabled = intent.enabled;
     const EditorInvalidation inv = EditorInvalidation::Viewport | EditorInvalidation::Toolbar;
     accumulate(inv);
@@ -399,6 +420,9 @@ EditorOperationResult EditorCoordinator::apply(const SetSceneGridSnapEnabledInte
 }
 
 EditorOperationResult EditorCoordinator::apply(const SetSceneGridCellSizeIntent& intent) {
+    if (!document_.hasScene(intent.sceneId)) {
+        return EditorOperationResult::failure("Unknown scene");
+    }
     if (!std::isfinite(intent.cellSize) || intent.cellSize <= 0.0f) {
         return EditorOperationResult::failure("Grid cell size must be a positive number");
     }
