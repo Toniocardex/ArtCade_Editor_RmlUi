@@ -835,6 +835,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     }
 
     if (handleProjectFileAction(action, arg, value)) return;
+    if (handleConsoleAction(action, arg, value)) return;
 
     if (action == "select-entity") {
         coordinator_.apply(SelectEntityIntent{
@@ -1258,7 +1259,12 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         if (!arg.empty()) coordinator_.execute(RemoveAudioAssetCommand{arg});
     } else if (action == "remove-font-asset") {
         if (!arg.empty()) coordinator_.execute(RemoveFontAssetCommand{arg});
-    } else if (action == "select-console") {
+    }
+}
+
+bool EditorUi::handleConsoleAction(const std::string& action, const std::string& arg,
+                                   const std::string& value) {
+    if (action == "select-console") {
         console_.select(static_cast<std::size_t>(std::strtoul(arg.c_str(), nullptr, 10)),
                         document_, coordinator_);
     } else if (action == "copy-console") {
@@ -1275,7 +1281,10 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         coordinator_.apply(SetConsoleShowErrorIntent{!coordinator_.uiState().consoleShowError});
     } else if (action == "commit-console-filter") {
         coordinator_.apply(SetConsoleFilterIntent{value});
+    } else {
+        return false;
     }
+    return true;
 }
 
 bool EditorUi::handleProjectFileAction(const std::string& action, const std::string& arg,

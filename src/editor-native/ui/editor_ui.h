@@ -120,6 +120,8 @@ private:
     // a parameter instead of re-reading coordinator_.selection() themselves.
     bool handleProjectFileAction(const std::string& action, const std::string& arg,
                                  const std::string& value);
+    bool handleConsoleAction(const std::string& action, const std::string& arg,
+                             const std::string& value);
 
     void applyInvalidations(EditorInvalidation flags);
     void refreshSpriteAnimationEditor();
