@@ -839,86 +839,9 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     if (handleAssetsAction(action, arg, value)) return;
     if (handleToolbarAction(action, arg, value)) return;
     if (handleSpriteAnimationAction(action, arg, value)) return;
+    if (handleHierarchyAction(action, arg, value, selected)) return;
 
-    if (action == "select-entity") {
-        coordinator_.apply(SelectEntityIntent{
-            static_cast<EntityId>(std::strtoul(arg.c_str(), nullptr, 10))});
-    } else if (action == "select-scene") {
-        coordinator_.apply(SelectSceneIntent{arg});
-    } else if (action == "add-scene") {
-        addScene(coordinator_);
-    } else if (action == "delete-scene") {
-        // No arg → the active scene; the coordinator reconciles the workspace.
-        hideContextMenus();
-        deleteScene(coordinator_, arg.empty() ? coordinator_.state().activeSceneId : arg);
-    } else if (action == "add-entity") {
-        if (addEntityRequest_) addEntityRequest_();
-        else addEntity(coordinator_);
-    } else if (action == "add-instance") {
-        hideContextMenus();
-        if (addInstanceRequest_) addInstanceRequest_();
-        else addInstanceOfSelectedType(coordinator_);
-    } else if (action == "select-layer") {
-        coordinator_.apply(SetActiveLayerIntent{coordinator_.state().activeSceneId, arg});
-    } else if (action == "toggle-layer-visible") {
-        coordinator_.apply(
-            ToggleLayerEditorVisibilityIntent{coordinator_.state().activeSceneId, arg});
-    } else if (action == "begin-layer-rename") {
-        inspector_.beginSceneLayerRename(document_, coordinator_, arg);
-    } else if (action == "commit-layer-rename") {
-        inspector_.commitSceneLayerRename(document_, coordinator_, value);
-    } else if (action == "cancel-layer-rename") {
-        inspector_.cancelSceneLayerRename(document_, coordinator_);
-    } else if (action == "add-layer") {
-        const SceneId active = coordinator_.state().activeSceneId;
-        const SceneDef* scene = coordinator_.document().findScene(active);
-        if (scene) {
-            int n = 1;
-            std::string id;
-            std::string name;
-            do {
-                id = "layer-" + std::to_string(n);
-                name = "Layer " + std::to_string(n);
-                ++n;
-            } while (coordinator_.document().hasLayer(active, id)
-                     || sceneLayerNameExists(*scene, name));
-            coordinator_.execute(AddSceneLayerCommand{
-                active, id, name, scene->layers.size()});
-        }
-    } else if (action == "move-layer-up" || action == "move-layer-down") {
-        const SceneId active = coordinator_.state().activeSceneId;
-        const SceneDef* scene = coordinator_.document().findScene(active);
-        if (scene) {
-            std::size_t i = scene->layers.size();
-            for (std::size_t k = 0; k < scene->layers.size(); ++k)
-                if (scene->layers[k].id == arg) { i = k; break; }
-            if (i < scene->layers.size()) {
-                // "up" in the panel = toward foreground = a higher vector index.
-                if (action == "move-layer-up")
-                    coordinator_.execute(MoveSceneLayerCommand{active, arg, i + 1});
-                else if (i > 0)
-                    coordinator_.execute(MoveSceneLayerCommand{active, arg, i - 1});
-            }
-        }
-    } else if (action == "remove-layer") {
-        coordinator_.execute(RemoveSceneLayerCommand{coordinator_.state().activeSceneId, arg});
-    } else if (action == "set-entity-layer") {
-        if (selected != INVALID_ENTITY)
-            coordinator_.execute(
-                SetEntityLayerCommand{coordinator_.state().activeSceneId, selected, arg});
-    } else if (action == "create-entity-here") {
-        hideContextMenus();
-        if (createEntityHereRequest_) createEntityHereRequest_();
-    } else if (action == "create-instance-here") {
-        hideContextMenus();
-        if (createInstanceHereRequest_) createInstanceHereRequest_();
-    } else if (action == "delete-entity") {
-        hideContextMenus();
-        deleteSelectedEntity(coordinator_);
-    } else if (action == "set-start-scene") {
-        hideContextMenus();
-        setStartScene(coordinator_, arg.empty() ? coordinator_.state().activeSceneId : arg);
-    } else if (action == "add-sprite-renderer") {
+    if (action == "add-sprite-renderer") {
         addSpriteRenderer(coordinator_);
     } else if (action == "remove-sprite-renderer") {
         removeSpriteRenderer(coordinator_);
@@ -1263,6 +1186,92 @@ bool EditorUi::handleSpriteAnimationAction(const std::string& action, const std:
     } else if (action == "remove-animation-clip") {
         const std::vector<std::string> parts = splitPipe(arg);
         if (parts.size() == 2) coordinator_.execute(RemoveAnimationClipCommand{parts[0], parts[1]});
+    } else {
+        return false;
+    }
+    return true;
+}
+
+bool EditorUi::handleHierarchyAction(const std::string& action, const std::string& arg,
+                                     const std::string& value, EntityId selected) {
+    if (action == "select-entity") {
+        coordinator_.apply(SelectEntityIntent{
+            static_cast<EntityId>(std::strtoul(arg.c_str(), nullptr, 10))});
+    } else if (action == "select-scene") {
+        coordinator_.apply(SelectSceneIntent{arg});
+    } else if (action == "add-scene") {
+        addScene(coordinator_);
+    } else if (action == "delete-scene") {
+        // No arg → the active scene; the coordinator reconciles the workspace.
+        hideContextMenus();
+        deleteScene(coordinator_, arg.empty() ? coordinator_.state().activeSceneId : arg);
+    } else if (action == "add-entity") {
+        if (addEntityRequest_) addEntityRequest_();
+        else addEntity(coordinator_);
+    } else if (action == "add-instance") {
+        hideContextMenus();
+        if (addInstanceRequest_) addInstanceRequest_();
+        else addInstanceOfSelectedType(coordinator_);
+    } else if (action == "select-layer") {
+        coordinator_.apply(SetActiveLayerIntent{coordinator_.state().activeSceneId, arg});
+    } else if (action == "toggle-layer-visible") {
+        coordinator_.apply(
+            ToggleLayerEditorVisibilityIntent{coordinator_.state().activeSceneId, arg});
+    } else if (action == "begin-layer-rename") {
+        inspector_.beginSceneLayerRename(document_, coordinator_, arg);
+    } else if (action == "commit-layer-rename") {
+        inspector_.commitSceneLayerRename(document_, coordinator_, value);
+    } else if (action == "cancel-layer-rename") {
+        inspector_.cancelSceneLayerRename(document_, coordinator_);
+    } else if (action == "add-layer") {
+        const SceneId active = coordinator_.state().activeSceneId;
+        const SceneDef* scene = coordinator_.document().findScene(active);
+        if (scene) {
+            int n = 1;
+            std::string id;
+            std::string name;
+            do {
+                id = "layer-" + std::to_string(n);
+                name = "Layer " + std::to_string(n);
+                ++n;
+            } while (coordinator_.document().hasLayer(active, id)
+                     || sceneLayerNameExists(*scene, name));
+            coordinator_.execute(AddSceneLayerCommand{
+                active, id, name, scene->layers.size()});
+        }
+    } else if (action == "move-layer-up" || action == "move-layer-down") {
+        const SceneId active = coordinator_.state().activeSceneId;
+        const SceneDef* scene = coordinator_.document().findScene(active);
+        if (scene) {
+            std::size_t i = scene->layers.size();
+            for (std::size_t k = 0; k < scene->layers.size(); ++k)
+                if (scene->layers[k].id == arg) { i = k; break; }
+            if (i < scene->layers.size()) {
+                // "up" in the panel = toward foreground = a higher vector index.
+                if (action == "move-layer-up")
+                    coordinator_.execute(MoveSceneLayerCommand{active, arg, i + 1});
+                else if (i > 0)
+                    coordinator_.execute(MoveSceneLayerCommand{active, arg, i - 1});
+            }
+        }
+    } else if (action == "remove-layer") {
+        coordinator_.execute(RemoveSceneLayerCommand{coordinator_.state().activeSceneId, arg});
+    } else if (action == "set-entity-layer") {
+        if (selected != INVALID_ENTITY)
+            coordinator_.execute(
+                SetEntityLayerCommand{coordinator_.state().activeSceneId, selected, arg});
+    } else if (action == "create-entity-here") {
+        hideContextMenus();
+        if (createEntityHereRequest_) createEntityHereRequest_();
+    } else if (action == "create-instance-here") {
+        hideContextMenus();
+        if (createInstanceHereRequest_) createInstanceHereRequest_();
+    } else if (action == "delete-entity") {
+        hideContextMenus();
+        deleteSelectedEntity(coordinator_);
+    } else if (action == "set-start-scene") {
+        hideContextMenus();
+        setStartScene(coordinator_, arg.empty() ? coordinator_.state().activeSceneId : arg);
     } else {
         return false;
     }
