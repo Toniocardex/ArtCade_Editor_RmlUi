@@ -31,6 +31,24 @@ std::string icon(const char* cp) {
     return std::string("<span class=\"icon\">") + cp + "</span>";
 }
 
+// SpriteAnimatorComponent::initialClipId is a stable id, not a display value
+// (the Sprite Animation Editor's rename only ever touches SpriteAnimationClipDef
+// ::name, never ::id, precisely so this reference survives a rename). Look the
+// clip up and show its current name instead, matching how the Sprite Animation
+// Editor itself lists clips. Falls back to the raw id if the clip was since
+// removed, so a stale reference is still visible rather than blank.
+std::string animationClipDisplayName(const EditorCoordinator& coordinator,
+                                     const AssetId& animationAssetId,
+                                     const std::string& clipId) {
+    if (const SpriteAnimationAssetDef* asset =
+            coordinator.document().findSpriteAnimationAsset(animationAssetId)) {
+        for (const SpriteAnimationClipDef& clip : asset->clips) {
+            if (clip.id == clipId) return clip.name;
+        }
+    }
+    return clipId;
+}
+
 // An editable property row. Disabled (read-only) while Play freezes the document.
 std::string field(const char* label, const char* action, const std::string& value,
                   bool disabled, const char* id = nullptr) {
@@ -490,7 +508,9 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             const SpriteAnimatorComponent& animator = *inst->spriteAnimator;
             html += header("&#xeb0a;", "Sprite Animator", "INSTANCE", "", "", playing);
             html += "<div class=\"prop-row\"><span class=\"prop-label\">Initial Clip</span>"
-                    "<span class=\"prop-readonly\">" + escapeRml(animator.initialClipId)
+                    "<span class=\"prop-readonly\">"
+                  + escapeRml(animationClipDisplayName(coordinator, sr.animationAssetId,
+                                                       animator.initialClipId))
                   + "</span></div>";
             html += field("Speed", "commit-animator-speed", num(animator.playbackSpeed), playing);
             html += "<div class=\"prop-row\"><span class=\"prop-label\">Auto Play</span>"
