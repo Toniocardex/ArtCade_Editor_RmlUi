@@ -51,15 +51,17 @@ std::string smallButton(const char* action, const std::string& id,
 }
 
 std::string row(const std::string& name, const std::string& trailing) {
-    return "<div class=\"asset-row\"><span class=\"asset-name\">" + name + "</span>"
-           + trailing + "</div>";
+    // title: a narrow sidebar can clip a long name (RmlUi has no text-overflow
+    // support to ellipsize it), so the full name is still readable on hover.
+    return "<div class=\"asset-row\"><span class=\"asset-name\" title=\"" + name + "\">"
+         + name + "</span>" + trailing + "</div>";
 }
 
 std::string actionRow(const std::string& name, const char* action,
                       const std::string& arg, const std::string& trailing) {
     return "<div class=\"asset-row\" data-dbl-action=\"" + std::string(action)
-         + "\" data-arg=\"" + arg + "\"><span class=\"asset-name\">" + name + "</span>"
-         + trailing + "</div>";
+         + "\" data-arg=\"" + arg + "\"><span class=\"asset-name\" title=\"" + name + "\">"
+         + name + "</span>" + trailing + "</div>";
 }
 
 } // namespace

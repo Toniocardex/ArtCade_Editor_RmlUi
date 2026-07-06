@@ -284,6 +284,7 @@ void EditorUi::bind() {
     };
     bindDocument(document_);
     bindDocument(animationDocument_);
+    bindDocument(tilesetDocument_);
 
     // Initial full paint of every panel.
     coordinator_.consumeInvalidations();
@@ -594,7 +595,8 @@ void EditorUi::refreshTilesetEditor() {
             "<span class=\"tileset-editor-eyebrow\">Tileset Editor</span>"
             "<input type=\"text\" class=\"tileset-editor-name\" data-action=\"commit-tileset-name\""
             " data-arg=\"" + escapeRml(asset->assetId) + "\" value=\"" + escapeRml(asset->name) + "\"/>"
-            "<button class=\"panel-btn\" data-action=\"close-tileset-editor\">Close</button></div>";
+            "<button id=\"tileset-close-btn\" class=\"panel-btn\""
+            " data-action=\"close-tileset-editor\">Close</button></div>";
     html += "<div class=\"tileset-editor-main\">";
 
     html += "<div class=\"tileset-canvas-col\"><div class=\"tileset-panel-title\">Source Image</div>"
@@ -611,9 +613,10 @@ void EditorUi::refreshTilesetEditor() {
     html += sliceField("Spacing X", "commit-tileset-spacing-x", s.spacingX);
     html += sliceField("Spacing Y", "commit-tileset-spacing-y", s.spacingY);
     html += "<div class=\"tileset-settings-actions\">"
-            "<button class=\"panel-btn primary\" data-action=\"apply-tileset-slicing\""
+            "<button id=\"tileset-apply-btn\" class=\"panel-btn primary\""
+            " data-action=\"apply-tileset-slicing\""
             " title=\"Commit this slicing to the tileset\">Apply</button>"
-            "<button class=\"panel-btn\" data-action=\"close-tileset-editor\""
+            "<button id=\"tileset-cancel-btn\" class=\"panel-btn\" data-action=\"close-tileset-editor\""
             " title=\"Discard changes\">Cancel</button></div>";
     html += "<span class=\"tileset-settings-diagnostic\">Source: " + escapeRml(asset->imageAssetId)
           + "<br/>" + std::to_string(asset->tiles.size()) + " tile(s) committed</span>";

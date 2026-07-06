@@ -54,6 +54,9 @@
 }
 .asset-name {
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
     color: #c4c4c8;
     font-size: 12dp;
 }
