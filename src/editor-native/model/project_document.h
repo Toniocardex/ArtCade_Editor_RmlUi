@@ -105,6 +105,8 @@ public:
     const AudioAssetDef*     findAudioAsset(const AssetId& id) const;
     bool                     hasFontAsset(const AssetId& id) const;
     const FontAssetDef*      findFontAsset(const AssetId& id) const;
+    bool                     hasTilesetAsset(const AssetId& id) const;
+    const TilesetAsset*      findTilesetAsset(const AssetId& id) const;
 
     bool      isDirty()      const { return revision_ != savedRevision_; }
     uint64_t  revision()     const { return revision_; }
@@ -176,6 +178,10 @@ private:
     friend class SetStartSceneCommand;
     friend class RenameProjectCommand;
     friend class RenameObjectTypeCommand;
+    friend class AddTilesetAssetCommand;
+    friend class RemoveTilesetAssetCommand;
+    friend class RenameTilesetCommand;
+    friend class ChangeTilesetSlicingCommand;
 
     // ---- Patch (authoring mutations; called by commands) --------------------
     bool setProjectName(std::string name);
@@ -274,6 +280,15 @@ private:
     bool removeAudioAsset(const AssetId& assetId);
     bool addFontAsset(FontAssetDef asset);
     bool removeFontAsset(const AssetId& assetId);
+    // Tileset asset catalog (Slice 1: data model only, no TilemapComponent
+    // references it yet). Add rejects a duplicate assetId. setTilesetSlicing
+    // takes both the new slicing config and the new tiles together, since a
+    // slicing change always invalidates any previously-sliced tiles.
+    bool addTilesetAsset(TilesetAsset asset);
+    bool removeTilesetAsset(const AssetId& assetId);
+    bool setTilesetName(const AssetId& assetId, std::string name);
+    bool setTilesetSlicing(const AssetId& assetId, TilesetSlicing slicing,
+                           std::vector<TileDefinition> tiles);
     void replaceClean(ProjectDocument replacement);
     void markSaved();
     // Set the current revision to a previously observed value (undo/redo). Unlike

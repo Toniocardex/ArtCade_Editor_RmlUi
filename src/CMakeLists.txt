@@ -16,6 +16,7 @@ add_library(artcade-editor-core STATIC
     editor-native/model/scene_frame_snapshot.cpp
     editor-native/model/sprite_render_view.cpp
     editor-native/model/sprite_animation_slicing.cpp
+    editor-native/model/tileset_slicing.cpp
     editor-native/view/scene_grid.cpp
     editor-native/view/scene_view_camera.cpp
     editor-native/commands/box_collider_commands.cpp
@@ -26,6 +27,7 @@ add_library(artcade-editor-core STATIC
     editor-native/commands/image_asset_commands.cpp
     editor-native/commands/audio_asset_commands.cpp
     editor-native/commands/font_asset_commands.cpp
+    editor-native/commands/tileset_commands.cpp
     editor-native/commands/sprite_animation_commands.cpp
     editor-native/commands/sprite_animator_commands.cpp
     editor-native/commands/entity_commands.cpp

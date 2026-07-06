@@ -536,6 +536,40 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
         }
     }
 
+    if (root.contains("tilesets") && root["tilesets"].is_array()) {
+        for (const auto& item : root["tilesets"]) {
+            if (!item.is_object()) continue;
+            const std::string assetId = readString(item, "assetId", "asset_id");
+            if (assetId.empty()) continue;
+            TilesetAsset asset;
+            asset.assetId = assetId;
+            asset.name = readString(item, "name", nullptr, assetId);
+            asset.imageAssetId = readString(item, "imageAssetId", "image_asset_id");
+            if (item.contains("slicing") && item["slicing"].is_object()) {
+                const auto& s = item["slicing"];
+                asset.slicing.tileWidth  = s.value("tileWidth", 32);
+                asset.slicing.tileHeight = s.value("tileHeight", 32);
+                asset.slicing.marginX    = s.value("marginX", 0);
+                asset.slicing.marginY    = s.value("marginY", 0);
+                asset.slicing.spacingX   = s.value("spacingX", 0);
+                asset.slicing.spacingY   = s.value("spacingY", 0);
+            }
+            if (item.contains("tiles") && item["tiles"].is_array()) {
+                for (const auto& t : item["tiles"]) {
+                    if (!t.is_object()) continue;
+                    TileDefinition tile;
+                    tile.id     = readString(t, "id", nullptr);
+                    tile.x      = t.value("x", 0);
+                    tile.y      = t.value("y", 0);
+                    tile.width  = t.value("width", 0);
+                    tile.height = t.value("height", 0);
+                    asset.tiles.push_back(std::move(tile));
+                }
+            }
+            doc.tilesets.push_back(std::move(asset));
+        }
+    }
+
     if (root.contains("spriteAnimationAssets")
         && root["spriteAnimationAssets"].is_array()) {
         for (const auto& item : root["spriteAnimationAssets"]) {
@@ -659,6 +693,31 @@ SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
         });
     }
 
+    nlohmann::json tilesets = nlohmann::json::array();
+    for (const TilesetAsset& asset : doc.tilesets) {
+        nlohmann::json tiles = nlohmann::json::array();
+        for (const TileDefinition& tile : asset.tiles) {
+            tiles.push_back(nlohmann::json{
+                {"id", tile.id}, {"x", tile.x}, {"y", tile.y},
+                {"width", tile.width}, {"height", tile.height},
+            });
+        }
+        tilesets.push_back(nlohmann::json{
+            {"assetId", asset.assetId},
+            {"name", asset.name.empty() ? asset.assetId : asset.name},
+            {"imageAssetId", asset.imageAssetId},
+            {"slicing", nlohmann::json{
+                {"tileWidth", asset.slicing.tileWidth},
+                {"tileHeight", asset.slicing.tileHeight},
+                {"marginX", asset.slicing.marginX},
+                {"marginY", asset.slicing.marginY},
+                {"spacingX", asset.slicing.spacingX},
+                {"spacingY", asset.slicing.spacingY},
+            }},
+            {"tiles", std::move(tiles)},
+        });
+    }
+
     nlohmann::json spriteAnimationAssets = nlohmann::json::array();
     for (const SpriteAnimationAssetDef& asset : doc.spriteAnimationAssets) {
         nlohmann::json clips = nlohmann::json::array();
@@ -705,6 +764,7 @@ SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
         {"scenes", std::move(scenes)},
         {"objectTypes", std::move(objectTypes)},
         {"imageAssets", std::move(imageAssets)},
+        {"tilesets", std::move(tilesets)},
         {"spriteAnimationAssets", std::move(spriteAnimationAssets)},
         {"audioAssets", std::move(audioAssets)},
         {"fontAssets", std::move(fontAssets)},
@@ -733,6 +793,35 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
         }
         if (!isPortableAssetPath(asset.sourcePath)) {
             return DeserializeResult::failure("Image asset path must be relative");
+        }
+    }
+
+    std::unordered_set<AssetId> tilesetAssetIds;
+    for (const TilesetAsset& asset : data.tilesets) {
+        if (asset.assetId.empty()) {
+            return DeserializeResult::failure("Tileset asset id cannot be empty");
+        }
+        if (!tilesetAssetIds.insert(asset.assetId).second) {
+            return DeserializeResult::failure("Duplicate tileset asset id");
+        }
+        if (asset.imageAssetId.empty() || !imageAssetIds.count(asset.imageAssetId)) {
+            return DeserializeResult::failure("Tileset asset references an unknown image asset");
+        }
+        if (asset.slicing.tileWidth <= 0 || asset.slicing.tileHeight <= 0) {
+            return DeserializeResult::failure("Tileset tile size must be positive");
+        }
+        if (asset.slicing.marginX < 0 || asset.slicing.marginY < 0
+            || asset.slicing.spacingX < 0 || asset.slicing.spacingY < 0) {
+            return DeserializeResult::failure("Tileset margin/spacing cannot be negative");
+        }
+        std::unordered_set<std::string> tileIds;
+        for (const TileDefinition& tile : asset.tiles) {
+            if (tile.id.empty()) {
+                return DeserializeResult::failure("Tile id cannot be empty");
+            }
+            if (!tileIds.insert(tile.id).second) {
+                return DeserializeResult::failure("Duplicate tile id within a tileset");
+            }
         }
     }
 

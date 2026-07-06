@@ -22,6 +22,7 @@
 #include "editor-native/commands/image_asset_commands.h"
 #include "editor-native/commands/audio_asset_commands.h"
 #include "editor-native/commands/font_asset_commands.h"
+#include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
 #include "editor-native/commands/entity_commands.h"
 #include "editor-native/commands/scene_commands.h"
@@ -32,6 +33,7 @@
 #include "editor-native/model/box_collider_geometry.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_animation_slicing.h"
+#include "editor-native/model/tileset_slicing.h"
 #include "editor-native/model/sprite_render_view.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view_camera.h"
@@ -116,7 +118,7 @@ static ProjectDoc makeSpriteDoc() {
     ProjectDoc doc = makeDoc();
     ImageAssetDef hero;  hero.assetId = "img-hero";  hero.sourcePath = "sprites/hero.ppm";  doc.imageAssets.push_back(hero);
     ImageAssetDef alt;   alt.assetId  = "img-alt";   alt.sourcePath = "sprites/alt.ppm";   doc.imageAssets.push_back(alt);
-    TilesetAsset tiles;  tiles.assetId = "tiles-1";  doc.tilesets.push_back(tiles); // not an image
+    TilesetAsset tiles;  tiles.assetId = "tiles-1";  tiles.imageAssetId = "img-hero";  doc.tilesets.push_back(tiles); // not an image
     return doc;
 }
 
@@ -590,6 +592,248 @@ static void runSpriteAnimationTests() {
         CHECK(c.document().revision() == revision);
         CHECK(c.stopPlaying().ok);
         CHECK(c.document().revision() == revision);
+    }
+}
+
+static void runTilesetTests() {
+    // -- computeTilesetSlicing: a perfectly divisible sheet --------------------
+    {
+        TilesetSlicing slicing;
+        slicing.tileWidth = 32;
+        slicing.tileHeight = 32;
+        const TilesetSliceResult r = computeTilesetSlicing(128, 64, slicing);
+        CHECK(r.columns == 4);
+        CHECK(r.rows == 2);
+        CHECK(r.tileCount == 8);
+        CHECK(r.remainderX == 0);
+        CHECK(r.remainderY == 0);
+    }
+
+    // -- computeTilesetSlicing: a non-divisible sheet leaves a remainder -------
+    {
+        TilesetSlicing slicing;
+        slicing.tileWidth = 32;
+        slicing.tileHeight = 32;
+        const TilesetSliceResult r = computeTilesetSlicing(100, 70, slicing);
+        CHECK(r.columns == 3);   // floors: 100/32 -> 3, 4px left over
+        CHECK(r.rows == 2);      // 70/32 -> 2, 6px left over
+        CHECK(r.tileCount == 6);
+        CHECK(r.remainderX == 4);
+        CHECK(r.remainderY == 6);
+    }
+
+    // -- computeTilesetSlicing: margin trims usable area on both edges --------
+    {
+        TilesetSlicing slicing;
+        slicing.tileWidth = 32;
+        slicing.tileHeight = 32;
+        slicing.marginX = 8;
+        slicing.marginY = 4;
+        const TilesetSliceResult r = computeTilesetSlicing(80, 40, slicing);
+        // usable = 80 - 16 = 64 -> 2 cols; 40 - 8 = 32 -> 1 row
+        CHECK(r.columns == 2);
+        CHECK(r.rows == 1);
+        CHECK(r.tileCount == 2);
+    }
+
+    // -- computeTilesetSlicing: spacing between tiles reduces how many fit -----
+    {
+        TilesetSlicing slicing;
+        slicing.tileWidth = 32;
+        slicing.tileHeight = 32;
+        slicing.spacingX = 2;
+        slicing.spacingY = 2;
+        const TilesetSliceResult r = computeTilesetSlicing(100, 66, slicing);
+        // step = 34; 1 + (100-32)/34 = 3 cols; 1 + (66-32)/34 = 2 rows
+        CHECK(r.columns == 3);
+        CHECK(r.rows == 2);
+    }
+
+    // -- computeTilesetSlicing: rectangular (non-square) tiles -----------------
+    {
+        TilesetSlicing slicing;
+        slicing.tileWidth = 16;
+        slicing.tileHeight = 48;
+        const TilesetSliceResult r = computeTilesetSlicing(64, 96, slicing);
+        CHECK(r.columns == 4);
+        CHECK(r.rows == 2);
+        CHECK(r.tileCount == 8);
+    }
+
+    // -- computeTilesetSlicing: degenerate/invalid dimensions -> zero tiles ----
+    {
+        TilesetSlicing slicing;
+        slicing.tileWidth = 32;
+        slicing.tileHeight = 32;
+        CHECK(computeTilesetSlicing(0, 64, slicing).tileCount == 0);
+        CHECK(computeTilesetSlicing(128, 64, TilesetSlicing{0, 32, 0, 0, 0, 0}).tileCount == 0);
+        CHECK(computeTilesetSlicing(16, 16, slicing).tileCount == 0);  // smaller than one tile
+    }
+
+    // -- tilesForSlicing: sequential ids, correct rects, row-major order -------
+    {
+        TilesetSlicing slicing;
+        slicing.tileWidth = 32;
+        slicing.tileHeight = 32;
+        const std::vector<TileDefinition> tiles = tilesForSlicing(64, 64, slicing);
+        CHECK(tiles.size() == 4);
+        CHECK(tiles[0].id == "tile-1");
+        CHECK(tiles[0].x == 0);
+        CHECK(tiles[0].y == 0);
+        CHECK(tiles[1].id == "tile-2");
+        CHECK(tiles[1].x == 32);
+        CHECK(tiles[1].y == 0);
+        CHECK(tiles[2].id == "tile-3");
+        CHECK(tiles[2].x == 0);
+        CHECK(tiles[2].y == 32);
+        CHECK(tiles[3].width == 32);
+        CHECK(tiles[3].height == 32);
+    }
+
+    // -- tilesForSlicing: zero tiles for a sheet smaller than one tile ---------
+    {
+        TilesetSlicing slicing;
+        slicing.tileWidth = 32;
+        slicing.tileHeight = 32;
+        CHECK(tilesForSlicing(10, 10, slicing).empty());
+    }
+
+    // -- AddTilesetAssetCommand: success, then duplicate/unknown-image/invalid-
+    // slicing all fail without mutation, then undo/redo -------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};   // has image asset "img-hero"
+        TilesetSlicing slicing;
+        slicing.tileWidth = 16;
+        slicing.tileHeight = 16;
+        const EditorOperationResult r =
+            c.execute(AddTilesetAssetCommand{"tiles-a", "Dungeon", "img-hero", slicing});
+        CHECK(r.ok);
+        CHECK(c.document().hasTilesetAsset("tiles-a"));
+        const TilesetAsset* asset = c.document().findTilesetAsset("tiles-a");
+        CHECK(asset->name == "Dungeon");
+        CHECK(asset->imageAssetId == "img-hero");
+        CHECK(asset->slicing.tileWidth == 16);
+        CHECK(asset->tiles.empty());   // not sliced yet
+
+        CHECK(!c.execute(AddTilesetAssetCommand{"tiles-a", "Dup", "img-hero", slicing}).ok);
+        CHECK(!c.execute(AddTilesetAssetCommand{"tiles-b", "X", "no-such-image", slicing}).ok);
+        TilesetSlicing bad; bad.tileWidth = 0; bad.tileHeight = 16;
+        CHECK(!c.execute(AddTilesetAssetCommand{"tiles-c", "X", "img-hero", bad}).ok);
+        CHECK(!c.document().hasTilesetAsset("tiles-b"));
+        CHECK(!c.document().hasTilesetAsset("tiles-c"));
+
+        CHECK(c.undo().ok);
+        CHECK(!c.document().hasTilesetAsset("tiles-a"));
+        CHECK(c.redo().ok);
+        CHECK(c.document().findTilesetAsset("tiles-a")->name == "Dungeon");
+    }
+
+    // -- RemoveTilesetAssetCommand: success, unknown-id rejection, undo restores
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        TilesetSlicing slicing;
+        slicing.tileWidth = 32;
+        slicing.tileHeight = 32;
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-a", "Dungeon", "img-hero", slicing}).ok);
+        CHECK(!c.execute(RemoveTilesetAssetCommand{"nope"}).ok);
+        CHECK(c.execute(RemoveTilesetAssetCommand{"tiles-a"}).ok);
+        CHECK(!c.document().hasTilesetAsset("tiles-a"));
+        CHECK(c.undo().ok);
+        CHECK(c.document().findTilesetAsset("tiles-a")->imageAssetId == "img-hero");
+    }
+
+    // -- RenameTilesetCommand: mirrors RenameObjectTypeCommand's guard shape ---
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        TilesetSlicing slicing;
+        slicing.tileWidth = 32;
+        slicing.tileHeight = 32;
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-a", "Dungeon", "img-hero", slicing}).ok);
+        CHECK(!c.execute(RenameTilesetCommand{"tiles-a", ""}).ok);          // empty name
+        CHECK(!c.execute(RenameTilesetCommand{"nope", "X"}).ok);           // unknown id
+        const std::size_t before = c.undoSize();
+        CHECK(c.execute(RenameTilesetCommand{"tiles-a", "Dungeon"}).ok);   // same name -> no-op
+        CHECK(c.undoSize() == before);
+        CHECK(c.execute(RenameTilesetCommand{"tiles-a", "Caves"}).ok);
+        CHECK(c.document().findTilesetAsset("tiles-a")->name == "Caves");
+        CHECK(c.undo().ok);
+        CHECK(c.document().findTilesetAsset("tiles-a")->name == "Dungeon");
+        CHECK(c.redo().ok);
+        CHECK(c.document().findTilesetAsset("tiles-a")->name == "Caves");
+    }
+
+    // -- ChangeTilesetSlicingCommand: updates the config; tiles stay empty since
+    // nothing in Slice 1 can populate them (that's Slice 2's apply-slicing job) -
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        TilesetSlicing slicing;
+        slicing.tileWidth = 32;
+        slicing.tileHeight = 32;
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-a", "Dungeon", "img-hero", slicing}).ok);
+
+        TilesetSlicing next = slicing;
+        next.tileWidth = 16;
+        CHECK(!c.execute(ChangeTilesetSlicingCommand{"nope", next}).ok);
+        TilesetSlicing invalid; invalid.tileWidth = -1; invalid.tileHeight = 16;
+        CHECK(!c.execute(ChangeTilesetSlicingCommand{"tiles-a", invalid}).ok);
+
+        CHECK(c.execute(ChangeTilesetSlicingCommand{"tiles-a", next}).ok);
+        CHECK(c.document().findTilesetAsset("tiles-a")->slicing.tileWidth == 16);
+        CHECK(c.document().findTilesetAsset("tiles-a")->tiles.empty());
+
+        CHECK(c.undo().ok);
+        CHECK(c.document().findTilesetAsset("tiles-a")->slicing.tileWidth == 32);
+    }
+
+    // -- Save/reload round-trips a tileset, including a populated tiles array --
+    {
+        ProjectDoc doc = makeDoc();
+        ImageAssetDef hero; hero.assetId = "img-hero"; hero.sourcePath = "sprites/hero.ppm";
+        doc.imageAssets.push_back(hero);
+
+        TilesetAsset asset;
+        asset.assetId = "tiles-a";
+        asset.name = "Dungeon";
+        asset.imageAssetId = "img-hero";
+        asset.slicing.tileWidth = 16;
+        asset.slicing.tileHeight = 16;
+        asset.slicing.marginX = 1;
+        asset.slicing.spacingY = 1;
+        asset.tiles = tilesForSlicing(64, 64, asset.slicing);
+        CHECK(!asset.tiles.empty());
+        doc.tilesets.push_back(asset);
+
+        EditorCoordinator c{doc};
+        const std::filesystem::path path = testTempDir() / "tileset.artcade-project";
+        CHECK(saveProjectToFile(c, path).ok);
+        EditorCoordinator reloaded{ProjectDoc{}};
+        CHECK(loadProjectFromFile(reloaded, path).ok);
+        const TilesetAsset* rt = reloaded.document().findTilesetAsset("tiles-a");
+        CHECK(rt != nullptr);
+        CHECK(rt->name == "Dungeon");
+        CHECK(rt->imageAssetId == "img-hero");
+        CHECK(rt->slicing.tileWidth == 16);
+        CHECK(rt->slicing.marginX == 1);
+        CHECK(rt->slicing.spacingY == 1);
+        CHECK(rt->tiles.size() == asset.tiles.size());
+        CHECK(rt->tiles[0].id == asset.tiles[0].id);
+        CHECK(rt->tiles[0].width == 16);
+    }
+
+    // -- Validation: an unknown imageAssetId is rejected (both save and load
+    // run the same ProjectValidator::validate) --------------------------------
+    {
+        ProjectDoc doc = makeDoc();
+        TilesetAsset asset;
+        asset.assetId = "tiles-a";
+        asset.imageAssetId = "no-such-image";
+        asset.slicing.tileWidth = 16;
+        asset.slicing.tileHeight = 16;
+        doc.tilesets.push_back(asset);
+
+        EditorCoordinator c{doc};
+        const std::filesystem::path path = testTempDir() / "bad-tileset.artcade-project";
+        CHECK(!saveProjectToFile(c, path).ok);
     }
 }
 
@@ -4975,6 +5219,7 @@ int main() {
     }
 
     runSpriteAnimationTests();
+    runTilesetTests();
 
     std::cout << "editor-core-test: " << g_passed << " passed, "
               << g_failed << " failed\n";

@@ -748,4 +748,57 @@ bool ProjectDocument::removeFontAsset(const AssetId& assetId) {
     return false;
 }
 
+bool ProjectDocument::hasTilesetAsset(const AssetId& id) const {
+    return findTilesetAsset(id) != nullptr;
+}
+
+const TilesetAsset* ProjectDocument::findTilesetAsset(const AssetId& id) const {
+    for (const TilesetAsset& asset : doc_.tilesets) {
+        if (asset.assetId == id) return &asset;
+    }
+    return nullptr;
+}
+
+bool ProjectDocument::addTilesetAsset(TilesetAsset asset) {
+    if (asset.assetId.empty() || hasTilesetAsset(asset.assetId)) return false;
+    doc_.tilesets.push_back(std::move(asset));
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::removeTilesetAsset(const AssetId& assetId) {
+    for (auto it = doc_.tilesets.begin(); it != doc_.tilesets.end(); ++it) {
+        if (it->assetId == assetId) {
+            doc_.tilesets.erase(it);
+            markDirty();
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ProjectDocument::setTilesetName(const AssetId& assetId, std::string name) {
+    for (TilesetAsset& asset : doc_.tilesets) {
+        if (asset.assetId == assetId) {
+            asset.name = std::move(name);
+            markDirty();
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ProjectDocument::setTilesetSlicing(const AssetId& assetId, TilesetSlicing slicing,
+                                       std::vector<TileDefinition> tiles) {
+    for (TilesetAsset& asset : doc_.tilesets) {
+        if (asset.assetId == assetId) {
+            asset.slicing = slicing;
+            asset.tiles   = std::move(tiles);
+            markDirty();
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace ArtCade::EditorNative
