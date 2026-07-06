@@ -870,7 +870,11 @@ int EditorApp::run(int argc, char** argv) {
         // Undo/redo keyboard shortcuts share the single coordinator entry points
         // with the toolbar buttons; suppressed while a text field has focus, and
         // guarded against Play by the coordinator. Ctrl+Z = undo; Ctrl+Y or
-        // Ctrl+Shift+Z = redo.
+        // Ctrl+Shift+Z = redo. Ctrl+D = clone selected; Ctrl+Shift+D = create
+        // instance of selected; all three share the exact free functions the
+        // Hierarchy context menu already calls, so there is one entry point per
+        // operation regardless of trigger. Play-mode rejection also comes from
+        // the coordinator (execute()), same as every other shortcut here.
         if (!rml.textFocus
             && (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL))) {
             const bool shift = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
@@ -883,10 +887,21 @@ int EditorApp::run(int argc, char** argv) {
                 // keeps its own Ctrl+C (guarded by textFocus above); with no
                 // selection this is a no-op.
                 ui.copySelectedConsoleMessage();
+            } else if (shift && IsKeyPressed(KEY_D)) {
+                addInstanceOfSelectedType(coordinator);
+            } else if (IsKeyPressed(KEY_D)) {
+                cloneSelectedEntity(coordinator);
             }
         }
         if (!rml.textFocus && !coordinator.isPlaying() && IsKeyPressed(KEY_F2)) {
             ui.beginActiveSceneLayerRename();
+        }
+        // Delete: KEY_DELETE is also forwarded into RmlUi's own text editing
+        // (editor_input.cpp), but only takes effect there while a field has
+        // focus; textFocus is false in exactly the complementary case, so the
+        // two never fire on the same keypress.
+        if (!rml.textFocus && IsKeyPressed(KEY_DELETE)) {
+            deleteSelectedEntity(coordinator);
         }
         const ViewportRect rect = viewportRectFromDocument(host.document());
         const bool contextMenuHit = ui.isContextMenuHit(
