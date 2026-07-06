@@ -1,5 +1,7 @@
 #include "editor-native/model/project_io.h"
 
+#include "editor-native/model/tilemap_validation.h"
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -182,6 +184,36 @@ bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
         component.playbackSpeed = readFloat(sa, "playbackSpeed", 1.f);
         out.spriteAnimator = component;
     }
+    if (value.contains("tilemap") && value["tilemap"].is_object()) {
+        const auto& tm = value["tilemap"];
+        TilemapComponent component;
+        component.tilesetAssetId = readString(tm, "tilesetAssetId", "tileset_asset_id");
+        if (tm.contains("cellSize")) component.cellSize = readVec2(tm["cellSize"], component.cellSize);
+        component.chunkSize = tm.value("chunkSize", component.chunkSize);
+        if (tm.contains("chunks") && tm["chunks"].is_array()) {
+            for (const auto& chunkJson : tm["chunks"]) {
+                if (!chunkJson.is_object()) continue;
+                TilemapChunk chunk;
+                chunk.chunkX = chunkJson.value("chunkX", 0);
+                chunk.chunkY = chunkJson.value("chunkY", 0);
+                if (chunkJson.contains("cells") && chunkJson["cells"].is_array()) {
+                    for (const auto& cellJson : chunkJson["cells"]) {
+                        if (cellJson.is_object()) {
+                            TilemapCellValue cell;
+                            cell.tileId = readString(cellJson, "tileId", "tile_id");
+                            cell.flags = static_cast<TileTransformFlags>(
+                                cellJson.value("flags", 0));
+                            chunk.cells.push_back(cell);
+                        } else {
+                            chunk.cells.push_back(std::nullopt);   // null / missing = empty
+                        }
+                    }
+                }
+                component.chunks.push_back(std::move(chunk));
+            }
+        }
+        out.tilemap = std::move(component);
+    }
     return out.id != INVALID_ENTITY && !out.objectTypeId.empty();
 }
 
@@ -321,6 +353,33 @@ nlohmann::json instanceToJson(const SceneInstanceDef& instance) {
             {"initialClipId", instance.spriteAnimator->initialClipId},
             {"autoPlay", instance.spriteAnimator->autoPlay},
             {"playbackSpeed", instance.spriteAnimator->playbackSpeed},
+        };
+    }
+    if (instance.tilemap.has_value()) {
+        nlohmann::json chunks = nlohmann::json::array();
+        for (const TilemapChunk& chunk : instance.tilemap->chunks) {
+            nlohmann::json cells = nlohmann::json::array();
+            for (const TilemapCell& cell : chunk.cells) {
+                if (cell.has_value()) {
+                    cells.push_back(nlohmann::json{
+                        {"tileId", cell->tileId},
+                        {"flags", static_cast<int>(cell->flags)},
+                    });
+                } else {
+                    cells.push_back(nullptr);
+                }
+            }
+            chunks.push_back(nlohmann::json{
+                {"chunkX", chunk.chunkX},
+                {"chunkY", chunk.chunkY},
+                {"cells", std::move(cells)},
+            });
+        }
+        json["tilemap"] = nlohmann::json{
+            {"tilesetAssetId", instance.tilemap->tilesetAssetId},
+            {"cellSize", vec2ToJson(instance.tilemap->cellSize)},
+            {"chunkSize", instance.tilemap->chunkSize},
+            {"chunks", std::move(chunks)},
         };
     }
     return json;
@@ -955,6 +1014,11 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
                     || instance.spriteAnimator->playbackSpeed <= 0.f) {
                     return DeserializeResult::failure(
                         "SpriteAnimator playbackSpeed must be positive");
+                }
+            }
+            if (instance.tilemap.has_value()) {
+                if (const auto err = validateTilemapComponent(document, *instance.tilemap)) {
+                    return DeserializeResult::failure(*err);
                 }
             }
         }

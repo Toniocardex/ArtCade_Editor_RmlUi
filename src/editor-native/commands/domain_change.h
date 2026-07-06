@@ -31,6 +31,7 @@ enum class ComponentKind {
     LinearMover,
     TopDownController,
     PlatformerController,
+    Tilemap,
 };
 
 struct DomainChange {

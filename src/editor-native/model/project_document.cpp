@@ -407,6 +407,40 @@ bool ProjectDocument::setSpriteAnimatorAutoPlay(const SceneId& sceneId, EntityId
     return true;
 }
 
+bool ProjectDocument::addTilemapComponent(const SceneId& sceneId, EntityId id,
+                                          TilemapComponent component) {
+    SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
+    if (!instance || instance->tilemap.has_value()) return false;
+    instance->tilemap = std::move(component);
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::removeTilemapComponent(const SceneId& sceneId, EntityId id) {
+    SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
+    if (!instance || !instance->tilemap.has_value()) return false;
+    instance->tilemap.reset();
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::setTilemapTileset(const SceneId& sceneId, EntityId id,
+                                        AssetId tilesetAssetId) {
+    SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
+    if (!instance || !instance->tilemap.has_value()) return false;
+    instance->tilemap->tilesetAssetId = std::move(tilesetAssetId);
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::setTilemapCellSize(const SceneId& sceneId, EntityId id, Vec2 cellSize) {
+    SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
+    if (!instance || !instance->tilemap.has_value()) return false;
+    instance->tilemap->cellSize = cellSize;
+    markDirty();
+    return true;
+}
+
 bool ProjectDocument::addBoxCollider(const std::string& objectTypeId,
                                      BoxCollider2DComponent component) {
     auto it = doc_.objectTypes.find(objectTypeId);

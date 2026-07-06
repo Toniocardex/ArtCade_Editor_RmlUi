@@ -63,6 +63,10 @@ class RemoveSpriteAnimatorCommand;
 class SetSpriteAnimatorInitialClipCommand;
 class SetSpriteAnimatorPlaybackSpeedCommand;
 class SetSpriteAnimatorAutoPlayCommand;
+class AddTilemapComponentCommand;
+class RemoveTilemapComponentCommand;
+class SetTilemapTilesetCommand;
+class SetTilemapCellSizeCommand;
 class SetStartSceneCommand;
 class RenameProjectCommand;
 
@@ -175,6 +179,10 @@ private:
     friend class SetSpriteAnimatorInitialClipCommand;
     friend class SetSpriteAnimatorPlaybackSpeedCommand;
     friend class SetSpriteAnimatorAutoPlayCommand;
+    friend class AddTilemapComponentCommand;
+    friend class RemoveTilemapComponentCommand;
+    friend class SetTilemapTilesetCommand;
+    friend class SetTilemapCellSizeCommand;
     friend class SetStartSceneCommand;
     friend class RenameProjectCommand;
     friend class RenameObjectTypeCommand;
@@ -236,6 +244,10 @@ private:
     bool setSpriteAnimatorInitialClip(const SceneId& sceneId, EntityId id, std::string clipId);
     bool setSpriteAnimatorPlaybackSpeed(const SceneId& sceneId, EntityId id, float speed);
     bool setSpriteAnimatorAutoPlay(const SceneId& sceneId, EntityId id, bool autoPlay);
+    bool addTilemapComponent(const SceneId& sceneId, EntityId id, TilemapComponent component);
+    bool removeTilemapComponent(const SceneId& sceneId, EntityId id);
+    bool setTilemapTileset(const SceneId& sceneId, EntityId id, AssetId tilesetAssetId);
+    bool setTilemapCellSize(const SceneId& sceneId, EntityId id, Vec2 cellSize);
     // BoxCollider2D is authored on the object type only; instances never store it.
     bool addBoxCollider(const std::string& objectTypeId, BoxCollider2DComponent component);
     bool removeBoxCollider(const std::string& objectTypeId);

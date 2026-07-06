@@ -2,6 +2,7 @@
 
 #include "editor-native/model/project_document.h"
 
+#include <string>
 #include <utility>
 
 namespace ArtCade::EditorNative {
@@ -63,6 +64,23 @@ RemoveTilesetAssetCommand::RemoveTilesetAssetCommand(AssetId assetId)
 EditorOperationResult RemoveTilesetAssetCommand::apply(ProjectDocument& document) {
     const TilesetAsset* current = document.findTilesetAsset(assetId_);
     if (!current) return EditorOperationResult::failure("Unknown tileset asset: " + assetId_);
+    // A TilemapComponent can hold an entire hand-painted level; unlike
+    // SpriteAnimator's own reference cleanup (which loses at most a few clip
+    // fields), silently deleting one on tileset removal is too easy to
+    // trigger by accident from an asset-panel click. Reject instead - a
+    // separate, explicitly-named destructive command can add a cascade
+    // later if that's ever actually wanted.
+    int referencing = 0;
+    for (const auto& [sceneId, scene] : document.data().scenes) {
+        for (const SceneInstanceDef& instance : scene.instances) {
+            if (instance.tilemap && instance.tilemap->tilesetAssetId == assetId_) ++referencing;
+        }
+    }
+    if (referencing > 0) {
+        return EditorOperationResult::failure(
+            "Tileset asset is used by " + std::to_string(referencing)
+            + " tilemap component(s) - remove or reassign them first");
+    }
     if (!captured_) {
         removed_  = *current;
         captured_ = true;

@@ -23,6 +23,7 @@
 #include "editor-native/commands/audio_asset_commands.h"
 #include "editor-native/commands/font_asset_commands.h"
 #include "editor-native/commands/tileset_commands.h"
+#include "editor-native/commands/tilemap_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
 #include "editor-native/commands/entity_commands.h"
 #include "editor-native/commands/scene_commands.h"
@@ -34,6 +35,8 @@
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_animation_slicing.h"
 #include "editor-native/model/tileset_slicing.h"
+#include "editor-native/model/tilemap_chunk_math.h"
+#include "editor-native/model/tilemap_validation.h"
 #include "editor-native/model/sprite_render_view.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view_camera.h"
@@ -963,6 +966,473 @@ static void runTilesetTests() {
         CHECK(c.state().tilesetEditor.openAssetId.has_value());
         CHECK(c.execute(RemoveTilesetAssetCommand{"tiles-1"}).ok);
         CHECK(!c.state().tilesetEditor.openAssetId.has_value());
+    }
+}
+
+// Slices "tiles-1" (from makeSpriteDoc) via the real Command path so it has
+// actual TileDefinitions to reference - makeSpriteDoc's own "tiles-1" is
+// deliberately unsliced (Slice 1 fixture, "not an image").
+static void sliceTilesOne(EditorCoordinator& c) {
+    TilesetSlicing slicing;
+    slicing.tileWidth = 32;
+    slicing.tileHeight = 32;
+    const std::vector<TileDefinition> tiles = tilesForSlicing(64, 64, slicing);   // "tile-1".."tile-4"
+    CHECK(c.execute(ChangeTilesetSlicingCommand{"tiles-1", slicing, tiles}).ok);
+}
+
+static void runTilemapComponentTests() {
+    // -- floorDivChunk/floorModChunk: positive coordinates ---------------------
+    {
+        CHECK(floorDivChunk(0, 16) == 0);
+        CHECK(floorDivChunk(15, 16) == 0);
+        CHECK(floorDivChunk(16, 16) == 1);
+        CHECK(floorDivChunk(31, 16) == 1);
+        CHECK(floorModChunk(0, 16) == 0);
+        CHECK(floorModChunk(15, 16) == 15);
+        CHECK(floorModChunk(16, 16) == 0);
+    }
+
+    // -- floorDivChunk/floorModChunk: negative coordinates - the exact
+    // truncating-division gotcha this module exists to avoid ------------------
+    {
+        CHECK(floorDivChunk(-1, 16) == -1);    // naive -1/16 == 0 would be wrong
+        CHECK(floorDivChunk(-16, 16) == -1);
+        CHECK(floorDivChunk(-17, 16) == -2);
+        CHECK(floorModChunk(-1, 16) == 15);    // naive -1%16 == -1 would be wrong
+        CHECK(floorModChunk(-16, 16) == 0);
+        CHECK(floorModChunk(-17, 16) == 15);
+    }
+
+    // -- cellToChunkCoord/cellToLocalCoord: combined, mixed-sign case ----------
+    {
+        const TilemapChunkCoord chunk = cellToChunkCoord(-1, 20, 16);
+        CHECK(chunk.chunkX == -1);
+        CHECK(chunk.chunkY == 1);
+        const TilemapLocalCoord local = cellToLocalCoord(-1, 20, 16);
+        CHECK(local.localX == 15);
+        CHECK(local.localY == 4);
+    }
+
+    // -- chunkAndLocalToCellX/Y: exact inverse round-trip, including negatives -
+    {
+        const int xs[] = {-33, -17, -16, -1, 0, 1, 15, 16, 31, 100};
+        const int ys[] = {-40, -16, -1, 0, 7, 16, 63};
+        for (const int x : xs) {
+            for (const int y : ys) {
+                const TilemapChunkCoord chunk = cellToChunkCoord(x, y, 16);
+                const TilemapLocalCoord local = cellToLocalCoord(x, y, 16);
+                CHECK(chunkAndLocalToCellX(chunk.chunkX, local.localX, 16) == x);
+                CHECK(chunkAndLocalToCellY(chunk.chunkY, local.localY, 16) == y);
+            }
+        }
+    }
+
+    // -- AddTilemapComponentCommand: success, then rejections, no partial
+    // mutation on any rejection ------------------------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.cellSize = {32.f, 32.f};
+        tm.chunkSize = 16;
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+        const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(inst->tilemap.has_value());
+        CHECK(inst->tilemap->tilesetAssetId == "tiles-1");
+        CHECK(inst->tilemap->cellSize.x == 32.f);
+        CHECK(inst->tilemap->chunkSize == 16);
+        CHECK(inst->tilemap->chunks.empty());
+
+        CHECK(!c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);   // double-add
+
+        TilemapComponent unknownTileset = tm;
+        unknownTileset.tilesetAssetId = "no-such-tileset";
+        CHECK(!c.execute(AddTilemapComponentCommand{kSceneA, 9999, unknownTileset}).ok);
+
+        TilemapComponent badCellSize = tm;
+        badCellSize.cellSize = {0.f, 32.f};
+        CHECK(!c.execute(AddTilemapComponentCommand{kSceneA, 9999, badCellSize}).ok);
+
+        TilemapComponent badChunkSize = tm;
+        badChunkSize.chunkSize = 0;
+        CHECK(!c.execute(AddTilemapComponentCommand{kSceneA, 9999, badChunkSize}).ok);
+        badChunkSize.chunkSize = kMaxTilemapChunkSize + 1;
+        CHECK(!c.execute(AddTilemapComponentCommand{kSceneA, 9999, badChunkSize}).ok);
+
+        CHECK(!c.document().findInstanceInScene(kSceneA, 9999));   // no rejection left a partial instance
+    }
+
+    // -- AddTilemapComponentCommand: a populated-but-invalid component is
+    // rejected - proves the command runs the full shared validator, not just
+    // top-level field checks ---------------------------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};   // "tiles-1" has no tiles at all yet
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.chunkSize = 2;
+        TilemapChunk chunk;
+        chunk.chunkX = 0;
+        chunk.chunkY = 0;
+        chunk.cells.assign(4, std::nullopt);
+        chunk.cells[0] = TilemapCellValue{"no-such-tile", TileTransformFlags::None};
+        tm.chunks.push_back(chunk);
+        CHECK(!c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+        CHECK(!c.document().findInstanceInScene(kSceneA, kHero)->tilemap.has_value());
+    }
+
+    // -- AddTilemapComponentCommand: undo/redo ---------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+        CHECK(c.undo().ok);
+        CHECK(!c.document().findInstanceInScene(kSceneA, kHero)->tilemap.has_value());
+        CHECK(c.redo().ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->tilemap->tilesetAssetId == "tiles-1");
+    }
+
+    // -- RemoveTilemapComponentCommand: success, no-component rejection, undo
+    // restores exactly ----------------------------------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        CHECK(!c.execute(RemoveTilemapComponentCommand{kSceneA, kHero}).ok);   // nothing to remove
+
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.cellSize = {48.f, 24.f};
+        tm.chunkSize = 8;
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+        CHECK(c.execute(RemoveTilemapComponentCommand{kSceneA, kHero}).ok);
+        CHECK(!c.document().findInstanceInScene(kSceneA, kHero)->tilemap.has_value());
+
+        CHECK(c.undo().ok);
+        const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(inst->tilemap.has_value());
+        CHECK(inst->tilemap->cellSize.x == 48.f);
+        CHECK(inst->tilemap->cellSize.y == 24.f);
+        CHECK(inst->tilemap->chunkSize == 8);
+    }
+
+    // -- SetTilemapTilesetCommand: success, same-value no-op, unknown-tileset
+    // rejection, missing-component rejection, undo/redo -----------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-2", "Forest", "img-hero",
+                                               TilesetSlicing{}}).ok);
+        CHECK(!c.execute(SetTilemapTilesetCommand{kSceneA, kHero, "tiles-2"}).ok);   // no component yet
+
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+
+        const std::size_t before = c.undoSize();
+        CHECK(c.execute(SetTilemapTilesetCommand{kSceneA, kHero, "tiles-1"}).ok);   // same value -> no-op
+        CHECK(c.undoSize() == before);
+
+        CHECK(!c.execute(SetTilemapTilesetCommand{kSceneA, kHero, "no-such-tileset"}).ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->tilemap->tilesetAssetId == "tiles-1");
+
+        CHECK(c.execute(SetTilemapTilesetCommand{kSceneA, kHero, "tiles-2"}).ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->tilemap->tilesetAssetId == "tiles-2");
+        CHECK(c.undo().ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->tilemap->tilesetAssetId == "tiles-1");
+        CHECK(c.redo().ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->tilemap->tilesetAssetId == "tiles-2");
+    }
+
+    // -- SetTilemapTilesetCommand: rejected when the new tileset doesn't
+    // contain a tile id already used by an existing chunk - no mutation, no
+    // undo entry ----------------------------------------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        sliceTilesOne(c);   // "tiles-1" now has "tile-1".."tile-4"
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-2", "Forest", "img-hero",
+                                               TilesetSlicing{}}).ok);
+        // "tiles-2" gets a tile list with deliberately non-overlapping ids, not
+        // via tilesForSlicing (which would also start at "tile-1").
+        std::vector<TileDefinition> forestTiles;
+        forestTiles.push_back(TileDefinition{"forest-a", 0, 0, 32, 32});
+        CHECK(c.execute(ChangeTilesetSlicingCommand{"tiles-2", TilesetSlicing{}, forestTiles}).ok);
+
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.chunkSize = 2;
+        TilemapChunk chunk;
+        chunk.chunkX = 0;
+        chunk.chunkY = 0;
+        chunk.cells.assign(4, std::nullopt);
+        chunk.cells[0] = TilemapCellValue{"tile-1", TileTransformFlags::None};   // real tiles-1 tile
+        tm.chunks.push_back(chunk);
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+
+        const std::size_t before = c.undoSize();
+        CHECK(!c.execute(SetTilemapTilesetCommand{kSceneA, kHero, "tiles-2"}).ok);   // "tile-1" not in tiles-2
+        CHECK(c.undoSize() == before);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->tilemap->tilesetAssetId == "tiles-1");
+    }
+
+    // -- SetTilemapCellSizeCommand: success, same-value no-op, non-positive/
+    // non-finite rejection, missing-component rejection, undo/redo ------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        CHECK(!c.execute(SetTilemapCellSizeCommand{kSceneA, kHero, {16.f, 16.f}}).ok);
+
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.cellSize = {32.f, 32.f};
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+
+        const std::size_t before = c.undoSize();
+        CHECK(c.execute(SetTilemapCellSizeCommand{kSceneA, kHero, {32.f, 32.f}}).ok);   // no-op
+        CHECK(c.undoSize() == before);
+
+        CHECK(!c.execute(SetTilemapCellSizeCommand{kSceneA, kHero, {0.f, 32.f}}).ok);
+        CHECK(!c.execute(SetTilemapCellSizeCommand{kSceneA, kHero,
+                                                   {std::numeric_limits<float>::infinity(), 32.f}}).ok);
+
+        CHECK(c.execute(SetTilemapCellSizeCommand{kSceneA, kHero, {48.f, 16.f}}).ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->tilemap->cellSize.x == 48.f);
+        CHECK(c.undo().ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->tilemap->cellSize.x == 32.f);
+        CHECK(c.redo().ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->tilemap->cellSize.x == 48.f);
+    }
+
+    // -- CloneInstanceCommand copies tilemap verbatim - regression test, not
+    // just an inspection of the whole-struct-copy claim -------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.cellSize = {40.f, 40.f};
+        tm.chunkSize = 12;
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+
+        CHECK(c.execute(CloneInstanceCommand{kSceneA, kHero, 900, "Hero Clone", {5.f, 5.f}}).ok);
+        const SceneInstanceDef* clone = c.document().findInstanceInScene(kSceneA, 900);
+        CHECK(clone->tilemap.has_value());
+        CHECK(clone->tilemap->tilesetAssetId == "tiles-1");
+        CHECK(clone->tilemap->cellSize.x == 40.f);
+        CHECK(clone->tilemap->chunkSize == 12);
+    }
+
+    // -- Deleting an entity with a tilemap, then undoing, restores it intact ---
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.cellSize = {20.f, 20.f};
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+
+        CHECK(c.execute(DeleteEntityCommand{kSceneA, kHero}).ok);
+        CHECK(!c.document().findInstanceInScene(kSceneA, kHero));
+        CHECK(c.undo().ok);
+        const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(inst != nullptr);
+        CHECK(inst->tilemap.has_value());
+        CHECK(inst->tilemap->cellSize.x == 20.f);
+    }
+
+    // -- RemoveTilesetAssetCommand rejects removal while a TilemapComponent
+    // still references it - asset and component both unchanged, no undo entry -
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+
+        const std::size_t before = c.undoSize();
+        CHECK(!c.execute(RemoveTilesetAssetCommand{"tiles-1"}).ok);
+        CHECK(c.undoSize() == before);
+        CHECK(c.document().hasTilesetAsset("tiles-1"));
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->tilemap.has_value());
+    }
+
+    // -- RemoveTilesetAssetCommand with no referencing tilemap: unchanged,
+    // regression guard on the existing no-consumer removal path ---------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        CHECK(c.execute(RemoveTilesetAssetCommand{"tiles-1"}).ok);
+        CHECK(!c.document().hasTilesetAsset("tiles-1"));
+        CHECK(c.undo().ok);
+        CHECK(c.document().hasTilesetAsset("tiles-1"));
+    }
+
+    // -- Save/reload round-trips an empty TilemapComponent - the slice's own
+    // literal completion criterion. Also confirms the legacy tilemap/
+    // tilemapLayers fields are never touched by this editor's own save/load,
+    // for any project, not only ones with a TilemapComponent ------------------
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        SceneInstanceDef& hero = doc.scenes.at(kSceneA).instances.front();
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.cellSize = {32.f, 32.f};
+        tm.chunkSize = 16;
+        hero.tilemap = tm;
+
+        EditorCoordinator c{doc};
+        const std::filesystem::path path = testTempDir() / "tilemap-empty.artcade-project";
+        CHECK(saveProjectToFile(c, path).ok);
+        EditorCoordinator reloaded{ProjectDoc{}};
+        CHECK(loadProjectFromFile(reloaded, path).ok);
+        const SceneInstanceDef* rt = reloaded.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(rt != nullptr);
+        CHECK(rt->tilemap.has_value());
+        CHECK(rt->tilemap->tilesetAssetId == "tiles-1");
+        CHECK(rt->tilemap->cellSize.x == 32.f);
+        CHECK(rt->tilemap->cellSize.y == 32.f);
+        CHECK(rt->tilemap->chunkSize == 16);
+        CHECK(rt->tilemap->chunks.empty());
+
+        const SceneDef* scene = reloaded.document().findScene(kSceneA);
+        CHECK(scene->tilemap.cols == 0);            // legacy field, never populated by this editor
+        CHECK(scene->tilemapLayers.empty());        // legacy field, never populated by this editor
+    }
+
+    // -- Save/reload round-trips a hand-constructed populated chunk: negative
+    // chunk coords, a mix of null/filled cells, and a non-None flags value ----
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        TilesetAsset* tiles1 = nullptr;
+        for (TilesetAsset& t : doc.tilesets) if (t.assetId == "tiles-1") tiles1 = &t;
+        tiles1->tiles.push_back(TileDefinition{"tile-1", 0, 0, 32, 32});
+        tiles1->tiles.push_back(TileDefinition{"tile-2", 32, 0, 32, 32});
+
+        SceneInstanceDef& hero = doc.scenes.at(kSceneA).instances.front();
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.chunkSize = 2;
+        TilemapChunk chunk;
+        chunk.chunkX = -3;
+        chunk.chunkY = -1;
+        chunk.cells = {
+            TilemapCellValue{"tile-1", TileTransformFlags::FlipX},
+            std::nullopt,
+            std::nullopt,
+            TilemapCellValue{"tile-2", TileTransformFlags::None},
+        };
+        tm.chunks.push_back(chunk);
+        hero.tilemap = tm;
+
+        EditorCoordinator c{doc};
+        const std::filesystem::path path = testTempDir() / "tilemap-populated.artcade-project";
+        CHECK(saveProjectToFile(c, path).ok);
+        EditorCoordinator reloaded{ProjectDoc{}};
+        CHECK(loadProjectFromFile(reloaded, path).ok);
+        const SceneInstanceDef* rt = reloaded.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(rt->tilemap->chunks.size() == 1);
+        const TilemapChunk& rtChunk = rt->tilemap->chunks.front();
+        CHECK(rtChunk.chunkX == -3);
+        CHECK(rtChunk.chunkY == -1);
+        CHECK(rtChunk.cells.size() == 4);
+        CHECK(rtChunk.cells[0].has_value());
+        CHECK(rtChunk.cells[0]->tileId == "tile-1");
+        CHECK(rtChunk.cells[0]->flags == TileTransformFlags::FlipX);
+        CHECK(!rtChunk.cells[1].has_value());
+        CHECK(!rtChunk.cells[2].has_value());
+        CHECK(rtChunk.cells[3].has_value());
+        CHECK(rtChunk.cells[3]->tileId == "tile-2");
+        CHECK(rtChunk.cells[3]->flags == TileTransformFlags::None);
+    }
+
+    // -- Validation: unknown tilesetAssetId is rejected ------------------------
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        SceneInstanceDef& hero = doc.scenes.at(kSceneA).instances.front();
+        TilemapComponent tm;
+        tm.tilesetAssetId = "no-such-tileset";
+        hero.tilemap = tm;
+        EditorCoordinator c{doc};
+        CHECK(!saveProjectToFile(c, testTempDir() / "tm-bad-tileset.artcade-project").ok);
+    }
+
+    // -- Validation: non-positive cellSize is rejected -------------------------
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        SceneInstanceDef& hero = doc.scenes.at(kSceneA).instances.front();
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.cellSize = {0.f, 32.f};
+        hero.tilemap = tm;
+        EditorCoordinator c{doc};
+        CHECK(!saveProjectToFile(c, testTempDir() / "tm-bad-cellsize.artcade-project").ok);
+    }
+
+    // -- Validation: chunkSize of 0, negative, and > kMaxTilemapChunkSize are
+    // all rejected - the last one specifically guards the overflow fix --------
+    {
+        for (const int badChunkSize : {0, -1, kMaxTilemapChunkSize + 1}) {
+            ProjectDoc doc = makeSpriteDoc();
+            SceneInstanceDef& hero = doc.scenes.at(kSceneA).instances.front();
+            TilemapComponent tm;
+            tm.tilesetAssetId = "tiles-1";
+            tm.chunkSize = badChunkSize;
+            hero.tilemap = tm;
+            EditorCoordinator c{doc};
+            CHECK(!saveProjectToFile(c, testTempDir() / "tm-bad-chunksize.artcade-project").ok);
+        }
+    }
+
+    // -- Validation: a chunk with the wrong cell count (!= chunkSize squared)
+    // is rejected ----------------------------------------------------------------
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        SceneInstanceDef& hero = doc.scenes.at(kSceneA).instances.front();
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.chunkSize = 4;   // expects 16 cells
+        TilemapChunk chunk;
+        chunk.cells.assign(4, std::nullopt);   // wrong: only 4
+        tm.chunks.push_back(chunk);
+        hero.tilemap = tm;
+        EditorCoordinator c{doc};
+        CHECK(!saveProjectToFile(c, testTempDir() / "tm-bad-cellcount.artcade-project").ok);
+    }
+
+    // -- Validation: two chunks sharing the same (chunkX, chunkY) are rejected -
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        SceneInstanceDef& hero = doc.scenes.at(kSceneA).instances.front();
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.chunkSize = 2;
+        TilemapChunk a; a.chunkX = 1; a.chunkY = 1; a.cells.assign(4, std::nullopt);
+        TilemapChunk b; b.chunkX = 1; b.chunkY = 1; b.cells.assign(4, std::nullopt);
+        tm.chunks.push_back(a);
+        tm.chunks.push_back(b);
+        hero.tilemap = tm;
+        EditorCoordinator c{doc};
+        CHECK(!saveProjectToFile(c, testTempDir() / "tm-dup-chunk.artcade-project").ok);
+    }
+
+    // -- Validation: a cell referencing a tile id absent from the tileset is
+    // rejected --------------------------------------------------------------------
+    {
+        ProjectDoc doc = makeSpriteDoc();   // "tiles-1" has zero TileDefinitions
+        SceneInstanceDef& hero = doc.scenes.at(kSceneA).instances.front();
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.chunkSize = 2;
+        TilemapChunk chunk;
+        chunk.cells.assign(4, std::nullopt);
+        chunk.cells[0] = TilemapCellValue{"tile-1", TileTransformFlags::None};   // not in tiles-1
+        tm.chunks.push_back(chunk);
+        hero.tilemap = tm;
+        EditorCoordinator c{doc};
+        CHECK(!saveProjectToFile(c, testTempDir() / "tm-bad-tileid.artcade-project").ok);
+    }
+
+    // -- ComponentKind::Tilemap flows correctly through DomainChange -----------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        const EditorOperationResult r = c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm});
+        CHECK(r.ok);
+        CHECK(r.change.kind == DomainChangeKind::ComponentAdded);
+        CHECK(r.change.componentKind == ComponentKind::Tilemap);
     }
 }
 
@@ -5349,6 +5819,7 @@ int main() {
 
     runSpriteAnimationTests();
     runTilesetTests();
+    runTilemapComponentTests();
 
     std::cout << "editor-core-test: " << g_passed << " passed, "
               << g_failed << " failed\n";

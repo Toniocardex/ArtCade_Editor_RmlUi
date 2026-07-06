@@ -200,7 +200,8 @@ EditorOperationResult CloneInstanceCommand::apply(ProjectDocument& document) {
         return EditorOperationResult::failure("An instance with that id already exists");
     }
     SceneInstanceDef clone      = *source;   // transform/visible/layerId/spriteRenderer/
-                                             // spriteAnimator/localVariableOverrides all copied
+                                             // spriteAnimator/tilemap/localVariableOverrides
+                                             // all copied
     clone.id                    = newId_;
     clone.instanceName          = newName_;
     clone.transform.position    = newPosition_;
