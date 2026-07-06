@@ -1,9 +1,10 @@
 # Demo assets
 
-Pixel-art sprite sheets for trying the Sprite Animation Editor, plus a couple
-of static terrain tiles for building a quick test level. Each sheet is a
-single horizontal row of equal frames, so slicing is one step: **Import
-Sheet → set `Cols` to the frame count (`Rows` = 1) → Slice into Frames**.
+Pixel-art sprite sheets for trying the Sprite Animation Editor, a couple of
+static terrain tiles for building a quick test level, and one grid sheet for
+the Tileset Editor. The animation sheets below are each a single horizontal
+row of equal frames, so slicing is one step: **Import Sheet → set `Cols` to
+the frame count (`Rows` = 1) → Slice into Frames**.
 
 | File | Size | Frames (`Cols`) | Cell | Animation |
 |------|------|-----------------|------|-----------|
@@ -45,6 +46,21 @@ Build a quick test room: turn on **Grid** + **Snap to Grid**, place
 `tile-wall` instances around a rectangle, fill the inside with `tile-ground`,
 then drop a Hero and a Critter inside and Play to confirm the wall actually
 blocks them.
+
+## Tileset Editor (`dungeon-tileset.png`)
+
+A 128×96 sheet of 12 solid-color, numbered 32×32 tiles (4 columns × 3 rows) —
+built for the **Tileset Editor**, not the Sprite Animation Editor. Each cell
+is a flat color with no border baked in, so the editor's own grid overlay is
+the only boundary indicator: if slicing is correct, every grid line lands
+exactly on a color change and every cell shows exactly one clean number.
+
+1. On the `dungeon-tileset.png` row in **Assets → Images**, click **Tileset**.
+2. Tile Width/Height default to 32×32, which already matches this sheet
+   exactly (4×3, 12 tiles, no remainder) — Apply commits immediately with no
+   adjustment needed.
+3. To test a *mismatched* size on purpose (remainder pixels, dropped/renumbered
+   tiles), try Tile Width/Height 40 — the sheet no longer divides evenly.
 
 ## Multiple animations in one sheet (`orb-states.png`, `switch-states.png`)
 
