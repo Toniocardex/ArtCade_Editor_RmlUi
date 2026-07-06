@@ -4,6 +4,7 @@
 #include "editor-native/model/editor_state.h"
 
 #include <cstddef>
+#include <optional>
 #include <string>
 
 namespace ArtCade::EditorNative {
@@ -165,6 +166,50 @@ struct ToggleLayerEditorVisibilityIntent {
 
 struct SetActiveToolIntent {
     EditorTool tool = EditorTool::Select;
+};
+
+// Begins a paint/erase stroke at pointer-down: validates the target and
+// seeds PendingTileStroke with the first cell's change. Rejected (no
+// pendingStroke created) if the target has no TilemapComponent, its layer
+// is locked, Play is running, its tileset is missing, or (Brush only) no
+// tile is selected.
+struct BeginTilePaintStrokeIntent {
+    SceneId          sceneId;
+    EntityId         entityId = INVALID_ENTITY;
+    EditorTool       tool = EditorTool::Brush;   // Brush or Eraser
+    TilemapCellCoord cell;
+};
+
+// One pointer-move sample: resolves the new cell, interpolates from
+// pendingStroke's lastCell via rasterizeCellLine, and folds every crossed
+// cell into pendingStroke's accumulator. A no-op if no stroke is in
+// progress.
+struct UpdateTilePaintStrokeIntent {
+    TilemapCellCoord cell;
+};
+
+// Pointer-up: clears pendingStroke. Does NOT itself dispatch
+// PaintTilemapCellsCommand - the input router reads the finalized
+// pendingStroke, builds and executes the Command from it, THEN applies this
+// intent to clear the preview.
+struct EndTilePaintStrokeIntent {};
+
+// Escape / lost window focus / lost pointer capture mid-stroke: discard the
+// pending stroke, no Command, no dirty, no history entry. Functionally
+// identical to EndTilePaintStrokeIntent today; kept as a separate name for
+// call-site legibility.
+struct CancelTilePaintStrokeIntent {};
+
+// Picker: workspace-only tile selection. Produces no Undo, dirty, revision
+// bump, or tilemap mutation.
+struct SelectPaintTileIntent {
+    TileId tileId;
+};
+
+// Hover highlight + "Empty cell" status text, updated every frame a paint
+// tool is active and the viewport is eligible for input.
+struct SetHoveredTilemapCellIntent {
+    std::optional<TilemapCellCoord> cell;
 };
 
 struct ToggleConsoleIntent {};

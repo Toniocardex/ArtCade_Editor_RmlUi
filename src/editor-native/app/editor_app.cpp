@@ -11,21 +11,25 @@
 #include "editor-native/app/rml_host.h"
 #include "editor-native/app/sprite_animation_canvas_input.h"
 #include "editor-native/app/sprite_animation_preview_renderer.h"
+#include "editor-native/app/tilemap_paint_input.h"
 #include "editor-native/app/tileset_editor_canvas_input.h"
 #include "editor-native/app/tileset_editor_renderer.h"
 #include "editor-native/app/unsaved_guard.h"
 #include "editor-native/commands/editor_intent.h"
 #include "editor-native/commands/entity_commands.h"
+#include "editor-native/commands/tilemap_commands.h"
 #include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
 #include "editor-native/model/play_session.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_animation_slicing.h"
+#include "editor-native/model/tilemap_stroke_preview.h"
 #include "editor-native/model/tileset_slicing.h"
 #include "editor-native/ui/editor_ui.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view.h"
 #include "editor-native/view/texture_cache.h"
+#include "editor-native/view/tilemap_paint_overlay.h"
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -232,6 +236,9 @@ std::optional<Vec2> dragPreviewPosition(const EditorCoordinator& coordinator,
 void routeViewportPickDrag(EditorCoordinator& coordinator, const ViewportRect& rect,
                            const RmlInputResult& rml, ViewportDrag& drag,
                            bool contextMenuHit) {
+    // A paint tool owns viewport clicks while active - entity pick/drag must
+    // not also claim them.
+    if (coordinator.state().activeTool != EditorTool::Select) return;
     const SceneId active = coordinator.state().activeSceneId;
     // Hidden layers are not pickable: the snapshot the picker reads excludes them.
     const SceneFrameSnapshot frame = collectSceneFrameSnapshot(
@@ -960,6 +967,15 @@ int EditorApp::run(int argc, char** argv) {
         if (!rml.textFocus && !coordinator.isPlaying() && IsKeyPressed(KEY_F2)) {
             ui.beginActiveSceneLayerRename();
         }
+        // Tilemap tool shortcuts only switch tools between strokes - mid-
+        // stroke, only Escape (handled inside routeViewportTilemapPaint,
+        // which needs the stroke context) may interrupt.
+        if (!rml.textFocus && !coordinator.isPlaying()
+            && !coordinator.state().tilemapEditor.pendingStroke) {
+            if (IsKeyPressed(KEY_B)) coordinator.apply(SetActiveToolIntent{EditorTool::Brush});
+            else if (IsKeyPressed(KEY_E)) coordinator.apply(SetActiveToolIntent{EditorTool::Eraser});
+            else if (IsKeyPressed(KEY_I)) coordinator.apply(SetActiveToolIntent{EditorTool::Picker});
+        }
         // Delete: KEY_DELETE is also forwarded into RmlUi's own text editing
         // (editor_input.cpp), but only takes effect there while a field has
         // focus; textFocus is false in exactly the complementary case, so the
@@ -1011,6 +1027,7 @@ int EditorApp::run(int argc, char** argv) {
             routeViewportPickDrag(coordinator, rect, rml, drag, contextMenuHit);
             routeViewportContextMenu(coordinator, ui, rect, rml, contextClick,
                                      pendingContextSpawn, contextMenuHit);
+            routeViewportTilemapPaint(coordinator, rect, rml);
         }
 
         // Pointer world-position readout (Edit mode, mouse over the viewport).
@@ -1116,6 +1133,10 @@ int EditorApp::run(int argc, char** argv) {
             for (SceneFrameCollider& col : snapshot.colliders)
                 if (col.entityId == drag.entity) { col.worldBounds.x += d.x; col.worldBounds.y += d.y; }
         }
+        if (!playSession) {
+            applyPendingTilemapStrokePreview(snapshot, coordinator.document(),
+                                             coordinator.state().tilemapEditor);
+        }
         EditorSceneViewState renderView = coordinator.sceneView(active);
         if (playSession) renderView.gridVisible = false;
         const SpriteAnimationAssetDef* animationAsset = nullptr;
@@ -1127,6 +1148,11 @@ int EditorApp::run(int argc, char** argv) {
         } else {
             textureCache.prepare(snapshot.sprites, snapshot.tilemaps, textureRequests);
             sceneView.render(snapshot, renderView, rect, textureCache);
+            if (!playSession) {
+                drawTilemapPaintOverlay(coordinator.document(), coordinator.state().tilemapEditor,
+                                        active, coordinator.selection().primaryEntity, rect,
+                                        renderView, snapshot.worldSize);
+            }
         }
         host.render();
         if (animationAsset) {

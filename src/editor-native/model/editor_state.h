@@ -2,8 +2,10 @@
 
 #include "core/types.h"
 #include "editor-native/model/selection_state.h"
+#include "editor-native/model/tilemap_cell_access.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -105,9 +107,46 @@ inline AssetId editorSheetImageId(const SpriteAnimationAssetDef& asset,
     return clip ? clip->imageId : AssetId{};
 }
 
+// Extends the existing "what does interacting with the Scene View currently
+// mean" mode (previously Select/Pan only - Pan itself was already declared
+// but unwired to any input routing or UI) rather than a second, parallel
+// enum for tilemap painting.
 enum class EditorTool {
     Select,
     Pan,
+    Brush,
+    Eraser,
+    Picker,
+};
+
+// An in-progress paint/erase stroke: pointer-down to pointer-up, never
+// touching ProjectDocument until pointer-up dispatches exactly one
+// PaintTilemapCellsCommand. sceneId/entityId are captured once at
+// stroke-begin, not re-derived from selection each frame, so a stroke stays
+// bound to the entity it started on even if selection changes mid-drag.
+// Keyed by packTilemapCellCoord(...) rather than a
+// std::unordered_map<TilemapCellCoord,...> to avoid this codebase's first
+// std::hash specialization (tilemap_validation.cpp packs chunk coordinates
+// the identical way for the identical reason).
+struct PendingTileStroke {
+    SceneId    sceneId;
+    EntityId   entityId = INVALID_ENTITY;
+    EditorTool tool = EditorTool::Brush;   // Brush or Eraser only
+    std::optional<TilemapCellCoord>                     lastCell;
+    std::unordered_map<std::int64_t, TilemapCellChange> changes;
+};
+
+// Workspace state for tilemap painting. Invariants: no ProjectDocument copy;
+// no duplicated "active entity" (read from SelectionState at stroke-begin,
+// then pinned into PendingTileStroke::entityId for that stroke only);
+// pendingStroke never persists past pointer-up/Escape/lost-focus;
+// selectedTileId is workspace-only (mirrors TilesetEditorState::
+// selectedTileId's identical optional<string> shape and "no sentinel for
+// empty" policy).
+struct TilemapEditorState {
+    std::optional<TileId>            selectedTileId;
+    std::optional<TilemapCellCoord>  hoveredCell;
+    std::optional<PendingTileStroke> pendingStroke;
 };
 
 // Shared workspace state. This is not saved into the project file.
@@ -119,6 +158,7 @@ struct EditorState {
     std::unordered_map<SceneId, EditorSceneViewState> sceneViews;
     SpriteAnimationEditorState spriteAnimationEditor;
     TilesetEditorState tilesetEditor;
+    TilemapEditorState tilemapEditor;
 };
 
 inline float clampZoom(float v) {

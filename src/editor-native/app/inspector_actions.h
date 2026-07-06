@@ -56,4 +56,12 @@ EditorOperationResult setPlatformerMoveSpeed(EditorCoordinator& coordinator, flo
 EditorOperationResult setPlatformerJumpSpeed(EditorCoordinator& coordinator, float value);
 EditorOperationResult setPlatformerGravity(EditorCoordinator& coordinator, float value);
 
+/** Add a Tilemap component to the selected instance, auto-assigned to the
+ *  project's first TilesetAsset (the Inspector's tileset picker changes it
+ *  afterward). No selection or no tileset in the project -> no-op. */
+EditorOperationResult addTilemapComponent(EditorCoordinator& coordinator);
+
+/** Remove the Tilemap component from the selected instance. */
+EditorOperationResult removeTilemapComponent(EditorCoordinator& coordinator);
+
 } // namespace ArtCade::EditorNative

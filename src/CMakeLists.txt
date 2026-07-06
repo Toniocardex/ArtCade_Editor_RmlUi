@@ -20,6 +20,9 @@ add_library(artcade-editor-core STATIC
     editor-native/model/tilemap_chunk_math.cpp
     editor-native/model/tilemap_validation.cpp
     editor-native/model/tilemap_render_view.cpp
+    editor-native/model/tilemap_cell_access.cpp
+    editor-native/model/tilemap_stroke_math.cpp
+    editor-native/model/tilemap_stroke_preview.cpp
     editor-native/view/scene_grid.cpp
     editor-native/view/scene_view_camera.cpp
     editor-native/commands/box_collider_commands.cpp
@@ -115,6 +118,8 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/app/confirm_dialog.cpp
     editor-native/view/texture_cache.cpp
     editor-native/view/scene_view.cpp
+    editor-native/view/tilemap_paint_overlay.cpp
+    editor-native/app/tilemap_paint_input.cpp
     editor-native/ui/editor_ui.cpp
     editor-native/ui/editor_fonts.cpp
     editor-native/ui/hierarchy_panel.cpp

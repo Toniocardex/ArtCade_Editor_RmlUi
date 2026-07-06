@@ -67,6 +67,7 @@ class AddTilemapComponentCommand;
 class RemoveTilemapComponentCommand;
 class SetTilemapTilesetCommand;
 class SetTilemapCellSizeCommand;
+class PaintTilemapCellsCommand;
 class SetStartSceneCommand;
 class RenameProjectCommand;
 
@@ -99,6 +100,9 @@ public:
     bool                     hasObjectType(const std::string& id) const;
     /** True if @p layerId is a render layer of scene @p sceneId. */
     bool                     hasLayer(const SceneId& sceneId, const std::string& layerId) const;
+    /** True if @p layerId exists in @p sceneId and is editor-locked (pick
+     *  gating). False if the scene or layer doesn't resolve. */
+    bool                     isLayerLocked(const SceneId& sceneId, const std::string& layerId) const;
     const EntityDef*         findObjectType(const std::string& id) const;
     /** True if @p id is a known image asset (ProjectDoc.imageAssets). */
     bool                     hasImageAsset(const AssetId& id) const;
@@ -183,6 +187,7 @@ private:
     friend class RemoveTilemapComponentCommand;
     friend class SetTilemapTilesetCommand;
     friend class SetTilemapCellSizeCommand;
+    friend class PaintTilemapCellsCommand;
     friend class SetStartSceneCommand;
     friend class RenameProjectCommand;
     friend class RenameObjectTypeCommand;
@@ -248,6 +253,10 @@ private:
     bool removeTilemapComponent(const SceneId& sceneId, EntityId id);
     bool setTilemapTileset(const SceneId& sceneId, EntityId id, AssetId tilesetAssetId);
     bool setTilemapCellSize(const SceneId& sceneId, EntityId id, Vec2 cellSize);
+    // Wholesale replace - the only mutator PaintTilemapCellsCommand needs,
+    // since it builds one complete validated next-state locally (patched
+    // cells + created/removed chunks) rather than mutating cell-by-cell.
+    bool setTilemapComponent(const SceneId& sceneId, EntityId id, TilemapComponent replacement);
     // BoxCollider2D is authored on the object type only; instances never store it.
     bool addBoxCollider(const std::string& objectTypeId, BoxCollider2DComponent component);
     bool removeBoxCollider(const std::string& objectTypeId);

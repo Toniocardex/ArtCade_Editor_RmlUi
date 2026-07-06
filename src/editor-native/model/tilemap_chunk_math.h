@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 namespace ArtCade::EditorNative {
 
 // Floor division/modulo for a cell coordinate against a chunk size. C++'s
@@ -29,5 +31,26 @@ TilemapLocalCoord cellToLocalCoord(int cellX, int cellY, int chunkSize);
 // cell coordinate from a chunk coordinate and a local coordinate within it.
 int chunkAndLocalToCellX(int chunkX, int localX, int chunkSize);
 int chunkAndLocalToCellY(int chunkY, int localY, int chunkSize);
+
+// Absolute cell address (not chunk-relative). PaintTilemapCellsCommand
+// converts this to chunk+local via cellToChunkCoord/cellToLocalCoord exactly
+// as tilemapRenderCells already does in reverse.
+struct TilemapCellCoord {
+    int cellX = 0;
+    int cellY = 0;
+
+    bool operator==(const TilemapCellCoord& other) const {
+        return cellX == other.cellX && cellY == other.cellY;
+    }
+};
+
+// Packs a cell coordinate into one 64-bit key, mirroring tilemap_validation.
+// cpp's own chunk-coordinate packing exactly (its only precedent for "two
+// ints as a map/set key" in this codebase) rather than adding this
+// codebase's first std::hash specialization.
+inline std::int64_t packTilemapCellCoord(TilemapCellCoord cell) {
+    return (static_cast<std::int64_t>(cell.cellX) << 32)
+         ^ static_cast<std::uint32_t>(cell.cellY);
+}
 
 } // namespace ArtCade::EditorNative

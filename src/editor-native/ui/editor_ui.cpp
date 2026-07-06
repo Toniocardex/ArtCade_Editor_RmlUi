@@ -11,6 +11,7 @@
 #include "editor-native/commands/image_asset_commands.h"
 #include "editor-native/commands/audio_asset_commands.h"
 #include "editor-native/commands/font_asset_commands.h"
+#include "editor-native/commands/tilemap_commands.h"
 #include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/project_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
@@ -929,7 +930,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     }
     if (action == "add-sprite-renderer" || action == "add-box-collider"
         || action == "add-linear-mover" || action == "add-top-down"
-        || action == "add-platformer") {
+        || action == "add-platformer" || action == "add-tilemap-component") {
         inspector_.closeAddMenu();   // then fall through to execute the add
     }
 
@@ -1116,6 +1117,39 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
             else                                size.y = *parsed;
             coordinator_.execute(SetSceneSizeCommand{coordinator_.state().activeSceneId, size});
         }
+    } else if (action == "add-tilemap-component") {
+        addTilemapComponent(coordinator_);
+    } else if (action == "remove-tilemap-component") {
+        removeTilemapComponent(coordinator_);
+    } else if (action == "set-tilemap-tileset") {
+        if (selected != INVALID_ENTITY) {
+            coordinator_.execute(
+                SetTilemapTilesetCommand{coordinator_.state().activeSceneId, selected, arg});
+        }
+    } else if (action == "commit-tilemap-cell-width" || action == "commit-tilemap-cell-height") {
+        const SceneInstanceDef* inst = (selected != INVALID_ENTITY)
+            ? coordinator_.document().findInstanceInScene(coordinator_.state().activeSceneId, selected)
+            : nullptr;
+        const std::optional<float> parsed = parseNumberField(value);
+        if (!inst || !inst->tilemap.has_value()) {
+            coordinator_.logError("No selected Tilemap component");
+        } else if (!parsed.has_value()) {
+            coordinator_.logError("Tilemap cell size is not a number");
+        } else {
+            Vec2 cellSize = inst->tilemap->cellSize;
+            if (action == "commit-tilemap-cell-width") cellSize.x = *parsed;
+            else                                       cellSize.y = *parsed;
+            coordinator_.execute(
+                SetTilemapCellSizeCommand{coordinator_.state().activeSceneId, selected, cellSize});
+        }
+    } else if (action == "select-tilemap-brush") {
+        coordinator_.apply(SetActiveToolIntent{EditorTool::Brush});
+    } else if (action == "select-tilemap-eraser") {
+        coordinator_.apply(SetActiveToolIntent{EditorTool::Eraser});
+    } else if (action == "select-tilemap-picker") {
+        coordinator_.apply(SetActiveToolIntent{EditorTool::Picker});
+    } else if (action == "select-tilemap-tile") {
+        coordinator_.apply(SelectPaintTileIntent{arg});
     } else {
         return false;
     }

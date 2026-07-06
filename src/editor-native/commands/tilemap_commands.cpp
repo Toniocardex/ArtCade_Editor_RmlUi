@@ -4,6 +4,7 @@
 #include "editor-native/model/tilemap_validation.h"
 
 #include <cmath>
+#include <unordered_set>
 #include <utility>
 
 namespace ArtCade::EditorNative {
@@ -148,6 +149,73 @@ EditorOperationResult SetTilemapCellSizeCommand::apply(ProjectDocument& document
 EditorOperationResult SetTilemapCellSizeCommand::undo(ProjectDocument& document) {
     if (!captured_ || !document.setTilemapCellSize(sceneId_, id_, previous_)) {
         return EditorOperationResult::failure("Cannot undo Tilemap cell size change");
+    }
+    return EditorOperationResult::success(
+        kTilemapInvalidation,
+        DomainChange::componentChanged(sceneId_, id_, ComponentKind::Tilemap));
+}
+
+PaintTilemapCellsCommand::PaintTilemapCellsCommand(
+    SceneId sceneId, EntityId id, std::vector<TilemapCellChange> changes)
+    : sceneId_(std::move(sceneId)), id_(id), changes_(std::move(changes)) {}
+
+EditorOperationResult PaintTilemapCellsCommand::apply(ProjectDocument& document) {
+    if (changes_.empty()) {
+        return EditorOperationResult::failure("Paint stroke has no cell changes");
+    }
+    const SceneInstanceDef* inst = document.findInstanceInScene(sceneId_, id_);
+    if (!inst || !inst->tilemap.has_value()) {
+        return EditorOperationResult::failure("Instance has no Tilemap component");
+    }
+    {
+        std::unordered_set<std::int64_t> seen;
+        for (const TilemapCellChange& change : changes_) {
+            if (!seen.insert(packTilemapCellCoord(change.cell)).second) {
+                return EditorOperationResult::failure("Duplicate cell in paint delta");
+            }
+        }
+    }
+
+    TilemapComponent next = *inst->tilemap;   // hypothetical next state, validated before commit
+    for (const TilemapCellChange& change : changes_) {
+        // before-mismatch atomic-failure check: something else mutated the
+        // document between stroke-start and commit. `next` is a local copy,
+        // so a failure here discards it - nothing partial ever lands.
+        if (!(readTilemapCell(next, change.cell) == change.before)) {
+            return EditorOperationResult::failure(
+                "Tilemap changed since this stroke began - paint discarded");
+        }
+        writeTilemapCell(next, change.cell, change.after);   // lazily creates the chunk if needed
+    }
+    pruneEmptyChunks(next);   // erasing a chunk's last non-empty cell removes it
+
+    if (const auto err = validateTilemapComponent(document, next)) {
+        return EditorOperationResult::failure(*err);
+    }
+    if (!document.setTilemapComponent(sceneId_, id_, next)) {
+        return EditorOperationResult::failure("Failed to paint tilemap cells");
+    }
+    return EditorOperationResult::success(
+        kTilemapInvalidation,
+        DomainChange::componentChanged(sceneId_, id_, ComponentKind::Tilemap));
+}
+
+EditorOperationResult PaintTilemapCellsCommand::undo(ProjectDocument& document) {
+    const SceneInstanceDef* inst = document.findInstanceInScene(sceneId_, id_);
+    if (!inst || !inst->tilemap.has_value()) {
+        return EditorOperationResult::failure("Cannot undo paint: Tilemap component is missing");
+    }
+    TilemapComponent restored = *inst->tilemap;
+    for (const TilemapCellChange& change : changes_) {
+        // Restoring `before` implicitly recreates any chunk apply() created
+        // (writeTilemapCell lazily creates on a non-empty `before` too) and
+        // implicitly re-empties any chunk apply() emptied.
+        writeTilemapCell(restored, change.cell, change.before);
+    }
+    pruneEmptyChunks(restored);   // removes chunks apply() created that undo now empties again
+
+    if (!document.setTilemapComponent(sceneId_, id_, restored)) {
+        return EditorOperationResult::failure("Failed to undo paint");
     }
     return EditorOperationResult::success(
         kTilemapInvalidation,

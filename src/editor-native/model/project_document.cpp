@@ -171,6 +171,15 @@ bool ProjectDocument::hasLayer(const SceneId& sceneId, const std::string& layerI
     return false;
 }
 
+bool ProjectDocument::isLayerLocked(const SceneId& sceneId, const std::string& layerId) const {
+    const SceneDef* scene = findScene(sceneId);
+    if (!scene) return false;
+    for (const SceneLayerDef& layer : scene->layers) {
+        if (layer.id == layerId) return layer.locked;
+    }
+    return false;
+}
+
 bool ProjectDocument::addSceneLayer(const SceneId& sceneId, const std::string& layerId,
                                     const std::string& name, std::size_t index) {
     SceneDef* scene = mutableScene(sceneId);
@@ -437,6 +446,15 @@ bool ProjectDocument::setTilemapCellSize(const SceneId& sceneId, EntityId id, Ve
     SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
     if (!instance || !instance->tilemap.has_value()) return false;
     instance->tilemap->cellSize = cellSize;
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::setTilemapComponent(const SceneId& sceneId, EntityId id,
+                                          TilemapComponent replacement) {
+    SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
+    if (!instance || !instance->tilemap.has_value()) return false;
+    instance->tilemap = std::move(replacement);
     markDirty();
     return true;
 }

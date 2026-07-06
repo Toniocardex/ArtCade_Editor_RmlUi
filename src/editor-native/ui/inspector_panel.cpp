@@ -564,6 +564,66 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 "<span class=\"icon\">&#xeb0b;</span>Add Override</button>";
     }
 
+    // -- Tilemap (instance-owned per ADR-0001) --------------------------------
+    if (inst->tilemap.has_value()) {
+        const TilemapComponent& tm = *inst->tilemap;
+        const TilesetAsset* tmTileset = coordinator.document().findTilesetAsset(tm.tilesetAssetId);
+        html += header("&#xf22f;", "Tilemap", "INSTANCE", "", "remove-tilemap-component", playing);
+        html += "<div class=\"prop-row\"><span class=\"prop-label\">Tileset</span>"
+                "<span class=\"prop-readonly\">"
+              + (tmTileset ? escapeRml(tmTileset->name.empty() ? tmTileset->assetId : tmTileset->name)
+                           : std::string("(missing)"))
+              + "</span></div>";
+        if (coordinator.document().data().tilesets.size() > 1) {
+            html += "<div class=\"asset-options\">";
+            for (const TilesetAsset& ts : coordinator.document().data().tilesets) {
+                html += "<div class=\"" + opt;
+                if (ts.assetId == tm.tilesetAssetId) html += " selected";
+                html += "\" data-action=\"set-tilemap-tileset\" data-arg=\"" + escapeRml(ts.assetId)
+                      + "\">" + escapeRml(ts.name.empty() ? ts.assetId : ts.name) + "</div>";
+            }
+            html += "</div>";
+        }
+        // cellSize is editable (SetTilemapCellSizeCommand, Slice 4); chunkSize
+        // is genuinely immutable after creation (no setter command exists).
+        html += field("Cell Width", "commit-tilemap-cell-width", num(tm.cellSize.x), playing);
+        html += field("Cell Height", "commit-tilemap-cell-height", num(tm.cellSize.y), playing);
+        html += "<div class=\"prop-row\"><span class=\"prop-label\">Chunk Size</span>"
+                "<span class=\"prop-readonly\">" + std::to_string(tm.chunkSize) + "</span></div>";
+
+        // Contextual paint toolbar + tile palette - only meaningful once the
+        // tileset resolves and has at least one sliced tile.
+        if (tmTileset && !tmTileset->tiles.empty()) {
+            const EditorTool activeTool = coordinator.state().activeTool;
+            html += "<div class=\"mode-block\"><span class=\"mode-label\">Tool</span>"
+                    "<div class=\"mode-options\">";
+            const auto toolOption = [&](EditorTool tool, const char* action, const char* label) {
+                html += "<button class=\"panel-btn mode-option";
+                if (activeTool == tool) html += " active";
+                if (playing) html += " disabled";
+                html += "\" data-action=\"";
+                html += action;
+                html += "\">";
+                html += label;
+                html += "</button>";
+            };
+            toolOption(EditorTool::Brush, "select-tilemap-brush", "Brush");
+            toolOption(EditorTool::Eraser, "select-tilemap-eraser", "Eraser");
+            toolOption(EditorTool::Picker, "select-tilemap-picker", "Picker");
+            html += "</div></div>";
+
+            const std::optional<TileId>& selectedTileId = coordinator.state().tilemapEditor.selectedTileId;
+            html += "<div class=\"asset-group-title\">Tiles</div><div class=\"asset-options\">";
+            for (const TileDefinition& tile : tmTileset->tiles) {
+                html += "<div class=\"" + opt;
+                if (selectedTileId && *selectedTileId == tile.id) html += " selected";
+                html += "\" data-action=\"select-tilemap-tile\" data-arg=\"" + escapeRml(tile.id)
+                      + "\">" + escapeRml(tile.id) + "</div>";
+            }
+            html += "</div>";
+        }
+    }
+
     // -- Box Collider 2D (object-type owned) ----------------------------------
     const BoxCollider2DComponent* collider =
         (type && type->boxCollider2D) ? &*type->boxCollider2D : nullptr;
@@ -636,6 +696,11 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         {"Top Down Controller", "add-top-down", type && !hasDriver},
         {"Platformer Controller", "add-platformer", type && !hasDriver},
         {"Linear Mover", "add-linear-mover", type && !hasDriver},
+        // Instance-level like Sprite Renderer; needs at least one tileset to
+        // reference (auto-assigns the first one - the tileset picker above
+        // lets it be changed afterward).
+        {"Tilemap", "add-tilemap-component",
+            !inst->tilemap.has_value() && !coordinator.document().data().tilesets.empty()},
     };
     bool anyAddable = false;
     for (const Addable& a : addable) anyAddable = anyAddable || a.show;

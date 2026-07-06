@@ -140,6 +140,12 @@ public:
     EditorOperationResult apply(const SetActiveLayerIntent& intent);
     EditorOperationResult apply(const ToggleLayerEditorVisibilityIntent& intent);
     EditorOperationResult apply(const SetActiveToolIntent& intent);
+    EditorOperationResult apply(const BeginTilePaintStrokeIntent& intent);
+    EditorOperationResult apply(const UpdateTilePaintStrokeIntent& intent);
+    EditorOperationResult apply(const EndTilePaintStrokeIntent& intent);
+    EditorOperationResult apply(const CancelTilePaintStrokeIntent& intent);
+    EditorOperationResult apply(const SelectPaintTileIntent& intent);
+    EditorOperationResult apply(const SetHoveredTilemapCellIntent& intent);
     EditorOperationResult apply(const ToggleConsoleIntent& intent);
     EditorOperationResult apply(const ResizePanelIntent& intent);
 

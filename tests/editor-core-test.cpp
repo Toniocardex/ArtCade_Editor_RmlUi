@@ -36,6 +36,8 @@
 #include "editor-native/model/sprite_animation_slicing.h"
 #include "editor-native/model/tileset_slicing.h"
 #include "editor-native/model/tilemap_chunk_math.h"
+#include "editor-native/model/tilemap_cell_access.h"
+#include "editor-native/model/tilemap_stroke_math.h"
 #include "editor-native/model/tilemap_validation.h"
 #include "editor-native/model/tilemap_render_view.h"
 #include "editor-native/model/sprite_render_view.h"
@@ -1494,6 +1496,467 @@ static void runTilemapComponentTests() {
         CHECK(r.ok);
         CHECK(r.change.kind == DomainChangeKind::ComponentAdded);
         CHECK(r.change.componentKind == ComponentKind::Tilemap);
+    }
+}
+
+// Adds a TilemapComponent to kHero referencing "tiles-1" (sliced into
+// "tile-1".."tile-4" via sliceTilesOne), chunkSize=16, ready to paint.
+static void setUpTilemapForPainting(EditorCoordinator& c) {
+    sliceTilesOne(c);
+    TilemapComponent tm;
+    tm.tilesetAssetId = "tiles-1";
+    tm.cellSize = {32.f, 32.f};
+    tm.chunkSize = 16;
+    CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+}
+
+static void runTilemapPaintingTests() {
+    // -- rasterizeCellLine: same start/end -> one cell -------------------------
+    {
+        const auto path = rasterizeCellLine(TilemapCellCoord{3, 5}, TilemapCellCoord{3, 5});
+        CHECK(path.size() == 1);
+        CHECK(path[0].cellX == 3 && path[0].cellY == 5);
+    }
+
+    // -- rasterizeCellLine: horizontal/vertical/diagonal, no gaps --------------
+    {
+        const auto h = rasterizeCellLine(TilemapCellCoord{0, 0}, TilemapCellCoord{4, 0});
+        CHECK(h.size() == 5);
+        for (std::size_t i = 0; i < h.size(); ++i) {
+            CHECK(h[i].cellX == static_cast<int>(i));
+            CHECK(h[i].cellY == 0);
+        }
+        const auto v = rasterizeCellLine(TilemapCellCoord{2, 0}, TilemapCellCoord{2, 3});
+        CHECK(v.size() == 4);
+        const auto d = rasterizeCellLine(TilemapCellCoord{0, 0}, TilemapCellCoord{3, 3});
+        CHECK(d.size() == 4);
+    }
+
+    // -- rasterizeCellLine: a long span (fast mouse move) stays fully 8-
+    // connected, no gaps, both endpoints included --------------------------------
+    {
+        const auto path = rasterizeCellLine(TilemapCellCoord{0, 0}, TilemapCellCoord{20, 3});
+        CHECK(path.front().cellX == 0 && path.front().cellY == 0);
+        CHECK(path.back().cellX == 20 && path.back().cellY == 3);
+        for (std::size_t i = 1; i < path.size(); ++i) {
+            int dx = path[i].cellX - path[i - 1].cellX;
+            int dy = path[i].cellY - path[i - 1].cellY;
+            if (dx < 0) dx = -dx;
+            if (dy < 0) dy = -dy;
+            CHECK(dx <= 1 && dy <= 1);
+        }
+    }
+
+    // -- rasterizeCellLine: explicit chunk-boundary crossings ------------------
+    {
+        CHECK(rasterizeCellLine(TilemapCellCoord{-1, 0}, TilemapCellCoord{0, 0}).size() == 2);
+        CHECK(rasterizeCellLine(TilemapCellCoord{15, 0}, TilemapCellCoord{16, 0}).size() == 2);
+        CHECK(rasterizeCellLine(TilemapCellCoord{0, -16}, TilemapCellCoord{0, -15}).size() == 2);
+    }
+
+    // -- readTilemapCell/writeTilemapCell/pruneEmptyChunks ---------------------
+    {
+        TilemapComponent tm;
+        tm.chunkSize = 4;
+        CHECK(!readTilemapCell(tm, TilemapCellCoord{0, 0}).has_value());   // no chunk yet
+        writeTilemapCell(tm, TilemapCellCoord{0, 0}, TilemapCellValue{"tile-1", TileTransformFlags::None});
+        CHECK(tm.chunks.size() == 1);
+        CHECK(tm.chunks[0].cells.size() == 16);
+        const TilemapCell read = readTilemapCell(tm, TilemapCellCoord{0, 0});
+        CHECK(read.has_value());
+        CHECK(read->tileId == "tile-1");
+
+        writeTilemapCell(tm, TilemapCellCoord{-1, -1}, TilemapCellValue{"tile-2", TileTransformFlags::None});
+        CHECK(tm.chunks.size() == 2);
+        CHECK(readTilemapCell(tm, TilemapCellCoord{-1, -1})->tileId == "tile-2");
+
+        writeTilemapCell(tm, TilemapCellCoord{-1, -1}, std::nullopt);
+        pruneEmptyChunks(tm);
+        CHECK(tm.chunks.size() == 1);   // the (-1,-1) chunk is gone, (0,0)'s chunk remains
+
+        writeTilemapCell(tm, TilemapCellCoord{0, 0}, std::nullopt);
+        pruneEmptyChunks(tm);
+        CHECK(tm.chunks.empty());
+    }
+
+    // -- normalizePaintStrokeChanges: drops before==after, keeps real changes --
+    {
+        std::unordered_map<std::int64_t, TilemapCellChange> changes;
+        changes[packTilemapCellCoord({0, 0})] =
+            TilemapCellChange{{0, 0}, std::nullopt, TilemapCellValue{"tile-1", TileTransformFlags::None}};
+        changes[packTilemapCellCoord({1, 0})] = TilemapCellChange{
+            {1, 0}, TilemapCellValue{"tile-2", TileTransformFlags::None},
+            TilemapCellValue{"tile-2", TileTransformFlags::None}};   // no-op: same value
+        changes[packTilemapCellCoord({2, 0})] = TilemapCellChange{{2, 0}, std::nullopt, std::nullopt};   // no-op
+        const std::vector<TilemapCellChange> result = normalizePaintStrokeChanges(changes);
+        CHECK(result.size() == 1);
+        CHECK(result[0].cell.cellX == 0);
+    }
+
+    // -- BeginTilePaintStrokeIntent: success, seeds pendingStroke correctly ----
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        CHECK(!c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Brush, {0, 0}}).ok);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Brush, {0, 0}}).ok);
+        CHECK(c.state().tilemapEditor.pendingStroke.has_value());
+        CHECK(c.state().tilemapEditor.pendingStroke->changes.size() == 1);
+        CHECK(c.state().tilemapEditor.pendingStroke->tool == EditorTool::Brush);
+    }
+
+    // -- BeginTilePaintStrokeIntent: missing component rejected ----------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};   // kHero has no tilemap
+        CHECK(!c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Eraser, {0, 0}}).ok);
+    }
+
+    // -- BeginTilePaintStrokeIntent: locked layer rejected ---------------------
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        SceneDef& scene = doc.scenes.at(kSceneA);
+        SceneLayerDef locked;
+        locked.id = "locked-layer";
+        locked.name = "Locked";
+        locked.locked = true;
+        scene.layers.push_back(locked);
+        scene.instances.front().layerId = "locked-layer";
+        EditorCoordinator c{doc};
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+        CHECK(!c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Eraser, {0, 0}}).ok);
+    }
+
+    // -- BeginTilePaintStrokeIntent: missing tileset rejected ------------------
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        TilemapComponent tm;
+        tm.tilesetAssetId = "no-such-tileset";
+        doc.scenes.at(kSceneA).instances.front().tilemap = tm;
+        EditorCoordinator c{doc};
+        CHECK(!c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Eraser, {0, 0}}).ok);
+    }
+
+    // -- BeginTilePaintStrokeIntent: rejected while Play is running ------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        CHECK(c.playCurrentScene().ok);
+        CHECK(!c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Eraser, {0, 0}}).ok);
+    }
+
+    // -- UpdateTilePaintStrokeIntent: fast movement interpolates with no gaps,
+    // across a chunk boundary and into negative coordinates -------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Brush, {14, 0}}).ok);
+        CHECK(c.apply(UpdateTilePaintStrokeIntent{{18, 0}}).ok);   // crosses chunk boundary (chunkSize=16)
+        CHECK(c.apply(UpdateTilePaintStrokeIntent{{-2, 0}}).ok);   // crosses into negative
+        CHECK(c.state().tilemapEditor.pendingStroke->changes.size()
+              == static_cast<std::size_t>(18 - (-2) + 1));   // every cell from -2..18, no gaps
+    }
+
+    // -- UpdateTilePaintStrokeIntent: a revisited cell keeps its first `before`
+    // and its last `after` (the exact empty -> tileA -> tileB example) --------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Brush, {0, 0}}).ok);
+        CHECK(c.apply(UpdateTilePaintStrokeIntent{{1, 0}}).ok);
+        c.apply(SelectPaintTileIntent{"tile-2"});
+        CHECK(c.apply(UpdateTilePaintStrokeIntent{{0, 0}}).ok);   // revisit (0,0), tile-2 now selected
+
+        const auto& changes = c.state().tilemapEditor.pendingStroke->changes;
+        CHECK(changes.size() == 2);   // (0,0) and (1,0), each exactly once
+        bool foundOrigin = false;
+        for (const auto& [key, change] : changes) {
+            if (change.cell.cellX == 0 && change.cell.cellY == 0) {
+                foundOrigin = true;
+                CHECK(!change.before.has_value());          // empty before the stroke
+                CHECK(change.after.has_value());
+                CHECK(change.after->tileId == "tile-2");     // last touch wins
+            }
+        }
+        CHECK(foundOrigin);
+    }
+
+    // -- Full stroke lifecycle via the router's own normalize+execute shape:
+    // pointer-up produces exactly one Command regardless of cell count --------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Brush, {0, 0}}).ok);
+        CHECK(c.apply(UpdateTilePaintStrokeIntent{{5, 0}}).ok);
+        const std::size_t before = c.undoSize();
+        {
+            const PendingTileStroke& stroke = *c.state().tilemapEditor.pendingStroke;
+            std::vector<TilemapCellChange> changes = normalizePaintStrokeChanges(stroke.changes);
+            CHECK(!changes.empty());
+            CHECK(c.execute(PaintTilemapCellsCommand{stroke.sceneId, stroke.entityId,
+                                                     std::move(changes)}).ok);
+        }
+        c.apply(EndTilePaintStrokeIntent{});
+        CHECK(c.undoSize() == before + 1);   // exactly one Command, however many cells
+        CHECK(!c.state().tilemapEditor.pendingStroke.has_value());
+    }
+
+    // -- No-op stroke (painting a cell with the tile it already has) produces
+    // an empty normalized delta and no Command --------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Brush, {0, 0}}).ok);
+        {
+            const PendingTileStroke& stroke = *c.state().tilemapEditor.pendingStroke;
+            std::vector<TilemapCellChange> changes = normalizePaintStrokeChanges(stroke.changes);
+            CHECK(c.execute(PaintTilemapCellsCommand{stroke.sceneId, stroke.entityId,
+                                                     std::move(changes)}).ok);
+        }
+        c.apply(EndTilePaintStrokeIntent{});
+
+        const std::size_t before = c.undoSize();
+        CHECK(c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Brush, {0, 0}}).ok);
+        const PendingTileStroke& stroke = *c.state().tilemapEditor.pendingStroke;
+        const std::vector<TilemapCellChange> changes = normalizePaintStrokeChanges(stroke.changes);
+        CHECK(changes.empty());   // already tile-1 there - before == after
+        c.apply(EndTilePaintStrokeIntent{});
+        CHECK(c.undoSize() == before);   // normalization skipped the Command entirely
+    }
+
+    // -- Escape/lost-focus-equivalent cancel: no Command, no dirty -------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        const uint64_t revision = c.document().revision();
+        const std::size_t before = c.undoSize();
+        CHECK(c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Brush, {0, 0}}).ok);
+        CHECK(c.state().tilemapEditor.pendingStroke.has_value());
+        CHECK(c.apply(CancelTilePaintStrokeIntent{}).ok);
+        CHECK(!c.state().tilemapEditor.pendingStroke.has_value());
+        CHECK(c.document().revision() == revision);
+        CHECK(c.undoSize() == before);
+    }
+
+    // -- SelectPaintTileIntent (Picker): zero dirty/revision/history impact ----
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        const uint64_t revision = c.document().revision();
+        const std::size_t before = c.undoSize();
+        CHECK(c.apply(SelectPaintTileIntent{"tile-1"}).ok);
+        CHECK(c.state().tilemapEditor.selectedTileId.has_value());
+        CHECK(*c.state().tilemapEditor.selectedTileId == "tile-1");
+        CHECK(c.document().revision() == revision);
+        CHECK(c.undoSize() == before);
+        CHECK(!c.document().isDirty());
+    }
+
+    // -- PaintTilemapCellsCommand: paints a multi-chunk, negative-coordinate
+    // delta correctly ------------------------------------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);   // chunkSize = 16
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{14, 0}, std::nullopt,
+                                            TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        changes.push_back(TilemapCellChange{{18, 0}, std::nullopt,
+                                            TilemapCellValue{"tile-2", TileTransformFlags::None}});
+        changes.push_back(TilemapCellChange{{-3, -3}, std::nullopt,
+                                            TilemapCellValue{"tile-3", TileTransformFlags::FlipX}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
+        const TilemapComponent& tm = *c.document().findInstanceInScene(kSceneA, kHero)->tilemap;
+        CHECK(tm.chunks.size() == 3);
+        CHECK(readTilemapCell(tm, {14, 0})->tileId == "tile-1");
+        CHECK(readTilemapCell(tm, {18, 0})->tileId == "tile-2");
+        CHECK(readTilemapCell(tm, {-3, -3})->tileId == "tile-3");
+        CHECK(readTilemapCell(tm, {-3, -3})->flags == TileTransformFlags::FlipX);
+    }
+
+    // -- PaintTilemapCellsCommand: Undo restores exactly, Redo reproduces ------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{0, 0}, std::nullopt,
+                                            TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        changes.push_back(TilemapCellChange{{1, 1}, std::nullopt,
+                                            TilemapCellValue{"tile-2", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
+        CHECK(c.undo().ok);
+        const SceneInstanceDef* undone = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(!readTilemapCell(*undone->tilemap, {0, 0}).has_value());
+        CHECK(!readTilemapCell(*undone->tilemap, {1, 1}).has_value());
+        CHECK(undone->tilemap->chunks.empty());
+        CHECK(c.redo().ok);
+        const SceneInstanceDef* redone = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(readTilemapCell(*redone->tilemap, {0, 0})->tileId == "tile-1");
+        CHECK(readTilemapCell(*redone->tilemap, {1, 1})->tileId == "tile-2");
+    }
+
+    // -- PaintTilemapCellsCommand: empty delta, missing entity, missing
+    // component, unknown tile id in `after` all rejected cleanly ---------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        CHECK(!c.execute(PaintTilemapCellsCommand{kSceneA, kHero, {}}).ok);
+        CHECK(!c.execute(PaintTilemapCellsCommand{
+            kSceneA, 9999,
+            {TilemapCellChange{{0, 0}, std::nullopt, TilemapCellValue{"tile-1", TileTransformFlags::None}}}}).ok);
+        CHECK(!c.execute(PaintTilemapCellsCommand{
+            kSceneA, kHero,
+            {TilemapCellChange{{0, 0}, std::nullopt,
+                              TilemapCellValue{"no-such-tile", TileTransformFlags::None}}}}).ok);
+
+        EditorCoordinator noTilemap{makeSpriteDoc()};   // kHero has no Tilemap component
+        CHECK(!noTilemap.execute(PaintTilemapCellsCommand{
+            kSceneA, kHero,
+            {TilemapCellChange{{0, 0}, std::nullopt, TilemapCellValue{"tile-1", TileTransformFlags::None}}}}).ok);
+    }
+
+    // -- PaintTilemapCellsCommand: missing tileset rejected --------------------
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        TilemapComponent tm;
+        tm.tilesetAssetId = "no-such-tileset";
+        doc.scenes.at(kSceneA).instances.front().tilemap = tm;
+        EditorCoordinator c{doc};
+        CHECK(!c.execute(PaintTilemapCellsCommand{
+            kSceneA, kHero,
+            {TilemapCellChange{{0, 0}, std::nullopt, TilemapCellValue{"tile-1", TileTransformFlags::None}}}}).ok);
+    }
+
+    // -- PaintTilemapCellsCommand: duplicate cell in the delta rejected --------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{0, 0}, std::nullopt,
+                                            TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        changes.push_back(TilemapCellChange{{0, 0}, std::nullopt,
+                                            TilemapCellValue{"tile-2", TileTransformFlags::None}});
+        CHECK(!c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
+    }
+
+    // -- PaintTilemapCellsCommand: before-mismatch fails atomically, the
+    // document keeps the value an intervening mutation actually set ----------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        std::vector<TilemapCellChange> first;
+        first.push_back(TilemapCellChange{{0, 0}, std::nullopt,
+                                          TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, first}).ok);
+
+        // A stale delta claiming (0,0) was still empty - as if built before
+        // the paint above landed.
+        std::vector<TilemapCellChange> stale;
+        stale.push_back(TilemapCellChange{{0, 0}, std::nullopt,
+                                          TilemapCellValue{"tile-2", TileTransformFlags::None}});
+        const std::size_t before = c.undoSize();
+        CHECK(!c.execute(PaintTilemapCellsCommand{kSceneA, kHero, stale}).ok);
+        CHECK(c.undoSize() == before);
+        CHECK(readTilemapCell(*c.document().findInstanceInScene(kSceneA, kHero)->tilemap,
+                              {0, 0})->tileId == "tile-1");
+    }
+
+    // -- PaintTilemapCellsCommand: one invalid change among N valid ones
+    // rejects the whole Command - none of the N valid ones land ---------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{0, 0}, std::nullopt,
+                                            TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        changes.push_back(TilemapCellChange{{1, 0}, std::nullopt,
+                                            TilemapCellValue{"tile-2", TileTransformFlags::None}});
+        changes.push_back(TilemapCellChange{{2, 0}, std::nullopt,
+                                            TilemapCellValue{"no-such-tile", TileTransformFlags::None}});
+        CHECK(!c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->tilemap->chunks.empty());
+    }
+
+    // -- Eraser removing a chunk's last tile removes the chunk; Undo recreates
+    // it with its original cell intact -----------------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        sliceTilesOne(c);
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.chunkSize = 1;   // one cell per chunk: simplest possible "last tile in chunk"
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+
+        std::vector<TilemapCellChange> paint;
+        paint.push_back(TilemapCellChange{{5, 5}, std::nullopt,
+                                          TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, paint}).ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->tilemap->chunks.size() == 1);
+
+        std::vector<TilemapCellChange> erase;
+        erase.push_back(TilemapCellChange{{5, 5}, TilemapCellValue{"tile-1", TileTransformFlags::None},
+                                          std::nullopt});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, erase}).ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->tilemap->chunks.empty());
+
+        CHECK(c.undo().ok);
+        const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(inst->tilemap->chunks.size() == 1);
+        CHECK(readTilemapCell(*inst->tilemap, {5, 5})->tileId == "tile-1");
+    }
+
+    // -- Persistence: paint across multiple chunks (including negative
+    // coordinates and a non-None flags value), save, reload, verify identical
+    // chunk content/layout -----------------------------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{14, 0}, std::nullopt,
+                                            TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        changes.push_back(TilemapCellChange{{-3, -3}, std::nullopt,
+                                            TilemapCellValue{"tile-2", TileTransformFlags::FlipX}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
+
+        const std::filesystem::path path = testTempDir() / "tilemap-painted.artcade-project";
+        CHECK(saveProjectToFile(c, path).ok);
+        EditorCoordinator reloaded{ProjectDoc{}};
+        CHECK(loadProjectFromFile(reloaded, path).ok);
+        const SceneInstanceDef* rt = reloaded.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(rt->tilemap.has_value());
+        CHECK(rt->tilemap->chunks.size() == 2);
+        CHECK(readTilemapCell(*rt->tilemap, {14, 0})->tileId == "tile-1");
+        CHECK(readTilemapCell(*rt->tilemap, {-3, -3})->tileId == "tile-2");
+        CHECK(readTilemapCell(*rt->tilemap, {-3, -3})->flags == TileTransformFlags::FlipX);
+    }
+
+    // -- Regression: an unpainted Tilemap still yields an empty-cells snapshot
+    // entry (Slice 5's placeholder fallback is unaffected) ---------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        const SceneFrameSnapshot snap = collectSceneFrameSnapshot(c.document(), kSceneA, INVALID_ENTITY);
+        const auto it = std::find_if(snap.tilemaps.begin(), snap.tilemaps.end(),
+            [](const SceneFrameTilemap& t) { return t.entityId == kHero; });
+        CHECK(it != snap.tilemaps.end());
+        CHECK(it->cells.empty());
+    }
+
+    // -- Regression: a freshly painted cell is pickable via pickEntityAt -------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {0.f, 0.f}}).ok);
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{0, 0}, std::nullopt,
+                                            TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
+        const SceneFrameSnapshot snap = collectSceneFrameSnapshot(c.document(), kSceneA, INVALID_ENTITY);
+        CHECK(pickEntityAt(snap, Vec2{10.f, 10.f}) == kHero);   // inside the painted 32x32 cell at origin
     }
 }
 
@@ -5965,6 +6428,7 @@ int main() {
     runSpriteAnimationTests();
     runTilesetTests();
     runTilemapComponentTests();
+    runTilemapPaintingTests();
 
     std::cout << "editor-core-test: " << g_passed << " passed, "
               << g_failed << " failed\n";

@@ -6,6 +6,7 @@
 #include "editor-native/commands/linear_mover_commands.h"
 #include "editor-native/commands/platformer_controller_commands.h"
 #include "editor-native/commands/sprite_commands.h"
+#include "editor-native/commands/tilemap_commands.h"
 #include "editor-native/commands/top_down_controller_commands.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 
@@ -258,6 +259,28 @@ EditorOperationResult setPlatformerGravity(EditorCoordinator& coordinator, float
     }
     return coordinator.execute(
         SetPlatformerValueCommand{objectTypeId, PlatformerField::Gravity, value});
+}
+
+EditorOperationResult addTilemapComponent(EditorCoordinator& coordinator) {
+    SceneId sceneId; EntityId id;
+    if (!selectedTarget(coordinator, sceneId, id)) {
+        return fail(coordinator, "No selected entity");
+    }
+    const auto& tilesets = coordinator.document().data().tilesets;
+    if (tilesets.empty()) {
+        return fail(coordinator, "No tileset in the project - create one first");
+    }
+    TilemapComponent component;
+    component.tilesetAssetId = tilesets.front().assetId;
+    return coordinator.execute(AddTilemapComponentCommand{sceneId, id, component});
+}
+
+EditorOperationResult removeTilemapComponent(EditorCoordinator& coordinator) {
+    SceneId sceneId; EntityId id;
+    if (!selectedTarget(coordinator, sceneId, id)) {
+        return fail(coordinator, "No selected entity");
+    }
+    return coordinator.execute(RemoveTilemapComponentCommand{sceneId, id});
 }
 
 } // namespace ArtCade::EditorNative

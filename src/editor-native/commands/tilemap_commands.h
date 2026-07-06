@@ -2,8 +2,10 @@
 
 #include "core/types.h"
 #include "editor-native/commands/editor_command.h"
+#include "editor-native/model/tilemap_cell_access.h"
 
 #include <string>
+#include <vector>
 
 namespace ArtCade::EditorNative {
 
@@ -71,6 +73,25 @@ private:
     Vec2 next_{};
     Vec2 previous_{};
     bool captured_ = false;
+};
+
+// The ONLY place a stroke ever touches ProjectDocument: commits every net
+// cell change from one Brush/Eraser stroke as a single atomic, undoable
+// mutation. Brush and Eraser share this one Command - their only difference
+// is whether `after` is populated or nullopt. There is no parallel "erase"
+// mutation path.
+class PaintTilemapCellsCommand final : public EditorCommand {
+public:
+    PaintTilemapCellsCommand(SceneId sceneId, EntityId id, std::vector<TilemapCellChange> changes);
+
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "PaintTilemapCells"; }
+
+private:
+    SceneId sceneId_;
+    EntityId id_ = 0;
+    std::vector<TilemapCellChange> changes_;
 };
 
 } // namespace ArtCade::EditorNative

@@ -1,5 +1,7 @@
 #include "editor-native/app/editor_coordinator.h"
 
+#include "editor-native/model/tilemap_stroke_math.h"
+
 #include <cassert>
 #include <algorithm>
 #include <cmath>
@@ -243,6 +245,17 @@ EditorInvalidation EditorCoordinator::reconcileWorkspace() {
         extra |= EditorInvalidation::Viewport | EditorInvalidation::Toolbar;
     }
 
+    if (state_.tilemapEditor.pendingStroke) {
+        const PendingTileStroke& stroke = *state_.tilemapEditor.pendingStroke;
+        const SceneInstanceDef* inst = document_.findInstanceInScene(stroke.sceneId, stroke.entityId);
+        if (!inst || !inst->tilemap.has_value()) {
+            // The entity being painted (or its component) vanished mid-stroke -
+            // discard the stroke rather than leave it pointing at nothing.
+            state_.tilemapEditor = TilemapEditorState{};
+            extra |= EditorInvalidation::Viewport;
+        }
+    }
+
     return extra;
 }
 
@@ -259,6 +272,7 @@ EditorOperationResult EditorCoordinator::replaceProject(ProjectDocument replacem
     state_.selection.clear();
     state_.sceneViews.clear();
     state_.spriteAnimationEditor = SpriteAnimationEditorState{};
+    state_.tilemapEditor = TilemapEditorState{};
     if (!state_.activeSceneId.empty()) {
         state_.sceneViews.try_emplace(state_.activeSceneId);
     }
@@ -807,6 +821,94 @@ EditorOperationResult EditorCoordinator::apply(const ToggleLayerEditorVisibility
 EditorOperationResult EditorCoordinator::apply(const SetActiveToolIntent& intent) {
     state_.activeTool = intent.tool;
     return EditorOperationResult::success(EditorInvalidation::Toolbar);
+}
+
+EditorOperationResult EditorCoordinator::apply(const BeginTilePaintStrokeIntent& intent) {
+    if (isPlaying()) {
+        return finishIntent(EditorOperationResult::failure("Cannot paint while Play is running"));
+    }
+    const SceneInstanceDef* inst = document_.findInstanceInScene(intent.sceneId, intent.entityId);
+    if (!inst || !inst->tilemap.has_value()) {
+        return finishIntent(EditorOperationResult::failure("Selected instance has no Tilemap component"));
+    }
+    if (document_.isLayerLocked(intent.sceneId, inst->layerId)) {
+        return finishIntent(EditorOperationResult::failure("Layer is locked"));
+    }
+    if (!document_.findTilesetAsset(inst->tilemap->tilesetAssetId)) {
+        return finishIntent(EditorOperationResult::failure("Tilemap references a missing tileset"));
+    }
+    if (intent.tool == EditorTool::Brush && !state_.tilemapEditor.selectedTileId) {
+        return finishIntent(EditorOperationResult::failure("No tile selected"));
+    }
+
+    PendingTileStroke stroke;
+    stroke.sceneId = intent.sceneId;
+    stroke.entityId = intent.entityId;
+    stroke.tool = intent.tool;
+    stroke.lastCell = intent.cell;
+    const TilemapCell before = readTilemapCell(*inst->tilemap, intent.cell);
+    const TilemapCell after = (intent.tool == EditorTool::Eraser)
+        ? std::nullopt
+        : TilemapCell{TilemapCellValue{*state_.tilemapEditor.selectedTileId, TileTransformFlags::None}};
+    stroke.changes[packTilemapCellCoord(intent.cell)] = TilemapCellChange{intent.cell, before, after};
+
+    state_.tilemapEditor.pendingStroke = std::move(stroke);
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(const UpdateTilePaintStrokeIntent& intent) {
+    if (!state_.tilemapEditor.pendingStroke) {
+        return finishIntent(EditorOperationResult::failure("No paint stroke in progress"));
+    }
+    PendingTileStroke& stroke = *state_.tilemapEditor.pendingStroke;
+    const SceneInstanceDef* inst = document_.findInstanceInScene(stroke.sceneId, stroke.entityId);
+    if (!inst || !inst->tilemap.has_value()) {
+        state_.tilemapEditor.pendingStroke.reset();
+        return finishIntent(EditorOperationResult::failure("Tilemap component no longer exists"));
+    }
+    const std::vector<TilemapCellCoord> path = stroke.lastCell
+        ? rasterizeCellLine(*stroke.lastCell, intent.cell)
+        : std::vector<TilemapCellCoord>{intent.cell};
+    const TilemapCell after = (stroke.tool == EditorTool::Eraser)
+        ? std::nullopt
+        : TilemapCell{TilemapCellValue{*state_.tilemapEditor.selectedTileId, TileTransformFlags::None}};
+    for (const TilemapCellCoord& cell : path) {
+        const std::int64_t key = packTilemapCellCoord(cell);
+        auto it = stroke.changes.find(key);
+        if (it == stroke.changes.end()) {
+            stroke.changes[key] = TilemapCellChange{cell, readTilemapCell(*inst->tilemap, cell), after};
+        } else {
+            it->second.after = after;   // revisited cell: before stays as first captured
+        }
+    }
+    stroke.lastCell = intent.cell;
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(const EndTilePaintStrokeIntent&) {
+    state_.tilemapEditor.pendingStroke.reset();
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(const CancelTilePaintStrokeIntent&) {
+    state_.tilemapEditor.pendingStroke.reset();
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SelectPaintTileIntent& intent) {
+    state_.tilemapEditor.selectedTileId = intent.tileId;
+    accumulate(EditorInvalidation::Inspector);
+    return EditorOperationResult::success(EditorInvalidation::Inspector);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetHoveredTilemapCellIntent& intent) {
+    state_.tilemapEditor.hoveredCell = intent.cell;
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
 }
 
 EditorOperationResult EditorCoordinator::apply(const ToggleConsoleIntent&) {
