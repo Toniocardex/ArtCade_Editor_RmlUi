@@ -26,8 +26,17 @@ TilesetSliceResult computeTilesetSlicing(int imageWidth, int imageHeight,
 // The sliced tiles themselves, in column-major-per-row order (left to right,
 // top to bottom), with sequential ids ("tile-1", "tile-2", ...). Stable-id
 // preservation across a changed TilesetSlicing is not this function's job -
-// that is an interactive re-slice concern for a later slice's live canvas.
+// see reconcileTiles below.
 std::vector<TileDefinition> tilesForSlicing(int imageWidth, int imageHeight,
                                             const TilesetSlicing& slicing);
+
+// Reconciles a fresh slice (from tilesForSlicing) against the tiles a
+// TilesetAsset already had: a new tile whose rect exactly matches an old
+// tile's rect keeps that old tile's id (so metadata a later slice attaches
+// to a tile survives a reslice); a genuinely new rect gets a fresh id that
+// doesn't collide with any id being kept; an old tile with no matching rect
+// simply doesn't appear in the result (implicitly removed).
+std::vector<TileDefinition> reconcileTiles(const std::vector<TileDefinition>& oldTiles,
+                                           const std::vector<TileDefinition>& newTiles);
 
 } // namespace ArtCade::EditorNative

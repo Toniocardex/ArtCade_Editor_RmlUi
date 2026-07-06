@@ -26,6 +26,11 @@ constexpr float kZoomMin = 0.25f;
 constexpr float kZoomMax = 16.0f;
 } // namespace SpriteSheetViewLimits
 
+namespace TilesetEditorViewLimits {
+constexpr float kZoomMin = 0.25f;
+constexpr float kZoomMax = 16.0f;
+} // namespace TilesetEditorViewLimits
+
 /** Per-scene editor camera. Stored by SceneId, not the gameplay camera. */
 struct EditorSceneViewState {
     Vec2  pan{};
@@ -61,6 +66,18 @@ struct SpriteAnimationEditorState {
     bool previewPlaying = false;
     float previewElapsed = 0.0f;
     std::size_t previewFrameIndex = 0;
+};
+
+// Workspace state for the Tileset Editor. pendingSlicing is the live-edited
+// config the canvas previews - seeded from the asset's committed slicing on
+// open, discarded on close/cancel, and never written to ProjectDocument until
+// Apply executes ChangeTilesetSlicingCommand.
+struct TilesetEditorState {
+    std::optional<AssetId> openAssetId;
+    TilesetSlicing pendingSlicing;
+    float zoom = 1.0f;
+    Vec2 pan{};
+    std::optional<std::string> selectedTileId;
 };
 
 // The sheet the Sprite Animation Editor shows for an asset: the selected clip's
@@ -101,6 +118,7 @@ struct EditorState {
     EditorTool activeTool = EditorTool::Select;
     std::unordered_map<SceneId, EditorSceneViewState> sceneViews;
     SpriteAnimationEditorState spriteAnimationEditor;
+    TilesetEditorState tilesetEditor;
 };
 
 inline float clampZoom(float v) {
@@ -109,6 +127,10 @@ inline float clampZoom(float v) {
 
 inline float clampSheetZoom(float v) {
     return std::clamp(v, SpriteSheetViewLimits::kZoomMin, SpriteSheetViewLimits::kZoomMax);
+}
+
+inline float clampTilesetEditorZoom(float v) {
+    return std::clamp(v, TilesetEditorViewLimits::kZoomMin, TilesetEditorViewLimits::kZoomMax);
 }
 
 } // namespace ArtCade::EditorNative

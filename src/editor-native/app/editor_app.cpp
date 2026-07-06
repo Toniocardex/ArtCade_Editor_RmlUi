@@ -11,13 +11,17 @@
 #include "editor-native/app/rml_host.h"
 #include "editor-native/app/sprite_animation_canvas_input.h"
 #include "editor-native/app/sprite_animation_preview_renderer.h"
+#include "editor-native/app/tileset_editor_canvas_input.h"
+#include "editor-native/app/tileset_editor_renderer.h"
 #include "editor-native/app/unsaved_guard.h"
 #include "editor-native/commands/editor_intent.h"
 #include "editor-native/commands/entity_commands.h"
+#include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
 #include "editor-native/model/play_session.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_animation_slicing.h"
+#include "editor-native/model/tileset_slicing.h"
 #include "editor-native/ui/editor_ui.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view.h"
@@ -103,6 +107,10 @@ ViewportRect resolveSpriteAnimationCanvasContentRect(Rml::ElementDocument* docum
 
 ViewportRect resolveSpriteAnimationPreviewContentRect(Rml::ElementDocument* document) {
     return elementContentRectFromDocument(document, "animation-preview-canvas");
+}
+
+ViewportRect resolveTilesetEditorCanvasContentRect(Rml::ElementDocument* document) {
+    return elementContentRectFromDocument(document, "tileset-canvas");
 }
 
 void syncAnimationDocumentViewport(Rml::ElementDocument* document) {
@@ -500,7 +508,18 @@ int EditorApp::run(int argc, char** argv) {
     syncAnimationDocumentViewport(animationDocument);
     animationDocument->Hide();
 
-    EditorUi ui(coordinator, host.document(), animationDocument);
+    Rml::ElementDocument* tilesetDocument =
+        host.loadDocument("ui/tileset/tileset_editor.rml");
+    if (!tilesetDocument) {
+        TraceLog(LOG_ERROR, "[editor] failed to load tileset editor resources");
+        host.shutdown();
+        CloseWindow();
+        return 1;
+    }
+    syncAnimationDocumentViewport(tilesetDocument);   // same absolute full-window sync, generic
+    tilesetDocument->Hide();
+
+    EditorUi ui(coordinator, host.document(), animationDocument, tilesetDocument);
     ui.bind();
     coordinator.logInfo("ArtCade Studio ready.");
     SceneView sceneView;
@@ -751,6 +770,51 @@ int EditorApp::run(int argc, char** argv) {
         }
     };
     ui.setAnimationSliceHandler(sliceAnimationHandler);
+    const std::function<void()> applyTilesetSlicingHandler = [&]() {
+        const TilesetEditorState& state = coordinator.state().tilesetEditor;
+        if (!state.openAssetId) {
+            coordinator.logWarning("Open a tileset before applying slicing");
+            return;
+        }
+        const TilesetAsset* asset = coordinator.document().findTilesetAsset(*state.openAssetId);
+        if (!asset) {
+            coordinator.logError("Cannot slice: tileset asset is missing");
+            return;
+        }
+
+        const std::filesystem::path assetRoot =
+            currentProjectPath.empty() ? resourceRoot : currentProjectPath.parent_path();
+        SceneFrameSprite requestSprite;
+        requestSprite.assetId = asset->imageAssetId;
+        requestSprite.visible = true;
+        const auto requests = textureRequestsFor(coordinator.document().data(), assetRoot);
+        textureCache.prepare({requestSprite}, requests);
+        const TextureResource* resource = textureCache.find(asset->imageAssetId);
+        if (!resource || !resource->loaded) {
+            coordinator.logError("Cannot slice: source image is not loaded");
+            return;
+        }
+
+        // Pixel-size-first: the tiles come straight from the pending config and
+        // the sheet's real dimensions - no frame-count derivation needed.
+        const std::vector<TileDefinition> freshTiles = tilesForSlicing(
+            resource->texture.width, resource->texture.height, state.pendingSlicing);
+        if (freshTiles.empty()) {
+            coordinator.logError("Cannot slice: tile size does not fit the sheet");
+            return;
+        }
+        // Reconcile against the asset's current tiles so a tile whose rect didn't
+        // move keeps its stable id (metadata a later slice attaches survives).
+        const std::vector<TileDefinition> reconciled = reconcileTiles(asset->tiles, freshTiles);
+
+        const EditorOperationResult result = coordinator.execute(
+            ChangeTilesetSlicingCommand{*state.openAssetId, state.pendingSlicing, reconciled});
+        if (result.ok) {
+            coordinator.logInfo("Sliced " + asset->name + " into "
+                                + std::to_string(reconciled.size()) + " tiles");
+        }
+    };
+    ui.setTilesetApplySlicingHandler(applyTilesetSlicingHandler);
     const auto viewportDefaultSpawn = [&]() -> std::optional<Vec2> {
         const SceneId& active = coordinator.state().activeSceneId;
         const SceneDef* scene = coordinator.document().findScene(active);
@@ -909,10 +973,15 @@ int EditorApp::run(int argc, char** argv) {
             static_cast<int>(static_cast<float>(GetMouseY()) * uiPixelScaleY()));
         const bool animationEditorOpen =
             coordinator.state().spriteAnimationEditor.openAssetId.has_value();
+        const bool tilesetEditorOpen =
+            coordinator.state().tilesetEditor.openAssetId.has_value();
         const ViewportRect animationInputRect = animationEditorOpen
             ? resolveSpriteAnimationCanvasContentRect(animationDocument)
             : ViewportRect{};
-        if (!animationEditorOpen) {
+        const ViewportRect tilesetInputRect = tilesetEditorOpen
+            ? resolveTilesetEditorCanvasContentRect(tilesetDocument)
+            : ViewportRect{};
+        if (!animationEditorOpen && !tilesetEditorOpen) {
             routeViewportInput(coordinator, rect, rml, contextMenuHit);
         }
         if (coordinator.isPlaying()) {
@@ -930,7 +999,7 @@ int EditorApp::run(int argc, char** argv) {
                                  || IsKeyPressed(KEY_UP);
             }
             coordinator.updateRuntime(input, dt);         // input-driven (TopDownController)
-        } else if (!animationEditorOpen) {
+        } else if (!animationEditorOpen && !tilesetEditorOpen) {
             // First time this scene is active in Edit mode: frame it once. The
             // flag lives in the scene's view state, so it shares the sceneViews
             // lifecycle (cleared/pruned with the scene). Mark only after a real
@@ -948,7 +1017,7 @@ int EditorApp::run(int argc, char** argv) {
         // Presentation only; the UI writes the label just when the text changes.
         {
             std::optional<Vec2> pointerWorld;
-            if (!coordinator.isPlaying() && !animationEditorOpen
+            if (!coordinator.isPlaying() && !animationEditorOpen && !tilesetEditorOpen
                 && rect.contains(GetMouseX(), GetMouseY())) {
                 const SceneId& active = coordinator.state().activeSceneId;
                 if (const SceneDef* scene = coordinator.document().findScene(active)) {
@@ -974,9 +1043,13 @@ int EditorApp::run(int argc, char** argv) {
                 coordinator, animationInputRect, rml, textureCache, textureRequests);
             coordinator.advanceSpriteAnimationPreview(GetFrameTime());
         }
+        if (!coordinator.isPlaying() && tilesetEditorOpen) {
+            routeTilesetEditorCanvasInput(
+                coordinator, tilesetInputRect, rml, textureCache, textureRequests);
+        }
 
         ui.processFrame();
-        if (!coordinator.isPlaying() && !animationEditorOpen) {
+        if (!coordinator.isPlaying() && !animationEditorOpen && !tilesetEditorOpen) {
             if (const std::optional<Vec2> preview = dragPreviewPosition(coordinator, rect, drag)) {
                 ui.showEntityPositionPreview(drag.entity, *preview);
             }
@@ -987,6 +1060,9 @@ int EditorApp::run(int argc, char** argv) {
             : ViewportRect{};
         const ViewportRect animationPreviewRect = animationEditorOpen
             ? resolveSpriteAnimationPreviewContentRect(animationDocument)
+            : ViewportRect{};
+        const ViewportRect tilesetRenderRect = tilesetEditorOpen
+            ? resolveTilesetEditorCanvasContentRect(tilesetDocument)
             : ViewportRect{};
         // Per-frame timeline thumbnail slots: RmlUi lays out one thumb sub-element
         // per chip; raylib paints each frame's texture region into it (drawn after
@@ -1043,8 +1119,11 @@ int EditorApp::run(int argc, char** argv) {
         EditorSceneViewState renderView = coordinator.sceneView(active);
         if (playSession) renderView.gridVisible = false;
         const SpriteAnimationAssetDef* animationAsset = nullptr;
+        const TilesetAsset* tilesetAsset = nullptr;
         if (const auto& open = coordinator.state().spriteAnimationEditor.openAssetId) {
             animationAsset = coordinator.document().findSpriteAnimationAsset(*open);
+        } else if (const auto& openTileset = coordinator.state().tilesetEditor.openAssetId) {
+            tilesetAsset = coordinator.document().findTilesetAsset(*openTileset);
         } else {
             textureCache.prepare(snapshot.sprites, textureRequests);
             sceneView.render(snapshot, renderView, rect, textureCache);
@@ -1062,6 +1141,11 @@ int EditorApp::run(int argc, char** argv) {
                     *animationAsset, *timelineClip, timelineThumbRects,
                     textureCache, textureRequests);
             }
+        }
+        if (tilesetAsset) {
+            renderTilesetEditorCanvas(
+                *tilesetAsset, coordinator.state().tilesetEditor,
+                tilesetRenderRect, textureCache, textureRequests);
         }
         EndDrawing();
 

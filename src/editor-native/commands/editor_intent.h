@@ -96,6 +96,37 @@ struct StepAnimationPreviewIntent {
     int delta = 1;
 };
 
+struct OpenTilesetEditorIntent {
+    AssetId assetId;
+};
+
+struct CloseTilesetEditorIntent {};
+
+// Pixel-size-first slicing config, live-edited in the workspace and previewed
+// on the canvas; never touches ProjectDocument until Apply executes
+// ChangeTilesetSlicingCommand (unlike the Sprite Animation Editor's slicing,
+// which commits per-field - see spec §7.3 requiring Cancel to leave no
+// dirty/revision behind).
+struct SetPendingTilesetSlicingIntent {
+    TilesetSlicing slicing;
+};
+
+// Tileset canvas navigation (workspace). Mirrors SetSpriteSheetZoomIntent/
+// PanSpriteSheetIntent exactly.
+struct SetTilesetEditorZoomIntent {
+    float zoom = 1.0f;
+};
+
+struct PanTilesetEditorIntent {
+    Vec2 delta;
+};
+
+// Hover/click highlight only (workspace) - metadata display on the selected
+// tile is a later slice's job.
+struct SelectTilesetTileIntent {
+    std::string tileId;
+};
+
 struct SetHierarchyFilterIntent {
     std::string filter;
 };

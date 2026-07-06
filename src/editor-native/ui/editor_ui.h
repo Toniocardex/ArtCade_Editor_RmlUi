@@ -37,7 +37,8 @@ std::string escapeRml(const std::string& text);
 class EditorUi {
 public:
     EditorUi(EditorCoordinator& coordinator, Rml::ElementDocument* document,
-             Rml::ElementDocument* animationDocument);
+             Rml::ElementDocument* animationDocument,
+             Rml::ElementDocument* tilesetDocument);
     ~EditorUi();
 
     void bind();           // attach the listener + do the initial full refresh
@@ -70,6 +71,10 @@ public:
     using WorkspaceRequest = std::function<void()>;
     void setFitViewHandler(WorkspaceRequest fitView);
     void setAnimationSliceHandler(WorkspaceRequest sliceAnimation);
+    // Apply the pending tileset slicing. Needs the source image's real pixel
+    // dimensions (TextureCache), which only the application knows; computes
+    // tilesForSlicing + reconcileTiles and executes ChangeTilesetSlicingCommand.
+    void setTilesetApplySlicingHandler(WorkspaceRequest applyTilesetSlicing);
 
     using EntityPlacementRequest = std::function<void()>;
     void setEntityPlacementHandlers(EntityPlacementRequest addEntity,
@@ -128,6 +133,8 @@ private:
                              const std::string& value);
     bool handleSpriteAnimationAction(const std::string& action, const std::string& arg,
                                      const std::string& value);
+    bool handleTilesetEditorAction(const std::string& action, const std::string& arg,
+                                   const std::string& value);
     bool handleHierarchyAction(const std::string& action, const std::string& arg,
                                const std::string& value, EntityId selected);
     bool handleInspectorAction(const std::string& action, const std::string& arg,
@@ -135,6 +142,7 @@ private:
 
     void applyInvalidations(EditorInvalidation flags);
     void refreshSpriteAnimationEditor();
+    void refreshTilesetEditor();
     // Per-frame, class-only sync of the preview transport and timeline playhead.
     // The playhead advances without invalidation, and a markup rebuild would
     // steal focus from the Name/FPS inputs, so this never touches innerRML.
@@ -156,6 +164,7 @@ private:
     EditorCoordinator&                  coordinator_;
     Rml::ElementDocument*               document_;
     Rml::ElementDocument*               animationDocument_;
+    Rml::ElementDocument*               tilesetDocument_;
     HierarchyPanel                      hierarchy_;
     InspectorPanel                      inspector_;
     ConsolePanel                        console_;
@@ -173,6 +182,7 @@ private:
     EntityPlacementRequest              createInstanceHereRequest_;
     WorkspaceRequest                    fitViewRequest_;
     WorkspaceRequest                    sliceAnimationRequest_;
+    WorkspaceRequest                    applyTilesetSlicingRequest_;
     bool                                viewportContextMenuVisible_ = false;
     bool                                hierarchyContextMenuVisible_ = false;
     // Deferred hierarchy menu request (applied on the next processFrame).
@@ -185,6 +195,7 @@ private:
     std::optional<PendingHierarchyMenu> pendingHierarchyMenu_;
     std::string                         pointerReadout_;   // last coords text shown
     std::string                         spriteAnimationEditorMarkup_;
+    std::string                         tilesetEditorMarkup_;
     // Chips currently in the timeline; bounds the playhead class sweep.
     std::size_t                         spriteAnimationTimelineCount_ = 0;
 };

@@ -11,6 +11,7 @@
 #include "editor-native/commands/image_asset_commands.h"
 #include "editor-native/commands/audio_asset_commands.h"
 #include "editor-native/commands/font_asset_commands.h"
+#include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/project_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
 
@@ -148,6 +149,16 @@ std::string uniqueClipName(const SpriteAnimationAssetDef& asset) {
     }
 }
 
+std::string uniqueTilesetAssetId(const ProjectDocument& document, const AssetId& imageId) {
+    std::string base = imageId.empty() ? "tileset" : imageId;
+    std::string id = base + ".tileset";
+    int n = 2;
+    while (document.hasTilesetAsset(id)) {
+        id = base + "-" + std::to_string(n++) + ".tileset";
+    }
+    return id;
+}
+
 std::vector<std::string> splitPipe(const std::string& value) {
     std::vector<std::string> parts;
     std::size_t start = 0;
@@ -251,10 +262,12 @@ private:
 
 // ----------------------------------------------------------------------------
 EditorUi::EditorUi(EditorCoordinator& coordinator, Rml::ElementDocument* document,
-                   Rml::ElementDocument* animationDocument)
+                   Rml::ElementDocument* animationDocument,
+                   Rml::ElementDocument* tilesetDocument)
     : coordinator_(coordinator),
       document_(document),
-      animationDocument_(animationDocument) {}
+      animationDocument_(animationDocument),
+      tilesetDocument_(tilesetDocument) {}
 
 EditorUi::~EditorUi() = default;
 
@@ -302,8 +315,10 @@ void EditorUi::applyInvalidations(EditorInvalidation flags) {
     if (has(flags, EditorInvalidation::Assets) || has(flags, EditorInvalidation::Project))
         assets_.refresh(document_, coordinator_);
     if (has(flags, EditorInvalidation::Viewport) || has(flags, EditorInvalidation::Assets)
-        || has(flags, EditorInvalidation::Project))
+        || has(flags, EditorInvalidation::Project)) {
         refreshSpriteAnimationEditor();
+        refreshTilesetEditor();
+    }
     if (has(flags, EditorInvalidation::Toolbar))
         refreshToolbar();
     if (has(flags, EditorInvalidation::Viewport))
@@ -549,6 +564,68 @@ void EditorUi::refreshSpriteAnimationEditor() {
     spriteAnimationTimelineCount_ = displayedFrameCount;
 }
 
+void EditorUi::refreshTilesetEditor() {
+    if (!tilesetDocument_) return;
+    Rml::Element* panel = tilesetDocument_->GetElementById("tileset-editor");
+    if (!panel) return;
+    const TilesetEditorState& state = coordinator_.state().tilesetEditor;
+    const TilesetAsset* asset =
+        state.openAssetId ? coordinator_.document().findTilesetAsset(*state.openAssetId) : nullptr;
+    if (!asset) {
+        tilesetDocument_->Hide();
+        if (!tilesetEditorMarkup_.empty()) {
+            tilesetEditorMarkup_.clear();
+            panel->SetInnerRML("");
+        }
+        return;
+    }
+
+    tilesetDocument_->Show();
+    tilesetDocument_->PullToFront();
+    const TilesetSlicing& s = state.pendingSlicing;
+    const auto sliceField = [](const char* label, const char* action, int value) {
+        return std::string("<div class=\"tileset-slice-row\"><span class=\"prop-label\">") + label
+             + "</span><input type=\"text\" class=\"prop-input\" data-action=\"" + action
+             + "\" value=\"" + std::to_string(value) + "\"/></div>";
+    };
+    std::string html;
+    html += "<div class=\"tileset-editor-shell\">";
+    html += "<div class=\"tileset-editor-title\">"
+            "<span class=\"tileset-editor-eyebrow\">Tileset Editor</span>"
+            "<input type=\"text\" class=\"tileset-editor-name\" data-action=\"commit-tileset-name\""
+            " data-arg=\"" + escapeRml(asset->assetId) + "\" value=\"" + escapeRml(asset->name) + "\"/>"
+            "<button class=\"panel-btn\" data-action=\"close-tileset-editor\">Close</button></div>";
+    html += "<div class=\"tileset-editor-main\">";
+
+    html += "<div class=\"tileset-canvas-col\"><div class=\"tileset-panel-title\">Source Image</div>"
+            "<div id=\"tileset-canvas\"></div>"
+            "<div class=\"tileset-canvas-footer\">Wheel to zoom"
+            "&nbsp;&nbsp;&#183;&nbsp;&nbsp;Middle mouse or Space + drag to pan"
+            "&nbsp;&nbsp;&#183;&nbsp;&nbsp;Click a tile to select it</div></div>";
+
+    html += "<div class=\"tileset-settings\"><div class=\"tileset-panel-title\">Slicing</div>";
+    html += sliceField("Tile Width", "commit-tileset-tile-width", s.tileWidth);
+    html += sliceField("Tile Height", "commit-tileset-tile-height", s.tileHeight);
+    html += sliceField("Margin X", "commit-tileset-margin-x", s.marginX);
+    html += sliceField("Margin Y", "commit-tileset-margin-y", s.marginY);
+    html += sliceField("Spacing X", "commit-tileset-spacing-x", s.spacingX);
+    html += sliceField("Spacing Y", "commit-tileset-spacing-y", s.spacingY);
+    html += "<div class=\"tileset-settings-actions\">"
+            "<button class=\"panel-btn primary\" data-action=\"apply-tileset-slicing\""
+            " title=\"Commit this slicing to the tileset\">Apply</button>"
+            "<button class=\"panel-btn\" data-action=\"close-tileset-editor\""
+            " title=\"Discard changes\">Cancel</button></div>";
+    html += "<span class=\"tileset-settings-diagnostic\">Source: " + escapeRml(asset->imageAssetId)
+          + "<br/>" + std::to_string(asset->tiles.size()) + " tile(s) committed</span>";
+    html += "</div>";      // .tileset-settings
+    html += "</div></div>"; // .tileset-editor-main, .tileset-editor-shell
+
+    if (html != tilesetEditorMarkup_) {
+        tilesetEditorMarkup_ = html;
+        panel->SetInnerRML(html);
+    }
+}
+
 void EditorUi::updateSpriteAnimationPlayhead() {
     if (!animationDocument_) return;
     const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
@@ -608,6 +685,10 @@ void EditorUi::setFitViewHandler(WorkspaceRequest fitView) {
 
 void EditorUi::setAnimationSliceHandler(WorkspaceRequest sliceAnimation) {
     sliceAnimationRequest_ = std::move(sliceAnimation);
+}
+
+void EditorUi::setTilesetApplySlicingHandler(WorkspaceRequest applyTilesetSlicing) {
+    applyTilesetSlicingRequest_ = std::move(applyTilesetSlicing);
 }
 
 void EditorUi::setEntityPlacementHandlers(EntityPlacementRequest addEntity,
@@ -854,6 +935,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     if (handleAssetsAction(action, arg, value)) return;
     if (handleToolbarAction(action, arg, value)) return;
     if (handleSpriteAnimationAction(action, arg, value)) return;
+    if (handleTilesetEditorAction(action, arg, value)) return;
     if (handleHierarchyAction(action, arg, value, selected)) return;
     if (handleInspectorAction(action, arg, value, selected)) return;
 }
@@ -1258,6 +1340,56 @@ bool EditorUi::handleSpriteAnimationAction(const std::string& action, const std:
     } else if (action == "remove-animation-clip") {
         const std::vector<std::string> parts = splitPipe(arg);
         if (parts.size() == 2) coordinator_.execute(RemoveAnimationClipCommand{parts[0], parts[1]});
+    } else {
+        return false;
+    }
+    return true;
+}
+
+bool EditorUi::handleTilesetEditorAction(const std::string& action, const std::string& arg,
+                                         const std::string& value) {
+    if (action == "create-tileset-from-image") {
+        if (!coordinator_.isPlaying() && coordinator_.document().hasImageAsset(arg)) {
+            const std::string id = uniqueTilesetAssetId(coordinator_.document(), arg);
+            const TilesetSlicing defaultSlicing;   // 32x32, no margin/spacing
+            if (coordinator_.execute(
+                    AddTilesetAssetCommand{id, id, arg, defaultSlicing}).ok) {
+                coordinator_.apply(OpenTilesetEditorIntent{id});
+            }
+        }
+    } else if (action == "open-tileset-editor") {
+        if (!coordinator_.isPlaying()) coordinator_.apply(OpenTilesetEditorIntent{arg});
+    } else if (action == "remove-tileset") {
+        if (!arg.empty()) coordinator_.execute(RemoveTilesetAssetCommand{arg});
+    } else if (action == "close-tileset-editor") {
+        // Also serves as Cancel: nothing was ever committed to the document
+        // while the editor was open, so discarding the pending state IS the
+        // cancel - one action string for both, per the single-entry-point
+        // paletto (mirrors close-sprite-animation's own single close path).
+        coordinator_.apply(CloseTilesetEditorIntent{});
+    } else if (action == "commit-tileset-name") {
+        if (!arg.empty() && !value.empty()) {
+            coordinator_.execute(RenameTilesetCommand{arg, value});
+        }
+    } else if (action == "commit-tileset-tile-width" || action == "commit-tileset-tile-height"
+               || action == "commit-tileset-margin-x" || action == "commit-tileset-margin-y"
+               || action == "commit-tileset-spacing-x" || action == "commit-tileset-spacing-y") {
+        const std::optional<float> parsed = parseNumberField(value);
+        if (!parsed.has_value()) {
+            coordinator_.logError("Tileset slicing value is not a number");
+        } else {
+            TilesetSlicing slicing = coordinator_.state().tilesetEditor.pendingSlicing;
+            const int rounded = static_cast<int>(std::round(*parsed));
+            if (action == "commit-tileset-tile-width") slicing.tileWidth = rounded;
+            else if (action == "commit-tileset-tile-height") slicing.tileHeight = rounded;
+            else if (action == "commit-tileset-margin-x") slicing.marginX = rounded;
+            else if (action == "commit-tileset-margin-y") slicing.marginY = rounded;
+            else if (action == "commit-tileset-spacing-x") slicing.spacingX = rounded;
+            else slicing.spacingY = rounded;
+            coordinator_.apply(SetPendingTilesetSlicingIntent{slicing});
+        }
+    } else if (action == "apply-tileset-slicing") {
+        if (applyTilesetSlicingRequest_) applyTilesetSlicingRequest_();
     } else {
         return false;
     }

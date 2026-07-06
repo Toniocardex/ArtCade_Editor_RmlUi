@@ -78,7 +78,8 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
 
     // Empty catalog: one guidance block instead of four "None" rows (audit 4.6).
     const bool anyAsset = !doc.imageAssets.empty() || !doc.spriteAnimationAssets.empty()
-                       || !doc.audioAssets.empty() || !doc.fontAssets.empty();
+                       || !doc.audioAssets.empty() || !doc.fontAssets.empty()
+                       || !doc.tilesets.empty();
     if (!anyAsset) {
         html += "<div class=\"assets-empty\">No assets yet.<br/>"
                 "Import images, audio and fonts to use them in your game.</div>";
@@ -96,6 +97,7 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
                 + "\" data-action=\"set-sprite-asset\" data-arg=\"" + id
                 + "\">Use</button>"
                 + smallButton("create-sprite-animation", id, "Anim", playing)
+                + smallButton("create-tileset-from-image", id, "Tileset", playing)
                 + removeButton("remove-image-asset", id, playing));
     }
 
@@ -107,6 +109,16 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
             smallButton("open-sprite-animation", id, "Edit", playing)
             + smallButton("set-sprite-animation", id, "Use", playing)
             + removeButton("remove-sprite-animation", id, playing));
+    }
+
+    // -- Tilesets: sliced spritesheets created from an image -------------------
+    html += groupTitle("Tilesets", doc.tilesets.size());
+    for (const TilesetAsset& asset : doc.tilesets) {
+        const std::string id = escapeRml(asset.assetId);
+        const std::string label = escapeRml(asset.name.empty() ? asset.assetId : asset.name);
+        html += actionRow(label, "open-tileset-editor", id,
+            smallButton("open-tileset-editor", id, "Edit", playing)
+            + removeButton("remove-tileset", id, playing));
     }
 
     // -- Audio: name + load mode + Remove -------------------------------------

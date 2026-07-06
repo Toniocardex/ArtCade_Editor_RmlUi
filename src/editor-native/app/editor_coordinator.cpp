@@ -237,6 +237,12 @@ EditorInvalidation EditorCoordinator::reconcileWorkspace() {
         extra |= EditorInvalidation::Viewport | EditorInvalidation::Toolbar;
     }
 
+    if (state_.tilesetEditor.openAssetId
+        && !document_.hasTilesetAsset(*state_.tilesetEditor.openAssetId)) {
+        state_.tilesetEditor = TilesetEditorState{};
+        extra |= EditorInvalidation::Viewport | EditorInvalidation::Toolbar;
+    }
+
     return extra;
 }
 
@@ -679,6 +685,72 @@ void EditorCoordinator::advanceSpriteAnimationPreview(float dt) {
             return;
         }
     }
+}
+
+EditorOperationResult EditorCoordinator::apply(const OpenTilesetEditorIntent& intent) {
+    const TilesetAsset* asset = document_.findTilesetAsset(intent.assetId);
+    if (!asset) {
+        return finishIntent(EditorOperationResult::failure("Unknown tileset asset"));
+    }
+    TilesetEditorState& editor = state_.tilesetEditor;
+    editor.openAssetId = intent.assetId;
+    editor.pendingSlicing = asset->slicing;
+    editor.selectedTileId.reset();
+    const EditorInvalidation inv = EditorInvalidation::Viewport | EditorInvalidation::Toolbar;
+    accumulate(inv);
+    return EditorOperationResult::success(inv);
+}
+
+EditorOperationResult EditorCoordinator::apply(const CloseTilesetEditorIntent&) {
+    state_.tilesetEditor = TilesetEditorState{};
+    const EditorInvalidation inv = EditorInvalidation::Viewport | EditorInvalidation::Toolbar;
+    accumulate(inv);
+    return EditorOperationResult::success(inv);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetPendingTilesetSlicingIntent& intent) {
+    if (!state_.tilesetEditor.openAssetId) {
+        return finishIntent(EditorOperationResult::failure("Tileset Editor is not open"));
+    }
+    TilesetSlicing clamped = intent.slicing;
+    clamped.tileWidth  = std::clamp(clamped.tileWidth, 1, 4096);
+    clamped.tileHeight = std::clamp(clamped.tileHeight, 1, 4096);
+    clamped.marginX    = std::clamp(clamped.marginX, 0, 4096);
+    clamped.marginY    = std::clamp(clamped.marginY, 0, 4096);
+    clamped.spacingX   = std::clamp(clamped.spacingX, 0, 4096);
+    clamped.spacingY   = std::clamp(clamped.spacingY, 0, 4096);
+    state_.tilesetEditor.pendingSlicing = clamped;
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetTilesetEditorZoomIntent& intent) {
+    if (!state_.tilesetEditor.openAssetId) {
+        return finishIntent(EditorOperationResult::failure("Tileset Editor is not open"));
+    }
+    state_.tilesetEditor.zoom = clampTilesetEditorZoom(intent.zoom);
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(const PanTilesetEditorIntent& intent) {
+    if (!state_.tilesetEditor.openAssetId) {
+        return finishIntent(EditorOperationResult::failure("Tileset Editor is not open"));
+    }
+    TilesetEditorState& editor = state_.tilesetEditor;
+    editor.pan.x += intent.delta.x;
+    editor.pan.y += intent.delta.y;
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SelectTilesetTileIntent& intent) {
+    if (!state_.tilesetEditor.openAssetId) {
+        return finishIntent(EditorOperationResult::failure("Tileset Editor is not open"));
+    }
+    state_.tilesetEditor.selectedTileId = intent.tileId;
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
 }
 
 EditorOperationResult EditorCoordinator::apply(const SetHierarchyFilterIntent& intent) {

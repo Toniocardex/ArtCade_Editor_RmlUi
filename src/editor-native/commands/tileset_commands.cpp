@@ -111,8 +111,9 @@ EditorOperationResult RenameTilesetCommand::undo(ProjectDocument& document) {
     return EditorOperationResult::success(kRenameInvalidation, DomainChange::assetChanged(assetId_));
 }
 
-ChangeTilesetSlicingCommand::ChangeTilesetSlicingCommand(AssetId assetId, TilesetSlicing slicing)
-    : assetId_(std::move(assetId)), newSlicing_(slicing) {}
+ChangeTilesetSlicingCommand::ChangeTilesetSlicingCommand(AssetId assetId, TilesetSlicing slicing,
+                                                         std::vector<TileDefinition> tiles)
+    : assetId_(std::move(assetId)), newSlicing_(slicing), newTiles_(std::move(tiles)) {}
 
 EditorOperationResult ChangeTilesetSlicingCommand::apply(ProjectDocument& document) {
     const TilesetAsset* asset = document.findTilesetAsset(assetId_);
@@ -127,7 +128,7 @@ EditorOperationResult ChangeTilesetSlicingCommand::apply(ProjectDocument& docume
         oldTiles_   = asset->tiles;
         captured_   = true;
     }
-    if (!document.setTilesetSlicing(assetId_, newSlicing_, {})) {
+    if (!document.setTilesetSlicing(assetId_, newSlicing_, newTiles_)) {
         return EditorOperationResult::failure("Failed to change tileset slicing");
     }
     return EditorOperationResult::success(kRemoveInvalidation, DomainChange::assetChanged(assetId_));

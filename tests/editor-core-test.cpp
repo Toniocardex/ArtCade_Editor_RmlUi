@@ -698,6 +698,67 @@ static void runTilesetTests() {
         CHECK(tilesForSlicing(10, 10, slicing).empty());
     }
 
+    // -- reconcileTiles: a matching rect keeps its old stable id ---------------
+    {
+        std::vector<TileDefinition> oldTiles;
+        oldTiles.push_back(TileDefinition{"wall-corner", 0, 0, 32, 32});
+        oldTiles.push_back(TileDefinition{"wall-flat", 32, 0, 32, 32});
+
+        std::vector<TileDefinition> newTiles;
+        newTiles.push_back(TileDefinition{"tile-1", 0, 0, 32, 32});    // same rect as wall-corner
+        newTiles.push_back(TileDefinition{"tile-2", 32, 0, 32, 32});   // same rect as wall-flat
+
+        const std::vector<TileDefinition> result = reconcileTiles(oldTiles, newTiles);
+        CHECK(result.size() == 2);
+        CHECK(result[0].id == "wall-corner");
+        CHECK(result[1].id == "wall-flat");
+    }
+
+    // -- reconcileTiles: a genuinely new rect gets a fresh, non-colliding id ---
+    {
+        std::vector<TileDefinition> oldTiles;
+        oldTiles.push_back(TileDefinition{"wall-corner", 0, 0, 32, 32});
+
+        std::vector<TileDefinition> newTiles;
+        newTiles.push_back(TileDefinition{"tile-1", 0, 0, 32, 32});     // matches wall-corner
+        newTiles.push_back(TileDefinition{"tile-2", 32, 0, 32, 32});    // new rect
+
+        const std::vector<TileDefinition> result = reconcileTiles(oldTiles, newTiles);
+        CHECK(result.size() == 2);
+        CHECK(result[0].id == "wall-corner");
+        CHECK(result[1].id != "wall-corner");
+        CHECK(!result[1].id.empty());
+    }
+
+    // -- reconcileTiles: an old tile with no matching rect is dropped ----------
+    {
+        std::vector<TileDefinition> oldTiles;
+        oldTiles.push_back(TileDefinition{"wall-corner", 0, 0, 32, 32});
+        oldTiles.push_back(TileDefinition{"wall-flat", 32, 0, 32, 32});
+
+        std::vector<TileDefinition> newTiles;
+        newTiles.push_back(TileDefinition{"tile-1", 0, 0, 32, 32});   // only wall-corner survives
+
+        const std::vector<TileDefinition> result = reconcileTiles(oldTiles, newTiles);
+        CHECK(result.size() == 1);
+        CHECK(result[0].id == "wall-corner");
+    }
+
+    // -- reconcileTiles: a fresh id never collides with a kept old id ----------
+    {
+        std::vector<TileDefinition> oldTiles;
+        oldTiles.push_back(TileDefinition{"tile-1", 100, 100, 32, 32});   // old id happens to look generated
+
+        std::vector<TileDefinition> newTiles;
+        newTiles.push_back(TileDefinition{"x", 100, 100, 32, 32});   // matches -> keeps "tile-1"
+        newTiles.push_back(TileDefinition{"y", 200, 200, 32, 32});   // new -> must not become "tile-1" too
+
+        const std::vector<TileDefinition> result = reconcileTiles(oldTiles, newTiles);
+        CHECK(result.size() == 2);
+        CHECK(result[0].id == "tile-1");
+        CHECK(result[1].id != "tile-1");
+    }
+
     // -- AddTilesetAssetCommand: success, then duplicate/unknown-image/invalid-
     // slicing all fail without mutation, then undo/redo -------------------------
     {
@@ -762,8 +823,9 @@ static void runTilesetTests() {
         CHECK(c.document().findTilesetAsset("tiles-a")->name == "Caves");
     }
 
-    // -- ChangeTilesetSlicingCommand: updates the config; tiles stay empty since
-    // nothing in Slice 1 can populate them (that's Slice 2's apply-slicing job) -
+    // -- ChangeTilesetSlicingCommand: atomically swaps config + tiles (the
+    // caller-supplied tiles, not computed by the command itself); undo
+    // restores both the old config and the old tiles ---------------------------
     {
         EditorCoordinator c{makeSpriteDoc()};
         TilesetSlicing slicing;
@@ -773,15 +835,18 @@ static void runTilesetTests() {
 
         TilesetSlicing next = slicing;
         next.tileWidth = 16;
-        CHECK(!c.execute(ChangeTilesetSlicingCommand{"nope", next}).ok);
+        std::vector<TileDefinition> nextTiles = tilesForSlicing(64, 64, next);
+        CHECK(!nextTiles.empty());
+        CHECK(!c.execute(ChangeTilesetSlicingCommand{"nope", next, nextTiles}).ok);
         TilesetSlicing invalid; invalid.tileWidth = -1; invalid.tileHeight = 16;
-        CHECK(!c.execute(ChangeTilesetSlicingCommand{"tiles-a", invalid}).ok);
+        CHECK(!c.execute(ChangeTilesetSlicingCommand{"tiles-a", invalid, {}}).ok);
 
-        CHECK(c.execute(ChangeTilesetSlicingCommand{"tiles-a", next}).ok);
+        CHECK(c.execute(ChangeTilesetSlicingCommand{"tiles-a", next, nextTiles}).ok);
         CHECK(c.document().findTilesetAsset("tiles-a")->slicing.tileWidth == 16);
-        CHECK(c.document().findTilesetAsset("tiles-a")->tiles.empty());
+        CHECK(c.document().findTilesetAsset("tiles-a")->tiles.size() == nextTiles.size());
 
         CHECK(c.undo().ok);
+        CHECK(c.document().findTilesetAsset("tiles-a")->tiles.empty());   // restored to Add's empty tiles
         CHECK(c.document().findTilesetAsset("tiles-a")->slicing.tileWidth == 32);
     }
 
@@ -834,6 +899,70 @@ static void runTilesetTests() {
         EditorCoordinator c{doc};
         const std::filesystem::path path = testTempDir() / "bad-tileset.artcade-project";
         CHECK(!saveProjectToFile(c, path).ok);
+    }
+
+    // -- Open/Close Tileset Editor: open seeds pendingSlicing from the asset's
+    // current slicing (workspace-only, no document mutation); close resets ----
+    {
+        EditorCoordinator c{makeSpriteDoc()};   // "tiles-1" -> img-hero, default 32x32
+        CHECK(!c.state().tilesetEditor.openAssetId.has_value());
+        CHECK(!c.apply(OpenTilesetEditorIntent{"no-such-tileset"}).ok);
+
+        const uint64_t revision = c.document().revision();
+        CHECK(c.apply(OpenTilesetEditorIntent{"tiles-1"}).ok);
+        CHECK(c.state().tilesetEditor.openAssetId.has_value());
+        CHECK(*c.state().tilesetEditor.openAssetId == "tiles-1");
+        CHECK(c.state().tilesetEditor.pendingSlicing.tileWidth == 32);
+        CHECK(c.document().revision() == revision);   // workspace-only
+
+        CHECK(c.apply(CloseTilesetEditorIntent{}).ok);
+        CHECK(!c.state().tilesetEditor.openAssetId.has_value());
+    }
+
+    // -- SetPendingTilesetSlicingIntent: live preview, clamped, no document
+    // mutation, rejected while the editor is closed ----------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        TilesetSlicing bad{-5, 0, -1, -1, -1, -1};
+        CHECK(!c.apply(SetPendingTilesetSlicingIntent{bad}).ok);   // editor not open
+
+        const uint64_t revision = c.document().revision();
+        CHECK(c.apply(OpenTilesetEditorIntent{"tiles-1"}).ok);
+        CHECK(c.apply(SetPendingTilesetSlicingIntent{bad}).ok);
+        CHECK(c.state().tilesetEditor.pendingSlicing.tileWidth == 1);    // clamped >= 1
+        CHECK(c.state().tilesetEditor.pendingSlicing.tileHeight == 1);
+        CHECK(c.state().tilesetEditor.pendingSlicing.marginX == 0);      // clamped >= 0
+        CHECK(c.document().revision() == revision);
+
+        TilesetSlicing ok{16, 16, 2, 2, 1, 1};
+        CHECK(c.apply(SetPendingTilesetSlicingIntent{ok}).ok);
+        CHECK(c.state().tilesetEditor.pendingSlicing.tileWidth == 16);
+        CHECK(c.document().revision() == revision);
+        // The asset itself is untouched until a later slice's Apply flow commits it.
+        CHECK(c.document().findTilesetAsset("tiles-1")->slicing.tileWidth == 32);
+    }
+
+    // -- Tileset Editor zoom/pan: workspace-only, rejected while closed --------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        CHECK(!c.apply(SetTilesetEditorZoomIntent{2.f}).ok);
+        CHECK(!c.apply(PanTilesetEditorIntent{{4.f, 4.f}}).ok);
+
+        CHECK(c.apply(OpenTilesetEditorIntent{"tiles-1"}).ok);
+        CHECK(c.apply(SetTilesetEditorZoomIntent{2.f}).ok);
+        CHECK(c.state().tilesetEditor.zoom == 2.f);
+        CHECK(c.apply(PanTilesetEditorIntent{{4.f, 6.f}}).ok);
+        CHECK(c.state().tilesetEditor.pan.x == 4.f);
+        CHECK(c.state().tilesetEditor.pan.y == 6.f);
+    }
+
+    // -- Deleting the open tileset asset auto-closes the editor ----------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        CHECK(c.apply(OpenTilesetEditorIntent{"tiles-1"}).ok);
+        CHECK(c.state().tilesetEditor.openAssetId.has_value());
+        CHECK(c.execute(RemoveTilesetAssetCommand{"tiles-1"}).ok);
+        CHECK(!c.state().tilesetEditor.openAssetId.has_value());
     }
 }
 

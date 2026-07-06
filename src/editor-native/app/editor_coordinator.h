@@ -126,6 +126,12 @@ public:
     EditorOperationResult apply(const SetAnimationPreviewPlayingIntent& intent);
     EditorOperationResult apply(const SetAnimationPreviewFrameIntent& intent);
     EditorOperationResult apply(const StepAnimationPreviewIntent& intent);
+    EditorOperationResult apply(const OpenTilesetEditorIntent& intent);
+    EditorOperationResult apply(const CloseTilesetEditorIntent& intent);
+    EditorOperationResult apply(const SetPendingTilesetSlicingIntent& intent);
+    EditorOperationResult apply(const SetTilesetEditorZoomIntent& intent);
+    EditorOperationResult apply(const PanTilesetEditorIntent& intent);
+    EditorOperationResult apply(const SelectTilesetTileIntent& intent);
     EditorOperationResult apply(const SetHierarchyFilterIntent& intent);
     EditorOperationResult apply(const SetConsoleFilterIntent& intent);
     EditorOperationResult apply(const SetConsoleShowInfoIntent& intent);

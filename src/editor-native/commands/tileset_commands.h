@@ -56,14 +56,14 @@ private:
     bool        captured_ = false;
 };
 
-// Updates the slicing config and unconditionally clears the previously-sliced
-// tiles (they no longer match the new config, and recomputing them needs a
-// live image's pixel dimensions, which this layer doesn't have). This is the
-// safe atomic-swap primitive an interactive re-slice flow builds on top of,
-// not that flow itself.
+// Atomically swaps the slicing config and the tile list. The caller computes
+// the final tiles (tilesForSlicing + reconcileTiles against the asset's
+// current tiles, using the source image's real pixel dimensions - this layer
+// has neither) and passes them in; the command itself does no slicing math.
 class ChangeTilesetSlicingCommand final : public EditorCommand {
 public:
-    ChangeTilesetSlicingCommand(AssetId assetId, TilesetSlicing slicing);
+    ChangeTilesetSlicingCommand(AssetId assetId, TilesetSlicing slicing,
+                                std::vector<TileDefinition> tiles);
 
     EditorOperationResult apply(ProjectDocument& document) override;
     EditorOperationResult undo(ProjectDocument& document) override;
@@ -72,6 +72,7 @@ public:
 private:
     AssetId        assetId_;
     TilesetSlicing newSlicing_;
+    std::vector<TileDefinition> newTiles_;
     TilesetSlicing oldSlicing_{};
     std::vector<TileDefinition> oldTiles_;
     bool           captured_ = false;

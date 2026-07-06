@@ -1,0 +1,12 @@
+<rml>
+<head>
+    <title>Tileset Editor</title>
+    <link type="text/rcss" href="../theme.rcss"/>
+    <link type="text/rcss" href="../controls.rcss"/>
+    <link type="text/rcss" href="../panels.rcss"/>
+    <link type="text/rcss" href="tileset_editor.rcss"/>
+</head>
+<body>
+    <div id="tileset-editor" class="tileset-editor"></div>
+</body>
+</rml>

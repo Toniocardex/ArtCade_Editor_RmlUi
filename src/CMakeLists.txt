@@ -105,6 +105,8 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/app/editor_input.cpp
     editor-native/app/sprite_animation_canvas_input.cpp
     editor-native/app/sprite_animation_preview_renderer.cpp
+    editor-native/app/tileset_editor_canvas_input.cpp
+    editor-native/app/tileset_editor_renderer.cpp
     editor-native/app/file_dialog.cpp
     editor-native/app/confirm_dialog.cpp
     editor-native/view/texture_cache.cpp
