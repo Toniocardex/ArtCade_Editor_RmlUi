@@ -24,6 +24,10 @@ std::string makeUniqueObjectTypeId(const ProjectDocument& document) {
     }
 }
 
+// How far a clone is nudged from its source: visible but modest, half the
+// default grid cell size, so it never lands exactly on top of the source.
+constexpr float kCloneOffset = 24.0f;
+
 // The layer new entities go into: the workspace active layer when it is a real
 // layer of this scene, otherwise the scene's persistent default ("" for a legacy
 // scene with no layers). The caller passes this explicitly to the command.
@@ -232,6 +236,28 @@ EditorOperationResult deleteSelectedEntity(EditorCoordinator& coordinator) {
     }
     return coordinator.execute(
         DeleteEntityCommand{state.activeSceneId, state.selection.primaryEntity});
+}
+
+EditorOperationResult cloneSelectedEntity(EditorCoordinator& coordinator) {
+    const SceneId& sceneId = coordinator.state().activeSceneId;
+    const SceneDef* scene = coordinator.document().findScene(sceneId);
+    if (!scene) return EditorOperationResult::failure("No active scene to clone into");
+    const EntityId sourceId = coordinator.selection().primaryEntity;
+    const SceneInstanceDef* source =
+        coordinator.document().findInstanceInScene(sceneId, sourceId);
+    if (!source) {
+        return EditorOperationResult::failure("Select an entity to clone");
+    }
+    const EntityId newId = nextAvailableEntityId(coordinator.document(), sceneId);
+    const std::string newName = makeUniqueInstanceName(*scene, source->instanceName);
+    const Vec2 newPosition = normalizeSpawnPosition(
+        Vec2{source->transform.position.x + kCloneOffset,
+             source->transform.position.y + kCloneOffset},
+        scene->worldSize);
+    const EditorOperationResult result = coordinator.execute(
+        CloneInstanceCommand{sceneId, sourceId, newId, newName, newPosition});
+    if (result.ok) coordinator.apply(SelectEntityIntent{newId});
+    return result;
 }
 
 } // namespace ArtCade::EditorNative

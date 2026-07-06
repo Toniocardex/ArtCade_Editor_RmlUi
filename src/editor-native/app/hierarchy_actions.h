@@ -98,4 +98,13 @@ EditorOperationResult addInstanceOfSelectedType(EditorCoordinator& coordinator);
 /** Delete the selected instance from the active scene. No selection → no-op. */
 EditorOperationResult deleteSelectedEntity(EditorCoordinator& coordinator);
 
+/**
+ * Place a copy of the selected instance: same object type and per-instance
+ * overrides (sprite, layer, visibility, local variables), a fresh id, a
+ * uniquified name, and a position offset from the source so it doesn't land
+ * exactly on top of it. Selects the clone on success. No selection → failure
+ * without mutation.
+ */
+EditorOperationResult cloneSelectedEntity(EditorCoordinator& coordinator);
+
 } // namespace ArtCade::EditorNative

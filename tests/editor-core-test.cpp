@@ -1835,6 +1835,82 @@ int main() {
         CHECK(inst->transform.position.y == 88.f);
     }
 
+    // -- Clone Instance: copies type, uniquifies name, honors an explicit
+    // position; undo removes only the clone, redo restores it -----------------
+    {
+        EditorCoordinator c{makeInheritedDoc()};
+        const EntityId newId = nextAvailableEntityId(c.document(), kSceneA);
+        CHECK(c.execute(CloneInstanceCommand{kSceneA, kHero, newId, "Hero 2", Vec2{34.f, 44.f}}).ok);
+        const SceneInstanceDef* clone = c.document().findInstanceInScene(kSceneA, newId);
+        CHECK(clone != nullptr);
+        CHECK(clone->objectTypeId == "Hero");
+        CHECK(clone->instanceName == "Hero 2");
+        CHECK(clone->transform.position.x == 34.f);
+        CHECK(clone->transform.position.y == 44.f);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero) != nullptr);  // source untouched
+
+        CHECK(c.undo().ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, newId) == nullptr);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero) != nullptr);
+        CHECK(c.redo().ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, newId)->instanceName == "Hero 2");
+    }
+
+    // -- Clone Instance: per-instance overrides (sprite override, layer) survive
+    // the copy - proves the *source struct-copy, not a hand-picked field list --
+    {
+        EditorCoordinator c{makeInheritedDoc()};
+        c.apply(SelectEntityIntent{kHero});
+        CHECK(addSpriteRenderer(c).ok);
+        CHECK(c.execute(AddSceneLayerCommand{kSceneA, "fg", "Foreground", 0}).ok);
+        CHECK(c.execute(SetEntityLayerCommand{kSceneA, kHero, "fg"}).ok);
+
+        const EntityId newId = nextAvailableEntityId(c.document(), kSceneA);
+        CHECK(c.execute(CloneInstanceCommand{kSceneA, kHero, newId, "Hero Clone", Vec2{}}).ok);
+        const SceneInstanceDef* clone = c.document().findInstanceInScene(kSceneA, newId);
+        CHECK(clone != nullptr);
+        CHECK(clone->spriteRenderer.has_value());
+        CHECK(clone->layerId == "fg");
+    }
+
+    // -- Clone Instance: guards mirror CreateEntityCommand's (id/name/scene),
+    // plus its own (unknown source instance); none mutate the scene -----------
+    {
+        EditorCoordinator c{makeInheritedDoc()};
+        const std::size_t before = c.document().findScene(kSceneA)->instances.size();
+        CHECK(!c.execute(CloneInstanceCommand{kSceneA, kHero, kHero, "Dup", {}}).ok);   // id clash
+        CHECK(!c.execute(CloneInstanceCommand{kSceneA, kHero, 0, "Zero", {}}).ok);      // zero id
+        CHECK(!c.execute(CloneInstanceCommand{kSceneA, kHero, 900, "", {}}).ok);        // empty name
+        CHECK(!c.execute(CloneInstanceCommand{"missing", kHero, 900, "X", {}}).ok);     // no scene
+        CHECK(!c.execute(CloneInstanceCommand{kSceneA, 9999, 900, "X", {}}).ok);        // no source
+        CHECK(c.document().findScene(kSceneA)->instances.size() == before);
+    }
+
+    // -- cloneSelectedEntity: no selection -> failure without mutation ---------
+    {
+        EditorCoordinator c{makeInheritedDoc()};
+        const std::size_t before = c.document().findScene(kSceneA)->instances.size();
+        CHECK(!cloneSelectedEntity(c).ok);
+        CHECK(c.document().findScene(kSceneA)->instances.size() == before);
+    }
+
+    // -- cloneSelectedEntity: clones the selection, offsets the position, and
+    // selects the new instance --------------------------------------------------
+    {
+        EditorCoordinator c{makeInheritedDoc()};
+        c.apply(SelectEntityIntent{kHero});
+        CHECK(cloneSelectedEntity(c).ok);
+        const EntityId newId = nextAvailableEntityId(c.document(), kSceneA) - 1;
+        const SceneInstanceDef* clone = c.document().findInstanceInScene(kSceneA, newId);
+        CHECK(clone != nullptr);
+        CHECK(clone->objectTypeId == "Hero");
+        CHECK(clone->instanceName != "Hero");             // uniquified
+        CHECK(clone->transform.position.x != 10.f);        // offset from source (10, 20)
+        CHECK(clone->transform.position.y != 20.f);
+        CHECK(c.selection().primaryEntity == newId);       // auto-selected
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero) != nullptr);  // source kept
+    }
+
     // -- (10) Empty catalog: Add Instance is a no-op, never a placeholder ------
     {
         ProjectDoc fresh; fresh.activeSceneId = "s";

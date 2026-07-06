@@ -76,6 +76,26 @@ private:
     bool             captured_ = false;
 };
 
+/** Place a copy of an existing instance — same object type and per-instance
+ *  overrides (sprite, layer, visibility, local variables), fresh id/name/
+ *  position. Invalidates Hierarchy | Viewport. */
+class CloneInstanceCommand final : public EditorCommand {
+public:
+    CloneInstanceCommand(SceneId sceneId, EntityId sourceId, EntityId newId,
+                         std::string newName, Vec2 newPosition);
+
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "CloneInstance"; }
+
+private:
+    SceneId     sceneId_;
+    EntityId    sourceId_;
+    EntityId    newId_;
+    std::string newName_;
+    Vec2        newPosition_{};
+};
+
 /** Move one instance. Invalidates Inspector | Viewport (prompt §24.4). */
 class SetEntityPositionCommand final : public EditorCommand {
 public:

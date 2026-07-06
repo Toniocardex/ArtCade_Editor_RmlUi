@@ -119,6 +119,7 @@ private:
     friend class AddBoxColliderCommand;
     friend class AddLinearMoverCommand;
     friend class AddSpriteRendererCommand;
+    friend class CloneInstanceCommand;
     friend class CreateEntityCommand;
     friend class CreateEntityWithDefaultTypeCommand;
     friend class CreateSceneCommand;

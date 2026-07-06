@@ -664,10 +664,11 @@ void EditorUi::showPendingHierarchyMenu() {
             entry->SetAttribute("data-arg", request.targetId);
         }
     };
-    setEntry("hctx-set-start",    sceneKind && !alreadyStart);
-    setEntry("hctx-del-scene",    sceneKind);
-    setEntry("hctx-add-instance", !sceneKind);
-    setEntry("hctx-del-entity",   !sceneKind);
+    setEntry("hctx-set-start",     sceneKind && !alreadyStart);
+    setEntry("hctx-del-scene",     sceneKind);
+    setEntry("hctx-add-instance",  !sceneKind);
+    setEntry("hctx-clone-entity",  !sceneKind);
+    setEntry("hctx-del-entity",    !sceneKind);
 
     menu->SetProperty("left", std::to_string(request.x) + "px");
     menu->SetProperty("top",  std::to_string(request.y) + "px");
@@ -1340,6 +1341,9 @@ bool EditorUi::handleHierarchyAction(const std::string& action, const std::strin
     } else if (action == "create-instance-here") {
         hideContextMenus();
         if (createInstanceHereRequest_) createInstanceHereRequest_();
+    } else if (action == "clone-entity") {
+        hideContextMenus();
+        cloneSelectedEntity(coordinator_);
     } else if (action == "delete-entity") {
         hideContextMenus();
         deleteSelectedEntity(coordinator_);

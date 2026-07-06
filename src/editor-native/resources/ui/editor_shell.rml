@@ -139,6 +139,7 @@
         <div id="hctx-set-start" class="context-entry" data-action="set-start-scene"><span class="icon">&#xeb2e;</span>Set as Start Scene</div>
         <div id="hctx-del-scene" class="context-entry destructive" data-action="delete-scene"><span class="icon">&#xeb41;</span>Delete Scene</div>
         <div id="hctx-add-instance" class="context-entry" data-action="add-instance"><span class="icon">&#xeb0b;</span>Create Instance</div>
+        <div id="hctx-clone-entity" class="context-entry" data-action="clone-entity"><span class="icon">&#xedef;</span>Clone</div>
         <div id="hctx-del-entity" class="context-entry destructive" data-action="delete-entity"><span class="icon">&#xeb41;</span>Delete Entity</div>
     </div>
 </body>
