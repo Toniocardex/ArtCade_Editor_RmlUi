@@ -1125,7 +1125,7 @@ int EditorApp::run(int argc, char** argv) {
         } else if (const auto& openTileset = coordinator.state().tilesetEditor.openAssetId) {
             tilesetAsset = coordinator.document().findTilesetAsset(*openTileset);
         } else {
-            textureCache.prepare(snapshot.sprites, textureRequests);
+            textureCache.prepare(snapshot.sprites, snapshot.tilemaps, textureRequests);
             sceneView.render(snapshot, renderView, rect, textureCache);
         }
         host.render();

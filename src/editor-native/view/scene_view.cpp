@@ -54,6 +54,17 @@ bool hasVisibleSprite(const SceneFrameSnapshot& frame, EntityId entityId) {
     return false;
 }
 
+// An entity with a Tilemap component but nothing painted yet still falls
+// through to the generic placeholder box below - the same "content-less
+// entity" marker every other component-less entity already gets, rather
+// than a bespoke "empty tilemap" graphic.
+bool hasVisibleTilemapCells(const SceneFrameSnapshot& frame, EntityId entityId) {
+    for (const SceneFrameTilemap& tilemap : frame.tilemaps) {
+        if (tilemap.entityId == entityId && !tilemap.cells.empty()) return true;
+    }
+    return false;
+}
+
 void drawMissingSprite(const SceneFrameSprite& sprite, float zoom) {
     const Rectangle bounds = toRectangle(sprite.destination);
     DrawRectangleRec(bounds, Color{70, 44, 58, 200});
@@ -164,10 +175,25 @@ void SceneView::render(const SceneFrameSnapshot& frame,
     DrawRectangleLinesEx(Rectangle{0, 0, world.x, world.y}, linePx, Color{92, 92, 102, 255});
 
     for (const SceneFrameEntity& entity : frame.entities) {
-        if (hasVisibleSprite(frame, entity.entityId)) continue;
+        if (hasVisibleSprite(frame, entity.entityId) || hasVisibleTilemapCells(frame, entity.entityId)) {
+            continue;
+        }
         const Rectangle box = toRectangle(entity.bounds);
         DrawRectangleRec(box, toColor(entity.fillColor, 0.92f));
         DrawRectangleLinesEx(box, 1.f / cam.zoom, Color{12, 14, 18, 200});
+    }
+
+    // Tilemap cells draw before sprites - a tilemap is almost always the
+    // ground/background layer, sprites (characters, props) sit on top of it.
+    // World-space coordinates throughout, same as sprites below: raylib's
+    // Camera2D (already active via BeginMode2D) handles the screen mapping.
+    for (const SceneFrameTilemap& tilemap : frame.tilemaps) {
+        const TextureResource* resource = textures.find(tilemap.imageAssetId);
+        if (!resource || !resource->loaded) continue;
+        for (const SceneFrameTilemapCell& cell : tilemap.cells) {
+            DrawTexturePro(resource->texture, toRectangle(cell.source), toRectangle(cell.destination),
+                          Vector2{0.f, 0.f}, 0.f, WHITE);
+        }
     }
 
     for (const SceneFrameSprite& sprite : frame.sprites) {
@@ -253,7 +279,9 @@ void SceneView::render(const SceneFrameSnapshot& frame,
     // Placeholder entities carry no artwork: a name above the box says what the
     // rectangle is instead of leaving an anonymous shape (UI audit 7.3).
     for (const SceneFrameEntity& entity : frame.entities) {
-        if (hasVisibleSprite(frame, entity.entityId)) continue;
+        if (hasVisibleSprite(frame, entity.entityId) || hasVisibleTilemapCells(frame, entity.entityId)) {
+            continue;
+        }
         if (entity.name.empty()) continue;
         const Vector2 top = GetWorldToScreen2D(
             Vector2{entity.bounds.x, entity.bounds.y}, cam);

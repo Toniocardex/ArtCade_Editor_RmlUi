@@ -37,10 +37,12 @@
 #include "editor-native/model/tileset_slicing.h"
 #include "editor-native/model/tilemap_chunk_math.h"
 #include "editor-native/model/tilemap_validation.h"
+#include "editor-native/model/tilemap_render_view.h"
 #include "editor-native/model/sprite_render_view.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view_camera.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -1025,6 +1027,65 @@ static void runTilemapComponentTests() {
                 CHECK(chunkAndLocalToCellY(chunk.chunkY, local.localY, 16) == y);
             }
         }
+    }
+
+    // -- tilemapRenderCells: multi-chunk, negative chunk coords, correct
+    // destination (origin + cell*cellSize) and source (the tile's own rect) -
+    {
+        TilesetAsset tileset;
+        tileset.assetId = "tiles-1";
+        tileset.tiles.push_back(TileDefinition{"grass", 0, 0, 16, 16});
+        tileset.tiles.push_back(TileDefinition{"stone", 16, 0, 16, 16});
+
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.cellSize = {32.f, 32.f};
+        tm.chunkSize = 2;
+
+        TilemapChunk chunkA;   // chunk (0,0): cells (0,0)=grass, (1,0)=empty
+        chunkA.chunkX = 0;
+        chunkA.chunkY = 0;
+        chunkA.cells = {TilemapCellValue{"grass", TileTransformFlags::None},
+                       std::nullopt, std::nullopt, std::nullopt};
+        TilemapChunk chunkB;   // chunk (-1,-1): local (1,1) -> absolute cell (-1,-1)=stone
+        chunkB.chunkX = -1;
+        chunkB.chunkY = -1;
+        chunkB.cells = {std::nullopt, std::nullopt, std::nullopt,
+                       TilemapCellValue{"stone", TileTransformFlags::FlipY}};
+        tm.chunks.push_back(chunkA);
+        tm.chunks.push_back(chunkB);
+
+        const std::vector<SceneFrameTilemapCell> cells =
+            tilemapRenderCells(tm, tileset, Vec2{100.f, 200.f});
+        CHECK(cells.size() == 2);
+
+        CHECK(cells[0].destination.x == 100.f);         // origin + cell(0,0)*32
+        CHECK(cells[0].destination.y == 200.f);
+        CHECK(cells[0].destination.width == 32.f);
+        CHECK(cells[0].source.x == 0.f);                 // "grass" tile rect
+        CHECK(cells[0].source.width == 16.f);
+
+        CHECK(cells[1].destination.x == 100.f - 32.f);   // origin + cell(-1,-1)*32
+        CHECK(cells[1].destination.y == 200.f - 32.f);
+        CHECK(cells[1].source.x == 16.f);                // "stone" tile rect
+        CHECK(cells[1].source.width == 16.f);
+    }
+
+    // -- tilemapRenderCells: a cell referencing an unknown tile id is skipped,
+    // not crashed on or substituted with a placeholder ------------------------
+    {
+        TilesetAsset tileset;
+        tileset.assetId = "tiles-1";
+        tileset.tiles.push_back(TileDefinition{"grass", 0, 0, 16, 16});
+
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.chunkSize = 1;
+        TilemapChunk chunk;
+        chunk.cells = {TilemapCellValue{"no-such-tile", TileTransformFlags::None}};
+        tm.chunks.push_back(chunk);
+
+        CHECK(tilemapRenderCells(tm, tileset, Vec2{}).empty());
     }
 
     // -- AddTilemapComponentCommand: success, then rejections, no partial
@@ -4443,6 +4504,90 @@ int main() {
         CHECK(fallback.has_value());
         CHECK(fallback->x == 70.f);
         CHECK(fallback->y == 70.f);
+    }
+
+    // -- pickEntityAt: a tilemap cell is hit-testable, and a sprite drawn on
+    // top of a tile still wins (draw order: placeholders, tilemaps, sprites) -
+    {
+        SceneFrameSnapshot f;
+        f.hasScene = true;
+        f.entities.push_back(SceneFrameEntity{1, "Ground", {}, SceneFrameRect{0, 0, 10, 10}, false});
+        f.tilemaps.push_back(SceneFrameTilemap{
+            1, "tiles-img",
+            {SceneFrameTilemapCell{SceneFrameRect{0, 0, 32, 32}, SceneFrameRect{0, 0, 16, 16}}},
+            false});
+        f.sprites.push_back(SceneFrameSprite{2, "img", SceneFrameRect{10, 10, 10, 10}, {}, true, false});
+        CHECK(pickEntityAt(f, Vec2{5.f, 5.f}) == 1);      // hits the tile, not just the placeholder
+        CHECK(pickEntityAt(f, Vec2{15.f, 15.f}) == 2);    // sprite on top of the tile wins
+        CHECK(pickEntityAt(f, Vec2{500.f, 500.f}) == INVALID_ENTITY);
+    }
+
+    // -- editorBoundsForEntity: tilemap cells union like sprite/collider
+    // bounds, and an empty tilemap (no cells) falls through to the
+    // placeholder, same as any other content-less entity ----------------------
+    {
+        SceneFrameSnapshot f;
+        f.hasScene = true;
+        f.entities.push_back(SceneFrameEntity{1, "T", {}, SceneFrameRect{5, 5, 1, 1}, false});
+        f.tilemaps.push_back(SceneFrameTilemap{
+            1, "tiles-img",
+            {SceneFrameTilemapCell{SceneFrameRect{0, 0, 20, 20}, {}},
+             SceneFrameTilemapCell{SceneFrameRect{20, 20, 20, 20}, {}}},
+            false});
+        const std::optional<WorldRect> bounds = editorBoundsForEntity(f, 1);
+        CHECK(bounds.has_value());
+        CHECK(bounds->x == 0.f);
+        CHECK(bounds->y == 0.f);
+        CHECK(bounds->width == 40.f);
+        CHECK(bounds->height == 40.f);
+
+        SceneFrameSnapshot empty;
+        empty.hasScene = true;
+        empty.entities.push_back(SceneFrameEntity{1, "T", {}, SceneFrameRect{5, 5, 1, 1}, false});
+        empty.tilemaps.push_back(SceneFrameTilemap{1, "tiles-img", {}, false});
+        const std::optional<WorldRect> emptyBounds = editorBoundsForEntity(empty, 1);
+        CHECK(emptyBounds.has_value());
+        CHECK(emptyBounds->x == 5.f);   // no cells -> falls through to the placeholder bounds
+    }
+
+    // -- collectSceneFrameSnapshot: an instance's TilemapComponent resolves
+    // into snapshot.tilemaps with world-space cells; an empty component still
+    // produces an entry, just with no cells --------------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        sliceTilesOne(c);   // "tiles-1" now has "tile-1".."tile-4"
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.cellSize = {32.f, 32.f};
+        tm.chunkSize = 2;
+        TilemapChunk chunk;
+        chunk.cells = {TilemapCellValue{"tile-1", TileTransformFlags::None},
+                      std::nullopt, std::nullopt, std::nullopt};
+        tm.chunks.push_back(chunk);
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+        // kHero's transform.position is {10,20} (makeDoc's fixture) - the world
+        // origin for this tilemap's cell (0,0).
+        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {10.f, 20.f}}).ok);
+
+        const SceneFrameSnapshot snap = collectSceneFrameSnapshot(c.document(), kSceneA, INVALID_ENTITY);
+        const auto it = std::find_if(snap.tilemaps.begin(), snap.tilemaps.end(),
+            [](const SceneFrameTilemap& t) { return t.entityId == kHero; });
+        CHECK(it != snap.tilemaps.end());
+        CHECK(it->imageAssetId == "img-hero");
+        CHECK(it->cells.size() == 1);
+        CHECK(it->cells[0].destination.x == 10.f);
+        CHECK(it->cells[0].destination.y == 20.f);
+
+        CHECK(c.execute(RemoveTilemapComponentCommand{kSceneA, kHero}).ok);
+        TilemapComponent emptyTm;
+        emptyTm.tilesetAssetId = "tiles-1";
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, emptyTm}).ok);
+        const SceneFrameSnapshot emptySnap =
+            collectSceneFrameSnapshot(c.document(), kSceneA, INVALID_ENTITY);
+        const auto emptyIt = std::find_if(emptySnap.tilemaps.begin(), emptySnap.tilemaps.end(),
+            [](const SceneFrameTilemap& t) { return t.entityId == kHero; });
+        CHECK(emptyIt != emptySnap.tilemaps.end());
+        CHECK(emptyIt->cells.empty());
     }
 
     // -- scene containment and explicit bring-inside math ---------------------

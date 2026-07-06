@@ -19,6 +19,7 @@ add_library(artcade-editor-core STATIC
     editor-native/model/tileset_slicing.cpp
     editor-native/model/tilemap_chunk_math.cpp
     editor-native/model/tilemap_validation.cpp
+    editor-native/model/tilemap_render_view.cpp
     editor-native/view/scene_grid.cpp
     editor-native/view/scene_view_camera.cpp
     editor-native/commands/box_collider_commands.cpp

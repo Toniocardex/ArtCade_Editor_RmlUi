@@ -18,6 +18,18 @@ void TextureCache::prepare(const std::vector<SceneFrameSprite>& sprites,
     }
 }
 
+void TextureCache::prepare(const std::vector<SceneFrameSprite>& sprites,
+                           const std::vector<SceneFrameTilemap>& tilemaps,
+                           const std::unordered_map<AssetId, TextureRequest>& requests) {
+    prepare(sprites, requests);
+    for (const SceneFrameTilemap& tilemap : tilemaps) {
+        if (tilemap.imageAssetId.empty()) continue;
+        const auto requestIt = requests.find(tilemap.imageAssetId);
+        if (requestIt == requests.end()) continue;
+        (void)findOrLoad(requestIt->second);
+    }
+}
+
 const TextureResource* TextureCache::find(const AssetId& assetId) const {
     const auto it = entries_.find(assetId);
     return it == entries_.end() ? nullptr : &it->second;

@@ -30,6 +30,11 @@ public:
 
     void prepare(const std::vector<SceneFrameSprite>& sprites,
                  const std::unordered_map<AssetId, TextureRequest>& requests);
+    // Also demand-loads each tilemap's underlying tileset image, which may
+    // not otherwise appear in `sprites` at all.
+    void prepare(const std::vector<SceneFrameSprite>& sprites,
+                 const std::vector<SceneFrameTilemap>& tilemaps,
+                 const std::unordered_map<AssetId, TextureRequest>& requests);
     const TextureResource* find(const AssetId& assetId) const;
     void invalidate(const AssetId& assetId);
     void clear();

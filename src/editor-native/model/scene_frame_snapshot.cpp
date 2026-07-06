@@ -3,6 +3,7 @@
 #include "editor-native/model/play_session.h"
 #include "editor-native/model/project_document.h"
 #include "editor-native/model/sprite_render_view.h"
+#include "editor-native/model/tilemap_render_view.h"
 
 #include <algorithm>
 #include <cmath>
@@ -106,6 +107,18 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
                                sprite.sourceRect.w, sprite.sourceRect.h},
                 sprite.hasSourceRect});
         }
+        if (inst.tilemap.has_value()) {
+            // A dangling tilesetAssetId shouldn't survive validation, but if one
+            // reaches here anyway the tilemap simply isn't emitted, rather than
+            // emitted with a blank image id the renderer would need to guard.
+            if (const TilesetAsset* tileset =
+                    document.findTilesetAsset(inst.tilemap->tilesetAssetId)) {
+                snapshot.tilemaps.push_back(SceneFrameTilemap{
+                    inst.id, tileset->imageAssetId,
+                    tilemapRenderCells(*inst.tilemap, *tileset, inst.transform.position),
+                    selected});
+            }
+        }
         visible.insert(inst.id);
     };
 
@@ -178,11 +191,15 @@ bool rectContains(const SceneFrameRect& r, Vec2 p) {
 } // namespace
 
 EntityId pickEntityAt(const SceneFrameSnapshot& frame, Vec2 worldPoint) {
-    // Placeholders draw first, then sprites; the last drawn item that contains
-    // the point is on top, so let later hits override earlier ones.
+    // Placeholders draw first, then tilemap cells, then sprites; the last
+    // drawn item that contains the point is on top, so let later hits
+    // override earlier ones (matches SceneView::render's pass order).
     EntityId hit = INVALID_ENTITY;
     for (const SceneFrameEntity& entity : frame.entities)
         if (rectContains(entity.bounds, worldPoint)) hit = entity.entityId;
+    for (const SceneFrameTilemap& tilemap : frame.tilemaps)
+        for (const SceneFrameTilemapCell& cell : tilemap.cells)
+            if (rectContains(cell.destination, worldPoint)) hit = tilemap.entityId;
     for (const SceneFrameSprite& sprite : frame.sprites)
         if (sprite.visible && rectContains(sprite.destination, worldPoint)) hit = sprite.entityId;
     return hit;
@@ -201,6 +218,14 @@ std::optional<WorldRect> editorBoundsForEntity(const SceneFrameSnapshot& frame,
         if (collider.entityId != entityId) continue;
         if (!finiteRect(collider.worldBounds)) continue;
         bounds = bounds ? unite(*bounds, collider.worldBounds) : collider.worldBounds;
+    }
+    for (const SceneFrameTilemap& tilemap : frame.tilemaps) {
+        if (tilemap.entityId != entityId) continue;
+        for (const SceneFrameTilemapCell& cell : tilemap.cells) {
+            const WorldRect rect = toWorldRect(cell.destination);
+            if (!finiteRect(rect)) continue;
+            bounds = bounds ? unite(*bounds, rect) : rect;
+        }
     }
     if (bounds) return bounds;
 

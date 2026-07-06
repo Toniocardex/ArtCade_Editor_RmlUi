@@ -39,6 +39,18 @@ struct SceneFrameSprite {
     bool hasSource = false;
 };
 
+struct SceneFrameTilemapCell {
+    SceneFrameRect destination;   // world rect
+    SceneFrameRect source;        // pixel rect within the tileset's image
+};
+
+struct SceneFrameTilemap {
+    EntityId entityId = INVALID_ENTITY;
+    AssetId imageAssetId;   // the tileset's underlying image (TextureCache key)
+    std::vector<SceneFrameTilemapCell> cells;   // one per populated cell; empty if unpainted
+    bool selected = false;
+};
+
 struct SceneFrameSnapshot {
     SceneId sceneId;
     std::string sceneName;
@@ -48,6 +60,7 @@ struct SceneFrameSnapshot {
     std::vector<SceneFrameEntity> entities;
     std::vector<SceneFrameSprite> sprites;
     std::vector<SceneFrameCollider> colliders;
+    std::vector<SceneFrameTilemap> tilemaps;
 };
 
 enum class SceneContainment {
