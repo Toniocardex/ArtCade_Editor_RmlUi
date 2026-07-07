@@ -57,6 +57,7 @@
     min-width: 0;
     overflow: hidden;
     white-space: nowrap;
+    margin-right: 6dp;
     color: #c4c4c8;
     font-size: 12dp;
 }
@@ -340,10 +341,9 @@
 }
 .mode-options {
     display: block;
-    height: 28dp;
 }
 .mode-option {
-    margin: 0 5dp 0 0;
+    margin: 0 5dp 5dp 0;
 }
 
 /* A non-zero diagnostic count reads as a soft warning. */

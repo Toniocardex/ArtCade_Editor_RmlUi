@@ -212,6 +212,61 @@ struct SetHoveredTilemapCellIntent {
     std::optional<TilemapCellCoord> cell;
 };
 
+// Rectangle Shape toggle (Solid/Outline) - a persistent workspace preference,
+// not itself a drag. Read once into PendingTileRectangle::outlineOnly when a
+// new Rectangle drag begins; flipping it mid-drag never changes the drag
+// already in progress.
+struct SetRectangleShapeModeIntent {
+    bool outlineOnly = false;
+};
+
+// Begins a Rectangle Solid/Outline drag at pointer-down. Mirrors
+// BeginTilePaintStrokeIntent's shape: the coordinator resolves the tile to
+// paint from TilemapEditorState::selectedTileId and the shape from
+// TilemapEditorState::rectangleOutlineMode itself (not carried on the
+// intent), so both are captured exactly once, at this call, into
+// PendingTileRectangle. Rejected - no pendingRectangle created - under the
+// same conditions as BeginTilePaintStrokeIntent, plus: a pendingStroke or
+// another pendingRectangle already in progress (pendingStroke XOR
+// pendingRectangle is an invariant).
+struct BeginTileRectangleIntent {
+    SceneId          sceneId;
+    EntityId         entityId = INVALID_ENTITY;
+    TilemapCellCoord cell;
+};
+
+// One pointer-move sample: moves PendingTileRectangle::currentCell and
+// recomputes previewChanges - but only when the cell actually changed, so an
+// unmoving mouse does not re-run the rectangle/outline math every frame.
+struct UpdateTileRectangleIntent {
+    TilemapCellCoord cell;
+};
+
+// Pointer-up: the single applicative operation for the whole drag. Rebuilds
+// the final delta from pendingRectangle's captured sceneId/entityId/
+// replacement/outlineOnly/startCell/currentCell (never "current selection",
+// never the live selectedTileId/rectangleOutlineMode), dispatches exactly one
+// PaintTilemapCellsCommand if the delta is non-empty and within
+// kMaxTilePaintOperationCells, then clears pendingRectangle unconditionally -
+// on success, on a too-large delta, on a vanished entity, and on an empty
+// no-op delta alike.
+struct CommitTileRectangleIntent {};
+
+// Escape / lost window focus mid-drag: discard pendingRectangle, no Command,
+// no dirty, no history entry.
+struct CancelTileRectangleIntent {};
+
+// One click of the Fill tool: floods from `cell` (resolved to a
+// TilemapCellCoord by the router the same way paint/rectangle input is) using
+// the tile currently selected in TilemapEditorState::selectedTileId. Not a
+// drag - dispatches at most one PaintTilemapCellsCommand synchronously, no
+// pending workspace state, no preview cache.
+struct FillTilemapIntent {
+    SceneId          sceneId;
+    EntityId         entityId = INVALID_ENTITY;
+    TilemapCellCoord cell;
+};
+
 struct ToggleConsoleIntent {};
 
 struct ResizePanelIntent {

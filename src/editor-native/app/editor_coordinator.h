@@ -146,6 +146,12 @@ public:
     EditorOperationResult apply(const CancelTilePaintStrokeIntent& intent);
     EditorOperationResult apply(const SelectPaintTileIntent& intent);
     EditorOperationResult apply(const SetHoveredTilemapCellIntent& intent);
+    EditorOperationResult apply(const SetRectangleShapeModeIntent& intent);
+    EditorOperationResult apply(const BeginTileRectangleIntent& intent);
+    EditorOperationResult apply(const UpdateTileRectangleIntent& intent);
+    EditorOperationResult apply(const CommitTileRectangleIntent& intent);
+    EditorOperationResult apply(const CancelTileRectangleIntent& intent);
+    EditorOperationResult apply(const FillTilemapIntent& intent);
     EditorOperationResult apply(const ToggleConsoleIntent& intent);
     EditorOperationResult apply(const ResizePanelIntent& intent);
 

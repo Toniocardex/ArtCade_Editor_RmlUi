@@ -610,7 +610,28 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             toolOption(EditorTool::Brush, "select-tilemap-brush", "Brush");
             toolOption(EditorTool::Eraser, "select-tilemap-eraser", "Eraser");
             toolOption(EditorTool::Picker, "select-tilemap-picker", "Picker");
+            toolOption(EditorTool::Rectangle, "select-tilemap-rectangle", "Rectangle");
+            toolOption(EditorTool::Fill, "select-tilemap-fill", "Fill");
             html += "</div></div>";
+
+            if (activeTool == EditorTool::Rectangle) {
+                const bool outline = coordinator.state().tilemapEditor.rectangleOutlineMode;
+                html += "<div class=\"mode-block\"><span class=\"mode-label\">Shape</span>"
+                        "<div class=\"mode-options\">";
+                const auto shapeOption = [&](bool isOutline, const char* action, const char* label) {
+                    html += "<button class=\"panel-btn mode-option";
+                    if (outline == isOutline) html += " active";
+                    if (playing) html += " disabled";
+                    html += "\" data-action=\"";
+                    html += action;
+                    html += "\">";
+                    html += label;
+                    html += "</button>";
+                };
+                shapeOption(false, "select-tilemap-rectangle-solid", "Solid");
+                shapeOption(true, "select-tilemap-rectangle-outline", "Outline");
+                html += "</div></div>";
+            }
 
             const std::optional<TileId>& selectedTileId = coordinator.state().tilemapEditor.selectedTileId;
             html += "<div class=\"asset-group-title\">Tiles</div><div class=\"asset-options\">";

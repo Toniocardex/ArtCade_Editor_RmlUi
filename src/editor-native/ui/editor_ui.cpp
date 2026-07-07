@@ -1148,6 +1148,14 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         coordinator_.apply(SetActiveToolIntent{EditorTool::Eraser});
     } else if (action == "select-tilemap-picker") {
         coordinator_.apply(SetActiveToolIntent{EditorTool::Picker});
+    } else if (action == "select-tilemap-rectangle") {
+        coordinator_.apply(SetActiveToolIntent{EditorTool::Rectangle});
+    } else if (action == "select-tilemap-fill") {
+        coordinator_.apply(SetActiveToolIntent{EditorTool::Fill});
+    } else if (action == "select-tilemap-rectangle-solid") {
+        coordinator_.apply(SetRectangleShapeModeIntent{false});
+    } else if (action == "select-tilemap-rectangle-outline") {
+        coordinator_.apply(SetRectangleShapeModeIntent{true});
     } else if (action == "select-tilemap-tile") {
         coordinator_.apply(SelectPaintTileIntent{arg});
     } else {

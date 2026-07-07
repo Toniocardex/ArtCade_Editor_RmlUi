@@ -6,10 +6,11 @@
 
 namespace ArtCade::EditorNative {
 
-// Brush/Eraser/Picker input for the Scene View. Mirrors routeViewportPickDrag's
-// shape and call convention exactly; called from the same per-frame site in
-// editor_app.cpp. routeViewportPickDrag itself is gated to Select-only so
-// entity-pick-drag and tile-painting never both claim the same click.
+// Brush/Eraser/Picker/Rectangle/Fill input for the Scene View. Mirrors
+// routeViewportPickDrag's shape and call convention exactly; called from the
+// same per-frame site in editor_app.cpp. routeViewportPickDrag itself is
+// gated to Select-only so entity-pick-drag and tile-painting never both claim
+// the same click.
 void routeViewportTilemapPaint(EditorCoordinator& coordinator, const ViewportRect& rect,
                                const RmlInputResult& rml);
 

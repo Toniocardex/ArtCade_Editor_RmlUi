@@ -967,14 +967,17 @@ int EditorApp::run(int argc, char** argv) {
         if (!rml.textFocus && !coordinator.isPlaying() && IsKeyPressed(KEY_F2)) {
             ui.beginActiveSceneLayerRename();
         }
-        // Tilemap tool shortcuts only switch tools between strokes - mid-
-        // stroke, only Escape (handled inside routeViewportTilemapPaint,
-        // which needs the stroke context) may interrupt.
+        // Tilemap tool shortcuts only switch tools between strokes/rectangles -
+        // mid-operation, only Escape (handled inside routeViewportTilemapPaint,
+        // which needs the operation's context) may interrupt.
         if (!rml.textFocus && !coordinator.isPlaying()
-            && !coordinator.state().tilemapEditor.pendingStroke) {
+            && !coordinator.state().tilemapEditor.pendingStroke
+            && !coordinator.state().tilemapEditor.pendingRectangle) {
             if (IsKeyPressed(KEY_B)) coordinator.apply(SetActiveToolIntent{EditorTool::Brush});
             else if (IsKeyPressed(KEY_E)) coordinator.apply(SetActiveToolIntent{EditorTool::Eraser});
             else if (IsKeyPressed(KEY_I)) coordinator.apply(SetActiveToolIntent{EditorTool::Picker});
+            else if (IsKeyPressed(KEY_R)) coordinator.apply(SetActiveToolIntent{EditorTool::Rectangle});
+            else if (IsKeyPressed(KEY_F)) coordinator.apply(SetActiveToolIntent{EditorTool::Fill});
         }
         // Delete: KEY_DELETE is also forwarded into RmlUi's own text editing
         // (editor_input.cpp), but only takes effect there while a field has
@@ -1136,6 +1139,8 @@ int EditorApp::run(int argc, char** argv) {
         if (!playSession) {
             applyPendingTilemapStrokePreview(snapshot, coordinator.document(),
                                              coordinator.state().tilemapEditor);
+            applyPendingTilemapRectanglePreview(snapshot, coordinator.document(),
+                                                coordinator.state().tilemapEditor);
         }
         EditorSceneViewState renderView = coordinator.sceneView(active);
         if (playSession) renderView.gridVisible = false;

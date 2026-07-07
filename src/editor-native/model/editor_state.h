@@ -117,6 +117,8 @@ enum class EditorTool {
     Brush,
     Eraser,
     Picker,
+    Rectangle,
+    Fill,
 };
 
 // An in-progress paint/erase stroke: pointer-down to pointer-up, never
@@ -136,17 +138,44 @@ struct PendingTileStroke {
     std::unordered_map<std::int64_t, TilemapCellChange> changes;
 };
 
+// An in-progress Rectangle Solid/Outline drag: pointer-down to pointer-up,
+// never touching ProjectDocument until pointer-up dispatches exactly one
+// PaintTilemapCellsCommand (built by rectangleFillChanges/
+// rectangleOutlineChanges, tilemap_region_math.h). sceneId/entityId/
+// replacement/outlineOnly are all captured once at BeginTileRectangleIntent
+// and never re-read afterward - so a tile reselected, a Shape toggle flipped,
+// or a different entity selected mid-drag has zero effect on this rectangle;
+// only the commit path (resolved by sceneId/entityId, never "current
+// selection") can ever apply it. previewChanges is a cache updated only when
+// currentCell actually moves, not recomputed every render frame.
+struct PendingTileRectangle {
+    SceneId          sceneId;
+    EntityId         entityId = INVALID_ENTITY;
+    TilemapCell      replacement;
+    bool             outlineOnly = false;
+    TilemapCellCoord startCell;
+    TilemapCellCoord currentCell;
+    std::vector<TilemapCellChange> previewChanges;
+};
+
 // Workspace state for tilemap painting. Invariants: no ProjectDocument copy;
 // no duplicated "active entity" (read from SelectionState at stroke-begin,
 // then pinned into PendingTileStroke::entityId for that stroke only);
 // pendingStroke never persists past pointer-up/Escape/lost-focus;
 // selectedTileId is workspace-only (mirrors TilesetEditorState::
 // selectedTileId's identical optional<string> shape and "no sentinel for
-// empty" policy).
+// empty" policy). pendingStroke and pendingRectangle are mutually exclusive:
+// EditorCoordinator rejects starting either while the other is set, and
+// switching EditorTool cancels whichever is pending.
 struct TilemapEditorState {
-    std::optional<TileId>            selectedTileId;
-    std::optional<TilemapCellCoord>  hoveredCell;
-    std::optional<PendingTileStroke> pendingStroke;
+    std::optional<TileId>               selectedTileId;
+    std::optional<TilemapCellCoord>     hoveredCell;
+    std::optional<PendingTileStroke>    pendingStroke;
+    std::optional<PendingTileRectangle> pendingRectangle;
+    // Shape toggle for the Rectangle tool (Solid/Outline). A persistent UI
+    // preference, not tied to any one drag - read once into
+    // PendingTileRectangle::outlineOnly when a drag begins.
+    bool rectangleOutlineMode = false;
 };
 
 // Shared workspace state. This is not saved into the project file.

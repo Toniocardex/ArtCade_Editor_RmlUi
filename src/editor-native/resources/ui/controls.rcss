@@ -531,8 +531,17 @@
     border-left: 2dp #3b82f6;
     color: #d4d4d8;
 }
-.row-name { flex: 1; font-size: 12dp; }
+.row-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: 12dp;
+}
 .row-type {
+    flex-shrink: 0;
+    margin-left: 6dp;
+    white-space: nowrap;
     color: #52525b;
     font-size: 9dp;
     font-weight: 600;

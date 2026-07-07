@@ -38,6 +38,7 @@
 #include "editor-native/model/tilemap_chunk_math.h"
 #include "editor-native/model/tilemap_cell_access.h"
 #include "editor-native/model/tilemap_stroke_math.h"
+#include "editor-native/model/tilemap_region_math.h"
 #include "editor-native/model/tilemap_validation.h"
 #include "editor-native/model/tilemap_render_view.h"
 #include "editor-native/model/sprite_render_view.h"
@@ -1957,6 +1958,637 @@ static void runTilemapPaintingTests() {
         CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
         const SceneFrameSnapshot snap = collectSceneFrameSnapshot(c.document(), kSceneA, INVALID_ENTITY);
         CHECK(pickEntityAt(snap, Vec2{10.f, 10.f}) == kHero);   // inside the painted 32x32 cell at origin
+    }
+}
+
+// Slice 7 - Rectangle Solid/Outline and Flood Fill, reusing PaintTilemapCellsCommand.
+static void runTilemapRegionTests() {
+    // ======================= tryOffsetCell =======================
+    {
+        constexpr int kMax = std::numeric_limits<int>::max();
+        constexpr int kMin = std::numeric_limits<int>::min();
+        CHECK(tryOffsetCell(TilemapCellCoord{0, 0}, 1, 0)->cellX == 1);
+        CHECK(tryOffsetCell(TilemapCellCoord{5, -5}, -1, 1)->cellX == 4);
+        CHECK(tryOffsetCell(TilemapCellCoord{5, -5}, -1, 1)->cellY == -4);
+        CHECK(!tryOffsetCell(TilemapCellCoord{kMax, 0}, 1, 0).has_value());
+        CHECK(!tryOffsetCell(TilemapCellCoord{kMin, 0}, -1, 0).has_value());
+        CHECK(!tryOffsetCell(TilemapCellCoord{0, kMax}, 0, 1).has_value());
+        CHECK(!tryOffsetCell(TilemapCellCoord{0, kMin}, 0, -1).has_value());
+        CHECK(tryOffsetCell(TilemapCellCoord{kMax, 0}, -1, 0).has_value());   // moving away from the edge is fine
+    }
+
+    // ======================= rectangleFillChanges =======================
+    // -- 3x3 solid: exactly 9 cells, all empty -> tile-1 -----------------------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell tile1 = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        const TileRegionBuildResult r = rectangleFillChanges(tm, {0, 0}, {2, 2}, tile1);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.size() == 9);
+        for (const TilemapCellChange& c : r.changes) {
+            CHECK(!c.before.has_value());
+            CHECK(c.after == tile1);
+        }
+    }
+
+    // -- Inverted corners produce the identical result as a forward drag ------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell tile1 = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        const TileRegionBuildResult forward = rectangleFillChanges(tm, {0, 0}, {2, 2}, tile1);
+        const TileRegionBuildResult inverted = rectangleFillChanges(tm, {2, 2}, {0, 0}, tile1);
+        CHECK(forward.changes.size() == 9);
+        CHECK(inverted.changes.size() == 9);
+    }
+
+    // -- Negative coordinates ---------------------------------------------------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell tile1 = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        const TileRegionBuildResult r = rectangleFillChanges(tm, {-5, -5}, {-3, -3}, tile1);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.size() == 9);
+    }
+
+    // -- No-op: painting a region that's already entirely the target tile -----
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell tile1 = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        writeTilemapCell(tm, {0, 0}, tile1);
+        writeTilemapCell(tm, {1, 0}, tile1);
+        const TileRegionBuildResult r = rectangleFillChanges(tm, {0, 0}, {1, 0}, tile1);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.empty());
+    }
+
+    // -- Within-limit large area succeeds (200 x 300 = 60000 <= 65536) ---------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell tile1 = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        const TileRegionBuildResult r = rectangleFillChanges(tm, {0, 0}, {199, 299}, tile1);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.size() == 60000);
+    }
+
+    // -- Over-limit rectangle rejected, no partial changes ---------------------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell tile1 = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        const TileRegionBuildResult r = rectangleFillChanges(tm, {0, 0}, {299, 299}, tile1);   // 90000 cells
+        CHECK(r.error.has_value());
+        CHECK(r.changes.empty());
+    }
+
+    // -- Extreme coordinates, small area: widened arithmetic gives the exact
+    // result with no overflow ---------------------------------------------------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell tile1 = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        constexpr int kMax = std::numeric_limits<int>::max();
+        const TileRegionBuildResult r = rectangleFillChanges(tm, {kMax - 2, 0}, {kMax, 0}, tile1);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.size() == 3);
+    }
+
+    // -- Astronomically huge span (near-full int32 range on both axes):
+    // rejected immediately, no overflow, no hang ---------------------------------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell tile1 = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        constexpr int kMax = std::numeric_limits<int>::max();
+        constexpr int kMin = std::numeric_limits<int>::min();
+        const TileRegionBuildResult r = rectangleFillChanges(tm, {kMin, kMin}, {kMax, kMax}, tile1);
+        CHECK(r.error.has_value());
+        CHECK(r.changes.empty());
+    }
+
+    // ======================= rectangleOutlineChanges =======================
+    // -- 5x5 outline: perimeter only (16 cells), not the 25-cell area ----------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell tile1 = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        const TileRegionBuildResult r = rectangleOutlineChanges(tm, {0, 0}, {4, 4}, tile1);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.size() == 16);
+    }
+
+    // -- 1x1 ---------------------------------------------------------------------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell tile1 = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        const TileRegionBuildResult r = rectangleOutlineChanges(tm, {3, 3}, {3, 3}, tile1);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.size() == 1);
+    }
+
+    // -- 1xN (single column): the full strip, no interior to exclude -----------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell tile1 = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        const TileRegionBuildResult r = rectangleOutlineChanges(tm, {0, 0}, {0, 6}, tile1);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.size() == 7);
+    }
+
+    // -- Nx1 (single row) ---------------------------------------------------------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell tile1 = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        const TileRegionBuildResult r = rectangleOutlineChanges(tm, {0, 0}, {6, 0}, tile1);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.size() == 7);
+    }
+
+    // -- 2x2: every cell is border, no interior ----------------------------------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell tile1 = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        const TileRegionBuildResult r = rectangleOutlineChanges(tm, {0, 0}, {1, 1}, tile1);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.size() == 4);
+    }
+
+    // -- Outline stays O(perimeter): a 300x300 outline is nowhere near its own
+    // 90000-cell area (which alone would exceed the limit) ----------------------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell tile1 = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        const TileRegionBuildResult r = rectangleOutlineChanges(tm, {0, 0}, {299, 299}, tile1);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.size() == 1196);   // 2*300 + 2*300 - 4
+    }
+
+    // -- Outline over the limit rejected (huge perimeter) ------------------------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell tile1 = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        const TileRegionBuildResult r = rectangleOutlineChanges(tm, {0, 0}, {40000, 40000}, tile1);
+        CHECK(r.error.has_value());
+        CHECK(r.changes.empty());
+    }
+
+    // -- No-op outline: border already uniform -----------------------------------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell tile1 = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        for (int x = 0; x <= 2; ++x) {
+            writeTilemapCell(tm, {x, 0}, tile1);
+            writeTilemapCell(tm, {x, 2}, tile1);
+        }
+        writeTilemapCell(tm, {0, 1}, tile1);
+        writeTilemapCell(tm, {2, 1}, tile1);
+        const TileRegionBuildResult r = rectangleOutlineChanges(tm, {0, 0}, {2, 2}, tile1);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.empty());   // all 8 border cells already tile-1
+    }
+
+    // ======================= floodFillChanges =======================
+    // -- target == replacement: immediate empty result, no traversal ----------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell tile1 = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        writeTilemapCell(tm, {0, 0}, tile1);
+        const TileRegionBuildResult r = floodFillChanges(tm, {0, 0}, tile1);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.empty());
+    }
+    {
+        // Empty -> empty (nullopt == nullopt) is also a same-value no-op.
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TileRegionBuildResult r = floodFillChanges(tm, {100, 100}, std::nullopt);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.empty());
+    }
+
+    // -- Enclosed region bounded by a different tile id: fill stops at the
+    // border, only the interior empty cells change ------------------------------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell wall = TilemapCellValue{"tile-2", TileTransformFlags::None};
+        const TilemapCell fillTile = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        // 5x5 ring of walls (cells (0,0)..(4,4)) around a 3x3 empty interior.
+        for (int x = 0; x <= 4; ++x) {
+            writeTilemapCell(tm, {x, 0}, wall);
+            writeTilemapCell(tm, {x, 4}, wall);
+        }
+        for (int y = 0; y <= 4; ++y) {
+            writeTilemapCell(tm, {0, y}, wall);
+            writeTilemapCell(tm, {4, y}, wall);
+        }
+        const TileRegionBuildResult r = floodFillChanges(tm, {2, 2}, fillTile);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.size() == 9);   // the 3x3 interior only
+        for (const TilemapCellChange& c : r.changes) {
+            CHECK(c.cell.cellX >= 1 && c.cell.cellX <= 3);
+            CHECK(c.cell.cellY >= 1 && c.cell.cellY <= 3);
+            CHECK(!c.before.has_value());
+            CHECK(c.after == fillTile);
+        }
+    }
+
+    // -- Diagonal-only connectivity does not spread (4-connected only) --------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell wall = TilemapCellValue{"tile-2", TileTransformFlags::None};
+        const TilemapCell fillTile = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        // 5x5 grid, walls everywhere except four single-cell pockets at the
+        // "diagonal" corners (1,1)/(3,1)/(1,3)/(3,3) - each fully enclosed by
+        // walls on all four sides, so 4-connectivity cannot cross between
+        // them even though they sit diagonally adjacent to one another.
+        for (int y = 0; y <= 4; ++y) {
+            for (int x = 0; x <= 4; ++x) {
+                const bool pocket = (x == 1 || x == 3) && (y == 1 || y == 3);
+                if (!pocket) writeTilemapCell(tm, {x, y}, wall);
+            }
+        }
+        const TileRegionBuildResult r = floodFillChanges(tm, {1, 1}, fillTile);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.size() == 1);   // stays in its own pocket; the other three untouched
+        CHECK(r.changes[0].cell.cellX == 1 && r.changes[0].cell.cellY == 1);
+    }
+
+    // -- Negative coordinates -----------------------------------------------------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell wall = TilemapCellValue{"tile-2", TileTransformFlags::None};
+        const TilemapCell fillTile = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        for (int x = -3; x <= -1; ++x) {
+            writeTilemapCell(tm, {x, -3}, wall);
+            writeTilemapCell(tm, {x, -1}, wall);
+        }
+        for (int y = -3; y <= -1; ++y) {
+            writeTilemapCell(tm, {-3, y}, wall);
+            writeTilemapCell(tm, {-1, y}, wall);
+        }
+        const TileRegionBuildResult r = floodFillChanges(tm, {-2, -2}, fillTile);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.size() == 1);
+        CHECK(r.changes[0].cell.cellX == -2 && r.changes[0].cell.cellY == -2);
+    }
+
+    // -- Open (unenclosed) empty region: cancelled at the limit, zero changes -
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell fillTile = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        const TileRegionBuildResult r = floodFillChanges(tm, {0, 0}, fillTile);   // fully open grid
+        CHECK(r.error.has_value());
+        CHECK(r.changes.empty());
+    }
+
+    // -- Near-INT_MAX origin on an open region: bounded on two sides by the
+    // coordinate edge, still hits the operation limit rather than overflowing -
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell fillTile = TilemapCellValue{"tile-1", TileTransformFlags::None};
+        constexpr int kMax = std::numeric_limits<int>::max();
+        const TileRegionBuildResult r = floodFillChanges(tm, {kMax, kMax}, fillTile);
+        CHECK(r.error.has_value());   // still open toward -x/-y -> hits the cap, never overflows
+        CHECK(r.changes.empty());
+    }
+
+    // -- Rectangle/Fill deltas commit and undo/redo through the same
+    // PaintTilemapCellsCommand as Brush/Eraser - no parallel Command --------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        const TilemapComponent& tm0 = *c.document().findInstanceInScene(kSceneA, kHero)->tilemap;
+        const TileRegionBuildResult built =
+            rectangleFillChanges(tm0, {0, 0}, {2, 2}, TilemapCellValue{"tile-1", TileTransformFlags::None});
+        CHECK(!built.error.has_value());
+        CHECK(built.changes.size() == 9);
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, built.changes}).ok);
+        for (int y = 0; y <= 2; ++y) {
+            for (int x = 0; x <= 2; ++x) {
+                CHECK(readTilemapCell(*c.document().findInstanceInScene(kSceneA, kHero)->tilemap, {x, y})
+                          ->tileId == "tile-1");
+            }
+        }
+        CHECK(c.undo().ok);
+        CHECK(!readTilemapCell(*c.document().findInstanceInScene(kSceneA, kHero)->tilemap, {0, 0}).has_value());
+        CHECK(c.redo().ok);
+        CHECK(readTilemapCell(*c.document().findInstanceInScene(kSceneA, kHero)->tilemap, {0, 0})->tileId
+              == "tile-1");
+    }
+
+    // -- Persistence: a Rectangle-painted delta survives save/reload ------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        const TilemapComponent& tm0 = *c.document().findInstanceInScene(kSceneA, kHero)->tilemap;
+        const TileRegionBuildResult built =
+            rectangleFillChanges(tm0, {0, 0}, {2, 2}, TilemapCellValue{"tile-1", TileTransformFlags::None});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, built.changes}).ok);
+
+        const std::filesystem::path path = testTempDir() / "tilemap-rectangle.artcade-project";
+        CHECK(saveProjectToFile(c, path).ok);
+        EditorCoordinator reloaded{ProjectDoc{}};
+        CHECK(loadProjectFromFile(reloaded, path).ok);
+        const TilemapComponent& tm = *reloaded.document().findInstanceInScene(kSceneA, kHero)->tilemap;
+        for (int y = 0; y <= 2; ++y) {
+            for (int x = 0; x <= 2; ++x) {
+                CHECK(readTilemapCell(tm, {x, y})->tileId == "tile-1");
+            }
+        }
+    }
+
+    // ======================= BeginTileRectangleIntent =======================
+    // -- success: captures scene/entity/tile/shape/start+current cell ---------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        CHECK(!c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);   // no tile selected
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(BeginTileRectangleIntent{kSceneA, kHero, {2, 3}}).ok);
+        CHECK(c.state().tilemapEditor.pendingRectangle.has_value());
+        const PendingTileRectangle& rect = *c.state().tilemapEditor.pendingRectangle;
+        CHECK(rect.sceneId == kSceneA);
+        CHECK(rect.entityId == kHero);
+        CHECK(rect.startCell.cellX == 2 && rect.startCell.cellY == 3);
+        CHECK(rect.currentCell.cellX == 2 && rect.currentCell.cellY == 3);
+        CHECK(!rect.outlineOnly);
+        CHECK(rect.replacement.has_value() && rect.replacement->tileId == "tile-1");
+        CHECK(rect.previewChanges.size() == 1);
+    }
+
+    // -- missing component / locked layer / missing tileset / Play running
+    // rejected, mirroring BeginTilePaintStrokeIntent's own guards ---------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};   // kHero has no tilemap
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(!c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);
+    }
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        SceneDef& scene = doc.scenes.at(kSceneA);
+        SceneLayerDef locked;
+        locked.id = "locked-layer";
+        locked.name = "Locked";
+        locked.locked = true;
+        scene.layers.push_back(locked);
+        scene.instances.front().layerId = "locked-layer";
+        EditorCoordinator c{doc};
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(!c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);
+    }
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.playCurrentScene().ok);
+        CHECK(!c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);
+    }
+
+    // -- Shape captured at Begin: flipping the toggle mid-drag never changes
+    // the in-progress rectangle --------------------------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        c.apply(SetRectangleShapeModeIntent{true});   // Outline mode active
+        CHECK(c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);
+        CHECK(c.state().tilemapEditor.pendingRectangle->outlineOnly);
+        c.apply(SetRectangleShapeModeIntent{false});   // flip mid-drag
+        CHECK(c.apply(UpdateTileRectangleIntent{{3, 3}}).ok);
+        CHECK(c.state().tilemapEditor.pendingRectangle->outlineOnly);   // unchanged: still Outline
+        CHECK(c.state().tilemapEditor.pendingRectangle->previewChanges.size() == 12);   // 4x4 perimeter
+    }
+
+    // -- Tile reselected mid-drag never changes the in-progress rectangle ------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);
+        c.apply(SelectPaintTileIntent{"tile-2"});   // reselect mid-drag: must not affect this rectangle
+        CHECK(c.apply(UpdateTileRectangleIntent{{1, 1}}).ok);
+        CHECK(c.apply(CommitTileRectangleIntent{}).ok);
+        const TilemapComponent& tm = *c.document().findInstanceInScene(kSceneA, kHero)->tilemap;
+        CHECK(readTilemapCell(tm, {0, 0})->tileId == "tile-1");
+        CHECK(readTilemapCell(tm, {1, 1})->tileId == "tile-1");
+    }
+
+    // -- Selected entity changed mid-drag never redirects the commit: it
+    // always targets the entity the rectangle actually started on ---------------
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        SceneInstanceDef other;
+        other.id = 99;
+        other.objectTypeId = "Other";
+        other.instanceName = "Other";
+        doc.scenes.at(kSceneA).instances.push_back(other);
+        EditorCoordinator c{doc};
+        sliceTilesOne(c);
+        TilemapComponent tmA; tmA.tilesetAssetId = "tiles-1";
+        TilemapComponent tmB; tmB.tilesetAssetId = "tiles-1";
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tmA}).ok);
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, 99, tmB}).ok);
+
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);   // starts on kHero
+        c.apply(SelectEntityIntent{99});   // user clicks the other entity mid-drag
+        CHECK(c.apply(UpdateTileRectangleIntent{{1, 1}}).ok);
+        CHECK(c.apply(CommitTileRectangleIntent{}).ok);
+
+        const TilemapComponent& heroTm = *c.document().findInstanceInScene(kSceneA, kHero)->tilemap;
+        const TilemapComponent& otherTm = *c.document().findInstanceInScene(kSceneA, 99)->tilemap;
+        CHECK(readTilemapCell(heroTm, {0, 0}).has_value());     // landed on the entity it started on
+        CHECK(!readTilemapCell(otherTm, {0, 0}).has_value());   // never touched
+    }
+
+    // ======================= UpdateTileRectangleIntent =======================
+    // -- Preview cache only recomputes when currentCell actually changes -------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);
+        CHECK(c.apply(UpdateTileRectangleIntent{{2, 2}}).ok);
+        CHECK(c.state().tilemapEditor.pendingRectangle->previewChanges.size() == 9);
+        const EditorOperationResult again = c.apply(UpdateTileRectangleIntent{{2, 2}});   // same cell
+        CHECK(again.ok);
+        CHECK(again.invalidation == EditorInvalidation::None);
+        CHECK(c.state().tilemapEditor.pendingRectangle->previewChanges.size() == 9);
+    }
+
+    // ======================= CommitTileRectangleIntent =======================
+    // -- Over-limit rectangle rejected at commit: no Command, pending cleared,
+    // and the preview never blanked mid-drag (kept the last valid box) ---------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);
+        CHECK(c.apply(UpdateTileRectangleIntent{{299, 299}}).ok);   // 90000 cells: over the limit
+        CHECK(c.state().tilemapEditor.pendingRectangle->previewChanges.size() == 1);   // unchanged from Begin
+        const std::size_t before = c.undoSize();
+        CHECK(!c.apply(CommitTileRectangleIntent{}).ok);
+        CHECK(c.undoSize() == before);
+        CHECK(!c.state().tilemapEditor.pendingRectangle.has_value());
+    }
+
+    // -- No-op commit (rectangle over an already-uniform region): no Command,
+    // pending still cleared -------------------------------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        std::vector<TilemapCellChange> seed;
+        seed.push_back(TilemapCellChange{{0, 0}, std::nullopt, TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, seed}).ok);
+
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);   // single cell, already tile-1
+        const std::size_t before = c.undoSize();
+        CHECK(c.apply(CommitTileRectangleIntent{}).ok);
+        CHECK(c.undoSize() == before);   // no-op: no Command
+        CHECK(!c.state().tilemapEditor.pendingRectangle.has_value());
+    }
+
+    // ======================= CancelTileRectangleIntent =======================
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        const uint64_t revision = c.document().revision();
+        const std::size_t before = c.undoSize();
+        CHECK(c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);
+        CHECK(c.state().tilemapEditor.pendingRectangle.has_value());
+        CHECK(c.apply(CancelTileRectangleIntent{}).ok);
+        CHECK(!c.state().tilemapEditor.pendingRectangle.has_value());
+        CHECK(c.document().revision() == revision);
+        CHECK(c.undoSize() == before);
+    }
+
+    // ======================= Mutual exclusion =======================
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Brush, {0, 0}}).ok);
+        CHECK(!c.apply(BeginTileRectangleIntent{kSceneA, kHero, {1, 1}}).ok);   // stroke already pending
+        CHECK(!c.state().tilemapEditor.pendingRectangle.has_value());
+        c.apply(EndTilePaintStrokeIntent{});
+
+        CHECK(c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);
+        CHECK(!c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Brush, {1, 1}}).ok);
+        CHECK(!c.state().tilemapEditor.pendingStroke.has_value());   // rectangle pending: stroke rejected
+    }
+
+    // -- Switching tool mid-drag cancels whichever operation is pending --------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Brush, {0, 0}}).ok);
+        CHECK(c.apply(SetActiveToolIntent{EditorTool::Rectangle}).ok);
+        CHECK(!c.state().tilemapEditor.pendingStroke.has_value());
+        CHECK(c.state().activeTool == EditorTool::Rectangle);
+
+        CHECK(c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);
+        CHECK(c.apply(SetActiveToolIntent{EditorTool::Fill}).ok);
+        CHECK(!c.state().tilemapEditor.pendingRectangle.has_value());
+    }
+
+    // ======================= reconcileWorkspace =======================
+    // -- Entity deleted mid-drag: only pendingRectangle is cleared; the tile/
+    // shape preferences the user already chose survive ---------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        c.apply(SetRectangleShapeModeIntent{true});
+        CHECK(c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);
+        CHECK(c.state().tilemapEditor.pendingRectangle.has_value());
+        CHECK(c.execute(DeleteEntityCommand{kSceneA, kHero}).ok);
+        CHECK(!c.state().tilemapEditor.pendingRectangle.has_value());
+        CHECK(c.state().tilemapEditor.selectedTileId.has_value());
+        CHECK(*c.state().tilemapEditor.selectedTileId == "tile-1");
+        CHECK(c.state().tilemapEditor.rectangleOutlineMode);
+    }
+
+    // ======================= FillTilemapIntent =======================
+    // -- success: floods a bounded interior region, exactly one Command --------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        std::vector<TilemapCellChange> walls;
+        for (int x = 0; x <= 4; ++x) {
+            walls.push_back(TilemapCellChange{{x, 0}, std::nullopt, TilemapCellValue{"tile-2", TileTransformFlags::None}});
+            walls.push_back(TilemapCellChange{{x, 4}, std::nullopt, TilemapCellValue{"tile-2", TileTransformFlags::None}});
+        }
+        for (int y = 1; y <= 3; ++y) {
+            walls.push_back(TilemapCellChange{{0, y}, std::nullopt, TilemapCellValue{"tile-2", TileTransformFlags::None}});
+            walls.push_back(TilemapCellChange{{4, y}, std::nullopt, TilemapCellValue{"tile-2", TileTransformFlags::None}});
+        }
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, walls}).ok);
+
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        const std::size_t before = c.undoSize();
+        CHECK(c.apply(FillTilemapIntent{kSceneA, kHero, {2, 2}}).ok);
+        CHECK(c.undoSize() == before + 1);
+        const TilemapComponent& tm = *c.document().findInstanceInScene(kSceneA, kHero)->tilemap;
+        CHECK(readTilemapCell(tm, {2, 2})->tileId == "tile-1");
+        CHECK(readTilemapCell(tm, {1, 1})->tileId == "tile-1");
+        CHECK(readTilemapCell(tm, {3, 3})->tileId == "tile-1");
+        CHECK(readTilemapCell(tm, {0, 0})->tileId == "tile-2");   // wall untouched
+    }
+
+    // -- No tile selected rejected ------------------------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        CHECK(!c.apply(FillTilemapIntent{kSceneA, kHero, {0, 0}}).ok);
+    }
+
+    // -- Rejected while Play is running -------------------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.playCurrentScene().ok);
+        CHECK(!c.apply(FillTilemapIntent{kSceneA, kHero, {0, 0}}).ok);
+    }
+
+    // -- Open region: cancelled, no Command, no dirty -----------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        const uint64_t revision = c.document().revision();
+        const std::size_t before = c.undoSize();
+        CHECK(!c.apply(FillTilemapIntent{kSceneA, kHero, {0, 0}}).ok);
+        CHECK(c.document().revision() == revision);
+        CHECK(c.undoSize() == before);
+    }
+
+    // -- True no-op (target already the selected tile): no Command, no dirty ---
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        std::vector<TilemapCellChange> seed;
+        seed.push_back(TilemapCellChange{{2, 2}, std::nullopt, TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, seed}).ok);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        const uint64_t revision = c.document().revision();
+        const std::size_t before = c.undoSize();
+        CHECK(c.apply(FillTilemapIntent{kSceneA, kHero, {2, 2}}).ok);   // target already tile-1: true no-op
+        CHECK(c.document().revision() == revision);
+        CHECK(c.undoSize() == before);
+    }
+
+    // ======================= SetRectangleShapeModeIntent =======================
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        const uint64_t revision = c.document().revision();
+        const std::size_t before = c.undoSize();
+        CHECK(!c.state().tilemapEditor.rectangleOutlineMode);
+        CHECK(c.apply(SetRectangleShapeModeIntent{true}).ok);
+        CHECK(c.state().tilemapEditor.rectangleOutlineMode);
+        CHECK(c.document().revision() == revision);
+        CHECK(c.undoSize() == before);
+        CHECK(!c.document().isDirty());
     }
 }
 
@@ -6429,6 +7061,7 @@ int main() {
     runTilesetTests();
     runTilemapComponentTests();
     runTilemapPaintingTests();
+    runTilemapRegionTests();
 
     std::cout << "editor-core-test: " << g_passed << " passed, "
               << g_failed << " failed\n";

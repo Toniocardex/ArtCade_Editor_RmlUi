@@ -23,4 +23,14 @@ void applyPendingTilemapStrokePreview(SceneFrameSnapshot& snapshot,
                                       const ProjectDocument& document,
                                       const TilemapEditorState& tilemapEditor);
 
+// Same overlay contract as applyPendingTilemapStrokePreview, for the
+// Rectangle tool's cached PendingTileRectangle::previewChanges instead of a
+// PendingTileStroke's live accumulator. pendingStroke and pendingRectangle
+// are mutually exclusive, so exactly one of the two functions ever does
+// anything on a given frame; both are called unconditionally from the same
+// render call site for that reason.
+void applyPendingTilemapRectanglePreview(SceneFrameSnapshot& snapshot,
+                                         const ProjectDocument& document,
+                                         const TilemapEditorState& tilemapEditor);
+
 } // namespace ArtCade::EditorNative

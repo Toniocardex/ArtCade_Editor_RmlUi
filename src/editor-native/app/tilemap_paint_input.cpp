@@ -17,7 +17,8 @@ namespace ArtCade::EditorNative {
 namespace {
 
 bool isPaintTool(EditorTool tool) {
-    return tool == EditorTool::Brush || tool == EditorTool::Eraser || tool == EditorTool::Picker;
+    return tool == EditorTool::Brush || tool == EditorTool::Eraser || tool == EditorTool::Picker
+        || tool == EditorTool::Rectangle || tool == EditorTool::Fill;
 }
 
 // screen -> world (existing screenToWorld/makeSceneViewCamera) -> cell, the
@@ -36,11 +37,15 @@ void routeViewportTilemapPaint(EditorCoordinator& coordinator, const ViewportRec
                                const RmlInputResult& rml) {
     const EditorTool tool = coordinator.state().activeTool;
 
-    // Escape / lost window focus mid-stroke: cancel, never commit - safer to
-    // cancel an incomplete stroke than commit it.
-    if (coordinator.state().tilemapEditor.pendingStroke
+    // Escape / lost window focus mid-operation: cancel, never commit - safer
+    // to cancel an incomplete stroke/rectangle than commit it. pendingStroke
+    // and pendingRectangle are mutually exclusive, so at most one of these
+    // two calls ever does anything.
+    if ((coordinator.state().tilemapEditor.pendingStroke
+         || coordinator.state().tilemapEditor.pendingRectangle)
         && (IsKeyPressed(KEY_ESCAPE) || !IsWindowFocused())) {
-        coordinator.apply(CancelTilePaintStrokeIntent{});
+        if (coordinator.state().tilemapEditor.pendingStroke) coordinator.apply(CancelTilePaintStrokeIntent{});
+        if (coordinator.state().tilemapEditor.pendingRectangle) coordinator.apply(CancelTileRectangleIntent{});
         return;
     }
     if (!isPaintTool(tool)) return;
@@ -49,9 +54,8 @@ void routeViewportTilemapPaint(EditorCoordinator& coordinator, const ViewportRec
                                    /*rmlConsumedEvent*/ false, rml.textFocus,
                                    /*rmlPopupOpen*/ false};
     if (!shouldViewportReceiveInput(ctx)) {
-        if (coordinator.state().tilemapEditor.pendingStroke) {
-            coordinator.apply(CancelTilePaintStrokeIntent{});
-        }
+        if (coordinator.state().tilemapEditor.pendingStroke) coordinator.apply(CancelTilePaintStrokeIntent{});
+        if (coordinator.state().tilemapEditor.pendingRectangle) coordinator.apply(CancelTileRectangleIntent{});
         return;
     }
 
@@ -83,6 +87,35 @@ void routeViewportTilemapPaint(EditorCoordinator& coordinator, const ViewportRec
             // Empty cell: no selection change (recommended policy) - the
             // hovered-cell/"Empty cell" status text is driven separately by
             // hoveredCell + readTilemapCell in the Inspector refresh.
+        }
+        return;
+    }
+
+    if (tool == EditorTool::Fill) {
+        // A single click, not a drag: the coordinator builds the delta and
+        // dispatches (at most) one Command synchronously - no pending state.
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            coordinator.apply(FillTilemapIntent{active, inst->id, cell});
+        }
+        return;
+    }
+
+    if (tool == EditorTool::Rectangle) {
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            coordinator.apply(BeginTileRectangleIntent{active, inst->id, cell});
+            return;
+        }
+        if (coordinator.state().tilemapEditor.pendingRectangle && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+            coordinator.apply(UpdateTileRectangleIntent{cell});
+            return;
+        }
+        if (coordinator.state().tilemapEditor.pendingRectangle
+            && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+            // The coordinator builds the delta and executes the Command
+            // itself (resolved by the pending rectangle's own captured
+            // sceneId/entityId, never "current selection") - the router only
+            // reports the gesture.
+            coordinator.apply(CommitTileRectangleIntent{});
         }
         return;
     }

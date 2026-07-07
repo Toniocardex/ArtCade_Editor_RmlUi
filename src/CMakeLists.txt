@@ -23,6 +23,7 @@ add_library(artcade-editor-core STATIC
     editor-native/model/tilemap_cell_access.cpp
     editor-native/model/tilemap_stroke_math.cpp
     editor-native/model/tilemap_stroke_preview.cpp
+    editor-native/model/tilemap_region_math.cpp
     editor-native/view/scene_grid.cpp
     editor-native/view/scene_view_camera.cpp
     editor-native/commands/box_collider_commands.cpp
