@@ -115,14 +115,10 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
         visible.insert(inst.id);
     };
 
-    // An instance's effective layer, needed only to filter hidden layers here
-    // (orderedInstances already applies the same rule for ordering).
-    const auto effectiveLayer = [&](const SceneInstanceDef& inst) -> std::string {
-        if (!inst.layerId.empty() && document.hasLayer(sceneId, inst.layerId)) return inst.layerId;
-        return scene->defaultLayerId;
-    };
-    for (const SceneInstanceDef* inst : document.orderedInstances(sceneId)) {
-        if (!hiddenLayers.empty() && hiddenLayers.count(effectiveLayer(*inst))) continue;
+    for (const SceneInstanceDef* inst : document.instancesInRenderOrder(sceneId)) {
+        if (!hiddenLayers.empty() && hiddenLayers.count(document.effectiveLayerId(sceneId, *inst))) {
+            continue;
+        }
         emit(*inst);
     }
 
@@ -145,7 +141,11 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const PlaySession& session) {
     snapshot.worldSize = scene.worldSize;
     snapshot.backgroundColor = scene.backgroundColor;
 
-    for (const RuntimeEntity& entity : scene.entities) {
+    // Render order only (indices into scene.entities) - simulation
+    // (advance/update/findEntity) always iterates scene.entities directly in
+    // its own structural order, never this one.
+    for (std::size_t index : scene.renderOrder) {
+        const RuntimeEntity& entity = scene.entities[index];
         const SceneFrameRect bounds = transformBounds(entity.transform);
         // A tilemap entity never falls back to the generic editor placeholder
         // in Play, painted or not - unlike Edit, where the placeholder is a
@@ -161,8 +161,21 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const PlaySession& session) {
         }
 
         if (entity.tilemap.has_value() && !entity.tilemap->cells.empty()) {
+            // Destination is recomputed from the entity's *current* transform
+            // every frame - never cached from Start Play - so the tilemap
+            // keeps following its owning entity if a mover moves it.
+            std::vector<SceneFrameTilemapCell> cells;
+            cells.reserve(entity.tilemap->cells.size());
+            for (const RuntimeTilemapCell& cell : entity.tilemap->cells) {
+                cells.push_back(SceneFrameTilemapCell{
+                    tilemapCellDestination(entity.transform.position, entity.tilemap->cellSize,
+                                           cell.cellX, cell.cellY),
+                    SceneFrameRect{cell.sourceRect.x, cell.sourceRect.y,
+                                  cell.sourceRect.w, cell.sourceRect.h},
+                });
+            }
             snapshot.tilemaps.push_back(SceneFrameTilemap{
-                entity.id, entity.tilemap->imageAssetId, entity.tilemap->cells, false});
+                entity.id, entity.tilemap->imageAssetId, std::move(cells), false});
         }
 
         if (entity.sprite.has_value() && !entity.sprite->assetId.empty()) {

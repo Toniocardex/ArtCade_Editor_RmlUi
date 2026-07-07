@@ -176,8 +176,10 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
     session.scene().worldSize = scene->worldSize;
     session.scene().backgroundColor = scene->backgroundColor;
 
-    for (const SceneInstanceDef* instancePtr : document.orderedInstances(sceneId)) {
-        const SceneInstanceDef& instance = *instancePtr;
+    // Structural order (SceneDef::instances' own): simulation must never be
+    // coupled to the visual layer order (see RuntimeScene::renderOrder below).
+    std::unordered_map<EntityId, std::size_t> indexByEntity;
+    for (const SceneInstanceDef& instance : scene->instances) {
         RuntimeEntity entity;
         entity.id = instance.id;
         entity.name = instance.instanceName;
@@ -298,18 +300,46 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
                 }
                 return std::nullopt;
             }
+            // Strict: an unresolvable tile id fails Play atomically rather
+            // than silently starting with content the author placed missing
+            // (Edit's own tilemapRenderCells stays lenient - see its doc).
+            const std::optional<std::vector<TilemapResolvedCell>> resolved =
+                resolveTilemapCellsStrict(*instance.tilemap, *tileset);
+            if (!resolved) {
+                if (error) {
+                    *error = "Cannot start Play: tilemap entity " + std::to_string(instance.id)
+                           + " references an unknown tile id";
+                }
+                return std::nullopt;
+            }
             // Dedup is free: emplace on an already-present AssetId is a no-op,
             // so two tilemaps (or a tilemap and a sprite) sharing one image
             // asset still load exactly one texture.
             session.assets_.imageAssets.emplace(
                 tilesetImage->assetId, RuntimeImageAsset{tilesetImage->assetId, tilesetImage->sourcePath});
-            entity.tilemap = RuntimeTilemap{
-                tileset->imageAssetId,
-                tilemapRenderCells(*instance.tilemap, *tileset, instance.transform.position),
-            };
+
+            RuntimeTilemap runtimeTilemap;
+            runtimeTilemap.imageAssetId = tileset->imageAssetId;
+            runtimeTilemap.cellSize = instance.tilemap->cellSize;
+            runtimeTilemap.cells.reserve(resolved->size());
+            for (const TilemapResolvedCell& cell : *resolved) {
+                runtimeTilemap.cells.push_back(RuntimeTilemapCell{
+                    cell.cellX, cell.cellY,
+                    AnimationFrameRect{cell.source.x, cell.source.y, cell.source.width, cell.source.height}});
+            }
+            entity.tilemap = std::move(runtimeTilemap);
         }
 
+        indexByEntity.emplace(entity.id, session.scene().entities.size());
         session.scene().entities.push_back(std::move(entity));
+    }
+
+    // Render order is purely a draw-order hint for the Play snapshot, built
+    // separately from the structural entities list above so a scene layer
+    // reorder can never affect simulation order.
+    for (const SceneInstanceDef* inst : document.instancesInRenderOrder(sceneId)) {
+        const auto it = indexByEntity.find(inst->id);
+        if (it != indexByEntity.end()) session.scene().renderOrder.push_back(it->second);
     }
 
     return session;

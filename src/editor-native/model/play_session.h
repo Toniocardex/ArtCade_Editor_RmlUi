@@ -1,7 +1,6 @@
 #pragma once
 
 #include "core/types.h"
-#include "editor-native/model/scene_frame_snapshot.h"
 
 #include <optional>
 #include <string>
@@ -54,16 +53,29 @@ struct RuntimeBoxCollider {
     BoxColliderMode mode = BoxColliderMode::Solid;
 };
 
+// One populated tilemap cell in *local* cell coordinates - deliberately never
+// world-space: the owning RuntimeEntity's Transform.position can change during
+// Play (a mover), so the world destination is computed fresh every frame in
+// collectSceneFrameSnapshot(const PlaySession&) via tilemapCellDestination(...),
+// never baked in once at materialize time.
+struct RuntimeTilemapCell {
+    int cellX = 0;
+    int cellY = 0;
+    AnimationFrameRect sourceRect{};   // tileset pixel source rect
+};
+
 // Runtime copy of a TilemapComponent (ADR-0001: entity-owned), compiled once at
-// materialize via the same tilemapRenderCells(...) pure math Edit uses - no
-// second cell->world/source-rect math, no reference back to the authoring
-// TilemapComponent or ProjectDocument. `cells` is already sparse (populated
-// cells only, per tilemapRenderCells); an entity with a TilemapComponent but
+// materialize via resolveTilemapCellsStrict(...) - the same tile-id resolution
+// Edit's tilemapRenderCells uses, just strict instead of lenient (Play must
+// reject atomically on an unresolvable tile id, not skip it). No reference
+// back to the authoring TilemapComponent or ProjectDocument. `cells` is
+// already sparse (populated cells only); an entity with a TilemapComponent but
 // no painted cells materializes an empty `cells` vector, which the Play
 // snapshot collector treats as "draw nothing" - never the editor placeholder.
 struct RuntimeTilemap {
     AssetId imageAssetId;
-    std::vector<SceneFrameTilemapCell> cells;
+    Vec2 cellSize{32.f, 32.f};
+    std::vector<RuntimeTilemapCell> cells;
 };
 
 struct RuntimeEntity {
@@ -123,7 +135,14 @@ struct RuntimeScene {
     std::string name;
     Vec2 worldSize;
     Vec4 backgroundColor;
-    std::vector<RuntimeEntity> entities;
+    std::vector<RuntimeEntity> entities;   // structural order (SceneDef::instances' own)
+    // Back-to-front render order, as indices into `entities` - built once at
+    // materialize from ProjectDocument::instancesInRenderOrder. A purely
+    // visual draw-order hint for collectSceneFrameSnapshot(const PlaySession&);
+    // advance()/update()/findEntity() always iterate `entities` directly in
+    // its own structural order, so reordering scene layers can never change
+    // simulation order.
+    std::vector<std::size_t> renderOrder;
 };
 
 struct RuntimeImageAsset {

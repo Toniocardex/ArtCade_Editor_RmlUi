@@ -144,13 +144,19 @@ Decisione:
 ```text
 SceneInstanceDef::tilemap
     ↓ PlaySession::materialize() (una volta, a Start Play)
-    ↓ tilemapRenderCells(...)      — la stessa matematica pura di Slice 5,
-    │                                 non duplicata
-RuntimeTilemap { imageAssetId, cells }   — copia indipendente, nessun
-                                            puntatore/riferimento al
-                                            TilemapComponent o al
-                                            ProjectDocument
+    ↓ resolveTilemapCellsStrict(...)   — stessa resoluzione tile-id di Slice 5
+    │                                    (tilemapRenderCells), ma atomica: un
+    │                                    TileId sconosciuto rifiuta Play
+RuntimeTilemap { imageAssetId, cellSize, cells[] }   — copia indipendente,
+    │             cells in coordinate LOCALI (cellX/cellY + source rect),
+    │             mai world-space: nessun puntatore/riferimento al
+    │             TilemapComponent o al ProjectDocument
     ↓ collectSceneFrameSnapshot(const PlaySession&)
+    ↓ tilemapCellDestination(entity.transform.position, cellSize, cellX, cellY)
+    │             — ricalcolato ogni frame dal transform CORRENTE dell'entità,
+    │                mai quello congelato all'avvio del Play (un LinearMover/
+    │                TopDownController/PlatformerController può muovere
+    │                l'entità durante Play: la tilemap deve seguirla)
 SceneFrameSnapshot.tilemaps   — lo stesso tipo che Edit già produce
     ↓ SceneView::render()        — lo stesso renderer, nessun secondo
 ```
@@ -159,9 +165,16 @@ SceneFrameSnapshot.tilemaps   — lo stesso tipo che Edit già produce
   `TilemapData`) resta **compatibility-only**, consumato solo dal runtime
   condiviso separato (`ArtCade-Studio_V2/runtime-cpp`). Non è mai popolato
   dalle nuove feature di questo editor.
-- L'ordinamento per layer del Play riusa `ProjectDocument::orderedInstances`,
-  la stessa funzione condivisa ora usata anche dal collector di Edit — un solo
-  algoritmo di ordinamento, non due copie.
+- L'ordinamento per layer del Play riusa `ProjectDocument::instancesInRenderOrder`
+  (+ `effectiveLayerId`), le stesse funzioni condivise usate dal collector di
+  Edit — un solo algoritmo di ordinamento, non due copie. **È un ordine di
+  RENDER, non di simulazione**: `RuntimeScene::entities` resta nell'ordine
+  strutturale di `SceneDef::instances` (quello che `advance()`/`update()`
+  attraversano per movimento/controller/animazione); `RuntimeScene::renderOrder`
+  è un elenco separato di indici, letto solo da
+  `collectSceneFrameSnapshot(const PlaySession&)`. Riordinare i layer grafici
+  di una scena non deve mai poter cambiare l'ordine con cui la simulazione
+  processa le entità.
 - **Fuori scope, esplicitamente non deciso qui**: la parità con un vero
   runtime "esportato"/standalone. Questo repository ha un solo eseguibile
   (`artcade-editor-native`, l'editor); non esiste alcuna pipeline di export o
