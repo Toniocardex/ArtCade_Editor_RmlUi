@@ -35,17 +35,21 @@ TilemapCellCoord worldToCell(Vec2 world, Vec2 originPosition, Vec2 cellSize) {
 
 void routeViewportTilemapPaint(EditorCoordinator& coordinator, const ViewportRect& rect,
                                const RmlInputResult& rml) {
-    const EditorTool tool = coordinator.state().activeTool;
+    const EditorTool tool = coordinator.effectiveTilemapTool();
 
     // Escape / lost window focus mid-operation: cancel, never commit - safer
     // to cancel an incomplete stroke/rectangle than commit it. pendingStroke
     // and pendingRectangle are mutually exclusive, so at most one of these
-    // two calls ever does anything.
+    // two calls ever does anything. EndTemporaryToolOverrideIntent is always
+    // safe to send (a no-op with nothing pending), so it never needs its own
+    // guard here - a right-click Eraser stroke cancelled this way still
+    // leaves the user back on their own persistent tool.
     if ((coordinator.state().tilemapEditor.pendingStroke
          || coordinator.state().tilemapEditor.pendingRectangle)
         && (IsKeyPressed(KEY_ESCAPE) || !IsWindowFocused())) {
         if (coordinator.state().tilemapEditor.pendingStroke) coordinator.apply(CancelTilePaintStrokeIntent{});
         if (coordinator.state().tilemapEditor.pendingRectangle) coordinator.apply(CancelTileRectangleIntent{});
+        coordinator.apply(EndTemporaryToolOverrideIntent{});
         return;
     }
     if (!isPaintTool(tool)) return;
@@ -56,6 +60,7 @@ void routeViewportTilemapPaint(EditorCoordinator& coordinator, const ViewportRec
     if (!shouldViewportReceiveInput(ctx)) {
         if (coordinator.state().tilemapEditor.pendingStroke) coordinator.apply(CancelTilePaintStrokeIntent{});
         if (coordinator.state().tilemapEditor.pendingRectangle) coordinator.apply(CancelTileRectangleIntent{});
+        coordinator.apply(EndTemporaryToolOverrideIntent{});
         return;
     }
 
@@ -120,14 +125,21 @@ void routeViewportTilemapPaint(EditorCoordinator& coordinator, const ViewportRec
         return;
     }
 
-    // Brush / Eraser. Right-click is a shortcut for Eraser: switching the
-    // active tool first (the same SetActiveToolIntent a real click on the
-    // Eraser button sends, so it lights up too) means the Begin/Update/End
-    // calls below are the exact same call as a left-click Eraser stroke -
-    // just also polling the right button, nothing duplicated.
+    // Brush / Eraser. Right-click is a momentary Eraser override, not a
+    // persistent tool switch: it never touches EditorState::activeTool, so
+    // whatever the user had selected (Brush) is exactly what's active again
+    // the instant the gesture ends - no re-click needed. The Tool row still
+    // highlights Eraser during the gesture because it reads
+    // coordinator.effectiveTilemapTool(), which layers the override over the
+    // persistent tool. A failed Begin (locked layer, Play started mid-frame,
+    // etc.) leaves no pendingStroke to later trigger the override's own
+    // cleanup, so it is cleared right here too - every exit from this
+    // gesture ends the override, with no path that can leave it stuck.
     if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
-        coordinator.apply(SetActiveToolIntent{EditorTool::Eraser});
-        coordinator.apply(BeginTilePaintStrokeIntent{active, inst->id, EditorTool::Eraser, cell});
+        coordinator.apply(BeginTemporaryToolOverrideIntent{EditorTool::Eraser});
+        const EditorOperationResult began =
+            coordinator.apply(BeginTilePaintStrokeIntent{active, inst->id, EditorTool::Eraser, cell});
+        if (!began.ok) coordinator.apply(EndTemporaryToolOverrideIntent{});
         return;
     }
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
@@ -151,6 +163,7 @@ void routeViewportTilemapPaint(EditorCoordinator& coordinator, const ViewportRec
                 PaintTilemapCellsCommand{stroke.sceneId, stroke.entityId, std::move(changes)});
         }
         coordinator.apply(EndTilePaintStrokeIntent{});
+        coordinator.apply(EndTemporaryToolOverrideIntent{});   // no-op for a left-click stroke
     }
 }
 

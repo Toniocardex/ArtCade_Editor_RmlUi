@@ -1959,6 +1959,93 @@ static void runTilemapPaintingTests() {
         const SceneFrameSnapshot snap = collectSceneFrameSnapshot(c.document(), kSceneA, INVALID_ENTITY);
         CHECK(pickEntityAt(snap, Vec2{10.f, 10.f}) == kHero);   // inside the painted 32x32 cell at origin
     }
+
+    // ================= Eraser-via-right-click momentary override =================
+    // effectiveTilemapTool(): no override -> the persistent tool -------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+        CHECK(c.effectiveTilemapTool() == EditorTool::Brush);
+    }
+
+    // BeginTemporaryToolOverrideIntent: layers over the persistent tool without
+    // ever writing activeTool - this is the whole point of the design ------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+        const auto begin = c.apply(BeginTemporaryToolOverrideIntent{EditorTool::Eraser});
+        CHECK(begin.ok);
+        CHECK(begin.invalidation == EditorInvalidation::Inspector);
+        CHECK(c.effectiveTilemapTool() == EditorTool::Eraser);
+        CHECK(c.state().activeTool == EditorTool::Brush);   // persistent selection untouched
+    }
+
+    // EndTemporaryToolOverrideIntent: clears it, reverting to the persistent tool -
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+        c.apply(BeginTemporaryToolOverrideIntent{EditorTool::Eraser});
+        const auto end = c.apply(EndTemporaryToolOverrideIntent{});
+        CHECK(end.ok);
+        CHECK(c.effectiveTilemapTool() == EditorTool::Brush);
+    }
+
+    // EndTemporaryToolOverrideIntent with nothing set: harmless no-op, safe for
+    // every termination path (commit/cancel/failed-Begin) to call unconditionally
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        const auto end = c.apply(EndTemporaryToolOverrideIntent{});
+        CHECK(end.ok);
+        CHECK(end.invalidation == EditorInvalidation::None);
+    }
+
+    // Full gesture: Brush selected, right-click-Eraser overrides for one stroke,
+    // paints as Eraser, then ends - the persistent tool is Brush throughout and
+    // straight after, matching how a real Brush->right-click->release cycle must
+    // feel (no re-click needed to keep painting with Brush) ----------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+        std::vector<TilemapCellChange> seed;
+        seed.push_back(TilemapCellChange{{0, 0}, std::nullopt,
+                                         TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, seed}).ok);
+
+        c.apply(BeginTemporaryToolOverrideIntent{EditorTool::Eraser});
+        CHECK(c.effectiveTilemapTool() == EditorTool::Eraser);
+        CHECK(c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Eraser, {0, 0}}).ok);
+        CHECK(c.state().activeTool == EditorTool::Brush);   // still Brush mid-gesture
+
+        const PendingTileStroke& stroke = *c.state().tilemapEditor.pendingStroke;
+        std::vector<TilemapCellChange> changes = normalizePaintStrokeChanges(stroke.changes);
+        CHECK(!changes.empty());
+        CHECK(c.execute(PaintTilemapCellsCommand{stroke.sceneId, stroke.entityId, changes}).ok);
+        c.apply(EndTilePaintStrokeIntent{});
+        c.apply(EndTemporaryToolOverrideIntent{});
+
+        CHECK(!readTilemapCell(*c.document().findInstanceInScene(kSceneA, kHero)->tilemap, {0, 0}).has_value());
+        CHECK(c.state().activeTool == EditorTool::Brush);
+        CHECK(c.effectiveTilemapTool() == EditorTool::Brush);   // back to Brush, no re-click needed
+        CHECK(!c.state().tilemapEditor.temporaryToolOverride.has_value());
+    }
+
+    // Entity deleted mid-stroke while an override is active: reconcileWorkspace
+    // must drop the override too, or it would be stuck on Eraser with no stroke
+    // left to ever trigger its own cleanup ----------------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+        c.apply(BeginTemporaryToolOverrideIntent{EditorTool::Eraser});
+        CHECK(c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Eraser, {0, 0}}).ok);
+        CHECK(c.state().tilemapEditor.temporaryToolOverride.has_value());
+        CHECK(c.execute(DeleteEntityCommand{kSceneA, kHero}).ok);
+        CHECK(!c.state().tilemapEditor.pendingStroke.has_value());
+        CHECK(!c.state().tilemapEditor.temporaryToolOverride.has_value());
+        CHECK(c.effectiveTilemapTool() == EditorTool::Brush);
+    }
 }
 
 // Slice 7 - Rectangle Solid/Outline and Flood Fill, reusing PaintTilemapCellsCommand.

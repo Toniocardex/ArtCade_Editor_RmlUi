@@ -602,7 +602,11 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                     "<br/><button class=\"panel-btn\" data-action=\"open-tilemap-tileset-editor\">"
                     "Open Tileset Editor</button></div>";
         } else {
-            const EditorTool activeTool = coordinator.state().activeTool;
+            // Reads the *effective* tool (persistent selection, or the
+            // momentary Eraser-via-right-click override while it's active) so
+            // the Eraser button visibly lights up during that gesture without
+            // the persistent selection (e.g. Brush) ever actually changing.
+            const EditorTool activeTool = coordinator.effectiveTilemapTool();
             html += "<div class=\"mode-block\"><span class=\"mode-label\">Tool</span>"
                     "<div class=\"mode-options\">";
             const auto toolOption = [&](EditorTool tool, const char* action, const char* label) {

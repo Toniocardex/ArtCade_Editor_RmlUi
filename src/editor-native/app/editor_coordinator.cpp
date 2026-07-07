@@ -253,9 +253,14 @@ EditorInvalidation EditorCoordinator::reconcileWorkspace() {
         if (!inst || !inst->tilemap.has_value()) {
             // The entity being painted (or its component) vanished mid-stroke -
             // discard only the stroke, not the tile/tool preferences the user
-            // already chose (selectedTileId, rectangleOutlineMode, ...).
+            // already chose (selectedTileId, rectangleOutlineMode, ...). This
+            // bypasses routeViewportTilemapPaint's own End/Cancel calls, so a
+            // right-click Eraser override in progress is dropped here too -
+            // otherwise it would be stuck on Eraser with no stroke left to
+            // ever trigger its cleanup.
             state_.tilemapEditor.pendingStroke.reset();
             state_.tilemapEditor.hoveredCell.reset();
+            state_.tilemapEditor.temporaryToolOverride.reset();
             extra |= EditorInvalidation::Viewport;
         }
     }
@@ -845,6 +850,21 @@ EditorOperationResult EditorCoordinator::apply(const SetActiveToolIntent& intent
     // The active tool is rendered as button state in the Inspector's Tool
     // row (inspector_panel.cpp), not anywhere in the top toolbar - Inspector
     // is the invalidation that actually redraws it.
+    accumulate(EditorInvalidation::Inspector);
+    return EditorOperationResult::success(EditorInvalidation::Inspector);
+}
+
+EditorOperationResult EditorCoordinator::apply(const BeginTemporaryToolOverrideIntent& intent) {
+    state_.tilemapEditor.temporaryToolOverride = intent.tool;
+    accumulate(EditorInvalidation::Inspector);
+    return EditorOperationResult::success(EditorInvalidation::Inspector);
+}
+
+EditorOperationResult EditorCoordinator::apply(const EndTemporaryToolOverrideIntent&) {
+    if (!state_.tilemapEditor.temporaryToolOverride) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+    state_.tilemapEditor.temporaryToolOverride.reset();
     accumulate(EditorInvalidation::Inspector);
     return EditorOperationResult::success(EditorInvalidation::Inspector);
 }

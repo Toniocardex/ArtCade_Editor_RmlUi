@@ -168,6 +168,18 @@ struct SetActiveToolIntent {
     EditorTool tool = EditorTool::Select;
 };
 
+// Momentary tool override for a gesture in progress - never touches
+// EditorState::activeTool (the user's persistent selection). Today's only
+// user is the tilemap Eraser-via-right-click shortcut, but the pair is
+// generic so a future temporary-tool gesture can reuse it instead of
+// duplicating this. Always safe to send End even with no override set (a
+// harmless no-op), so every termination path of the gesture it was started
+// for - commit, cancel, or a failed Begin - can call it unconditionally.
+struct BeginTemporaryToolOverrideIntent {
+    EditorTool tool = EditorTool::Eraser;
+};
+struct EndTemporaryToolOverrideIntent {};
+
 // Begins a paint/erase stroke at pointer-down: validates the target and
 // seeds PendingTileStroke with the first cell's change. Rejected (no
 // pendingStroke created) if the target has no TilemapComponent, its layer

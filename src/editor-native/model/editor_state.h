@@ -176,6 +176,11 @@ struct TilemapEditorState {
     // preference, not tied to any one drag - read once into
     // PendingTileRectangle::outlineOnly when a drag begins.
     bool rectangleOutlineMode = false;
+    // Momentary tool override for a gesture in progress (today: Eraser via
+    // right-click) - deliberately separate from EditorState::activeTool,
+    // which stays the user's own persistent tool selection throughout the
+    // gesture. See EditorCoordinator::effectiveTilemapTool().
+    std::optional<EditorTool> temporaryToolOverride;
 };
 
 // Shared workspace state. This is not saved into the project file.

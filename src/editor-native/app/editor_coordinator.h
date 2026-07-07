@@ -53,6 +53,12 @@ public:
     const SelectionState&  selection() const { return state_.selection; }
     const EditorUiState&   uiState()   const { return uiState_; }
     const EditorState&     state()     const { return state_; }
+    // The tool a tilemap gesture should actually use right now: the momentary
+    // override (Eraser via right-click) if one is in progress, else the
+    // user's own persistently selected tool. Never writes activeTool itself.
+    EditorTool effectiveTilemapTool() const {
+        return state_.tilemapEditor.temporaryToolOverride.value_or(state_.activeTool);
+    }
     const EditorSceneViewState& sceneView(const SceneId& id) const;
     // Workspace-only: mark a scene's editor view as auto-fitted (one-time). Never
     // touches ProjectDocument, revision, dirty or history.
@@ -140,6 +146,8 @@ public:
     EditorOperationResult apply(const SetActiveLayerIntent& intent);
     EditorOperationResult apply(const ToggleLayerEditorVisibilityIntent& intent);
     EditorOperationResult apply(const SetActiveToolIntent& intent);
+    EditorOperationResult apply(const BeginTemporaryToolOverrideIntent& intent);
+    EditorOperationResult apply(const EndTemporaryToolOverrideIntent& intent);
     EditorOperationResult apply(const BeginTilePaintStrokeIntent& intent);
     EditorOperationResult apply(const UpdateTilePaintStrokeIntent& intent);
     EditorOperationResult apply(const EndTilePaintStrokeIntent& intent);
