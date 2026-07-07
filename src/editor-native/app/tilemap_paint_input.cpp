@@ -83,6 +83,32 @@ void routeViewportTilemapPaint(EditorCoordinator& coordinator, const ViewportRec
     // viewport is eligible for input, regardless of mouse-button state.
     coordinator.apply(SetHoveredTilemapCellIntent{cell});
 
+    // Right-click is a momentary Eraser override, regardless of which paint
+    // tool is currently selected (Brush, Eraser, Picker, Rectangle, Fill) -
+    // checked first, ahead of every tool-specific branch below, so it always
+    // wins the gesture. It never touches EditorState::activeTool, so
+    // whatever the user had selected is exactly what's active again the
+    // instant the gesture ends - no re-click needed. The Tool row still
+    // highlights Eraser during the gesture because it reads
+    // coordinator.effectiveTilemapTool(), which layers the override over the
+    // persistent tool; once set, `tool` itself becomes Eraser for the rest of
+    // this call and every later frame of the gesture, so it naturally falls
+    // through the Picker/Fill/Rectangle checks below into the Brush/Eraser
+    // section, which already drives Update/End off either mouse button. A
+    // failed Begin (locked layer, a Rectangle drag already pending, Play
+    // started mid-frame, etc.) leaves no pendingStroke to later trigger the
+    // override's own cleanup, so it is cleared right here too - every exit
+    // from this gesture ends the override, with no path that can leave it
+    // stuck, and a right-click that couldn't start a stroke is just silently
+    // ignored rather than corrupting whatever else was in progress.
+    if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+        coordinator.apply(BeginTemporaryToolOverrideIntent{EditorTool::Eraser});
+        const EditorOperationResult began =
+            coordinator.apply(BeginTilePaintStrokeIntent{active, inst->id, EditorTool::Eraser, cell});
+        if (!began.ok) coordinator.apply(EndTemporaryToolOverrideIntent{});
+        return;
+    }
+
     if (tool == EditorTool::Picker) {
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             const TilemapCell picked = readTilemapCell(*inst->tilemap, cell);
@@ -125,23 +151,9 @@ void routeViewportTilemapPaint(EditorCoordinator& coordinator, const ViewportRec
         return;
     }
 
-    // Brush / Eraser. Right-click is a momentary Eraser override, not a
-    // persistent tool switch: it never touches EditorState::activeTool, so
-    // whatever the user had selected (Brush) is exactly what's active again
-    // the instant the gesture ends - no re-click needed. The Tool row still
-    // highlights Eraser during the gesture because it reads
-    // coordinator.effectiveTilemapTool(), which layers the override over the
-    // persistent tool. A failed Begin (locked layer, Play started mid-frame,
-    // etc.) leaves no pendingStroke to later trigger the override's own
-    // cleanup, so it is cleared right here too - every exit from this
-    // gesture ends the override, with no path that can leave it stuck.
-    if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
-        coordinator.apply(BeginTemporaryToolOverrideIntent{EditorTool::Eraser});
-        const EditorOperationResult began =
-            coordinator.apply(BeginTilePaintStrokeIntent{active, inst->id, EditorTool::Eraser, cell});
-        if (!began.ok) coordinator.apply(EndTemporaryToolOverrideIntent{});
-        return;
-    }
+    // Brush / Eraser - the persistent selection, or an Eraser override in
+    // progress from the right-click branch above (both funnel through here
+    // once `tool` reflects Eraser).
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         coordinator.apply(BeginTilePaintStrokeIntent{active, inst->id, tool, cell});
         return;
