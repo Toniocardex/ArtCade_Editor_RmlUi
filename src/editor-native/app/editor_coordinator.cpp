@@ -842,8 +842,11 @@ EditorOperationResult EditorCoordinator::apply(const SetActiveToolIntent& intent
         accumulate(EditorInvalidation::Viewport);
     }
     state_.activeTool = intent.tool;
-    accumulate(EditorInvalidation::Toolbar);
-    return EditorOperationResult::success(EditorInvalidation::Toolbar);
+    // The active tool is rendered as button state in the Inspector's Tool
+    // row (inspector_panel.cpp), not anywhere in the top toolbar - Inspector
+    // is the invalidation that actually redraws it.
+    accumulate(EditorInvalidation::Inspector);
+    return EditorOperationResult::success(EditorInvalidation::Inspector);
 }
 
 EditorOperationResult EditorCoordinator::apply(const BeginTilePaintStrokeIntent& intent) {

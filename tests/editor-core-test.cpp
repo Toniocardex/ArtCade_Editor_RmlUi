@@ -3472,7 +3472,7 @@ int main() {
         CHECK(c.selection().primaryEntity == kHero);
 
         const auto tool = c.apply(SetActiveToolIntent{EditorTool::Pan});
-        CHECK(tool.invalidation == EditorInvalidation::Toolbar);
+        CHECK(tool.invalidation == EditorInvalidation::Inspector);
         CHECK(c.state().activeTool == EditorTool::Pan);
         CHECK(c.uiState().consoleVisible);
 
