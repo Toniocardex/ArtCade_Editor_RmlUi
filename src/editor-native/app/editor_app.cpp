@@ -288,6 +288,16 @@ void routeViewportContextMenu(EditorCoordinator& coordinator, EditorUi& ui,
         ui.hideContextMenus();
         return;
     }
+    // A paint tool owns the viewport's right-click too (Eraser's right-click
+    // shortcut in routeViewportTilemapPaint) - the entity-creation menu is a
+    // Select-tool concept and must not fight it for the same gesture, mirroring
+    // routeViewportPickDrag's own "a paint tool owns viewport clicks" guard.
+    if (coordinator.state().activeTool != EditorTool::Select) {
+        click = ViewportContextClick{};
+        pendingSpawnPosition.reset();
+        ui.hideContextMenus();
+        return;
+    }
 
     if ((IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE))
         && !contextMenuHit) {

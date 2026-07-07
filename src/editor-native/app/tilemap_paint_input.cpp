@@ -120,16 +120,27 @@ void routeViewportTilemapPaint(EditorCoordinator& coordinator, const ViewportRec
         return;
     }
 
-    // Brush / Eraser.
+    // Brush / Eraser. Right-click is a shortcut for Eraser: switching the
+    // active tool first (the same SetActiveToolIntent a real click on the
+    // Eraser button sends, so it lights up too) means the Begin/Update/End
+    // calls below are the exact same call as a left-click Eraser stroke -
+    // just also polling the right button, nothing duplicated.
+    if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+        coordinator.apply(SetActiveToolIntent{EditorTool::Eraser});
+        coordinator.apply(BeginTilePaintStrokeIntent{active, inst->id, EditorTool::Eraser, cell});
+        return;
+    }
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         coordinator.apply(BeginTilePaintStrokeIntent{active, inst->id, tool, cell});
         return;
     }
-    if (coordinator.state().tilemapEditor.pendingStroke && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+    if (coordinator.state().tilemapEditor.pendingStroke
+        && (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT))) {
         coordinator.apply(UpdateTilePaintStrokeIntent{cell});
         return;
     }
-    if (coordinator.state().tilemapEditor.pendingStroke && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+    if (coordinator.state().tilemapEditor.pendingStroke
+        && (IsMouseButtonReleased(MOUSE_BUTTON_LEFT) || IsMouseButtonReleased(MOUSE_BUTTON_RIGHT))) {
         // Pointer-up: normalize (drop before==after), dispatch exactly one
         // Command if non-empty, then clear the preview - in this exact
         // order, reading the finalized accumulator before clearing it.
