@@ -2592,6 +2592,262 @@ static void runTilemapRegionTests() {
     }
 }
 
+// Slice 8 - TilemapComponent participates in Play, reusing the same
+// SceneFrameSnapshot/SceneView path as Edit (no second runtime renderer).
+static void runTilemapPlaySessionTests() {
+    // -- Play rejected: tilemap references a missing tileset ------------------
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        TilemapComponent tm;
+        tm.tilesetAssetId = "no-such-tileset";
+        doc.scenes.at(kSceneA).instances.front().tilemap = tm;
+        EditorCoordinator c{doc};
+        CHECK(!c.playProject().ok);
+        CHECK(!c.isPlaying());
+    }
+
+    // -- Play rejected: tileset references a missing image asset ---------------
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        TilesetAsset orphan;
+        orphan.assetId = "tiles-orphan";
+        orphan.imageAssetId = "missing-image";
+        doc.tilesets.push_back(orphan);
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-orphan";
+        doc.scenes.at(kSceneA).instances.front().tilemap = tm;
+        EditorCoordinator c{doc};
+        CHECK(!c.playProject().ok);
+    }
+
+    // -- Play materializes a RuntimeTilemap identical to tilemapRenderCells,
+    // and registers the tileset's image in the asset catalog ------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{0, 0}, std::nullopt,
+                                            TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        changes.push_back(TilemapCellChange{{-2, 3}, std::nullopt,
+                                            TilemapCellValue{"tile-2", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
+        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {100.f, 50.f}}).ok);
+
+        CHECK(c.playCurrentScene().ok);
+        const RuntimeEntity* runtime = c.playSession()->findEntity(kHero);
+        CHECK(runtime != nullptr);
+        CHECK(runtime->tilemap.has_value());
+        CHECK(runtime->tilemap->imageAssetId == "img-hero");   // tiles-1's underlying image
+        CHECK(c.playSession()->assets().imageAssets.count("img-hero") == 1);
+
+        const TilemapComponent& authored = *c.document().findInstanceInScene(kSceneA, kHero)->tilemap;
+        const TilesetAsset* tileset = c.document().findTilesetAsset("tiles-1");
+        const std::vector<SceneFrameTilemapCell> expected =
+            tilemapRenderCells(authored, *tileset, {100.f, 50.f});
+        CHECK(runtime->tilemap->cells.size() == expected.size());
+        CHECK(runtime->tilemap->cells.size() == 2);
+        for (std::size_t i = 0; i < expected.size(); ++i) {
+            CHECK(runtime->tilemap->cells[i].destination.x == expected[i].destination.x);
+            CHECK(runtime->tilemap->cells[i].destination.y == expected[i].destination.y);
+            CHECK(runtime->tilemap->cells[i].source.x == expected[i].source.x);
+            CHECK(runtime->tilemap->cells[i].source.y == expected[i].source.y);
+        }
+    }
+
+    // -- An entity with a TilemapComponent but no painted cells materializes
+    // an empty RuntimeTilemap, not a missing one - the image is still known --
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        CHECK(c.playCurrentScene().ok);
+        const RuntimeEntity* runtime = c.playSession()->findEntity(kHero);
+        CHECK(runtime->tilemap.has_value());
+        CHECK(runtime->tilemap->cells.empty());
+    }
+
+    // -- Two tilemaps on different tilesets sharing one image asset load it
+    // exactly once (same PlayAssetCatalogSnapshot dedup as sprites) -----------
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        SceneInstanceDef other;
+        other.id = 99;
+        other.objectTypeId = "Other";
+        other.instanceName = "Other";
+        doc.scenes.at(kSceneA).instances.push_back(other);
+        EditorCoordinator c{doc};
+        TilesetSlicing slicing;
+        slicing.tileWidth = 32;
+        slicing.tileHeight = 32;
+        const std::vector<TileDefinition> tiles1 = tilesForSlicing(64, 64, slicing);
+        CHECK(c.execute(ChangeTilesetSlicingCommand{"tiles-1", slicing, tiles1}).ok);
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-2", "Second", "img-hero", slicing}).ok);
+        const std::vector<TileDefinition> tiles2 = tilesForSlicing(64, 64, slicing);
+        CHECK(c.execute(ChangeTilesetSlicingCommand{"tiles-2", slicing, tiles2}).ok);
+
+        TilemapComponent tmA; tmA.tilesetAssetId = "tiles-1";
+        TilemapComponent tmB; tmB.tilesetAssetId = "tiles-2";
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tmA}).ok);
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, 99, tmB}).ok);
+
+        CHECK(c.playCurrentScene().ok);
+        CHECK(c.playSession()->assets().imageAssets.size() == 1);   // one image, two tilesets
+        CHECK(c.playSession()->assets().imageAssets.count("img-hero") == 1);
+    }
+
+    // -- Play respects scene layer order (background -> default -> foreground),
+    // matching Edit's own order - PlaySession::materialize has no layer concept
+    // of its own; it reuses ProjectDocument::orderedInstances -----------------
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        const SceneId sceneId = "layered-scene";
+        CHECK(c.execute(CreateSceneCommand{sceneId, "Layered"}).ok);   // creates "layer-1" (default)
+        CHECK(c.execute(AddSceneLayerCommand{sceneId, "bg", "Background", 0}).ok);
+        CHECK(c.execute(AddSceneLayerCommand{sceneId, "fg", "Foreground", 2}).ok);
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+            sceneId, 501, "type-mid", "Mid", "Mid", Vec2{}, ""}).ok);          // default layer
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+            sceneId, 502, "type-fg", "Fg", "Fg", Vec2{}, "fg"}).ok);
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+            sceneId, 503, "type-bg", "Bg", "Bg", Vec2{}, "bg"}).ok);
+
+        CHECK(c.apply(SelectSceneIntent{sceneId}).ok);
+        CHECK(c.playCurrentScene().ok);
+        const std::vector<RuntimeEntity>& entities = c.playSession()->entities();
+        CHECK(entities.size() == 3);
+        CHECK(entities[0].id == 503);   // Background first
+        CHECK(entities[1].id == 501);   // default layer, in the middle
+        CHECK(entities[2].id == 502);   // Foreground last
+    }
+
+    // -- collectSceneFrameSnapshot(PlaySession&): a painted tilemap appears in
+    // snapshot.tilemaps and never as the generic editor placeholder -----------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{1, 1}, std::nullopt,
+                                            TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
+        CHECK(c.playCurrentScene().ok);
+
+        const SceneFrameSnapshot snap = collectSceneFrameSnapshot(*c.playSession());
+        const auto tilemapIt = std::find_if(snap.tilemaps.begin(), snap.tilemaps.end(),
+            [](const SceneFrameTilemap& t) { return t.entityId == kHero; });
+        CHECK(tilemapIt != snap.tilemaps.end());
+        CHECK(tilemapIt->cells.size() == 1);
+        CHECK(std::none_of(snap.entities.begin(), snap.entities.end(),
+            [](const SceneFrameEntity& e) { return e.entityId == kHero; }));
+    }
+
+    // -- An empty (unpainted) tilemap is fully invisible in Play - unlike Edit,
+    // which deliberately shows the generic placeholder for it -----------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        CHECK(c.playCurrentScene().ok);
+
+        const SceneFrameSnapshot snap = collectSceneFrameSnapshot(*c.playSession());
+        CHECK(std::none_of(snap.tilemaps.begin(), snap.tilemaps.end(),
+            [](const SceneFrameTilemap& t) { return t.entityId == kHero; }));
+        CHECK(std::none_of(snap.entities.begin(), snap.entities.end(),
+            [](const SceneFrameEntity& e) { return e.entityId == kHero; }));
+        CHECK(std::none_of(snap.sprites.begin(), snap.sprites.end(),
+            [](const SceneFrameSprite& s) { return s.entityId == kHero; }));
+
+        // Edit, by contrast, still shows the placeholder for the same document.
+        const SceneFrameSnapshot editSnap =
+            collectSceneFrameSnapshot(c.document(), kSceneA, INVALID_ENTITY);
+        CHECK(std::any_of(editSnap.entities.begin(), editSnap.entities.end(),
+            [](const SceneFrameEntity& e) { return e.entityId == kHero; }));
+    }
+
+    // -- Stop leaves ProjectDocument, dirty, revision and Undo untouched -------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{0, 0}, std::nullopt,
+                                            TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
+        const uint64_t revision = c.document().revision();
+        const std::size_t undoBefore = c.undoSize();
+
+        CHECK(c.playCurrentScene().ok);
+        CHECK(c.stopPlaying().ok);
+        CHECK(!c.isPlaying());
+        // Revision is unchanged by Play/Stop - the paint above is the only
+        // authoring mutation, so the document is dirty because of that, not
+        // because of Play.
+        CHECK(c.document().revision() == revision);
+        CHECK(c.undoSize() == undoBefore);
+        CHECK(readTilemapCell(*c.document().findInstanceInScene(kSceneA, kHero)->tilemap, {0, 0})
+                  ->tileId == "tile-1");
+    }
+
+    // -- Negative coordinates and a rectangular (non-square) cellSize ----------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        sliceTilesOne(c);
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.cellSize = {16.f, 48.f};
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{-3, -2}, std::nullopt,
+                                            TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
+        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {0.f, 0.f}}).ok);
+
+        CHECK(c.playCurrentScene().ok);
+        const RuntimeEntity* runtime = c.playSession()->findEntity(kHero);
+        CHECK(runtime->tilemap.has_value());
+        CHECK(runtime->tilemap->cells.size() == 1);
+        CHECK(runtime->tilemap->cells[0].destination.x == -3.f * 16.f);
+        CHECK(runtime->tilemap->cells[0].destination.y == -2.f * 48.f);
+        CHECK(runtime->tilemap->cells[0].destination.width == 16.f);
+        CHECK(runtime->tilemap->cells[0].destination.height == 48.f);
+    }
+
+    // -- Save/load round-trip parity (the "export parity" criterion reinterpreted
+    // for this repo, which has no separate exported-game runtime): a fresh
+    // PlaySession materialized from a reloaded ProjectDocument produces the
+    // identical snapshot as the one materialized before saving ----------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{14, 0}, std::nullopt,
+                                            TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        changes.push_back(TilemapCellChange{{-3, -3}, std::nullopt,
+                                            TilemapCellValue{"tile-2", TileTransformFlags::FlipX}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
+        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {40.f, 10.f}}).ok);
+        CHECK(c.playCurrentScene().ok);
+        const SceneFrameSnapshot directPlay = collectSceneFrameSnapshot(*c.playSession());
+        CHECK(c.stopPlaying().ok);
+
+        const std::filesystem::path path = testTempDir() / "tilemap-play-roundtrip.artcade-project";
+        CHECK(saveProjectToFile(c, path).ok);
+        EditorCoordinator reloaded{ProjectDoc{}};
+        CHECK(loadProjectFromFile(reloaded, path).ok);
+        CHECK(reloaded.playCurrentScene().ok);
+        const SceneFrameSnapshot reloadedPlay = collectSceneFrameSnapshot(*reloaded.playSession());
+
+        CHECK(directPlay.tilemaps.size() == 1);
+        CHECK(directPlay.tilemaps.size() == reloadedPlay.tilemaps.size());
+        CHECK(directPlay.tilemaps[0].imageAssetId == reloadedPlay.tilemaps[0].imageAssetId);
+        CHECK(directPlay.tilemaps[0].cells.size() == reloadedPlay.tilemaps[0].cells.size());
+        for (std::size_t i = 0; i < directPlay.tilemaps[0].cells.size(); ++i) {
+            CHECK(directPlay.tilemaps[0].cells[i].destination.x
+                  == reloadedPlay.tilemaps[0].cells[i].destination.x);
+            CHECK(directPlay.tilemaps[0].cells[i].destination.y
+                  == reloadedPlay.tilemaps[0].cells[i].destination.y);
+            CHECK(directPlay.tilemaps[0].cells[i].source.x == reloadedPlay.tilemaps[0].cells[i].source.x);
+            CHECK(directPlay.tilemaps[0].cells[i].source.y == reloadedPlay.tilemaps[0].cells[i].source.y);
+        }
+    }
+}
+
 int main() {
     // -- §24.1  A command modifies a single authority --------------------------
     {
@@ -7062,6 +7318,7 @@ int main() {
     runTilemapComponentTests();
     runTilemapPaintingTests();
     runTilemapRegionTests();
+    runTilemapPlaySessionTests();
 
     std::cout << "editor-core-test: " << g_passed << " passed, "
               << g_failed << " failed\n";

@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace ArtCade::EditorNative {
 
@@ -115,6 +116,13 @@ public:
     const FontAssetDef*      findFontAsset(const AssetId& id) const;
     bool                     hasTilesetAsset(const AssetId& id) const;
     const TilesetAsset*      findTilesetAsset(const AssetId& id) const;
+    /** Every instance of @p sceneId in back-to-front render/simulation order:
+     *  layers[0] (background) first, the last layer (foreground) last; a
+     *  legacy scene with no layers keeps SceneDef::instances' own order.
+     *  Shared by the Edit snapshot collector and PlaySession::materialize so
+     *  both draw/simulate in the exact same order. Empty if the scene does
+     *  not exist. */
+    std::vector<const SceneInstanceDef*> orderedInstances(const SceneId& sceneId) const;
 
     bool      isDirty()      const { return revision_ != savedRevision_; }
     uint64_t  revision()     const { return revision_; }

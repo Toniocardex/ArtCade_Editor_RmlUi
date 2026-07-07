@@ -180,6 +180,34 @@ bool ProjectDocument::isLayerLocked(const SceneId& sceneId, const std::string& l
     return false;
 }
 
+std::vector<const SceneInstanceDef*> ProjectDocument::orderedInstances(
+    const SceneId& sceneId) const {
+    std::vector<const SceneInstanceDef*> result;
+    const SceneDef* scene = findScene(sceneId);
+    if (!scene) return result;
+    result.reserve(scene->instances.size());
+
+    if (scene->layers.empty()) {
+        // Legacy scene with no layers: keep the raw instance order.
+        for (const SceneInstanceDef& inst : scene->instances) result.push_back(&inst);
+        return result;
+    }
+
+    // An instance's effective layer: its layerId if it is a real scene layer,
+    // otherwise the scene default ("" / legacy / dangling -> default).
+    const auto effectiveLayer = [&](const SceneInstanceDef& inst) -> const std::string& {
+        if (!inst.layerId.empty() && hasLayer(sceneId, inst.layerId)) return inst.layerId;
+        return scene->defaultLayerId;
+    };
+    // Back-to-front: layers[0] is background, last is foreground.
+    for (const SceneLayerDef& layer : scene->layers) {
+        for (const SceneInstanceDef& inst : scene->instances) {
+            if (effectiveLayer(inst) == layer.id) result.push_back(&inst);
+        }
+    }
+    return result;
+}
+
 bool ProjectDocument::addSceneLayer(const SceneId& sceneId, const std::string& layerId,
                                     const std::string& name, std::size_t index) {
     SceneDef* scene = mutableScene(sceneId);

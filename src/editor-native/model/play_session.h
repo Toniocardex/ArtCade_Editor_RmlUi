@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/types.h"
+#include "editor-native/model/scene_frame_snapshot.h"
 
 #include <optional>
 #include <string>
@@ -53,6 +54,18 @@ struct RuntimeBoxCollider {
     BoxColliderMode mode = BoxColliderMode::Solid;
 };
 
+// Runtime copy of a TilemapComponent (ADR-0001: entity-owned), compiled once at
+// materialize via the same tilemapRenderCells(...) pure math Edit uses - no
+// second cell->world/source-rect math, no reference back to the authoring
+// TilemapComponent or ProjectDocument. `cells` is already sparse (populated
+// cells only, per tilemapRenderCells); an entity with a TilemapComponent but
+// no painted cells materializes an empty `cells` vector, which the Play
+// snapshot collector treats as "draw nothing" - never the editor placeholder.
+struct RuntimeTilemap {
+    AssetId imageAssetId;
+    std::vector<SceneFrameTilemapCell> cells;
+};
+
 struct RuntimeEntity {
     EntityId id = INVALID_ENTITY;
     std::string name;
@@ -64,6 +77,7 @@ struct RuntimeEntity {
     std::optional<RuntimeTopDownController> topDownController;
     std::optional<RuntimePlatformerController> platformerController;
     std::optional<RuntimeBoxCollider> collider;
+    std::optional<RuntimeTilemap> tilemap;
 };
 
 // World-space axis-aligned bounding box (min/max corners).

@@ -83,13 +83,6 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
     snapshot.worldSize = scene->worldSize;
     snapshot.backgroundColor = scene->backgroundColor;
 
-    // An instance's effective layer: its layerId if it is a real scene layer,
-    // otherwise the scene default ("" / legacy / dangling -> default).
-    const auto effectiveLayer = [&](const SceneInstanceDef& inst) -> std::string {
-        if (!inst.layerId.empty() && document.hasLayer(sceneId, inst.layerId)) return inst.layerId;
-        return scene->defaultLayerId;
-    };
-
     std::unordered_set<EntityId> visible;   // for filtering the collider overlay
     const auto emit = [&](const SceneInstanceDef& inst) {
         const SceneFrameRect bounds = instanceBounds(inst);
@@ -122,16 +115,15 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
         visible.insert(inst.id);
     };
 
-    if (scene->layers.empty()) {
-        // Legacy scene with no layers: keep the raw instance order.
-        for (const SceneInstanceDef& inst : scene->instances) emit(inst);
-    } else {
-        // Back-to-front: layers[0] is background, last is foreground; skip hidden.
-        for (const SceneLayerDef& layer : scene->layers) {
-            if (hiddenLayers.count(layer.id)) continue;
-            for (const SceneInstanceDef& inst : scene->instances)
-                if (effectiveLayer(inst) == layer.id) emit(inst);
-        }
+    // An instance's effective layer, needed only to filter hidden layers here
+    // (orderedInstances already applies the same rule for ordering).
+    const auto effectiveLayer = [&](const SceneInstanceDef& inst) -> std::string {
+        if (!inst.layerId.empty() && document.hasLayer(sceneId, inst.layerId)) return inst.layerId;
+        return scene->defaultLayerId;
+    };
+    for (const SceneInstanceDef* inst : document.orderedInstances(sceneId)) {
+        if (!hiddenLayers.empty() && hiddenLayers.count(effectiveLayer(*inst))) continue;
+        emit(*inst);
     }
 
     // Collider overlays follow the same visibility as their entities.
@@ -155,13 +147,23 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const PlaySession& session) {
 
     for (const RuntimeEntity& entity : scene.entities) {
         const SceneFrameRect bounds = transformBounds(entity.transform);
-        snapshot.entities.push_back(SceneFrameEntity{
-            entity.id,
-            entity.name,
-            entity.fillColor,
-            bounds,
-            false,
-        });
+        // A tilemap entity never falls back to the generic editor placeholder
+        // in Play, painted or not - unlike Edit, where the placeholder is a
+        // deliberate authoring affordance (see tilemap_render_view.h / Slice 5).
+        if (!entity.tilemap.has_value()) {
+            snapshot.entities.push_back(SceneFrameEntity{
+                entity.id,
+                entity.name,
+                entity.fillColor,
+                bounds,
+                false,
+            });
+        }
+
+        if (entity.tilemap.has_value() && !entity.tilemap->cells.empty()) {
+            snapshot.tilemaps.push_back(SceneFrameTilemap{
+                entity.id, entity.tilemap->imageAssetId, entity.tilemap->cells, false});
+        }
 
         if (entity.sprite.has_value() && !entity.sprite->assetId.empty()) {
             snapshot.sprites.push_back(SceneFrameSprite{

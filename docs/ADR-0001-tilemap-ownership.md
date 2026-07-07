@@ -123,3 +123,51 @@ concorrenti per la stessa informazione — vietato da `RMLUI_MIGRATION_CONTRACT.
 e dai principi 4.6 della spec Tileset/Tilemap ("nessuna sincronizzazione
 nascosta", "se una rappresentazione può essere derivata, deve essere
 ricostruita").
+
+## Runtime ownership resolution (Slice 8, 2026-07-07)
+
+La non-decisione lasciata aperta sopra ("se il runtime compili
+`TilemapComponent` in un `TilemapData`... oppure se il rendering runtime venga
+esteso a leggere `TilemapComponent` direttamente") è ora risolta **per il Play
+di questo repository**, non per il runtime condiviso separato.
+
+Ricognizione effettuata prima della Slice 8 (non assunta): `PlaySession` in
+questo repository è già un runtime autonomo, self-contained, che non dipende
+da `vendor/artcade-runtime`. Il Play (`collectSceneFrameSnapshot(const
+PlaySession&)` → `SceneView::render()`) è già lo **stesso** percorso visuale
+usato da Edit (`collectSceneFrameSnapshot(const ProjectDocument&, ...)` →
+`SceneView::render()`): un solo `SceneView`, un solo `TextureCache`, nessun
+renderer runtime separato esisteva né è stato introdotto.
+
+Decisione:
+
+```text
+SceneInstanceDef::tilemap
+    ↓ PlaySession::materialize() (una volta, a Start Play)
+    ↓ tilemapRenderCells(...)      — la stessa matematica pura di Slice 5,
+    │                                 non duplicata
+RuntimeTilemap { imageAssetId, cells }   — copia indipendente, nessun
+                                            puntatore/riferimento al
+                                            TilemapComponent o al
+                                            ProjectDocument
+    ↓ collectSceneFrameSnapshot(const PlaySession&)
+SceneFrameSnapshot.tilemaps   — lo stesso tipo che Edit già produce
+    ↓ SceneView::render()        — lo stesso renderer, nessun secondo
+```
+
+- Il modello legacy scene-level (`SceneDef.tilemap`, `SceneDef.tilemapLayers`,
+  `TilemapData`) resta **compatibility-only**, consumato solo dal runtime
+  condiviso separato (`ArtCade-Studio_V2/runtime-cpp`). Non è mai popolato
+  dalle nuove feature di questo editor.
+- L'ordinamento per layer del Play riusa `ProjectDocument::orderedInstances`,
+  la stessa funzione condivisa ora usata anche dal collector di Edit — un solo
+  algoritmo di ordinamento, non due copie.
+- **Fuori scope, esplicitamente non deciso qui**: la parità con un vero
+  runtime "esportato"/standalone. Questo repository ha un solo eseguibile
+  (`artcade-editor-native`, l'editor); non esiste alcuna pipeline di export o
+  di gioco spedibile qui. Quella responsabilità — e l'eventuale migrazione del
+  runtime condiviso separato dal modello legacy a `TilemapComponent` — resta
+  un lavoro cross-repository futuro, non affrontato da questa slice. Il
+  criterio di parità verificato qui è invece un round-trip
+  save→reload→materialize all'interno di questo stesso editor (vedi
+  `runTilemapPlaySessionTests` in `tests/editor-core-test.cpp`).

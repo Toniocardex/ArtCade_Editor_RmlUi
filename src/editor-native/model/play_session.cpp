@@ -3,6 +3,7 @@
 #include "editor-native/model/box_collider_geometry.h"
 #include "editor-native/model/project_document.h"
 #include "editor-native/model/sprite_render_view.h"
+#include "editor-native/model/tilemap_render_view.h"
 
 #include <algorithm>
 #include <cmath>
@@ -175,7 +176,8 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
     session.scene().worldSize = scene->worldSize;
     session.scene().backgroundColor = scene->backgroundColor;
 
-    for (const SceneInstanceDef& instance : scene->instances) {
+    for (const SceneInstanceDef* instancePtr : document.orderedInstances(sceneId)) {
+        const SceneInstanceDef& instance = *instancePtr;
         RuntimeEntity entity;
         entity.id = instance.id;
         entity.name = instance.instanceName;
@@ -277,6 +279,34 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
                 }
                 entity.spriteAnimator = std::move(animator);
             }
+        }
+
+        if (instance.tilemap.has_value()) {
+            const TilesetAsset* tileset = document.findTilesetAsset(instance.tilemap->tilesetAssetId);
+            if (!tileset) {
+                if (error) {
+                    *error = "Cannot start Play: tilemap references missing tileset "
+                           + instance.tilemap->tilesetAssetId;
+                }
+                return std::nullopt;
+            }
+            const ImageAssetDef* tilesetImage = findImageAsset(document, tileset->imageAssetId);
+            if (!tilesetImage) {
+                if (error) {
+                    *error = "Cannot start Play: tileset references missing image asset "
+                           + tileset->imageAssetId;
+                }
+                return std::nullopt;
+            }
+            // Dedup is free: emplace on an already-present AssetId is a no-op,
+            // so two tilemaps (or a tilemap and a sprite) sharing one image
+            // asset still load exactly one texture.
+            session.assets_.imageAssets.emplace(
+                tilesetImage->assetId, RuntimeImageAsset{tilesetImage->assetId, tilesetImage->sourcePath});
+            entity.tilemap = RuntimeTilemap{
+                tileset->imageAssetId,
+                tilemapRenderCells(*instance.tilemap, *tileset, instance.transform.position),
+            };
         }
 
         session.scene().entities.push_back(std::move(entity));
