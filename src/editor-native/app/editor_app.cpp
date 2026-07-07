@@ -11,6 +11,7 @@
 #include "editor-native/app/rml_host.h"
 #include "editor-native/app/sprite_animation_canvas_input.h"
 #include "editor-native/app/sprite_animation_preview_renderer.h"
+#include "editor-native/app/tile_palette_renderer.h"
 #include "editor-native/app/tilemap_paint_input.h"
 #include "editor-native/app/tileset_editor_canvas_input.h"
 #include "editor-native/app/tileset_editor_renderer.h"
@@ -909,6 +910,9 @@ int EditorApp::run(int argc, char** argv) {
     int   lastRenderW = GetRenderWidth();
     int   lastRenderH = GetRenderHeight();
     float lastDpi     = dpi > 0.f ? dpi : 1.f;
+    // Tile Palette Picker-sync: the tile last scrolled into view, so a
+    // repeated selection (or none) does not re-trigger ScrollIntoView.
+    std::optional<TileId> lastScrolledPaletteTile;
     while (true) {
         // Exit guard: a requested close (window X) is held until the unsaved
         // guard passes. On Cancel we clear GLFW's close flag and keep running.
@@ -1110,6 +1114,52 @@ int EditorApp::run(int argc, char** argv) {
             }
         }
 
+        // Tile Palette thumbnail slots (Inspector's Tilemap section): shown
+        // whenever the selected entity has a TilemapComponent whose tileset
+        // resolves to at least one sliced tile. Same per-thumb-element rect
+        // query as the animation timeline above, just against the main shell
+        // document instead of the animation overlay's.
+        const ViewportRect tilePaletteClipRect =
+            elementContentRectFromDocument(host.document(), "inspector-body");
+        const TilesetAsset* tilePaletteTileset = nullptr;
+        std::vector<ViewportRect> tilePaletteThumbRects;
+        if (!coordinator.isPlaying()) {
+            const SceneInstanceDef* selectedInst = coordinator.document().findInstanceInScene(
+                coordinator.state().activeSceneId, coordinator.selection().primaryEntity);
+            if (selectedInst && selectedInst->tilemap.has_value()) {
+                const TilesetAsset* candidate = coordinator.document().findTilesetAsset(
+                    selectedInst->tilemap->tilesetAssetId);
+                if (candidate && !candidate->tiles.empty()) tilePaletteTileset = candidate;
+            }
+        }
+        if (tilePaletteTileset) {
+            tilePaletteThumbRects.reserve(tilePaletteTileset->tiles.size());
+            for (std::size_t i = 0; i < tilePaletteTileset->tiles.size(); ++i) {
+                const std::string id = "tile-thumb-" + std::to_string(i);
+                tilePaletteThumbRects.push_back(elementContentRectFromDocument(host.document(), id.c_str()));
+            }
+        }
+        // Picker sync: when the workspace's selected tile changes, bring its
+        // palette thumbnail into view (scrolls .inspector's own overflow, no
+        // nested scroll region - see panels.rcss). Diffed against the last
+        // scrolled id so this fires once per change, not every frame.
+        if (tilePaletteTileset
+            && coordinator.state().tilemapEditor.selectedTileId != lastScrolledPaletteTile) {
+            lastScrolledPaletteTile = coordinator.state().tilemapEditor.selectedTileId;
+            if (lastScrolledPaletteTile) {
+                for (std::size_t i = 0; i < tilePaletteTileset->tiles.size(); ++i) {
+                    if (tilePaletteTileset->tiles[i].id != *lastScrolledPaletteTile) continue;
+                    const std::string id = "tile-thumb-" + std::to_string(i);
+                    if (Rml::Element* el = host.document()->GetElementById(id)) {
+                        el->ScrollIntoView(Rml::ScrollIntoViewOptions{
+                            Rml::ScrollAlignment::Nearest, Rml::ScrollAlignment::Nearest,
+                            Rml::ScrollBehavior::Smooth});
+                    }
+                    break;
+                }
+            }
+        }
+
         BeginDrawing();
         ClearBackground(Color{15, 16, 20, 255});
         const PlaySession* playSession = coordinator.playSession();
@@ -1177,6 +1227,11 @@ int EditorApp::run(int argc, char** argv) {
             renderTilesetEditorCanvas(
                 *tilesetAsset, coordinator.state().tilesetEditor,
                 tilesetRenderRect, textureCache, textureRequests);
+        }
+        if (tilePaletteTileset) {
+            renderTilePalette(
+                *tilePaletteTileset, coordinator.state().tilemapEditor.selectedTileId,
+                tilePaletteThumbRects, tilePaletteClipRect, textureCache, textureRequests);
         }
         EndDrawing();
 

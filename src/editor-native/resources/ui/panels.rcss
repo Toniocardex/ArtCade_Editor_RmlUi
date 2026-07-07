@@ -363,3 +363,42 @@
     color: #d8b44a;
     font-size: 11dp;
 }
+
+/* -- Tile Palette (Tilemap component, Inspector) ---------------------------
+   Each .tile-thumb is a transparent slot: raylib paints the cropped tile
+   texture into its exact screen rect after RmlUi renders (same "hole"
+   pattern as the Scene View viewport and the Tileset Editor canvas). RmlUi
+   owns only layout, hit-testing (click/dblclick) and the empty-state text. */
+.tile-palette {
+    display: block;
+    margin: 4dp 0 6dp 0;
+    /* No nested scroll region here: it flows in the same overall scroll as
+       the rest of .inspector (theme.rcss), so a large tileset just makes the
+       panel taller rather than needing a second scrollbar. */
+}
+.tile-thumb {
+    display: inline-block;
+    width: 40dp;
+    height: 40dp;
+    margin: 0 4dp 4dp 0;
+    background-color: #1c1c1f;
+    border: 1px #27272a;
+    border-radius: 3dp;
+}
+.tile-palette-empty {
+    display: block;
+    padding: 8dp;
+    margin: 4dp 0 6dp 0;
+    color: #8a8a93;
+    font-size: 11dp;
+    background-color: #1c1c1f;
+    border: 1px #27272a;
+    border-radius: 4dp;
+}
+.tile-palette-selected {
+    display: block;
+    margin: 0 0 10dp 0;
+    color: #8a8a93;
+    font-size: 11dp;
+}
+.tile-palette-selected .value { color: #d4d4d8; font-weight: 600; }

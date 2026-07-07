@@ -593,7 +593,15 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
 
         // Contextual paint toolbar + tile palette - only meaningful once the
         // tileset resolves and has at least one sliced tile.
-        if (tmTileset && !tmTileset->tiles.empty()) {
+        if (!tmTileset) {
+            html += "<div class=\"tile-palette-empty\">Tileset is missing.</div>";
+        } else if (!coordinator.document().findImageAsset(tmTileset->imageAssetId)) {
+            html += "<div class=\"tile-palette-empty\">Tileset image is missing.</div>";
+        } else if (tmTileset->tiles.empty()) {
+            html += "<div class=\"tile-palette-empty\">This tileset has no sliced tiles."
+                    "<br/><button class=\"panel-btn\" data-action=\"open-tilemap-tileset-editor\">"
+                    "Open Tileset Editor</button></div>";
+        } else {
             const EditorTool activeTool = coordinator.state().activeTool;
             html += "<div class=\"mode-block\"><span class=\"mode-label\">Tool</span>"
                     "<div class=\"mode-options\">";
@@ -633,15 +641,35 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 html += "</div></div>";
             }
 
+            // Visual palette: each slot is a transparent div raylib paints the
+            // cropped tile texture into (see tile_palette_renderer.h) - RmlUi
+            // only owns layout and click/dblclick hit-testing here. A tile is
+            // a visual element, not a string, so a text list of "tile-1",
+            // "tile-2", ... is deliberately not the primary way to pick one.
             const std::optional<TileId>& selectedTileId = coordinator.state().tilemapEditor.selectedTileId;
-            html += "<div class=\"asset-group-title\">Tiles</div><div class=\"asset-options\">";
-            for (const TileDefinition& tile : tmTileset->tiles) {
-                html += "<div class=\"" + opt;
-                if (selectedTileId && *selectedTileId == tile.id) html += " selected";
-                html += "\" data-action=\"select-tilemap-tile\" data-arg=\"" + escapeRml(tile.id)
-                      + "\">" + escapeRml(tile.id) + "</div>";
+            html += "<div class=\"asset-group-title\">Tiles</div>";
+            html += "<div class=\"tile-palette\" id=\"tile-palette\">";
+            for (std::size_t i = 0; i < tmTileset->tiles.size(); ++i) {
+                const TileDefinition& tile = tmTileset->tiles[i];
+                const std::string tooltip = "Tile " + std::to_string(i + 1) + " - ID: " + tile.id
+                    + " - Source: " + std::to_string(tile.x) + "," + std::to_string(tile.y)
+                    + " " + std::to_string(tile.width) + "x" + std::to_string(tile.height) + "px";
+                html += "<div id=\"tile-thumb-" + std::to_string(i) + "\" class=\"tile-thumb\""
+                        " data-action=\"select-tilemap-tile\" data-arg=\"" + escapeRml(tile.id) + "\""
+                        " data-dbl-action=\"open-tilemap-tileset-editor\""
+                        " title=\"" + escapeRml(tooltip) + "\"></div>";
             }
             html += "</div>";
+
+            // "Tile N" reflects the tile's position in the palette (there is
+            // no authored display name until per-tile metadata ships); the
+            // stable TileId stays visible, but secondary.
+            for (std::size_t i = 0; i < tmTileset->tiles.size(); ++i) {
+                if (!selectedTileId || tmTileset->tiles[i].id != *selectedTileId) continue;
+                html += "<div class=\"tile-palette-selected\">Selected: <span class=\"value\">Tile "
+                      + std::to_string(i + 1) + "</span> - " + escapeRml(*selectedTileId) + "</div>";
+                break;
+            }
         }
     }
 

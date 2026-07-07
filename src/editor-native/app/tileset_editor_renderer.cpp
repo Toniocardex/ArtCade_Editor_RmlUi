@@ -1,5 +1,6 @@
 #include "editor-native/app/tileset_editor_renderer.h"
 
+#include "editor-native/app/checker_pattern.h"
 #include "editor-native/model/tileset_slicing.h"
 
 #include <algorithm>
@@ -9,24 +10,6 @@
 namespace ArtCade::EditorNative {
 
 namespace {
-
-// Transparency checker under the sheet: empty pixels must read as empty, not
-// as the canvas background. Mirrors sprite_animation_preview_renderer.cpp's
-// drawTransparencyChecker exactly.
-void drawTransparencyChecker(const Rectangle& area, const Rectangle& clip) {
-    constexpr int kTile = 8;
-    const int x0 = static_cast<int>(std::floor(std::max(area.x, clip.x)));
-    const int y0 = static_cast<int>(std::floor(std::max(area.y, clip.y)));
-    const int x1 = static_cast<int>(std::ceil(std::min(area.x + area.width, clip.x + clip.width)));
-    const int y1 = static_cast<int>(std::ceil(std::min(area.y + area.height, clip.y + clip.height)));
-    for (int y = y0; y < y1; y += kTile) {
-        for (int x = x0; x < x1; x += kTile) {
-            const bool dark = (((x - x0) / kTile) + ((y - y0) / kTile)) % 2 == 0;
-            DrawRectangle(x, y, std::min(kTile, x1 - x), std::min(kTile, y1 - y),
-                          dark ? Color{13, 13, 15, 255} : Color{22, 22, 26, 255});
-        }
-    }
-}
 
 Rectangle destinationForTile(const TileDefinition& tile, const TextureResource& resource,
                              const Rectangle& sheetDest) {

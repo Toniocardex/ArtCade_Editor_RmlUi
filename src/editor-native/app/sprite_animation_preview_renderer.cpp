@@ -1,5 +1,6 @@
 #include "editor-native/app/sprite_animation_preview_renderer.h"
 
+#include "editor-native/app/checker_pattern.h"
 #include "editor-native/model/sprite_animation_slicing.h"
 
 #include <algorithm>
@@ -19,24 +20,6 @@ const SpriteAnimationClipDef* findAnimationClip(const SpriteAnimationAssetDef& a
         if (clip.id == *clipId) return &clip;
     }
     return nullptr;
-}
-
-// Transparency checker under a sprite: the image's empty pixels must read as
-// empty, not as the canvas background. Two near-background grays keep it quiet.
-// Clipped to `clip` so the tiles never spill past the intended rect.
-void drawTransparencyChecker(const Rectangle& area, const Rectangle& clip) {
-    constexpr int kTile = 8;
-    const int x0 = static_cast<int>(std::floor(std::max(area.x, clip.x)));
-    const int y0 = static_cast<int>(std::floor(std::max(area.y, clip.y)));
-    const int x1 = static_cast<int>(std::ceil(std::min(area.x + area.width, clip.x + clip.width)));
-    const int y1 = static_cast<int>(std::ceil(std::min(area.y + area.height, clip.y + clip.height)));
-    for (int y = y0; y < y1; y += kTile) {
-        for (int x = x0; x < x1; x += kTile) {
-            const bool dark = (((x - x0) / kTile) + ((y - y0) / kTile)) % 2 == 0;
-            DrawRectangle(x, y, std::min(kTile, x1 - x), std::min(kTile, y1 - y),
-                          dark ? Color{13, 13, 15, 255} : Color{22, 22, 26, 255});
-        }
-    }
 }
 
 Rectangle destinationForSourceFrame(const SpriteAnimationFrameDef& frame,

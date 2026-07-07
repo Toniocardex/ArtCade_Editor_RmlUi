@@ -1158,6 +1158,19 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         coordinator_.apply(SetRectangleShapeModeIntent{true});
     } else if (action == "select-tilemap-tile") {
         coordinator_.apply(SelectPaintTileIntent{arg});
+    } else if (action == "open-tilemap-tileset-editor") {
+        // Double-click on a palette thumbnail: no data-arg carries the
+        // tileset id (a thumb's own data-arg is its TileId, for the click/
+        // select action), so this resolves it from the selected instance's
+        // own TilemapComponent instead of overloading one attribute with two
+        // different ids.
+        if (!coordinator_.isPlaying()) {
+            const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
+                coordinator_.state().activeSceneId, selected);
+            if (inst && inst->tilemap.has_value()) {
+                coordinator_.apply(OpenTilesetEditorIntent{inst->tilemap->tilesetAssetId});
+            }
+        }
     } else {
         return false;
     }
