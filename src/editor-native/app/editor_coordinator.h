@@ -204,6 +204,15 @@ private:
     // UI history: an undone delete does not re-select what it brings back.
     EditorInvalidation reconcileWorkspace();
 
+    // Wraps reconcileWorkspace() for the three command-path call sites
+    // (executeOwned/undo/redo): accumulates its invalidation as before, then
+    // — kept out of reconcileWorkspace() itself, since that is infrastructural
+    // and also runs on paths (load, replace, deletes) where an active-layer
+    // change is not a "move" worth announcing — compares the active layer
+    // before/after and, if an entity is selected and the layer genuinely
+    // changed to a hidden one, posts a single edge-triggered Info message.
+    void reconcileWorkspaceAndAnnounce();
+
     ProjectDocument                                  document_;
     EditorState                                      state_;
     EditorUiState                                    uiState_;

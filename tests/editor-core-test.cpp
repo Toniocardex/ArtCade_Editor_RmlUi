@@ -7044,6 +7044,115 @@ int main() {
         CHECK(begin.error.find("locked") != std::string::npos);
     }
 
+    // == Entity layer move reconciliation ========================================
+    // reconcileWorkspace() keeps activeLayerId == effectiveLayerId(selection)
+    // across a SetEntityLayerCommand's apply/undo/redo, not just at select time.
+
+    // -- Move follows the selected entity: selection survives, activeLayerId
+    // switches to the destination layer -----------------------------------------
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        c.apply(SelectSceneIntent{"s"});
+        CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+        c.apply(SelectEntityIntent{1});
+        CHECK(c.activeLayerId("s") == "layer-1");
+
+        CHECK(c.execute(SetEntityLayerCommand{"s", 1, "fg"}).ok);
+        CHECK(c.selection().primaryEntity == 1);   // still selected
+        CHECK(c.activeLayerId("s") == "fg");       // active layer followed the move
+
+        // -- Undo: both the entity and the active layer go back together -------
+        CHECK(c.undo().ok);
+        CHECK(c.document().findInstanceInScene("s", 1)->layerId == "layer-1");
+        CHECK(c.selection().primaryEntity == 1);
+        CHECK(c.activeLayerId("s") == "layer-1");
+
+        // -- Redo: both move forward together again -----------------------------
+        CHECK(c.redo().ok);
+        CHECK(c.document().findInstanceInScene("s", 1)->layerId == "fg");
+        CHECK(c.selection().primaryEntity == 1);
+        CHECK(c.activeLayerId("s") == "fg");
+    }
+
+    // -- Same-layer no-op: no history entry, no console message, no workspace
+    // change --------------------------------------------------------------------
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        c.apply(SelectSceneIntent{"s"});
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+        c.apply(SelectEntityIntent{1});
+        const std::size_t undoBefore = c.undoSize();
+        const std::size_t consoleBefore = c.consoleLog().size();
+        CHECK(c.execute(SetEntityLayerCommand{"s", 1, "layer-1"}).ok);   // already there
+        CHECK(c.undoSize() == undoBefore);         // no-op: not recorded
+        CHECK(c.consoleLog().size() == consoleBefore);
+        CHECK(c.activeLayerId("s") == "layer-1");
+    }
+
+    // -- Move to a hidden target layer: succeeds, activates the hidden layer,
+    // keeps the selection, and posts exactly one Info message. A later unrelated
+    // reconciliation (a second no-op-free command) does not repeat it ----------
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        c.apply(SelectSceneIntent{"s"});
+        CHECK(c.execute(AddSceneLayerCommand{"s", "bg", "Background", 1}).ok);
+        c.apply(ToggleLayerEditorVisibilityIntent{"s", "bg"});   // hide it
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+        c.apply(SelectEntityIntent{1});
+        const std::size_t consoleBefore = c.consoleLog().size();
+
+        CHECK(c.execute(SetEntityLayerCommand{"s", 1, "bg"}).ok);
+        CHECK(c.selection().primaryEntity == 1);
+        CHECK(c.activeLayerId("s") == "bg");
+        CHECK(c.consoleLog().size() == consoleBefore + 1);
+        CHECK(c.consoleLog().back().level == ConsoleMessage::Level::Info);
+        CHECK(c.consoleLog().back().text.find("hidden layer") != std::string::npos);
+        CHECK(c.consoleLog().back().text.find("Background") != std::string::npos);
+        // The layer itself was not made visible as a side effect of the move.
+        CHECK(c.sceneView("s").hiddenLayerIds.count("bg") == 1);
+
+        const std::size_t consoleAfterMove = c.consoleLog().size();
+        CHECK(c.execute(RenameEntityCommand{"s", 1, "Hero Renamed"}).ok);   // unrelated command
+        CHECK(c.consoleLog().size() == consoleAfterMove);   // no repeated announcement
+    }
+
+    // -- Tilemap entity: moving layers preserves the component and its cells
+    // exactly; only layerId changes ----------------------------------------------
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        c.apply(SelectSceneIntent{"s"});
+        CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
+        CHECK(c.execute(AddImageAssetCommand{"img-1", "some/path.png"}).ok);
+        TilesetSlicing slicing{32, 32};
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-1", "Tiles", "img-1", slicing}).ok);
+        CHECK(c.execute(ChangeTilesetSlicingCommand{
+                  "tiles-1", slicing, tilesForSlicing(64, 64, slicing)}).ok);   // "tile-1".."tile-4"
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Ground", "Ground", {}, "layer-1"}).ok);
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{0, 0}, std::nullopt,
+                                            TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{"s", 1, changes}).ok);
+
+        CHECK(c.execute(SetEntityLayerCommand{"s", 1, "fg"}).ok);
+        const SceneInstanceDef* moved = c.document().findInstanceInScene("s", 1);
+        CHECK(moved->layerId == "fg");
+        CHECK(moved->tilemap.has_value());
+        CHECK(moved->tilemap->tilesetAssetId == "tiles-1");
+        CHECK(readTilemapCell(*moved->tilemap, {0, 0})->tileId == "tile-1");
+    }
+
     // == Start-scene invariant: scenes exist => startSceneId is valid ==========
 
     // -- (1)(2)(3) First scene becomes the start scene; workspace untouched ----

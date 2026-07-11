@@ -114,7 +114,7 @@ EditorOperationResult EditorCoordinator::executeOwned(
            && "mutating command reported no invalidation");
 
     accumulate(result.invalidation);
-    accumulate(reconcileWorkspace());   // keep EditorState valid in the same op
+    reconcileWorkspaceAndAnnounce();   // keep EditorState valid in the same op
     accumulate(EditorInvalidation::Toolbar);   // undo became available
     history_.record(std::move(command), revisionBefore, revisionAfter);
     return result;
@@ -151,7 +151,7 @@ EditorOperationResult EditorCoordinator::undo() {
     assert(result.invalidation != EditorInvalidation::None && "undo reported no invalidation");
     document_.restoreRevision(entry.revisionBefore);   // dirty reflects state A
     accumulate(result.invalidation);
-    accumulate(reconcileWorkspace());
+    reconcileWorkspaceAndAnnounce();
     accumulate(EditorInvalidation::Toolbar);           // undo/redo availability changed
     history_.pushRedo(std::move(entry));               // now redoable
     return result;
@@ -188,7 +188,7 @@ EditorOperationResult EditorCoordinator::redo() {
     assert(result.invalidation != EditorInvalidation::None && "redo reported no invalidation");
     document_.restoreRevision(entry.revisionAfter);    // dirty reflects state B
     accumulate(result.invalidation);
-    accumulate(reconcileWorkspace());
+    reconcileWorkspaceAndAnnounce();
     accumulate(EditorInvalidation::Toolbar);
     history_.pushUndo(std::move(entry));               // undoable again
     return result;
@@ -243,6 +243,27 @@ EditorInvalidation EditorCoordinator::reconcileWorkspace() {
         }
     }
 
+    // 5. The active layer must track the selected instance's own layer: the
+    //    selection is always the authoring target, so if it changed layer by
+    //    some means other than SelectEntityIntent/SetActiveLayerIntent (e.g. a
+    //    SetEntityLayerCommand move, or its undo/redo), activeLayerId follows
+    //    here instead of leaving a stale mismatch until the next manual pick.
+    //    Symmetric with SetActiveLayerIntent, which clears the selection when
+    //    the *active layer* changes explicitly instead. Workspace-only: never
+    //    touches the document, so no dirty/revision/undo implication.
+    if (state_.selection.hasEntity()) {
+        if (const SceneInstanceDef* inst = document_.findInstanceInScene(
+                state_.activeSceneId, state_.selection.primaryEntity)) {
+            const std::string effLayer = document_.effectiveLayerId(state_.activeSceneId, *inst);
+            EditorSceneViewState& view = state_.sceneViews[state_.activeSceneId];
+            if (view.activeLayerId != effLayer) {
+                view.activeLayerId = effLayer;
+                extra |= EditorInvalidation::Inspector | EditorInvalidation::Viewport
+                       | EditorInvalidation::Hierarchy;
+            }
+        }
+    }
+
     if (state_.spriteAnimationEditor.openAssetId
         && !document_.hasSpriteAnimationAsset(*state_.spriteAnimationEditor.openAssetId)) {
         state_.spriteAnimationEditor = SpriteAnimationEditorState{};
@@ -283,6 +304,23 @@ EditorInvalidation EditorCoordinator::reconcileWorkspace() {
     }
 
     return extra;
+}
+
+void EditorCoordinator::reconcileWorkspaceAndAnnounce() {
+    const std::string before = activeLayerId(state_.activeSceneId);
+    accumulate(reconcileWorkspace());
+    if (!state_.selection.hasEntity()) return;   // not an entity-layer move
+    const std::string after = activeLayerId(state_.activeSceneId);
+    if (after == before) return;   // edge-triggered: only a genuine change announces
+    if (sceneView(state_.activeSceneId).hiddenLayerIds.count(after) == 0) return;
+    std::string layerName = after;
+    if (const SceneDef* scene = document_.findScene(state_.activeSceneId)) {
+        for (const SceneLayerDef& layer : scene->layers) {
+            if (layer.id == after) { layerName = layer.name; break; }
+        }
+    }
+    appendConsole(ConsoleMessage::Level::Info,
+                  "Entity moved to hidden layer \"" + layerName + "\"");
 }
 
 EditorOperationResult EditorCoordinator::replaceProject(ProjectDocument replacement) {

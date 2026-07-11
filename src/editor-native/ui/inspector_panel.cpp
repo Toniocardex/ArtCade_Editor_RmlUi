@@ -477,17 +477,40 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     // Layer picker (only when the scene declares layers; legacy scenes have none).
     const SceneDef* instScene = coordinator.document().findScene(coordinator.state().activeSceneId);
     if (instScene && !instScene->layers.empty()) {
-        std::string curLayerName = inst->layerId;
+        // effectiveLayerId, not the raw (possibly empty, meaning "default layer")
+        // inst->layerId, so the current-layer readout and the selected option
+        // stay correct for instances living on the scene's default layer.
+        const std::string curLayer =
+            coordinator.document().effectiveLayerId(coordinator.state().activeSceneId, *inst);
+        std::string curLayerName = curLayer;
         for (const SceneLayerDef& l : instScene->layers)
-            if (l.id == inst->layerId) curLayerName = l.name;
+            if (l.id == curLayer) curLayerName = l.name;
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Layer</span>"
                 "<span class=\"prop-readonly\">" + escapeRml(curLayerName) + "</span></div>";
         html += "<div class=\"asset-options\">";
+        const EditorSceneViewState& instSceneView =
+            coordinator.sceneView(coordinator.state().activeSceneId);
         for (const SceneLayerDef& l : instScene->layers) {
-            html += "<div class=\"" + instanceOpt;
-            if (l.id == inst->layerId) html += " selected";
-            html += "\" data-action=\"set-entity-layer\" data-arg=\"" + escapeRml(l.id)
-                  + "\">" + escapeRml(l.name) + "</div>";
+            const bool isCurrent = l.id == curLayer;
+            // A locked *target* layer is shown but unpickable - the Command
+            // already rejects it, this just avoids a doomed click. The source
+            // layer being locked instead disables the whole picker already,
+            // via instanceDisabled (computed above from isInstanceLayerLocked).
+            const bool targetLocked = !isCurrent && l.locked;
+            const bool targetHidden = instSceneView.hiddenLayerIds.count(l.id) > 0;
+            const bool optDisabled = instanceDisabled || targetLocked;
+            html += "<div class=\"" + std::string(optDisabled ? "asset-option disabled" : "asset-option");
+            if (isCurrent) html += " selected";
+            html += "\"";
+            if (!optDisabled) {
+                html += " data-action=\"set-entity-layer\" data-arg=\"" + escapeRml(l.id) + "\"";
+            }
+            if (targetLocked) html += " title=\"Layer is locked\"";
+            else if (targetHidden) html += " title=\"Layer is hidden\"";
+            html += ">";
+            if (targetLocked) html += "<span class=\"icon\">&#xeae2;</span> ";
+            else if (targetHidden) html += "<span class=\"icon\">&#xea9a;</span> ";
+            html += escapeRml(l.name) + "</div>";
         }
         html += "</div>";
     }
