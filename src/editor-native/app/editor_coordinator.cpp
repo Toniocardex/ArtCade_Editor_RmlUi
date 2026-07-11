@@ -66,6 +66,14 @@ void EditorCoordinator::markSceneViewInitialized(const SceneId& id) {
     state_.sceneViews[id].initialized = true;   // workspace only; no dirty/invalidation
 }
 
+std::string EditorCoordinator::activeLayerId(const SceneId& sceneId) const {
+    const SceneDef* scene = document_.findScene(sceneId);
+    if (!scene) return {};
+    std::string active = sceneView(sceneId).activeLayerId;
+    if (active.empty() || !document_.hasLayer(sceneId, active)) active = scene->defaultLayerId;
+    return active;
+}
+
 // ----------------------------------------------------------------------------
 // Command path
 // ----------------------------------------------------------------------------
@@ -405,11 +413,24 @@ EditorOperationResult EditorCoordinator::finishIntent(EditorOperationResult resu
     return result;
 }
 EditorOperationResult EditorCoordinator::apply(const SelectEntityIntent& intent) {
-    if (intent.entityId != INVALID_ENTITY
-        && !document_.findInstanceInScene(state_.activeSceneId, intent.entityId)) {
+    if (intent.entityId == INVALID_ENTITY) {
+        state_.selection.primaryEntity = INVALID_ENTITY;
+        accumulate(kSelectionInvalidation);
+        return EditorOperationResult::success(kSelectionInvalidation);
+    }
+    const SceneInstanceDef* inst =
+        document_.findInstanceInScene(state_.activeSceneId, intent.entityId);
+    if (!inst) {
         return finishIntent(EditorOperationResult::failure("Unknown entity id in active scene"));
     }
     state_.selection.primaryEntity = intent.entityId;
+    // A layer is a real authoring scope: selecting an entity - from the
+    // Hierarchy (any layer) or the Scene View (already active-layer-only,
+    // see routeViewportPickDrag) - always makes its own layer the active one,
+    // so Brush/Delete/Inspector/etc. never keep targeting a stale layer's
+    // entity after the selection itself has moved on.
+    state_.sceneViews[state_.activeSceneId].activeLayerId =
+        document_.effectiveLayerId(state_.activeSceneId, *inst);
     accumulate(kSelectionInvalidation);
     return EditorOperationResult::success(kSelectionInvalidation);
 }
@@ -820,8 +841,36 @@ EditorOperationResult EditorCoordinator::apply(const SetActiveLayerIntent& inten
         return finishIntent(EditorOperationResult::failure("Unknown layer id"));
     }
     state_.sceneViews[intent.sceneId].activeLayerId = intent.layerId;
-    accumulate(EditorInvalidation::Inspector);
-    return EditorOperationResult::success(EditorInvalidation::Inspector);
+    EditorInvalidation inv = EditorInvalidation::Inspector;
+
+    if (intent.sceneId == state_.activeSceneId) {
+        // A layer switch always ends any in-progress paint gesture - it
+        // belonged to whichever layer/entity was being edited a moment ago,
+        // not to the layer that's active now. Also drops a momentary Eraser
+        // override (right-click shortcut) so it can never outlive the stroke
+        // it belonged to - the same "every termination path clears it" rule
+        // BeginTilePaintStrokeIntent's own failure path already follows.
+        if (state_.tilemapEditor.pendingStroke || state_.tilemapEditor.pendingRectangle) {
+            state_.tilemapEditor.pendingStroke.reset();
+            state_.tilemapEditor.pendingRectangle.reset();
+            state_.tilemapEditor.temporaryToolOverride.reset();
+            inv |= EditorInvalidation::Viewport;
+        }
+        // The selection is an authoring scope, not just a UI highlight: an
+        // entity from the layer just left must not stay the operative target
+        // for Delete/Inspector/tilemap tools once the active layer moves on.
+        if (state_.selection.hasEntity()) {
+            const SceneInstanceDef* inst =
+                document_.findInstanceInScene(intent.sceneId, state_.selection.primaryEntity);
+            if (!inst || document_.effectiveLayerId(intent.sceneId, *inst) != intent.layerId) {
+                state_.selection.clear();
+                inv |= EditorInvalidation::Hierarchy | EditorInvalidation::Viewport;
+            }
+        }
+    }
+
+    accumulate(inv);
+    return EditorOperationResult::success(inv);
 }
 
 EditorOperationResult EditorCoordinator::apply(const ToggleLayerEditorVisibilityIntent& intent) {
@@ -880,8 +929,17 @@ EditorOperationResult EditorCoordinator::apply(const BeginTilePaintStrokeIntent&
     if (!inst || !inst->tilemap.has_value()) {
         return finishIntent(EditorOperationResult::failure("Selected instance has no Tilemap component"));
     }
-    if (document_.isLayerLocked(intent.sceneId, inst->layerId)) {
+    if (document_.isInstanceLayerLocked(intent.sceneId, *inst)) {
         return finishIntent(EditorOperationResult::failure("Layer is locked"));
+    }
+    // A tilemap belongs to whichever layer its entity sits on; painting must
+    // target only the active layer's own tilemap, never a stale selection
+    // left over from before a layer switch (SetActiveLayerIntent already
+    // clears a mismatched selection - this is the coordinator-side backstop
+    // for that invariant, not the primary mechanism).
+    if (document_.effectiveLayerId(intent.sceneId, *inst) != activeLayerId(intent.sceneId)) {
+        return finishIntent(EditorOperationResult::failure(
+            "Selected instance is not on the active layer"));
     }
     if (!document_.findTilesetAsset(inst->tilemap->tilesetAssetId)) {
         return finishIntent(EditorOperationResult::failure("Tilemap references a missing tileset"));
@@ -977,8 +1035,17 @@ EditorOperationResult EditorCoordinator::apply(const BeginTileRectangleIntent& i
     if (!inst || !inst->tilemap.has_value()) {
         return finishIntent(EditorOperationResult::failure("Selected instance has no Tilemap component"));
     }
-    if (document_.isLayerLocked(intent.sceneId, inst->layerId)) {
+    if (document_.isInstanceLayerLocked(intent.sceneId, *inst)) {
         return finishIntent(EditorOperationResult::failure("Layer is locked"));
+    }
+    // A tilemap belongs to whichever layer its entity sits on; painting must
+    // target only the active layer's own tilemap, never a stale selection
+    // left over from before a layer switch (SetActiveLayerIntent already
+    // clears a mismatched selection - this is the coordinator-side backstop
+    // for that invariant, not the primary mechanism).
+    if (document_.effectiveLayerId(intent.sceneId, *inst) != activeLayerId(intent.sceneId)) {
+        return finishIntent(EditorOperationResult::failure(
+            "Selected instance is not on the active layer"));
     }
     if (!document_.findTilesetAsset(inst->tilemap->tilesetAssetId)) {
         return finishIntent(EditorOperationResult::failure("Tilemap references a missing tileset"));
@@ -1076,8 +1143,17 @@ EditorOperationResult EditorCoordinator::apply(const FillTilemapIntent& intent) 
     if (!inst || !inst->tilemap.has_value()) {
         return finishIntent(EditorOperationResult::failure("Selected instance has no Tilemap component"));
     }
-    if (document_.isLayerLocked(intent.sceneId, inst->layerId)) {
+    if (document_.isInstanceLayerLocked(intent.sceneId, *inst)) {
         return finishIntent(EditorOperationResult::failure("Layer is locked"));
+    }
+    // A tilemap belongs to whichever layer its entity sits on; painting must
+    // target only the active layer's own tilemap, never a stale selection
+    // left over from before a layer switch (SetActiveLayerIntent already
+    // clears a mismatched selection - this is the coordinator-side backstop
+    // for that invariant, not the primary mechanism).
+    if (document_.effectiveLayerId(intent.sceneId, *inst) != activeLayerId(intent.sceneId)) {
+        return finishIntent(EditorOperationResult::failure(
+            "Selected instance is not on the active layer"));
     }
     if (!document_.findTilesetAsset(inst->tilemap->tilesetAssetId)) {
         return finishIntent(EditorOperationResult::failure("Tilemap references a missing tileset"));

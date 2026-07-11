@@ -257,14 +257,22 @@ void routeViewportPickDrag(EditorCoordinator& coordinator, const ViewportRect& r
         if (shouldViewportReceiveInput(ctx)) {
             const Vec2 world = screenToWorld(cam, mouse);
             EntityId picked = pickEntityAt(frame, world);
-            // A locked layer's instances are not pickable by clicking the Scene
-            // View (they stay selectable from the Hierarchy) - treated the same
-            // as picking nothing, so a click on one clears the selection rather
-            // than starting a drag.
+            // A locked layer's instances, and any instance outside the active
+            // layer, are not pickable by clicking the Scene View - both stay
+            // selectable from the Hierarchy instead (which also switches the
+            // active layer to match, see SelectEntityIntent), treated the same
+            // as picking nothing so a click on one clears the selection rather
+            // than starting a drag or silently switching the active layer out
+            // from under the user.
             if (picked != INVALID_ENTITY) {
                 const SceneInstanceDef* pickedInst =
                     coordinator.document().findInstanceInScene(active, picked);
-                if (pickedInst && coordinator.document().isInstanceLayerLocked(active, *pickedInst)) {
+                const bool onOtherLayer = pickedInst
+                    && coordinator.document().effectiveLayerId(active, *pickedInst)
+                           != coordinator.activeLayerId(active);
+                if (!pickedInst
+                    || coordinator.document().isInstanceLayerLocked(active, *pickedInst)
+                    || onOtherLayer) {
                     picked = INVALID_ENTITY;
                 }
             }

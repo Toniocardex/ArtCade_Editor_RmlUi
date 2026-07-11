@@ -60,6 +60,12 @@ public:
         return state_.tilemapEditor.temporaryToolOverride.value_or(state_.activeTool);
     }
     const EditorSceneViewState& sceneView(const SceneId& id) const;
+    // The layer authoring operations actually target: the workspace's own
+    // activeLayerId if it's set and still resolves to a real layer, else the
+    // scene's default layer. Empty if @p sceneId doesn't resolve. Mirrors the
+    // normalization the Layers section UI already does when highlighting the
+    // active row - the single source of truth both now share.
+    std::string activeLayerId(const SceneId& sceneId) const;
     // Workspace-only: mark a scene's editor view as auto-fitted (one-time). Never
     // touches ProjectDocument, revision, dirty or history.
     void markSceneViewInitialized(const SceneId& id);

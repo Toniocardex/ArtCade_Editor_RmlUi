@@ -174,43 +174,55 @@ void SceneView::render(const SceneFrameSnapshot& frame,
     const float linePx = 2.f / cam.zoom;
     DrawRectangleLinesEx(Rectangle{0, 0, world.x, world.y}, linePx, Color{92, 92, 102, 255});
 
+    // One pass, in frame.entities' own order (already back-to-front by scene
+    // layer, via ProjectDocument::instancesInRenderOrder) - each entity draws
+    // whatever visual it has before moving to the next. Splitting this into
+    // separate "draw every tilemap" / "draw every sprite" passes (as this used
+    // to do) silently drops cross-type layer interleaving: a tilemap on a layer
+    // above a sprite would always land underneath it, since every tilemap was
+    // drawn before every sprite regardless of layer order. World-space
+    // coordinates throughout: raylib's Camera2D (already active via
+    // BeginMode2D) handles the screen mapping.
     for (const SceneFrameEntity& entity : frame.entities) {
-        if (hasVisibleSprite(frame, entity.entityId) || hasVisibleTilemapCells(frame, entity.entityId)) {
+        const bool hasSprite = hasVisibleSprite(frame, entity.entityId);
+        const bool hasTilemap = hasVisibleTilemapCells(frame, entity.entityId);
+        if (!hasSprite && !hasTilemap) {
+            const Rectangle box = toRectangle(entity.bounds);
+            DrawRectangleRec(box, toColor(entity.fillColor, 0.92f));
+            DrawRectangleLinesEx(box, 1.f / cam.zoom, Color{12, 14, 18, 200});
             continue;
         }
-        const Rectangle box = toRectangle(entity.bounds);
-        DrawRectangleRec(box, toColor(entity.fillColor, 0.92f));
-        DrawRectangleLinesEx(box, 1.f / cam.zoom, Color{12, 14, 18, 200});
-    }
-
-    // Tilemap cells draw before sprites - a tilemap is almost always the
-    // ground/background layer, sprites (characters, props) sit on top of it.
-    // World-space coordinates throughout, same as sprites below: raylib's
-    // Camera2D (already active via BeginMode2D) handles the screen mapping.
-    for (const SceneFrameTilemap& tilemap : frame.tilemaps) {
-        const TextureResource* resource = textures.find(tilemap.imageAssetId);
-        if (!resource || !resource->loaded) continue;
-        for (const SceneFrameTilemapCell& cell : tilemap.cells) {
-            DrawTexturePro(resource->texture, toRectangle(cell.source), toRectangle(cell.destination),
-                          Vector2{0.f, 0.f}, 0.f, WHITE);
+        if (hasTilemap) {
+            for (const SceneFrameTilemap& tilemap : frame.tilemaps) {
+                if (tilemap.entityId != entity.entityId) continue;
+                const TextureResource* resource = textures.find(tilemap.imageAssetId);
+                if (resource && resource->loaded) {
+                    for (const SceneFrameTilemapCell& cell : tilemap.cells) {
+                        DrawTexturePro(resource->texture, toRectangle(cell.source),
+                                      toRectangle(cell.destination), Vector2{0.f, 0.f}, 0.f, WHITE);
+                    }
+                }
+                break;   // one Tilemap component per entity
+            }
         }
-    }
-
-    for (const SceneFrameSprite& sprite : frame.sprites) {
-        if (!sprite.visible) continue;
-        const TextureResource* resource = textures.find(sprite.assetId);
-        if (!resource || !resource->loaded) {
-            drawMissingSprite(sprite, cam.zoom);
-            continue;
+        if (hasSprite) {
+            for (const SceneFrameSprite& sprite : frame.sprites) {
+                if (sprite.entityId != entity.entityId) continue;
+                const TextureResource* resource = textures.find(sprite.assetId);
+                if (!resource || !resource->loaded) {
+                    drawMissingSprite(sprite, cam.zoom);
+                } else {
+                    const Rectangle source = sprite.hasSource
+                        ? toRectangle(sprite.source)
+                        : Rectangle{0.f, 0.f,
+                                    static_cast<float>(resource->texture.width),
+                                    static_cast<float>(resource->texture.height)};
+                    DrawTexturePro(resource->texture, source, toRectangle(sprite.destination),
+                                  Vector2{0.f, 0.f}, 0.f, WHITE);
+                }
+                break;   // one SpriteRenderer per entity
+            }
         }
-
-        const Rectangle source = sprite.hasSource
-            ? toRectangle(sprite.source)
-            : Rectangle{0.f, 0.f,
-                        static_cast<float>(resource->texture.width),
-                        static_cast<float>(resource->texture.height)};
-        DrawTexturePro(resource->texture, source, toRectangle(sprite.destination),
-                       Vector2{0.f, 0.f}, 0.f, WHITE);
     }
 
     for (const SceneFrameEntity& entity : frame.entities) {

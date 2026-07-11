@@ -193,12 +193,7 @@ void InspectorPanel::beginActiveSceneLayerRename(Rml::ElementDocument* document,
     const SceneDef* scene = coordinator.document().findScene(sceneId);
     if (!scene || scene->layers.empty()) return;
 
-    const EditorSceneViewState& view = coordinator.sceneView(sceneId);
-    std::string activeLayer = view.activeLayerId;
-    if (activeLayer.empty() || !coordinator.document().hasLayer(sceneId, activeLayer)) {
-        activeLayer = scene->defaultLayerId;
-    }
-    beginSceneLayerRename(document, coordinator, activeLayer);
+    beginSceneLayerRename(document, coordinator, coordinator.activeLayerId(sceneId));
 }
 
 void InspectorPanel::commitSceneLayerRename(Rml::ElementDocument* document,
@@ -356,9 +351,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         // -- LAYERS (per-scene render order; top row = foreground) -------------
         html += header("&#xee9e;", "Layers", "", "", "", playing);
         const EditorSceneViewState& view = coordinator.sceneView(activeScene);
-        std::string activeLayer = view.activeLayerId;
-        if (activeLayer.empty() || !coordinator.document().hasLayer(activeScene, activeLayer))
-            activeLayer = scene->defaultLayerId;
+        const std::string activeLayer = coordinator.activeLayerId(activeScene);
         // Render rows reversed so the foreground layer (last in scene.layers) is on top.
         for (std::size_t i = scene->layers.size(); i-- > 0;) {
             const SceneLayerDef& layer = scene->layers[i];

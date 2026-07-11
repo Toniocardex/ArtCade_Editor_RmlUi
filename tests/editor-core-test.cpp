@@ -6932,6 +6932,118 @@ int main() {
         CHECK(c.document().findInstanceInScene("s", 1) != nullptr);
     }
 
+    // == Active layer scoping ====================================================
+    // activeLayerId(): normalizes to the scene's default layer -----------------
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.activeLayerId("no-such-scene").empty());
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        CHECK(c.activeLayerId("s") == "layer-1");   // nothing selected yet -> scene default
+    }
+
+    // -- SelectEntityIntent syncs activeLayerId to the entity's own layer ------
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        c.apply(SelectSceneIntent{"s"});
+        CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Hero", "Hero", {}, "fg"}).ok);
+        CHECK(c.activeLayerId("s") == "layer-1");   // still the default until selected
+        c.apply(SelectEntityIntent{1});
+        CHECK(c.activeLayerId("s") == "fg");        // synced to the entity's own layer
+
+        // Deselecting leaves activeLayerId exactly where it was.
+        c.apply(SelectEntityIntent{INVALID_ENTITY});
+        CHECK(c.activeLayerId("s") == "fg");
+    }
+
+    // -- SetActiveLayerIntent clears a selection that belongs to the layer just
+    // left, and cancels any pending stroke/rectangle regardless of which entity
+    // it belongs to; a selection already on the new active layer survives -----
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        c.apply(SelectSceneIntent{"s"});
+        CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
+        CHECK(c.execute(AddImageAssetCommand{"img-1", "some/path.png"}).ok);
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-1", "Tiles", "img-1", TilesetSlicing{32, 32}}).ok);
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Ground", "Ground", {}, "layer-1"}).ok);
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
+        c.apply(SelectEntityIntent{1});   // activeLayerId -> layer-1
+        CHECK(c.apply(BeginTilePaintStrokeIntent{"s", 1, EditorTool::Eraser, {0, 0}}).ok);
+        CHECK(c.state().tilemapEditor.pendingStroke.has_value());
+
+        c.apply(SetActiveLayerIntent{"s", "fg"});   // switch away from entity 1's layer
+        CHECK(c.activeLayerId("s") == "fg");
+        CHECK(!c.selection().hasEntity());                          // selection cleared
+        CHECK(!c.state().tilemapEditor.pendingStroke.has_value());  // pending stroke cancelled
+    }
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        c.apply(SelectSceneIntent{"s"});
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+        c.apply(SelectEntityIntent{1});
+        c.apply(SetActiveLayerIntent{"s", "layer-1"});   // the layer entity 1 is already on
+        CHECK(c.selection().primaryEntity == 1);         // survives: still the active layer
+    }
+
+    // -- BeginTilePaintStrokeIntent/BeginTileRectangleIntent/FillTilemapIntent
+    // all reject an entity outside the active layer, even when unlocked, and
+    // all three succeed again once the active layer is switched back ----------
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        c.apply(SelectSceneIntent{"s"});
+        CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
+        CHECK(c.execute(AddImageAssetCommand{"img-1", "some/path.png"}).ok);
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-1", "Tiles", "img-1", TilesetSlicing{}}).ok);
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Ground", "Ground", {}, "layer-1"}).ok);
+        CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
+
+        c.apply(SetActiveLayerIntent{"s", "fg"});   // active is "fg"; entity 1 is on "layer-1"
+        const auto begin = c.apply(BeginTilePaintStrokeIntent{"s", 1, EditorTool::Eraser, {0, 0}});
+        CHECK(!begin.ok);
+        CHECK(begin.error.find("active layer") != std::string::npos);
+        CHECK(!c.apply(BeginTileRectangleIntent{"s", 1, {0, 0}}).ok);
+        CHECK(!c.apply(FillTilemapIntent{"s", 1, {0, 0}}).ok);
+
+        // Switch back: the active-layer gate now passes, and everything else
+        // about entity 1's tilemap is genuinely valid, so it fully succeeds.
+        c.apply(SetActiveLayerIntent{"s", "layer-1"});
+        CHECK(c.apply(BeginTilePaintStrokeIntent{"s", 1, EditorTool::Eraser, {0, 0}}).ok);
+    }
+
+    // -- Regression: the pre-existing lock check used inst->layerId directly,
+    // which silently never matched a locked *default* layer for an instance
+    // whose own layerId is "" (meaning "use the default"). isInstanceLayerLocked
+    // resolves effectiveLayerId first, so this must now correctly reject. -----
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        c.apply(SelectSceneIntent{"s"});
+        CHECK(c.execute(AddImageAssetCommand{"img-1", "some/path.png"}).ok);
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-1", "Tiles", "img-1", TilesetSlicing{}}).ok);
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Ground", "Ground", {}, ""}).ok);   // "" -> default layer
+        CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
+        CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", true}).ok);   // locks the default
+
+        const auto begin = c.apply(BeginTilePaintStrokeIntent{"s", 1, EditorTool::Eraser, {0, 0}});
+        CHECK(!begin.ok);
+        CHECK(begin.error.find("locked") != std::string::npos);
+    }
+
     // == Start-scene invariant: scenes exist => startSceneId is valid ==========
 
     // -- (1)(2)(3) First scene becomes the start scene; workspace untouched ----
