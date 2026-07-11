@@ -371,6 +371,12 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             html += "\">";
             html += "<span class=\"layer-eye\" data-action=\"toggle-layer-visible\" data-arg=\""
                   + escapeRml(layer.id) + "\"><span class=\"icon\">&#xea9a;</span></span>";
+            html += "<span class=\"layer-lock";
+            if (layer.locked) html += " locked";
+            html += "\" data-action=\"toggle-layer-locked\" data-arg=\"" + escapeRml(layer.id)
+                  + "\" title=\"" + (layer.locked ? "Unlock layer" : "Lock layer")
+                  + "\"><span class=\"icon\">"
+                  + (layer.locked ? "&#xeae2;" : "&#xeae1;") + "</span></span>";
             const bool renaming = layerRename_
                 && layerRename_->sceneId == activeScene
                 && layerRename_->layerId == layer.id;
@@ -434,15 +440,40 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     const std::string btn = playing ? "panel-btn disabled" : "panel-btn";
     const std::string opt = playing ? "asset-option disabled" : "asset-option";
 
+    // A locked layer makes its instances' own authoring state read-only - but
+    // only what's genuinely instance-owned (SceneId + EntityId addressed):
+    // transform, name, layer, SpriteRenderer/SpriteAnimator/Tilemap. Box
+    // Collider 2D / movers / controllers belong to the shared object type
+    // (TYPE badge below) and are deliberately never gated by this - the type
+    // can be edited from any of its instances regardless of which layers the
+    // others sit on. See ProjectDocument::isInstanceLayerLocked.
+    const bool instanceLocked = coordinator.document().isInstanceLayerLocked(
+        coordinator.state().activeSceneId, *inst);
+    const bool instanceDisabled = playing || instanceLocked;
+    const std::string instanceBtn = instanceDisabled ? "panel-btn disabled" : "panel-btn";
+    const std::string instanceOpt = instanceDisabled ? "asset-option disabled" : "asset-option";
+    // Shown under every TYPE-badged (object-type-owned) component header while
+    // this instance's layer is locked, so it reads as a deliberate exception
+    // rather than a bug that Box Collider/movers/controllers stay editable.
+    const std::string typeOwnedLockNote = instanceLocked
+        ? "<div class=\"type-owned-note\">Shared by all instances of this object type "
+          "&mdash; not protected by this layer's lock.</div>"
+        : "";
+
     const auto& types = coordinator.document().data().objectTypes;
     const auto typeIt = types.find(inst->objectTypeId);
     const EntityDef* type = (typeIt != types.end()) ? &typeIt->second : nullptr;
 
     std::string html;
 
+    if (instanceLocked) {
+        html += "<div class=\"outside-warning\"><span class=\"icon\">&#xeae2;</span>"
+                "<span>This entity belongs to a locked layer.</span></div>";
+    }
+
     // -- Identity (not a component) -------------------------------------------
     html += header("&#xeb34;", "Identity", "", "", "", playing);
-    html += field("Name", "commit-name", inst->instanceName, playing);
+    html += field("Name", "commit-name", inst->instanceName, instanceDisabled);
     // Renaming this field renames the shared ObjectTypeDef (every instance of
     // this type reflects the new name), not just this instance - unlike "Name"
     // above. Disabled when objectTypeId doesn't resolve to a real catalog entry
@@ -460,7 +491,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 "<span class=\"prop-readonly\">" + escapeRml(curLayerName) + "</span></div>";
         html += "<div class=\"asset-options\">";
         for (const SceneLayerDef& l : instScene->layers) {
-            html += "<div class=\"" + opt;
+            html += "<div class=\"" + instanceOpt;
             if (l.id == inst->layerId) html += " selected";
             html += "\" data-action=\"set-entity-layer\" data-arg=\"" + escapeRml(l.id)
                   + "\">" + escapeRml(l.name) + "</div>";
@@ -469,15 +500,15 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     }
 
     // -- Transform (instance-owned; structural, no remove) --------------------
-    html += header("&#xf22f;", "Transform", "INSTANCE", "", "", playing);
-    html += field("Position X", "commit-pos-x", num(inst->transform.position.x), playing,
+    html += header("&#xf22f;", "Transform", "INSTANCE", "", "", instanceDisabled);
+    html += field("Position X", "commit-pos-x", num(inst->transform.position.x), instanceDisabled,
                   "inspector-pos-x");
-    html += field("Position Y", "commit-pos-y", num(inst->transform.position.y), playing,
+    html += field("Position Y", "commit-pos-y", num(inst->transform.position.y), instanceDisabled,
                   "inspector-pos-y");
     const SceneFrameSnapshot frame = collectSceneFrameSnapshot(
         coordinator.document(), coordinator.state().activeSceneId, selected);
     if (const std::optional<WorldRect> bounds = editorBoundsForEntity(frame, selected)) {
-        html += outsideSceneWarning(classifySceneContainment(*bounds, frame.worldSize), playing);
+        html += outsideSceneWarning(classifySceneContainment(*bounds, frame.worldSize), instanceDisabled);
     }
 
     // -- Sprite Renderer (instance override, or inherited from the type) ------
@@ -489,9 +520,9 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     if (spriteOverride) {
         const SpriteRendererComponent& sr = *inst->spriteRenderer;
         html += header("&#xeb0a;", "Sprite Renderer", "OVERRIDE", "override",
-                       "remove-sprite-renderer", playing);
+                       "remove-sprite-renderer", instanceDisabled);
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Visible</span>"
-                "<button class=\"" + btn + "\" data-action=\"toggle-sprite-visible\">";
+                "<button class=\"" + instanceBtn + "\" data-action=\"toggle-sprite-visible\">";
         html += sr.visible ? "On" : "Off";
         html += "</button></div>";
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Source</span>"
@@ -500,12 +531,14 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         else html += sr.imageAssetId.empty() ? "(none)" : escapeRml(sr.imageAssetId);
         html += "</span></div>";
         if (!sr.animationAssetId.empty()) {
+            // Navigates to view/edit the shared animation asset, not this
+            // instance - unaffected by this instance's own layer lock.
             html += "<button class=\"" + btn + "\" data-action=\"open-sprite-animation\" data-arg=\""
                   + escapeRml(sr.animationAssetId)
                   + "\"><span class=\"icon\">&#xeb0a;</span>Open Animation Editor</button>";
         }
         html += "<div class=\"asset-options\">";
-        html += "<div class=\"" + opt + "\" data-action=\"set-sprite-asset\" data-arg=\"\">(none)</div>";
+        html += "<div class=\"" + instanceOpt + "\" data-action=\"set-sprite-asset\" data-arg=\"\">(none)</div>";
 
         // An image already turned into an animation is dropped from the
         // Images group (you almost always want the animation from then on) -
@@ -521,7 +554,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         if (!pickableImages.empty()) {
             html += "<div class=\"asset-group-title\">Images</div>";
             for (const ImageAssetDef* asset : pickableImages) {
-                html += "<div class=\"" + opt;
+                html += "<div class=\"" + instanceOpt;
                 if (sr.animationAssetId.empty() && asset->assetId == sr.imageAssetId) html += " selected";
                 html += "\" data-action=\"set-sprite-asset\" data-arg=\"" + escapeRml(asset->assetId)
                       + "\">" + escapeRml(asset->assetId) + "</div>";
@@ -531,7 +564,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         if (!animations.empty()) {
             html += "<div class=\"asset-group-title\">Animations</div>";
             for (const SpriteAnimationAssetDef& asset : animations) {
-                html += "<div class=\"" + opt;
+                html += "<div class=\"" + instanceOpt;
                 if (asset.id == sr.animationAssetId) html += " selected";
                 html += "\" data-action=\"set-sprite-animation\" data-arg=\"" + escapeRml(asset.id)
                       + "\">" + escapeRml(asset.id) + "</div>";
@@ -540,27 +573,27 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         html += "</div>";
         if (inst->spriteAnimator.has_value()) {
             const SpriteAnimatorComponent& animator = *inst->spriteAnimator;
-            html += header("&#xeb0a;", "Sprite Animator", "INSTANCE", "", "", playing);
+            html += header("&#xeb0a;", "Sprite Animator", "INSTANCE", "", "", instanceDisabled);
             html += "<div class=\"prop-row\"><span class=\"prop-label\">Initial Clip</span>"
                     "<span class=\"prop-readonly\">"
                   + escapeRml(animationClipDisplayName(coordinator, sr.animationAssetId,
                                                        animator.initialClipId))
                   + "</span></div>";
-            html += field("Speed", "commit-animator-speed", num(animator.playbackSpeed), playing);
+            html += field("Speed", "commit-animator-speed", num(animator.playbackSpeed), instanceDisabled);
             html += "<div class=\"prop-row\"><span class=\"prop-label\">Auto Play</span>"
-                    "<button class=\"" + btn + "\" data-action=\"toggle-animator-autoplay\">"
+                    "<button class=\"" + instanceBtn + "\" data-action=\"toggle-animator-autoplay\">"
                   + (animator.autoPlay ? std::string("On") : std::string("Off"))
                   + "</button></div>";
         }
     } else if (spriteInherited) {
         // Inherited from the object type — read-only until overridden (no remove:
         // the type sprite is not the instance's to drop).
-        html += header("&#xeb0a;", "Sprite Renderer", "INHERITED", "", "", playing);
+        html += header("&#xeb0a;", "Sprite Renderer", "INHERITED", "", "", instanceDisabled);
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Image</span>"
                 "<span class=\"prop-readonly\">"
               + (resolved.assetId.empty() ? std::string("(none)") : escapeRml(resolved.assetId))
               + "</span></div>";
-        html += "<button class=\"" + btn + "\" data-action=\"add-sprite-renderer\">"
+        html += "<button class=\"" + instanceBtn + "\" data-action=\"add-sprite-renderer\">"
                 "<span class=\"icon\">&#xeb0b;</span>Add Override</button>";
     }
 
@@ -568,7 +601,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     if (inst->tilemap.has_value()) {
         const TilemapComponent& tm = *inst->tilemap;
         const TilesetAsset* tmTileset = coordinator.document().findTilesetAsset(tm.tilesetAssetId);
-        html += header("&#xf22f;", "Tilemap", "INSTANCE", "", "remove-tilemap-component", playing);
+        html += header("&#xf22f;", "Tilemap", "INSTANCE", "", "remove-tilemap-component", instanceDisabled);
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Tileset</span>"
                 "<span class=\"prop-readonly\">"
               + (tmTileset ? escapeRml(tmTileset->name.empty() ? tmTileset->assetId : tmTileset->name)
@@ -577,7 +610,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         if (coordinator.document().data().tilesets.size() > 1) {
             html += "<div class=\"asset-options\">";
             for (const TilesetAsset& ts : coordinator.document().data().tilesets) {
-                html += "<div class=\"" + opt;
+                html += "<div class=\"" + instanceOpt;
                 if (ts.assetId == tm.tilesetAssetId) html += " selected";
                 html += "\" data-action=\"set-tilemap-tileset\" data-arg=\"" + escapeRml(ts.assetId)
                       + "\">" + escapeRml(ts.name.empty() ? ts.assetId : ts.name) + "</div>";
@@ -586,8 +619,8 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         }
         // cellSize is editable (SetTilemapCellSizeCommand, Slice 4); chunkSize
         // is genuinely immutable after creation (no setter command exists).
-        html += field("Cell Width", "commit-tilemap-cell-width", num(tm.cellSize.x), playing);
-        html += field("Cell Height", "commit-tilemap-cell-height", num(tm.cellSize.y), playing);
+        html += field("Cell Width", "commit-tilemap-cell-width", num(tm.cellSize.x), instanceDisabled);
+        html += field("Cell Height", "commit-tilemap-cell-height", num(tm.cellSize.y), instanceDisabled);
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Chunk Size</span>"
                 "<span class=\"prop-readonly\">" + std::to_string(tm.chunkSize) + "</span></div>";
 
@@ -612,7 +645,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             const auto toolOption = [&](EditorTool tool, const char* action, const char* label) {
                 html += "<button class=\"panel-btn mode-option";
                 if (activeTool == tool) html += " active";
-                if (playing) html += " disabled";
+                if (instanceDisabled) html += " disabled";
                 html += "\" data-action=\"";
                 html += action;
                 html += "\">";
@@ -633,7 +666,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 const auto shapeOption = [&](bool isOutline, const char* action, const char* label) {
                     html += "<button class=\"panel-btn mode-option";
                     if (outline == isOutline) html += " active";
-                    if (playing) html += " disabled";
+                    if (instanceDisabled) html += " disabled";
                     html += "\" data-action=\"";
                     html += action;
                     html += "\">";
@@ -682,6 +715,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         (type && type->boxCollider2D) ? &*type->boxCollider2D : nullptr;
     if (collider) {
         html += header("&#xeca9;", "Box Collider 2D", "TYPE", "", "remove-box-collider", playing);
+        html += typeOwnedLockNote;
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Enabled</span>"
                 "<button class=\"" + btn + "\" data-action=\"toggle-box-enabled\">";
         html += collider->enabled ? "On" : "Off";
@@ -713,6 +747,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         (type && type->linearMover) ? &*type->linearMover : nullptr;
     if (mover) {
         html += header("&#xf22f;", "Linear Mover", "TYPE", "", "remove-linear-mover", playing);
+        html += typeOwnedLockNote;
         html += field("Direction X", "commit-mover-dir-x", num(mover->directionX), playing);
         html += field("Direction Y", "commit-mover-dir-y", num(mover->directionY), playing);
         html += field("Speed", "commit-mover-speed", num(mover->speed), playing);
@@ -723,6 +758,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         (type && type->topDownController) ? &*type->topDownController : nullptr;
     if (controller) {
         html += header("&#xec8e;", "Top Down Controller", "TYPE", "", "remove-top-down", playing);
+        html += typeOwnedLockNote;
         html += field("Speed", "commit-topdown-speed", num(controller->maxSpeed), playing);
     }
 
@@ -731,6 +767,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         (type && type->platformerController) ? &*type->platformerController : nullptr;
     if (platformer) {
         html += header("&#xec8e;", "Platformer Controller", "TYPE", "", "remove-platformer", playing);
+        html += typeOwnedLockNote;
         html += field("Move Speed", "commit-platformer-move", num(platformer->maxSpeed), playing);
         html += field("Jump Speed", "commit-platformer-jump", num(platformer->jumpForce), playing);
         html += field("Gravity", "commit-platformer-gravity", num(platformer->customGravity), playing);
@@ -741,9 +778,10 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         && (type->linearMover || type->topDownController || type->platformerController);
     struct Addable { const char* label; const char* action; bool show; };
     const Addable addable[] = {
-        // Sprite override is instance-level (works even without an object type).
+        // Sprite override is instance-level (works even without an object type) -
+        // gated by instanceLocked, unlike the object-type-owned entries below.
         {"Sprite Renderer", "add-sprite-renderer",
-            !spriteOverride && resolved.origin == ComponentOrigin::None},
+            !instanceLocked && !spriteOverride && resolved.origin == ComponentOrigin::None},
         {"Box Collider 2D", "add-box-collider", type && !collider},
         // The three movement drivers are mutually exclusive: offer none once one exists.
         {"Top Down Controller", "add-top-down", type && !hasDriver},
@@ -753,7 +791,8 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         // reference (auto-assigns the first one - the tileset picker above
         // lets it be changed afterward).
         {"Tilemap", "add-tilemap-component",
-            !inst->tilemap.has_value() && !coordinator.document().data().tilesets.empty()},
+            !instanceLocked && !inst->tilemap.has_value()
+                && !coordinator.document().data().tilesets.empty()},
     };
     bool anyAddable = false;
     for (const Addable& a : addable) anyAddable = anyAddable || a.show;

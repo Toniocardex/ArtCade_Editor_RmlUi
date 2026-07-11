@@ -33,6 +33,7 @@ class RenameSceneLayerCommand;
 class MoveSceneLayerCommand;
 class RemoveSceneLayerCommand;
 class SetEntityLayerCommand;
+class SetLayerLockedCommand;
 class AddPlatformerControllerCommand;
 class RemovePlatformerControllerCommand;
 class SetPlatformerValueCommand;
@@ -104,6 +105,15 @@ public:
     /** True if @p layerId exists in @p sceneId and is editor-locked (pick
      *  gating). False if the scene or layer doesn't resolve. */
     bool                     isLayerLocked(const SceneId& sceneId, const std::string& layerId) const;
+    /** Convenience over effectiveLayerId + isLayerLocked: true if @p instance's
+     *  effective layer in @p sceneId is locked. This is the gate every
+     *  instance-owned command (addressed by SceneId + EntityId) checks before
+     *  mutating. Components owned by the shared object type (BoxCollider2D,
+     *  LinearMover, TopDownController, PlatformerController - addressed by
+     *  objectTypeId only, potentially shared by instances on other layers) are
+     *  deliberately never gated by this. */
+    bool                     isInstanceLayerLocked(const SceneId& sceneId,
+                                                    const SceneInstanceDef& instance) const;
     const EntityDef*         findObjectType(const std::string& id) const;
     /** True if @p id is a known image asset (ProjectDoc.imageAssets). */
     bool                     hasImageAsset(const AssetId& id) const;
@@ -168,6 +178,7 @@ private:
     friend class MoveSceneLayerCommand;
     friend class RemoveSceneLayerCommand;
     friend class SetEntityLayerCommand;
+    friend class SetLayerLockedCommand;
     friend class AddPlatformerControllerCommand;
     friend class RemovePlatformerControllerCommand;
     friend class SetPlatformerValueCommand;
@@ -248,6 +259,7 @@ private:
     bool moveSceneLayer(const SceneId& sceneId, const std::string& layerId, std::size_t index);
     bool removeSceneLayer(const SceneId& sceneId, const std::string& layerId);
     bool setInstanceLayer(const SceneId& sceneId, EntityId id, const std::string& layerId);
+    bool setLayerLocked(const SceneId& sceneId, const std::string& layerId, bool locked);
     bool createInstance(const SceneId& sceneId, SceneInstanceDef instance);
     bool insertInstance(const SceneId& sceneId, std::size_t index, SceneInstanceDef instance);
     bool deleteInstance(const SceneId& sceneId, EntityId id);

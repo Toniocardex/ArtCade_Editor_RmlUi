@@ -243,6 +243,9 @@ SceneDef readScene(const nlohmann::json& value, const SceneId& fallbackId) {
             SceneLayerDef layer;
             layer.id = readString(item, "id", nullptr);
             layer.name = readString(item, "name", nullptr, layer.id);
+            if (item.contains("locked") && item["locked"].is_boolean()) {
+                layer.locked = item["locked"].get<bool>();
+            }
             if (!layer.id.empty()) scene.layers.push_back(layer);
         }
     }
@@ -466,7 +469,8 @@ nlohmann::json sceneToJson(const SceneDef& scene) {
     // Per-scene render layers: the order of the array IS the render order.
     nlohmann::json layers = nlohmann::json::array();
     for (const SceneLayerDef& layer : scene.layers) {
-        layers.push_back(nlohmann::json{{"id", layer.id}, {"name", layer.name}});
+        layers.push_back(nlohmann::json{
+            {"id", layer.id}, {"name", layer.name}, {"locked", layer.locked}});
     }
 
     return nlohmann::json{

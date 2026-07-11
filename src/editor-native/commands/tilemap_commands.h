@@ -26,6 +26,10 @@ private:
     SceneId sceneId_;
     EntityId id_ = 0;
     TilemapComponent component_{};
+    // Gates the layer-lock check to the first apply() only - a later redo
+    // reuses this same command and must not be blocked by the layer's lock
+    // state at redo time.
+    bool captured_ = false;
 };
 
 class RemoveTilemapComponentCommand final : public EditorCommand {

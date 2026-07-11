@@ -440,6 +440,15 @@
     color: #8a8a93;
 }
 .layer-row.hidden .layer-eye { color: #3f3f46; }
+.layer-lock {
+    display: inline-block;
+    width: 22dp;
+    text-align: center;
+    color: #8a8a93;
+    transition: color 0.1s;
+}
+.layer-lock:hover { color: #d4d4d8; }
+.layer-lock.locked { color: #eab308; }
 .layer-name { flex: 1; font-size: 12dp; padding: 0 4dp; }
 .layer-rename-input {
     flex: 1;

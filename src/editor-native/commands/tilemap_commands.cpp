@@ -30,6 +30,12 @@ EditorOperationResult AddTilemapComponentCommand::apply(ProjectDocument& documen
     if (const auto err = validateTilemapComponent(document, component_)) {
         return EditorOperationResult::failure(*err);
     }
+    if (!captured_) {
+        if (document.isInstanceLayerLocked(sceneId_, *inst)) {
+            return EditorOperationResult::failure("Cannot add Tilemap component: layer is locked");
+        }
+        captured_ = true;
+    }
     if (!document.addTilemapComponent(sceneId_, id_, component_)) {
         return EditorOperationResult::failure("Failed to add Tilemap component");
     }
@@ -56,6 +62,9 @@ EditorOperationResult RemoveTilemapComponentCommand::apply(ProjectDocument& docu
         return EditorOperationResult::failure("Instance has no Tilemap component");
     }
     if (!captured_) {
+        if (document.isInstanceLayerLocked(sceneId_, *inst)) {
+            return EditorOperationResult::failure("Cannot remove Tilemap component: layer is locked");
+        }
         removed_ = *inst->tilemap;
         captured_ = true;
     }
@@ -99,6 +108,9 @@ EditorOperationResult SetTilemapTilesetCommand::apply(ProjectDocument& document)
         return EditorOperationResult::failure(*err);
     }
     if (!captured_) {
+        if (document.isInstanceLayerLocked(sceneId_, *inst)) {
+            return EditorOperationResult::failure("Cannot change Tilemap tileset: layer is locked");
+        }
         previous_ = inst->tilemap->tilesetAssetId;
         captured_ = true;
     }
@@ -135,6 +147,9 @@ EditorOperationResult SetTilemapCellSizeCommand::apply(ProjectDocument& document
         return EditorOperationResult::success(EditorInvalidation::None);
     }
     if (!captured_) {
+        if (document.isInstanceLayerLocked(sceneId_, *inst)) {
+            return EditorOperationResult::failure("Cannot change Tilemap cell size: layer is locked");
+        }
         previous_ = inst->tilemap->cellSize;
         captured_ = true;
     }

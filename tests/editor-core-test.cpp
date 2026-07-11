@@ -1621,11 +1621,14 @@ static void runTilemapPaintingTests() {
         locked.name = "Locked";
         locked.locked = true;
         scene.layers.push_back(locked);
-        scene.instances.front().layerId = "locked-layer";
-        EditorCoordinator c{doc};
         TilemapComponent tm;
         tm.tilesetAssetId = "tiles-1";
-        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+        // Hand-authored directly on the fixture (not via AddTilemapComponentCommand,
+        // which now itself rejects adding a component on a locked layer) - this
+        // test's target is BeginTilePaintStrokeIntent's own lock guard.
+        scene.instances.front().tilemap = tm;
+        scene.instances.front().layerId = "locked-layer";
+        EditorCoordinator c{doc};
         CHECK(!c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Eraser, {0, 0}}).ok);
     }
 
@@ -2412,11 +2415,14 @@ static void runTilemapRegionTests() {
         locked.name = "Locked";
         locked.locked = true;
         scene.layers.push_back(locked);
-        scene.instances.front().layerId = "locked-layer";
-        EditorCoordinator c{doc};
         TilemapComponent tm;
         tm.tilesetAssetId = "tiles-1";
-        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+        // Hand-authored directly on the fixture (not via AddTilemapComponentCommand,
+        // which now itself rejects adding a component on a locked layer) - this
+        // test's target is BeginTileRectangleIntent's own lock guard.
+        scene.instances.front().tilemap = tm;
+        scene.instances.front().layerId = "locked-layer";
+        EditorCoordinator c{doc};
         c.apply(SelectPaintTileIntent{"tile-1"});
         CHECK(!c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);
     }
@@ -6687,6 +6693,243 @@ int main() {
         CHECK(s->layers[0].name == "Layer 1");
         CHECK(s->defaultLayerId == "layer-1");
         CHECK(c.document().findInstanceInScene("s", 1)->layerId == "layer-1");
+    }
+
+    // == Layer locking ===========================================================
+
+    // -- SetLayerLockedCommand: lock, unlock, no-op, undo/redo, invalid targets -
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        CHECK(!c.document().findScene("s")->layers[0].locked);
+
+        CHECK(!c.execute(SetLayerLockedCommand{"nope", "layer-1", true}).ok);   // missing scene
+        CHECK(!c.execute(SetLayerLockedCommand{"s", "missing", true}).ok);      // missing layer
+
+        const uint64_t revBefore = c.document().revision();
+        const std::size_t undoBefore = c.undoSize();
+        CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", false}).ok);      // no-op
+        CHECK(c.document().revision() == revBefore);
+        CHECK(c.undoSize() == undoBefore);
+
+        CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", true}).ok);
+        CHECK(c.document().findScene("s")->layers[0].locked);
+        CHECK(c.document().isLayerLocked("s", "layer-1"));
+        CHECK(c.undo().ok);
+        CHECK(!c.document().findScene("s")->layers[0].locked);
+        CHECK(c.redo().ok);
+        CHECK(c.document().findScene("s")->layers[0].locked);
+
+        CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", false}).ok);
+        CHECK(!c.document().isLayerLocked("s", "layer-1"));
+    }
+
+    // -- Persistence: locked round-trips; an absent field defaults to false ----
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
+        CHECK(c.execute(SetLayerLockedCommand{"s", "fg", true}).ok);
+        const std::filesystem::path path = testTempDir() / "layer-lock.artcade-project";
+        CHECK(saveProjectToFile(c, path).ok);
+        EditorCoordinator r{ProjectDoc{}};
+        CHECK(loadProjectFromFile(r, path).ok);
+        const SceneDef* s = r.document().findScene("s");
+        CHECK(s->layers[0].id == "layer-1" && !s->layers[0].locked);   // absent -> false
+        CHECK(s->layers[1].id == "fg" && s->layers[1].locked);         // round-tripped true
+    }
+
+    // -- Locked layer blocks RemoveSceneLayerCommand and both directions of
+    // SetEntityLayerCommand ----------------------------------------------------
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
+        CHECK(c.execute(SetLayerLockedCommand{"s", "fg", true}).ok);
+        CHECK(!c.execute(RemoveSceneLayerCommand{"s", "fg"}).ok);       // locked, even if empty
+        CHECK(c.execute(SetLayerLockedCommand{"s", "fg", false}).ok);
+        CHECK(c.execute(RemoveSceneLayerCommand{"s", "fg"}).ok);        // unlocked: removable again
+
+        CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+        CHECK(c.execute(SetLayerLockedCommand{"s", "fg", true}).ok);
+        CHECK(!c.execute(SetEntityLayerCommand{"s", 1, "fg"}).ok);      // target locked
+        CHECK(c.execute(SetLayerLockedCommand{"s", "fg", false}).ok);
+        CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", true}).ok);
+        CHECK(!c.execute(SetEntityLayerCommand{"s", 1, "fg"}).ok);      // source locked
+        CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", false}).ok);
+        CHECK(c.execute(SetEntityLayerCommand{"s", 1, "fg"}).ok);       // both unlocked: succeeds
+    }
+
+    // -- Regression: SetEntityLayerCommand's lock checks must gate on captured_,
+    // exactly like every other command's lock check - not re-run on redo. Drives
+    // the Command objects directly (apply/undo/apply again) to mirror exactly
+    // what EditorCoordinator's history does on redo: reuse the same object,
+    // call apply() a second time - without going through the coordinator's own
+    // undo/redo stack, since executing SetLayerLockedCommand in between would
+    // itself clear that stack's redo entry and defeat the point of the test. --
+    {
+        ProjectDocument doc{ProjectDoc{}};
+        CreateSceneCommand createScene{"s", "S"};
+        CHECK(createScene.apply(doc).ok);
+        AddSceneLayerCommand addFg{"s", "fg", "Foreground", 1};
+        CHECK(addFg.apply(doc).ok);
+        CreateEntityWithDefaultTypeCommand createHero{
+            "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"};
+        CHECK(createHero.apply(doc).ok);
+
+        SetEntityLayerCommand moveToFg{"s", 1, "fg"};
+        CHECK(moveToFg.apply(doc).ok);         // both layers unlocked at the time
+        CHECK(doc.findInstanceInScene("s", 1)->layerId == "fg");
+        CHECK(moveToFg.undo(doc).ok);
+        CHECK(doc.findInstanceInScene("s", 1)->layerId == "layer-1");
+
+        SetLayerLockedCommand lockLayer1{"s", "layer-1", true};
+        CHECK(lockLayer1.apply(doc).ok);   // now-source is locked
+        CHECK(moveToFg.apply(doc).ok);     // "redo": must still succeed, not re-validated
+        CHECK(doc.findInstanceInScene("s", 1)->layerId == "fg");
+    }
+
+    // -- Regression: RemoveSceneLayerCommand's lock check must gate on captured_
+    // too - not re-run on redo (same direct-Command technique as above) --------
+    {
+        ProjectDocument doc{ProjectDoc{}};
+        CreateSceneCommand createScene{"s", "S"};
+        CHECK(createScene.apply(doc).ok);
+        AddSceneLayerCommand addFg{"s", "fg", "Foreground", 1};
+        CHECK(addFg.apply(doc).ok);
+
+        RemoveSceneLayerCommand removeFg{"s", "fg"};
+        CHECK(removeFg.apply(doc).ok);   // unlocked and empty at the time
+        CHECK(!doc.hasLayer("s", "fg"));
+        CHECK(removeFg.undo(doc).ok);    // restores "fg", still unlocked
+        CHECK(doc.hasLayer("s", "fg"));
+
+        SetLayerLockedCommand lockFg{"s", "fg", true};
+        CHECK(lockFg.apply(doc).ok);
+        CHECK(removeFg.apply(doc).ok);   // "redo": must still succeed despite the current lock
+        CHECK(!doc.hasLayer("s", "fg"));
+    }
+
+    // -- Locked layer blocks every instance-owned mutation ----------------------
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+        CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", true}).ok);
+
+        CHECK(!c.execute(SetEntityPositionCommand{"s", 1, {5.f, 5.f}}).ok);
+        CHECK(!c.execute(RenameEntityCommand{"s", 1, "New Name"}).ok);
+        CHECK(!c.execute(CloneInstanceCommand{"s", 1, 2, "Clone", {}}).ok);
+        CHECK(!c.execute(AddSpriteRendererCommand{"s", 1}).ok);
+        CHECK(!c.execute(AddTilemapComponentCommand{"s", 1, TilemapComponent{}}).ok);
+        CHECK(!c.execute(DeleteEntityCommand{"s", 1}).ok);
+        // Creating a new instance directly into the locked layer is rejected too.
+        CHECK(!c.execute(CreateEntityCommand{"s", 2, "obj-1", "B", {}, "layer-1"}).ok);
+
+        CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", false}).ok);
+        CHECK(c.execute(SetEntityPositionCommand{"s", 1, {5.f, 5.f}}).ok);   // unlocked: succeeds
+    }
+
+    // -- Object-type-owned components stay editable regardless of the instance's
+    // layer lock - including when the type is shared with an unlocked instance --
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "A", "A", {}, "layer-1"}).ok);
+        CHECK(c.execute(CreateEntityCommand{"s", 2, "obj-1", "B", {}, "fg"}).ok);  // shares obj-1
+        CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", true}).ok);
+        // Entity 1 sits on the now-locked layer-1, but Box Collider 2D belongs
+        // to the shared object type obj-1, not to entity 1 specifically.
+        CHECK(c.execute(AddBoxColliderCommand{"obj-1"}).ok);
+        CHECK(c.execute(SetBoxColliderSizeCommand{"obj-1", {10.f, 10.f}}).ok);
+        CHECK(c.execute(AddLinearMoverCommand{"obj-1"}).ok);
+        CHECK(c.execute(SetLinearMoverSpeedCommand{"obj-1", 5.f}).ok);
+        CHECK(c.execute(RemoveLinearMoverCommand{"obj-1"}).ok);
+    }
+
+    // -- FillTilemapIntent: locked layer rejected (mirrors BeginTilePaintStrokeIntent
+    // and BeginTileRectangleIntent's own guards, tested earlier in this file) --
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        SceneDef& scene = doc.scenes.at(kSceneA);
+        SceneLayerDef locked;
+        locked.id = "locked-layer";
+        locked.name = "Locked";
+        locked.locked = true;
+        scene.layers.push_back(locked);
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        scene.instances.front().tilemap = tm;
+        scene.instances.front().layerId = "locked-layer";
+        EditorCoordinator c{doc};
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(!c.apply(FillTilemapIntent{kSceneA, kHero, {0, 0}}).ok);
+    }
+
+    // -- Play, Hierarchy selection, visibility/rename/reorder/unlock all ignore
+    // the lock - only instance-owned authoring commands respect it -------------
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        c.apply(SelectSceneIntent{"s"});
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+        CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", true}).ok);
+
+        c.apply(SelectEntityIntent{1});                       // Hierarchy selection unaffected
+        CHECK(c.selection().primaryEntity == 1);
+        c.apply(ToggleLayerEditorVisibilityIntent{"s", "layer-1"});
+        CHECK(c.sceneView("s").hiddenLayerIds.count("layer-1") == 1);
+        CHECK(c.execute(RenameSceneLayerCommand{"s", "layer-1", "Gameplay"}).ok);
+        CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
+        CHECK(c.execute(MoveSceneLayerCommand{"s", "layer-1", 1}).ok);   // reorder still allowed
+
+        CHECK(c.playProject().ok);   // Play is authoring-only protection - never blocked by lock
+        CHECK(c.playSession() != nullptr);
+        CHECK(c.stopPlaying().ok);
+
+        CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", false}).ok);
+        CHECK(!c.document().isLayerLocked("s", "layer-1"));
+    }
+
+    // -- Undo/Redo of an action taken before the lock still work after the layer
+    // is locked - the gate only guards the new user action, not history replay -
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+        CHECK(c.execute(SetEntityPositionCommand{"s", 1, {5.f, 5.f}}).ok);   // before the lock
+        CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", true}).ok);
+
+        CHECK(c.undo().ok);   // undoes SetLayerLocked (LIFO) - back to unlocked
+        CHECK(!c.document().isLayerLocked("s", "layer-1"));
+        CHECK(c.undo().ok);   // undoes the position change from before the lock
+        CHECK(c.document().findInstanceInScene("s", 1)->transform.position.x == 0.f);
+        CHECK(c.redo().ok);   // redo the position change
+        CHECK(c.document().findInstanceInScene("s", 1)->transform.position.x == 5.f);
+        CHECK(c.redo().ok);   // redo the lock itself
+        CHECK(c.document().isLayerLocked("s", "layer-1"));
+    }
+
+    // -- Delete-then-undo across a lock: locking after a delete must not corrupt
+    // the undo path (undo/redo apply to ProjectDocument directly, never gated) -
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Hero", "Hero", {}, "fg"}).ok);
+        CHECK(c.execute(DeleteEntityCommand{"s", 1}).ok);
+        CHECK(c.execute(SetLayerLockedCommand{"s", "fg", true}).ok);
+        CHECK(c.undo().ok);                                  // undoes SetLayerLocked
+        CHECK(c.undo().ok);                                  // undoes DeleteEntity -> entity restored
+        CHECK(c.document().findInstanceInScene("s", 1) != nullptr);
     }
 
     // == Start-scene invariant: scenes exist => startSceneId is valid ==========

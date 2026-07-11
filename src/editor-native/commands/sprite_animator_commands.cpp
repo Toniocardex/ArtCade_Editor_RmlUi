@@ -39,6 +39,12 @@ EditorOperationResult AddSpriteAnimatorCommand::apply(ProjectDocument& document)
     if (!std::isfinite(component_.playbackSpeed) || component_.playbackSpeed <= 0.f) {
         return EditorOperationResult::failure("SpriteAnimator playback speed must be positive");
     }
+    if (!captured_) {
+        if (document.isInstanceLayerLocked(sceneId_, *inst)) {
+            return EditorOperationResult::failure("Cannot add SpriteAnimator: layer is locked");
+        }
+        captured_ = true;
+    }
     if (!document.addSpriteAnimator(sceneId_, id_, component_)) {
         return EditorOperationResult::failure("Failed to add SpriteAnimator");
     }
@@ -68,6 +74,9 @@ EditorOperationResult RemoveSpriteAnimatorCommand::apply(ProjectDocument& docume
         return EditorOperationResult::failure("Animation source requires SpriteAnimator");
     }
     if (!captured_) {
+        if (document.isInstanceLayerLocked(sceneId_, *inst)) {
+            return EditorOperationResult::failure("Cannot remove SpriteAnimator: layer is locked");
+        }
         removed_ = *inst->spriteAnimator;
         captured_ = true;
     }
@@ -106,6 +115,9 @@ EditorOperationResult SetSpriteAnimatorInitialClipCommand::apply(ProjectDocument
         return EditorOperationResult::success(EditorInvalidation::None);
     }
     if (!captured_) {
+        if (document.isInstanceLayerLocked(sceneId_, *inst)) {
+            return EditorOperationResult::failure("Cannot change initial clip: layer is locked");
+        }
         previous_ = inst->spriteAnimator->initialClipId;
         captured_ = true;
     }
@@ -142,6 +154,9 @@ EditorOperationResult SetSpriteAnimatorPlaybackSpeedCommand::apply(ProjectDocume
         return EditorOperationResult::success(EditorInvalidation::None);
     }
     if (!captured_) {
+        if (document.isInstanceLayerLocked(sceneId_, *inst)) {
+            return EditorOperationResult::failure("Cannot change playback speed: layer is locked");
+        }
         previous_ = inst->spriteAnimator->playbackSpeed;
         captured_ = true;
     }
@@ -175,6 +190,9 @@ EditorOperationResult SetSpriteAnimatorAutoPlayCommand::apply(ProjectDocument& d
         return EditorOperationResult::success(EditorInvalidation::None);
     }
     if (!captured_) {
+        if (document.isInstanceLayerLocked(sceneId_, *inst)) {
+            return EditorOperationResult::failure("Cannot change autoplay: layer is locked");
+        }
         previous_ = inst->spriteAnimator->autoPlay;
         captured_ = true;
     }

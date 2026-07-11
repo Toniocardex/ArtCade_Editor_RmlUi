@@ -180,6 +180,11 @@ bool ProjectDocument::isLayerLocked(const SceneId& sceneId, const std::string& l
     return false;
 }
 
+bool ProjectDocument::isInstanceLayerLocked(const SceneId& sceneId,
+                                            const SceneInstanceDef& instance) const {
+    return isLayerLocked(sceneId, effectiveLayerId(sceneId, instance));
+}
+
 std::string ProjectDocument::effectiveLayerId(const SceneId& sceneId,
                                               const SceneInstanceDef& instance) const {
     const SceneDef* scene = findScene(sceneId);
@@ -230,6 +235,16 @@ bool ProjectDocument::renameSceneLayer(const SceneId& sceneId, const std::string
     if (!scene || name.empty()) return false;
     for (SceneLayerDef& layer : scene->layers) {
         if (layer.id == layerId) { layer.name = name; markDirty(); return true; }
+    }
+    return false;
+}
+
+bool ProjectDocument::setLayerLocked(const SceneId& sceneId, const std::string& layerId,
+                                     bool locked) {
+    SceneDef* scene = mutableScene(sceneId);
+    if (!scene) return false;
+    for (SceneLayerDef& layer : scene->layers) {
+        if (layer.id == layerId) { layer.locked = locked; markDirty(); return true; }
     }
     return false;
 }

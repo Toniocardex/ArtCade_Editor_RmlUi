@@ -29,6 +29,10 @@ private:
     std::string instanceName_;
     Vec2        position_{};
     std::string layerId_;   // "" = scene default (the caller passes the active layer)
+    // Gates the target-layer lock check to the first apply() only - a later
+    // redo must reuse this exact command and never be blocked by whatever the
+    // layer's lock state happens to be at redo time.
+    bool        captured_ = false;
 };
 
 // Place the first entity in a project with an empty object-type catalog: it
@@ -57,6 +61,7 @@ private:
     std::string instanceName_;
     Vec2        position_{};
     std::string layerId_;   // "" = scene default (the caller passes the active layer)
+    bool        captured_ = false;   // see CreateEntityCommand::captured_
 };
 
 /** Remove one placed instance. Invalidates Hierarchy | Viewport. */
@@ -94,6 +99,7 @@ private:
     EntityId    newId_;
     std::string newName_;
     Vec2        newPosition_{};
+    bool        captured_ = false;   // see CreateEntityCommand::captured_
 };
 
 /** Move one instance. Invalidates Inspector | Viewport (prompt §24.4). */

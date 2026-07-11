@@ -150,6 +150,10 @@ private:
     SceneId sceneId_;
     EntityId id_;
     SpriteAnimatorComponent component_{};
+    // Gates the layer-lock check to the first apply() only - a later redo
+    // reuses this same command and must not be blocked by the layer's lock
+    // state at redo time.
+    bool captured_ = false;
 };
 
 class RemoveSpriteAnimatorCommand final : public EditorCommand {

@@ -34,7 +34,8 @@ EditorOperationResult CreateEntityCommand::apply(ProjectDocument& document) {
     if (objectTypeId_.empty()) {
         return EditorOperationResult::failure("Object type id cannot be empty");
     }
-    if (!document.findScene(sceneId_)) {
+    const SceneDef* scene = document.findScene(sceneId_);
+    if (!scene) {
         return EditorOperationResult::failure("No target scene");
     }
     if (document.findInstanceInScene(sceneId_, id_)) {
@@ -43,6 +44,16 @@ EditorOperationResult CreateEntityCommand::apply(ProjectDocument& document) {
     // An explicit layer must exist in the scene; "" means the scene default.
     if (!layerId_.empty() && !document.hasLayer(sceneId_, layerId_)) {
         return EditorOperationResult::failure("Target layer does not exist in the scene");
+    }
+    if (!captured_) {
+        // Gates only the first apply() (the new user gesture) - a later redo
+        // reuses this same command and must not be blocked by the layer's
+        // lock state at redo time.
+        const std::string& targetLayer = layerId_.empty() ? scene->defaultLayerId : layerId_;
+        if (document.isLayerLocked(sceneId_, targetLayer)) {
+            return EditorOperationResult::failure("Cannot create instance: target layer is locked");
+        }
+        captured_ = true;
     }
     SceneInstanceDef instance;
     instance.id                 = id_;
@@ -83,7 +94,8 @@ EditorOperationResult CreateEntityWithDefaultTypeCommand::apply(ProjectDocument&
     if (objectTypeId_.empty()) {
         return EditorOperationResult::failure("Object type id cannot be empty");
     }
-    if (!document.findScene(sceneId_)) {
+    const SceneDef* scene = document.findScene(sceneId_);
+    if (!scene) {
         return EditorOperationResult::failure("No target scene");
     }
     // Validate both ids up front so the two mutations below cannot fail
@@ -96,6 +108,13 @@ EditorOperationResult CreateEntityWithDefaultTypeCommand::apply(ProjectDocument&
     }
     if (!layerId_.empty() && !document.hasLayer(sceneId_, layerId_)) {
         return EditorOperationResult::failure("Target layer does not exist in the scene");
+    }
+    if (!captured_) {
+        const std::string& targetLayer = layerId_.empty() ? scene->defaultLayerId : layerId_;
+        if (document.isLayerLocked(sceneId_, targetLayer)) {
+            return EditorOperationResult::failure("Cannot create instance: target layer is locked");
+        }
+        captured_ = true;
     }
 
     EntityDef type;
@@ -147,6 +166,10 @@ EditorOperationResult DeleteEntityCommand::apply(ProjectDocument& document) {
         bool found = false;
         for (std::size_t i = 0; i < scene->instances.size(); ++i) {
             if (scene->instances[i].id == id_) {
+                if (document.isInstanceLayerLocked(sceneId_, scene->instances[i])) {
+                    return EditorOperationResult::failure("Cannot delete \""
+                        + scene->instances[i].instanceName + "\": its layer is locked");
+                }
                 removed_  = scene->instances[i];
                 index_    = i;
                 found     = true;
@@ -199,6 +222,13 @@ EditorOperationResult CloneInstanceCommand::apply(ProjectDocument& document) {
     if (document.findInstanceInScene(sceneId_, newId_)) {
         return EditorOperationResult::failure("An instance with that id already exists");
     }
+    if (!captured_) {
+        if (document.isInstanceLayerLocked(sceneId_, *source)) {
+            return EditorOperationResult::failure("Cannot duplicate \"" + source->instanceName
+                + "\": its layer is locked");
+        }
+        captured_ = true;
+    }
     SceneInstanceDef clone      = *source;   // transform/visible/layerId/spriteRenderer/
                                              // spriteAnimator/tilemap/localVariableOverrides
                                              // all copied
@@ -233,6 +263,14 @@ EditorOperationResult SetEntityPositionCommand::apply(ProjectDocument& document)
         return EditorOperationResult::failure("No instance with that id in the target scene");
     }
     if (!captured_) {
+        // The lock gate only guards the new user gesture that first calls
+        // apply() - a later redo reuses this same command with captured_
+        // already true and must never be blocked by the layer's current
+        // lock state (undo/redo must always be reproducible).
+        if (document.isInstanceLayerLocked(sceneId_, *current)) {
+            return EditorOperationResult::failure("Cannot move \"" + current->instanceName
+                + "\": its layer is locked");
+        }
         oldPosition_ = current->transform.position;
         captured_ = true;
     }
@@ -266,6 +304,10 @@ EditorOperationResult RenameEntityCommand::apply(ProjectDocument& document) {
         return EditorOperationResult::failure("Name cannot be empty");
     }
     if (!captured_) {
+        if (document.isInstanceLayerLocked(sceneId_, *current)) {
+            return EditorOperationResult::failure("Cannot rename \"" + current->instanceName
+                + "\": its layer is locked");
+        }
         oldName_ = current->instanceName;
         captured_ = true;
     }

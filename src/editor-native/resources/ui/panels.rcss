@@ -363,6 +363,13 @@
     color: #d8b44a;
     font-size: 11dp;
 }
+.type-owned-note {
+    display: block;
+    margin: 0 0 6dp 0;
+    padding: 4dp 8dp;
+    color: #71717a;
+    font-size: 10dp;
+}
 
 /* -- Tile Palette (Tilemap component, Inspector) ---------------------------
    Each .tile-thumb is a transparent slot: raylib paints the cropped tile

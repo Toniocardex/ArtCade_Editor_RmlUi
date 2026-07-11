@@ -46,6 +46,26 @@ private:
     bool        captured_ = false;
 };
 
+/**
+ * Lock/unlock a layer (authoring-only protection; never affects Play/runtime).
+ * No-op if unchanged. Invalidates Hierarchy | Inspector | Viewport.
+ */
+class SetLayerLockedCommand final : public EditorCommand {
+public:
+    SetLayerLockedCommand(SceneId sceneId, std::string layerId, bool locked);
+
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "SetLayerLocked"; }
+
+private:
+    SceneId     sceneId_;
+    std::string layerId_;
+    bool        newLocked_ = false;
+    bool        oldLocked_ = false;
+    bool        captured_ = false;
+};
+
 /** Reorder a layer to @p index (render order). Invalidates Inspector | Viewport. */
 class MoveSceneLayerCommand final : public EditorCommand {
 public:

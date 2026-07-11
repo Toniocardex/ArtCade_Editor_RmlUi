@@ -10,12 +10,6 @@ namespace {
 constexpr EditorInvalidation kSpriteInvalidation =
     EditorInvalidation::Inspector | EditorInvalidation::Viewport;
 
-const SpriteRendererComponent* spriteOf(const ProjectDocument& document,
-                                        const SceneId& sceneId, EntityId id) {
-    const SceneInstanceDef* inst = document.findInstanceInScene(sceneId, id);
-    return (inst && inst->spriteRenderer) ? &*inst->spriteRenderer : nullptr;
-}
-
 const SceneInstanceDef* instanceOf(const ProjectDocument& document,
                                    const SceneId& sceneId, EntityId id) {
     return document.findInstanceInScene(sceneId, id);
@@ -35,6 +29,12 @@ EditorOperationResult AddSpriteRendererCommand::apply(ProjectDocument& document)
     }
     if (inst->spriteRenderer.has_value()) {
         return EditorOperationResult::failure("Instance already has a sprite renderer");
+    }
+    if (!captured_) {
+        if (document.isInstanceLayerLocked(sceneId_, *inst)) {
+            return EditorOperationResult::failure("Cannot add sprite renderer: layer is locked");
+        }
+        captured_ = true;
     }
     if (!document.addSpriteRenderer(sceneId_, id_, SpriteRendererComponent{})) {
         return EditorOperationResult::failure("Failed to add sprite renderer");
@@ -60,11 +60,16 @@ RemoveSpriteRendererCommand::RemoveSpriteRendererCommand(SceneId sceneId, Entity
     : sceneId_(std::move(sceneId)), id_(id) {}
 
 EditorOperationResult RemoveSpriteRendererCommand::apply(ProjectDocument& document) {
-    const SpriteRendererComponent* current = spriteOf(document, sceneId_, id_);
+    const SceneInstanceDef* inst = instanceOf(document, sceneId_, id_);
+    const SpriteRendererComponent* current = (inst && inst->spriteRenderer)
+        ? &*inst->spriteRenderer : nullptr;
     if (!current) {
         return EditorOperationResult::failure("Instance has no sprite renderer");
     }
     if (!captured_) {
+        if (document.isInstanceLayerLocked(sceneId_, *inst)) {
+            return EditorOperationResult::failure("Cannot remove sprite renderer: layer is locked");
+        }
         removed_  = *current;   // snapshot for an exact undo
         captured_ = true;
     }
@@ -93,7 +98,9 @@ SetSpriteRendererVisibleCommand::SetSpriteRendererVisibleCommand(SceneId sceneId
     : sceneId_(std::move(sceneId)), id_(id), next_(visible) {}
 
 EditorOperationResult SetSpriteRendererVisibleCommand::apply(ProjectDocument& document) {
-    const SpriteRendererComponent* current = spriteOf(document, sceneId_, id_);
+    const SceneInstanceDef* inst = instanceOf(document, sceneId_, id_);
+    const SpriteRendererComponent* current = (inst && inst->spriteRenderer)
+        ? &*inst->spriteRenderer : nullptr;
     if (!current) {
         return EditorOperationResult::failure("Instance has no sprite renderer");
     }
@@ -101,6 +108,9 @@ EditorOperationResult SetSpriteRendererVisibleCommand::apply(ProjectDocument& do
         return EditorOperationResult::success(EditorInvalidation::None); // no-op, not undoable
     }
     if (!captured_) {
+        if (document.isInstanceLayerLocked(sceneId_, *inst)) {
+            return EditorOperationResult::failure("Cannot change sprite visibility: layer is locked");
+        }
         previous_ = current->visible;
         captured_ = true;
     }
@@ -144,6 +154,9 @@ EditorOperationResult SetSpriteRendererAssetCommand::apply(ProjectDocument& docu
         return EditorOperationResult::success(EditorInvalidation::None); // no-op, not undoable
     }
     if (!captured_) {
+        if (document.isInstanceLayerLocked(sceneId_, *inst)) {
+            return EditorOperationResult::failure("Cannot change sprite asset: layer is locked");
+        }
         previous_ = *current;
         previousAnimator_ = inst->spriteAnimator;
         captured_ = true;
@@ -203,6 +216,9 @@ EditorOperationResult SetSpriteRendererAnimationCommand::apply(ProjectDocument& 
         return EditorOperationResult::success(EditorInvalidation::None);
     }
     if (!captured_) {
+        if (document.isInstanceLayerLocked(sceneId_, *inst)) {
+            return EditorOperationResult::failure("Cannot change sprite animation: layer is locked");
+        }
         previous_ = *current;
         previousAnimator_ = inst->spriteAnimator;
         captured_ = true;

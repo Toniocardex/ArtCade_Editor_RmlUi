@@ -743,6 +743,18 @@ void EditorUi::showPendingHierarchyMenu() {
     const bool sceneKind = request.kind == HierarchyMenuKind::Scene;
     const bool alreadyStart =
         sceneKind && coordinator_.document().startSceneId() == request.targetId;
+    // Clone/Delete mutate the instance itself - omitted for a locked-layer
+    // entity, the same way they're omitted entirely for a scene row.
+    bool entityLocked = false;
+    if (!sceneKind) {
+        const EntityId targetEntity =
+            static_cast<EntityId>(std::strtoul(request.targetId.c_str(), nullptr, 10));
+        if (const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
+                coordinator_.state().activeSceneId, targetEntity)) {
+            entityLocked = coordinator_.document().isInstanceLayerLocked(
+                coordinator_.state().activeSceneId, *inst);
+        }
+    }
     const auto setEntry = [&](const char* id, bool shown) {
         if (Rml::Element* entry = document_->GetElementById(id)) {
             entry->SetClass("hidden", !shown);
@@ -752,8 +764,8 @@ void EditorUi::showPendingHierarchyMenu() {
     setEntry("hctx-set-start",     sceneKind && !alreadyStart);
     setEntry("hctx-del-scene",     sceneKind);
     setEntry("hctx-add-instance",  !sceneKind);
-    setEntry("hctx-clone-entity",  !sceneKind);
-    setEntry("hctx-del-entity",    !sceneKind);
+    setEntry("hctx-clone-entity",  !sceneKind && !entityLocked);
+    setEntry("hctx-del-entity",    !sceneKind && !entityLocked);
 
     menu->SetProperty("left", std::to_string(request.x) + "px");
     menu->SetProperty("top",  std::to_string(request.y) + "px");
@@ -832,8 +844,18 @@ void EditorUi::refreshToolbar() {
     // Undo/Redo are derived affordances: available only with history and outside Play.
     setEnabledBoth("btn-undo", "menu-undo", !playing && coordinator_.canUndo());
     setEnabledBoth("btn-redo", "menu-redo", !playing && coordinator_.canRedo());
-    setEnabled("menu-delete-entity",
-              !playing && coordinator_.selection().primaryEntity != INVALID_ENTITY);
+    {
+        const EntityId primarySel = coordinator_.selection().primaryEntity;
+        const SceneInstanceDef* selInst = primarySel != INVALID_ENTITY
+            ? coordinator_.document().findInstanceInScene(
+                  coordinator_.state().activeSceneId, primarySel)
+            : nullptr;
+        const bool selEntityLocked = selInst
+            && coordinator_.document().isInstanceLayerLocked(
+                   coordinator_.state().activeSceneId, *selInst);
+        setEnabled("menu-delete-entity",
+                  !playing && primarySel != INVALID_ENTITY && !selEntityLocked);
+    }
 
     const bool hasScene = coordinator_.document().findScene(
         coordinator_.state().activeSceneId) != nullptr;
@@ -1482,6 +1504,10 @@ bool EditorUi::handleHierarchyAction(const std::string& action, const std::strin
     } else if (action == "toggle-layer-visible") {
         coordinator_.apply(
             ToggleLayerEditorVisibilityIntent{coordinator_.state().activeSceneId, arg});
+    } else if (action == "toggle-layer-locked") {
+        const SceneId active = coordinator_.state().activeSceneId;
+        coordinator_.execute(
+            SetLayerLockedCommand{active, arg, !coordinator_.document().isLayerLocked(active, arg)});
     } else if (action == "begin-layer-rename") {
         inspector_.beginSceneLayerRename(document_, coordinator_, arg);
     } else if (action == "commit-layer-rename") {

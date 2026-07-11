@@ -92,6 +92,28 @@ EditorOperationResult RenameSceneLayerCommand::undo(ProjectDocument& document) {
 }
 
 // ----------------------------------------------------------------------------
+SetLayerLockedCommand::SetLayerLockedCommand(SceneId sceneId, std::string layerId, bool locked)
+    : sceneId_(std::move(sceneId)), layerId_(std::move(layerId)), newLocked_(locked) {}
+
+EditorOperationResult SetLayerLockedCommand::apply(ProjectDocument& document) {
+    const SceneDef* scene = document.findScene(sceneId_);
+    if (!scene) return EditorOperationResult::failure("No target scene");
+    const SceneLayerDef* layer = findLayer(*scene, layerId_);
+    if (!layer) return EditorOperationResult::failure("No such layer");
+    if (layer->locked == newLocked_) return EditorOperationResult::success(EditorInvalidation::None);
+    if (!captured_) { oldLocked_ = layer->locked; captured_ = true; }
+    if (!document.setLayerLocked(sceneId_, layerId_, newLocked_))
+        return EditorOperationResult::failure("Failed to set layer lock");
+    return EditorOperationResult::success(kLayerStruct, DomainChange::sceneChanged(sceneId_));
+}
+
+EditorOperationResult SetLayerLockedCommand::undo(ProjectDocument& document) {
+    if (!captured_ || !document.setLayerLocked(sceneId_, layerId_, oldLocked_))
+        return EditorOperationResult::failure("Cannot undo layer lock change");
+    return EditorOperationResult::success(kLayerStruct, DomainChange::sceneChanged(sceneId_));
+}
+
+// ----------------------------------------------------------------------------
 MoveSceneLayerCommand::MoveSceneLayerCommand(SceneId sceneId, std::string layerId,
                                              std::size_t index)
     : sceneId_(std::move(sceneId)), layerId_(std::move(layerId)), index_(index) {}
@@ -131,6 +153,12 @@ EditorOperationResult RemoveSceneLayerCommand::apply(ProjectDocument& document) 
             return EditorOperationResult::failure("Layer has entities; move them first");
     }
     if (!captured_) {
+        // Gates the lock check to the first apply() only - a later redo
+        // reuses this same command and must not be blocked by whatever the
+        // layer's lock state happens to be at redo time.
+        if (scene->layers[index].locked) {
+            return EditorOperationResult::failure("Cannot remove a locked layer");
+        }
         removedName_ = scene->layers[index].name;
         index_ = index;
         captured_ = true;
@@ -156,7 +184,21 @@ EditorOperationResult SetEntityLayerCommand::apply(ProjectDocument& document) {
     if (!document.hasLayer(sceneId_, newLayerId_))
         return EditorOperationResult::failure("Target layer does not exist in the scene");
     if (inst->layerId == newLayerId_) return EditorOperationResult::success(EditorInvalidation::None);
-    if (!captured_) { oldLayerId_ = inst->layerId; captured_ = true; }
+    if (!captured_) {
+        // Gates the lock checks to the first apply() only - a later redo
+        // reuses this same command and must not be blocked by whatever the
+        // source/target layers' lock state happens to be at redo time.
+        if (document.isInstanceLayerLocked(sceneId_, *inst)) {
+            return EditorOperationResult::failure("Cannot move \"" + inst->instanceName
+                + "\": its current layer is locked");
+        }
+        if (document.isLayerLocked(sceneId_, newLayerId_)) {
+            return EditorOperationResult::failure("Cannot move \"" + inst->instanceName
+                + "\": the target layer is locked");
+        }
+        oldLayerId_ = inst->layerId;
+        captured_ = true;
+    }
     if (!document.setInstanceLayer(sceneId_, id_, newLayerId_))
         return EditorOperationResult::failure("Failed to set entity layer");
     return EditorOperationResult::success(kLayerStruct, DomainChange::entityChanged(sceneId_, id_));
