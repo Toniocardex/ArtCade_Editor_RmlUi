@@ -13,6 +13,7 @@
 #include "editor-native/app/project_file.h"
 #include "editor-native/app/project_load.h"
 #include "editor-native/app/unsaved_guard.h"
+#include "editor-native/app/pending_edit.h"
 #include "editor-native/app/inspector_actions.h"
 #include "editor-native/commands/box_collider_commands.h"
 #include "editor-native/commands/linear_mover_commands.h"
@@ -5338,6 +5339,80 @@ int main() {
         // Dirty + Save: proceed only when the save succeeded.
         CHECK(resolveUnsavedGuard(true, UnsavedChoice::Save, true) == GuardOutcome::Proceed);
         CHECK(resolveUnsavedGuard(true, UnsavedChoice::Save, false) == GuardOutcome::Abort);
+    }
+
+    // == P0-06 pending-edit classification and ordering =======================
+    {
+        CHECK(classifyPendingEdit("commit-pos-x", "12.5").status
+              == PendingEditStatus::Resolved);
+        CHECK(classifyPendingEdit("commit-project-name", "Arcade").status
+              == PendingEditStatus::Resolved);
+        CHECK(classifyPendingEdit("commit-console-filter", "").status
+              == PendingEditStatus::Resolved); // an empty filter is a valid clear
+        CHECK(classifyPendingEdit("select-entity", "-").status
+              == PendingEditStatus::Resolved); // only commit fields participate
+
+        for (const std::string& text : {"", "-", "+", ".", "-.", "+.",
+                                        "1e", "1E", "1e+", "1e-", "12."}) {
+            const PendingEditResult result = classifyPendingEdit("commit-pos-x", text);
+            CHECK(result.status == PendingEditStatus::Incomplete);
+            CHECK(!result.message.empty());
+        }
+
+        for (const std::string& text : {"NaN", "nan", "inf", "infinity",
+                                        "12px", "1e9999", "abc", "1e."}) {
+            const PendingEditResult result = classifyPendingEdit("commit-pos-y", text);
+            CHECK(result.status == PendingEditStatus::Invalid);
+            CHECK(!result.message.empty());
+        }
+        CHECK(classifyPendingEdit("commit-project-name", "").status
+              == PendingEditStatus::Invalid);
+        CHECK(classifyPendingEdit("commit-layer-rename", "").status
+              == PendingEditStatus::Invalid);
+    }
+
+    // A valid focused value commits first, making the document dirty before
+    // Cancel/Discard/Save is decided. Invalid/incomplete buffers generate no
+    // command, so revision and dirty state stay exact.
+    {
+        EditorCoordinator c{makeDoc()};
+        const uint64_t revisionBefore = c.document().revision();
+        const PendingEditResult incomplete =
+            classifyPendingEdit("commit-pos-x", "1e");
+        if (incomplete.resolved()) commitInspectorPositionX(c, kHero, "1e");
+        CHECK(c.document().revision() == revisionBefore);
+        CHECK(!c.document().isDirty());
+
+        const PendingEditResult valid = classifyPendingEdit("commit-pos-x", "33");
+        CHECK(valid.resolved());
+        if (valid.resolved()) CHECK(commitInspectorPositionX(c, kHero, "33").ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 33.f);
+        CHECK(c.document().isDirty());
+        CHECK(resolveUnsavedGuard(c.document().isDirty(), UnsavedChoice::Cancel, false)
+              == GuardOutcome::Abort);
+        CHECK(resolveUnsavedGuard(c.document().isDirty(), UnsavedChoice::Discard, false)
+              == GuardOutcome::Proceed);
+    }
+
+    // Escape restores the original field value. Resolving that restored buffer
+    // is a no-op; changing selection only happens after a real pending commit.
+    {
+        EditorCoordinator escaped{makeDoc()};
+        const uint64_t revisionBefore = escaped.document().revision();
+        CHECK(classifyPendingEdit("commit-pos-x", "10").resolved());
+        CHECK(!pendingEditNeedsCommit("commit-pos-x", "10", "10"));
+        if (pendingEditNeedsCommit("commit-pos-x", "10", "10"))
+            commitInspectorPositionX(escaped, kHero, "10");
+        CHECK(escaped.document().revision() == revisionBefore);
+        CHECK(!escaped.document().isDirty());
+        CHECK(pendingEditNeedsCommit("commit-layer-rename", "Gameplay", "Gameplay"));
+
+        EditorCoordinator navigated{makeDoc()};
+        CHECK(commitInspectorPositionX(navigated, kHero, "44").ok);
+        navigated.apply(SelectSceneIntent{kSceneB});
+        CHECK(navigated.state().activeSceneId == kSceneB);
+        CHECK(navigated.document().findInstanceInScene(kSceneA, kHero)->transform.position.x
+              == 44.f);
     }
 
     // == LinearMover editing + persistence ====================================

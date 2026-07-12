@@ -49,13 +49,13 @@ La remediation è conclusa soltanto quando:
 
 | ID | Priorità | Slice | Stato | Dipendenze |
 |---|---|---|---|---|
-| BASE-01 | Preparazione | Congelamento baseline e isolamento working tree | [ ] | — |
+| BASE-01 | Preparazione | Congelamento baseline e isolamento working tree | [x] | — |
 | P0-01 | P0 | Atomicità dei Command multi-mutazione | [x] | BASE-01 |
 | P0-02 | P0 | Invarianti numeriche nel core | [x] | BASE-01 |
 | P0-03 | P0 | Parser JSON rigoroso ed exception-safe | [x] | P0-02 |
 | P0-04 | P0 | Root confinement dei path | [x] | BASE-01 |
 | P0-05 | P0 | New Project transazionale | [x] | P0-03, P0-04 |
-| P0-06 | P0 | Pending edits prima dell'unsaved guard | [ ] | P0-02 |
+| P0-06 | P0 | Pending edits prima dell'unsaved guard | [x] | P0-02 |
 | P0-07 | P0 | Lifecycle RmlUi deterministico | [ ] | BASE-01 |
 | P0-08 | P0 | Separazione core/persistence/platform | [ ] | P0-03, P0-04 |
 | GATE-P0 | Gate | Riesame completo P0 | [ ] | P0-01…P0-08 |
@@ -80,20 +80,20 @@ Il working tree contiene modifiche locali preesistenti. Le fix non devono sovras
 
 **Attività**
 
-- [ ] Registrare `git status --short`.
-- [ ] Salvare e revisionare il diff completo preesistente.
-- [ ] Isolare il lavoro esistente in un commit o branch concordato.
-- [ ] Creare un branch di remediation, ad esempio `codex/architecture-remediation`.
-- [ ] Eseguire `git diff --check`.
-- [ ] Eseguire build Release e suite core.
-- [ ] Registrare warning e limitazioni ambientali conosciute.
+- [x] Registrare `git status --short`.
+- [x] Salvare e revisionare il diff completo preesistente.
+- [x] Isolare il lavoro esistente in un commit o branch concordato.
+- [x] Creare un branch di remediation, ad esempio `codex/architecture-remediation`.
+- [x] Eseguire `git diff --check`.
+- [x] Eseguire build Release e suite core.
+- [x] Registrare warning e limitazioni ambientali conosciute.
 
 **Gate di uscita**
 
-- [ ] Le modifiche preesistenti sono recuperabili e distinguibili.
-- [ ] La baseline compila.
-- [ ] Tutti i test baseline sono verdi.
-- [ ] Nessuna modifica funzionale è stata introdotta dalla fase BASE.
+- [x] Le modifiche preesistenti sono recuperabili e distinguibili.
+- [x] La baseline compila.
+- [x] Tutti i test baseline sono verdi.
+- [x] Nessuna modifica funzionale è stata introdotta dalla fase BASE.
 
 ## 6. Programma P0
 
@@ -300,22 +300,22 @@ commit
 
 **Design richiesto**
 
-- [ ] Aggiungere un risultato tipizzato per `Resolved`, `Invalid` e `Incomplete`.
-- [ ] Riutilizzare lo stesso parsing e lo stesso percorso di commit dei campi.
-- [ ] Non generare Command per input invalido/incompleto.
-- [ ] Riportare focus e diagnostica sul campo problematico.
-- [ ] Applicare il gate a New, Open, Close, uscita finestra, Save e Start Play quando pertinente.
+- [x] Aggiungere un risultato tipizzato per `Resolved`, `Invalid` e `Incomplete`.
+- [x] Riutilizzare lo stesso parsing e lo stesso percorso di commit dei campi.
+- [x] Non generare Command per input invalido/incompleto.
+- [x] Riportare focus e diagnostica sul campo problematico.
+- [x] Applicare il gate a New, Open, Close, uscita finestra, Save e Start Play quando pertinente.
 
 **Test obbligatori**
 
-- [ ] Valore valido non ancora sfocato.
-- [ ] `-`, `.`, `1e`, `12.`.
-- [ ] `NaN`, infinito e suffissi.
-- [ ] Escape/rollback.
-- [ ] Chiusura finestra con campo focalizzato.
-- [ ] Save riuscito e fallito.
-- [ ] Discard e Cancel.
-- [ ] Cambio selection durante editing.
+- [x] Valore valido non ancora sfocato.
+- [x] `-`, `.`, `1e`, `12.`.
+- [x] `NaN`, infinito e suffissi.
+- [x] Escape/rollback.
+- [x] Chiusura finestra con campo focalizzato.
+- [x] Save riuscito e fallito.
+- [x] Discard e Cancel.
+- [x] Cambio selection durante editing.
 
 **Gate di uscita**
 
@@ -639,8 +639,10 @@ Usare questa sezione per decisioni e risultati sintetici, senza sostituire commi
 | Data | ID | Stato | Evidenza / nota |
 |---|---|---|---|
 | 2026-07-12 | ROADMAP | Creato | Roadmap iniziale derivata dall'audit architetturale. |
-| 2026-07-12 | P0-01 | Completato e pubblicato | Command sprite e delete-cascade convertiti a commit atomico; anche CreateScene e CreateEntityWithDefaultType ricondotti a una sola revisione. Build Release verde, `editor_core_test`: 3.367 passed, 0 failed. Incluso nel commit `010684b`, pubblicato su `origin/codex/p0-architecture-remediation`; BASE-01 resta aperta per il working tree misto. |
-| 2026-07-12 | P0-02 | Completato e pubblicato | Aggiunti helper numerici condivisi, guardie in Command/primitivi di dominio/workspace e validazione Load/Save; coperti NaN, ±Inf, range, documenti ostili e atomicità dei failure. Build Release verde, `editor_core_test`: 3.415 passed, 0 failed. Incluso nel commit `010684b`, pubblicato su `origin/codex/p0-architecture-remediation`. |
-| 2026-07-12 | P0-03 | Completato e pubblicato | Deserializer convertito a reader tipizzati: i default valgono solo per campi assenti, mentre tipi errati, interi/float fuori rappresentazione, collezioni corrotte e JSON/Unicode malformati producono errori contestualizzati e exception-safe. Verificata l'immutabilità del coordinator su failure. Build Release verde, `editor_core_test`: 3.478 passed, 0 failed. Incluso nel commit `010684b`, pubblicato su `origin/codex/p0-architecture-remediation`. |
-| 2026-07-12 | P0-04 | Completato e pubblicato | Introdotta `resolvePathInsideRoot` con normalizzazione portabile, canonicalizzazione del parent esistente e containment per componenti; applicata a validator/primitivi asset, texture Edit/Play, import e copia Save As con pre-scan dell'albero. Coperti traversal, separatori misti, path assoluti/drive, sibling-prefix, Unicode e symlink quando consentiti dalla piattaforma. Build Release verde, `editor_core_test`: 3.509 passed, 0 failed. Pubblicato con commit dedicato su `origin/codex/p0-architecture-remediation`. |
-| 2026-07-12 | P0-05 | Completato e pubblicato | Estratto il salvataggio atomico di candidati indipendenti dal coordinator e introdotta una transazione New prepare/save/commit con snapshot e rollback di destinazione/directory. Path, cache e titolo cambiano solo dopo `ProjectReplaced`. Coperti cancel, directory, validation, serialization, temp write, atomic replace, commit rollback e successo clean. Build Release verde, `editor_core_test`: 3.616 passed, 0 failed. Pubblicato con commit dedicato su `origin/codex/p0-architecture-remediation`. |
+| 2026-07-12 | P0-01 | Completato e pubblicato | Command sprite e delete-cascade convertiti a commit atomico; anche CreateScene e CreateEntityWithDefaultType ricondotti a una sola revisione. Build Release verde, `editor_core_test`: 3.367 passed, 0 failed. Incluso nel commit `010684b`, ora integrato e pubblicato su `origin/master`. |
+| 2026-07-12 | P0-02 | Completato e pubblicato | Aggiunti helper numerici condivisi, guardie in Command/primitivi di dominio/workspace e validazione Load/Save; coperti NaN, ±Inf, range, documenti ostili e atomicità dei failure. Build Release verde, `editor_core_test`: 3.415 passed, 0 failed. Incluso nel commit `010684b`, ora integrato e pubblicato su `origin/master`. |
+| 2026-07-12 | P0-03 | Completato e pubblicato | Deserializer convertito a reader tipizzati: i default valgono solo per campi assenti, mentre tipi errati, interi/float fuori rappresentazione, collezioni corrotte e JSON/Unicode malformati producono errori contestualizzati e exception-safe. Verificata l'immutabilità del coordinator su failure. Build Release verde, `editor_core_test`: 3.478 passed, 0 failed. Incluso nel commit `010684b`, ora integrato e pubblicato su `origin/master`. |
+| 2026-07-12 | P0-04 | Completato e pubblicato | Introdotta `resolvePathInsideRoot` con normalizzazione portabile, canonicalizzazione del parent esistente e containment per componenti; applicata a validator/primitivi asset, texture Edit/Play, import e copia Save As con pre-scan dell'albero. Coperti traversal, separatori misti, path assoluti/drive, sibling-prefix, Unicode e symlink quando consentiti dalla piattaforma. Build Release verde, `editor_core_test`: 3.509 passed, 0 failed. Integrato e pubblicato su `origin/master`. |
+| 2026-07-12 | P0-05 | Completato e pubblicato | Estratto il salvataggio atomico di candidati indipendenti dal coordinator e introdotta una transazione New prepare/save/commit con snapshot e rollback di destinazione/directory. Path, cache e titolo cambiano solo dopo `ProjectReplaced`. Coperti cancel, directory, validation, serialization, temp write, atomic replace, commit rollback e successo clean. Build Release verde, `editor_core_test`: 3.616 passed, 0 failed. Integrato e pubblicato su `origin/master`. |
+| 2026-07-12 | BASE-01 | Completato e riallineato | Diff preesistenti revisionati e preservati, remediation integrata con merge `73b3004`, build Release e 3.616 test verdi. Il workspace principale e `origin/HEAD` puntano a `master`; il branch temporaneo è stato eliminato localmente e sul remoto. |
+| 2026-07-12 | P0-06 | Completato | Introdotti `PendingEditStatus` (`Resolved`, `Invalid`, `Incomplete`) e classificazione UI-free che riusa `parseNumberField`; blur/Invio trattengono focus e diagnostica per buffer incompleti o invalidi, Escape ripristinato è un no-op. `resolvePendingEdits()` precede unsaved guard, Save/New/Open/Close/Play e navigazione di selezione, riusando il normale commit su blur. Build Release isolata linkata con successo mentre l'eseguibile principale era aperto; `editor_core_test`: 3.676 passed, 0 failed. |

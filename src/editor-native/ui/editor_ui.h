@@ -2,6 +2,7 @@
 
 #include "core/types.h"
 #include "editor-native/commands/editor_invalidation.h"
+#include "editor-native/app/pending_edit.h"
 #include "editor-native/ui/assets_panel.h"
 #include "editor-native/ui/console_panel.h"
 #include "editor-native/ui/hierarchy_panel.h"
@@ -54,6 +55,11 @@ public:
 
     void bind();           // attach the listener + do the initial full refresh
     void processFrame();   // consume invalidations and refresh affected panels
+
+    // Commit the focused data-action="commit-*" field through its normal blur
+    // path before Save/New/Open/Close/Play or selection navigation can inspect
+    // stale document state. Invalid/incomplete buffers retain focus and block.
+    PendingEditResult resolvePendingEdits();
 
     bool isPlaying() const;
 

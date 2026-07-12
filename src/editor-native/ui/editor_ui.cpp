@@ -33,6 +33,7 @@
 #include <chrono>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -196,6 +197,17 @@ std::vector<std::string> splitPipe(const std::string& value) {
     return parts;
 }
 
+bool actionRequiresPendingEditGate(const std::string& action) {
+    static constexpr std::string_view actions[] = {
+        "new-project", "open-project", "save-project", "save-project-as",
+        "play-project", "play-current-scene",
+        "select-entity", "select-scene", "select-layer", "select-animation-clip",
+        "open-sprite-animation", "close-sprite-animation",
+        "open-tileset-editor", "close-tileset-editor",
+    };
+    return std::find(std::begin(actions), std::end(actions), action) != std::end(actions);
+}
+
 } // namespace
 
 class EditorUi::Listener final : public Rml::EventListener {
@@ -269,6 +281,19 @@ public:
             const bool enter = type == "keydown"
                 && (key == Rml::Input::KI_RETURN || key == Rml::Input::KI_NUMPADENTER);
             if (type != "blur" && !enter) return;
+
+            const std::string pendingValue = formValue(actionElement, event);
+            const PendingEditResult pending = classifyPendingEdit(action, pendingValue);
+            if (!pending.resolved()) {
+                ui_.coordinator_.logError(pending.message);
+                if (actionElement) actionElement->Focus(true);
+                event.StopPropagation();
+                return;
+            }
+            if (!pendingEditNeedsCommit(
+                    action, pendingValue, attribute(actionElement, "value"))) {
+                return;
+            }
         }
         if (!isCommit && type != "click" && type != "dblclick") return;
 
@@ -340,6 +365,51 @@ void EditorUi::processFrame() {
     // the timeline highlight and Play/Pause affordance follow it live here,
     // class-only — never via a markup rebuild that would steal input focus.
     updateSpriteAnimationPlayhead();
+}
+
+PendingEditResult EditorUi::resolvePendingEdits() {
+    Rml::Context* visited[3] = {nullptr, nullptr, nullptr};
+    std::size_t visitedCount = 0;
+    Rml::ElementDocument* documents[] = {document_, animationDocument_, tilesetDocument_};
+
+    for (Rml::ElementDocument* document : documents) {
+        Rml::Context* context = document ? document->GetContext() : nullptr;
+        if (!context) continue;
+        if (std::find(visited, visited + visitedCount, context) != visited + visitedCount) continue;
+        visited[visitedCount++] = context;
+
+        Rml::Element* focus = context->GetFocusElement();
+        const std::string action = attribute(focus, "data-action");
+        if (!focus || action.rfind("commit-", 0) != 0) continue;
+
+        auto* control = rmlui_dynamic_cast<Rml::ElementFormControl*>(focus);
+        const std::string value = control ? control->GetValue() : attribute(focus, "value");
+        const PendingEditResult classified = classifyPendingEdit(action, value);
+        if (!classified.resolved()) {
+            coordinator_.logError(classified.message);
+            focus->Focus(true);
+            return classified;
+        }
+
+        // Blur is the canonical commit path already used for ordinary editing;
+        // the bound listener synchronously dispatches the same action/parser.
+        focus->Blur();
+
+        // A semantic rejection may rebuild and refocus a commit field (notably
+        // duplicate layer names). Treat that as unresolved and block the caller.
+        Rml::Element* remainingFocus = context->GetFocusElement();
+        if (remainingFocus
+            && attribute(remainingFocus, "data-action").rfind("commit-", 0) == 0) {
+            const PendingEditResult rejected{
+                PendingEditStatus::Invalid,
+                "The focused edit could not be applied"};
+            coordinator_.logError(rejected.message);
+            remainingFocus->Focus(true);
+            return rejected;
+        }
+        return {};
+    }
+    return {};
 }
 
 void EditorUi::applyInvalidations(EditorInvalidation flags) {
@@ -1091,6 +1161,8 @@ void EditorUi::commitGridCellSize(const std::string& text) {
 
 void EditorUi::handleAction(const std::string& action, const std::string& arg,
                             const std::string& value) {
+    if (actionRequiresPendingEditGate(action) && !resolvePendingEdits().resolved()) return;
+
     const EntityId selected = coordinator_.selection().primaryEntity;
 
     // An action arriving while the Assets row menu is open was either picked

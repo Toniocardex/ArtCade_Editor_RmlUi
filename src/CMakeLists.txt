@@ -48,6 +48,7 @@ add_library(artcade-editor-core STATIC
     editor-native/app/hierarchy_actions.cpp
     editor-native/app/inspector_actions.cpp
     editor-native/app/inspector_commit.cpp
+    editor-native/app/pending_edit.cpp
     editor-native/app/project_file.cpp
     editor-native/app/project_load.cpp
     editor-native/app/new_project_transaction.cpp

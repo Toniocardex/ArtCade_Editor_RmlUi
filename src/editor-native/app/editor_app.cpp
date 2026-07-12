@@ -688,6 +688,9 @@ int EditorApp::run(int argc, char** argv) {
     };
     // Unsaved-changes guard for destructive actions. Returns true to proceed.
     const auto guardPasses = [&]() -> bool {
+        // A focused field is authoritative even before its normal blur. Resolve
+        // it first so the dirty decision can never observe stale document state.
+        if (!ui.resolvePendingEdits().resolved()) return false;
         if (!coordinator.document().isDirty()) return true;
         const UnsavedChoice choice = confirmUnsavedChanges();
         const bool saveOk = (choice == UnsavedChoice::Save) ? saveCurrent() : false;
