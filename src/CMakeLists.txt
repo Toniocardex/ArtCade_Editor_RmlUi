@@ -10,6 +10,7 @@
 add_library(artcade-editor-core STATIC
     editor-native/model/project_document.cpp
     editor-native/model/project_io.cpp
+    editor-native/model/path_confinement.cpp
     editor-native/model/play_session.cpp
     editor-native/model/box_collider_geometry.cpp
     editor-native/model/box_collider_view.cpp
@@ -49,6 +50,7 @@ add_library(artcade-editor-core STATIC
     editor-native/app/inspector_commit.cpp
     editor-native/app/project_file.cpp
     editor-native/app/project_load.cpp
+    editor-native/app/new_project_transaction.cpp
 )
 
 target_include_directories(artcade-editor-core PUBLIC

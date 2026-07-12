@@ -4,6 +4,7 @@
 #include "editor-native/commands/audio_asset_commands.h"
 #include "editor-native/commands/font_asset_commands.h"
 #include "editor-native/commands/image_asset_commands.h"
+#include "editor-native/model/path_confinement.h"
 
 #include <algorithm>
 #include <array>
@@ -41,7 +42,15 @@ bool copyUnique(const std::filesystem::path& projectRoot, const std::string& sub
                 const std::filesystem::path& source,
                 const std::function<bool(const AssetId&)>& idTaken,
                 CopiedAsset& out, std::string& error) {
-    const std::filesystem::path dir = projectRoot / "assets" / subdir;
+    const std::filesystem::path relativeDir =
+        std::filesystem::u8path("assets/" + subdir);
+    const PathConfinementResult resolvedDir =
+        resolvePathInsideRoot(projectRoot, relativeDir);
+    if (!resolvedDir.ok) {
+        error = resolvedDir.error + ". " + resolvedDir.remediation;
+        return false;
+    }
+    const std::filesystem::path& dir = resolvedDir.value;
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
     if (ec) { error = "Could not create assets/" + subdir + ": " + ec.message(); return false; }
@@ -50,16 +59,27 @@ bool copyUnique(const std::filesystem::path& projectRoot, const std::string& sub
     const std::string ext = source.extension().string();   // original case on disk
     std::string fileName = stem + ext;
     AssetId     assetId = stem;
-    for (int n = 2; std::filesystem::exists(dir / fileName) || idTaken(assetId); ++n) {
+    for (int n = 2;; ++n) {
+        const bool destinationExists = std::filesystem::exists(dir / fileName, ec);
+        if (ec) { error = "Could not inspect asset destination: " + ec.message(); return false; }
+        if (!destinationExists && !idTaken(assetId)) break;
         fileName = stem + "_" + std::to_string(n) + ext;
         assetId = stem + "_" + std::to_string(n);
     }
 
-    out.destination = dir / fileName;
+    const std::filesystem::path relativeDestination =
+        relativeDir / std::filesystem::path(fileName).filename();
+    const PathConfinementResult resolvedDestination =
+        resolvePathInsideRoot(projectRoot, relativeDestination);
+    if (!resolvedDestination.ok) {
+        error = resolvedDestination.error + ". " + resolvedDestination.remediation;
+        return false;
+    }
+    out.destination = resolvedDestination.value;
     std::filesystem::copy_file(source, out.destination, ec);
     if (ec) { error = "Could not copy file: " + ec.message(); return false; }
     out.assetId = assetId;
-    out.relativePath = "assets/" + subdir + "/" + fileName;
+    out.relativePath = relativeDestination.generic_u8string();
     return true;
 }
 

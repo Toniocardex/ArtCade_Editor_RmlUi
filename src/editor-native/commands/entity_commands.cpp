@@ -1,7 +1,9 @@
 #include "editor-native/commands/entity_commands.h"
+#include "editor-native/model/numeric_validation.h"
 
 #include "editor-native/model/project_document.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace ArtCade::EditorNative {
@@ -33,6 +35,9 @@ EditorOperationResult CreateEntityCommand::apply(ProjectDocument& document) {
     }
     if (objectTypeId_.empty()) {
         return EditorOperationResult::failure("Object type id cannot be empty");
+    }
+    if (!NumericValidation::isFinite(position_)) {
+        return EditorOperationResult::failure("Entity position must be finite");
     }
     const SceneDef* scene = document.findScene(sceneId_);
     if (!scene) {
@@ -94,6 +99,9 @@ EditorOperationResult CreateEntityWithDefaultTypeCommand::apply(ProjectDocument&
     if (objectTypeId_.empty()) {
         return EditorOperationResult::failure("Object type id cannot be empty");
     }
+    if (!NumericValidation::isFinite(position_)) {
+        return EditorOperationResult::failure("Entity position must be finite");
+    }
     const SceneDef* scene = document.findScene(sceneId_);
     if (!scene) {
         return EditorOperationResult::failure("No target scene");
@@ -120,33 +128,55 @@ EditorOperationResult CreateEntityWithDefaultTypeCommand::apply(ProjectDocument&
     EntityDef type;
     type.className = objectTypeId_;   // the catalog key (mirrors load: className == id)
     type.name     = objectTypeName_;
-    if (!document.createObjectType(std::move(type))) {
-        return EditorOperationResult::failure("Failed to create object type");
-    }
-
     SceneInstanceDef instance;
     instance.id                 = id_;
     instance.objectTypeId       = objectTypeId_;
     instance.instanceName       = instanceName_;
     instance.transform.position = position_;
     instance.layerId            = layerId_;
-    if (!document.createInstance(sceneId_, std::move(instance))) {
-        document.removeObjectType(objectTypeId_);   // unreachable after validation; no partial state
-        return EditorOperationResult::failure("Failed to create instance");
+
+    ProjectDoc staged = document.data();
+    auto stagedScene = staged.scenes.find(sceneId_);
+    if (stagedScene == staged.scenes.end()) {
+        return EditorOperationResult::failure("Failed to stage target scene");
     }
+    staged.objectTypes.emplace(objectTypeId_, std::move(type));
+    stagedScene->second.instances.push_back(std::move(instance));
+    document.commitStagedCommand(std::move(staged));
     return EditorOperationResult::success(kStructureInvalidation,
                                           DomainChange::entityAdded(sceneId_, id_));
 }
 
 EditorOperationResult CreateEntityWithDefaultTypeCommand::undo(ProjectDocument& document) {
-    // Exact inverse: drop the instance, then remove precisely the object type
-    // this command created.
-    if (!document.deleteInstance(sceneId_, id_)) {
+    if (!captured_) {
+        return EditorOperationResult::failure("Cannot undo: command state was not captured");
+    }
+    ProjectDoc staged = document.data();
+    auto sceneIt = staged.scenes.find(sceneId_);
+    if (sceneIt == staged.scenes.end()) {
         return EditorOperationResult::failure("Cannot undo: instance missing");
     }
-    if (!document.removeObjectType(objectTypeId_)) {
+    auto instanceIt = std::find_if(
+        sceneIt->second.instances.begin(), sceneIt->second.instances.end(),
+        [&](const SceneInstanceDef& instance) { return instance.id == id_; });
+    if (instanceIt == sceneIt->second.instances.end()
+        || instanceIt->objectTypeId != objectTypeId_) {
+        return EditorOperationResult::failure("Cannot undo: instance missing");
+    }
+    if (staged.objectTypes.find(objectTypeId_) == staged.objectTypes.end()) {
         return EditorOperationResult::failure("Cannot undo: object type missing");
     }
+    for (const auto& [otherSceneId, scene] : staged.scenes) {
+        for (const SceneInstanceDef& instance : scene.instances) {
+            const bool isCreatedInstance = otherSceneId == sceneId_ && instance.id == id_;
+            if (!isCreatedInstance && instance.objectTypeId == objectTypeId_) {
+                return EditorOperationResult::failure("Cannot undo: object type is still referenced");
+            }
+        }
+    }
+    sceneIt->second.instances.erase(instanceIt);
+    staged.objectTypes.erase(objectTypeId_);
+    document.commitStagedCommand(std::move(staged));
     return EditorOperationResult::success(kStructureInvalidation,
                                           DomainChange::entityRemoved(sceneId_, id_));
 }
@@ -212,6 +242,9 @@ EditorOperationResult CloneInstanceCommand::apply(ProjectDocument& document) {
     if (newName_.empty()) {
         return EditorOperationResult::failure("Name cannot be empty");
     }
+    if (!NumericValidation::isFinite(newPosition_)) {
+        return EditorOperationResult::failure("Entity position must be finite");
+    }
     if (!document.findScene(sceneId_)) {
         return EditorOperationResult::failure("No target scene");
     }
@@ -258,6 +291,9 @@ SetEntityPositionCommand::SetEntityPositionCommand(SceneId sceneId, EntityId id,
     : sceneId_(std::move(sceneId)), id_(id), newPosition_(position) {}
 
 EditorOperationResult SetEntityPositionCommand::apply(ProjectDocument& document) {
+    if (!NumericValidation::isFinite(newPosition_)) {
+        return EditorOperationResult::failure("Entity position must be finite");
+    }
     const SceneInstanceDef* current = document.findInstanceInScene(sceneId_, id_);
     if (!current) {
         return EditorOperationResult::failure("No instance with that id in the target scene");

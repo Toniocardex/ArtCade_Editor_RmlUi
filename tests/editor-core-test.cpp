@@ -8,6 +8,7 @@
 #include "editor-native/app/hierarchy_actions.h"
 #include "editor-native/app/input_routing.h"
 #include "editor-native/app/inspector_commit.h"
+#include "editor-native/app/new_project_transaction.h"
 #include "editor-native/app/asset_import.h"
 #include "editor-native/app/project_file.h"
 #include "editor-native/app/project_load.h"
@@ -29,6 +30,7 @@
 #include "editor-native/commands/scene_commands.h"
 #include "editor-native/commands/sprite_commands.h"
 #include "editor-native/model/project_io.h"
+#include "editor-native/model/path_confinement.h"
 #include "editor-native/model/play_session.h"
 #include "editor-native/model/box_collider_view.h"
 #include "editor-native/model/box_collider_geometry.h"
@@ -3400,6 +3402,82 @@ int main() {
         CHECK(!c.document().isDirty());
     }
 
+    // -- P0-03: malformed present fields never fall back or escape as throws --
+    {
+        const std::string formatPrefix = R"({"formatVersion":)";
+        for (const std::string& badValue : {std::string{"\"2\""}, std::string{"null"},
+                                            std::string{"[]"}, std::string{"{}"}}) {
+            const DeserializeResult result =
+                ProjectSerializer::deserialize(formatPrefix + badValue + "}");
+            CHECK(!result.ok);
+            CHECK(result.error.find("formatVersion") != std::string::npos);
+        }
+
+        const std::string instancePrefix =
+            R"({"activeSceneId":"s","scenes":[{"id":"s","instances":[{"id":1,"objectTypeId":"T","transform":)";
+        for (const std::string& badTransform : {std::string{"7"}, std::string{"false"},
+                                                std::string{"\"bad\""}, std::string{"[]"}}) {
+            const DeserializeResult result = ProjectSerializer::deserialize(
+                instancePrefix + badTransform + "}]}]}");
+            CHECK(!result.ok);
+            CHECK(result.error.find("transform") != std::string::npos);
+        }
+
+        CHECK(!ProjectSerializer::deserialize(R"({"scenes":[42]})").ok);
+        CHECK(!ProjectSerializer::deserialize(R"({"objectTypes":[null]})").ok);
+        CHECK(!ProjectSerializer::deserialize(R"({"imageAssets":{}})").ok);
+        CHECK(!ProjectSerializer::deserialize(
+            R"({"activeSceneId":"s","scenes":[{"id":"s","instances":"bad"}]})").ok);
+
+        const DeserializeResult hugeFloat =
+            ProjectSerializer::deserialize(R"({"targetFPS":1e100})");
+        CHECK(!hugeFloat.ok);
+        CHECK(hugeFloat.error.find("out of range") != std::string::npos);
+        CHECK(!ProjectSerializer::deserialize(R"({"formatVersion":2147483648})").ok);
+        CHECK(!ProjectSerializer::deserialize(R"({"schemaVersion":"2"})").ok);
+        CHECK(!ProjectSerializer::deserialize(
+            R"({"activeSceneId":"s","scenes":[{"id":"s","instances":[{"id":4294967296,"objectTypeId":"T"}]}]})").ok);
+
+        CHECK(!ProjectSerializer::deserialize("{\"scenes\":[").ok);   // truncated
+        CHECK(!ProjectSerializer::deserialize("{ not json").ok);       // malformed
+
+        const DeserializeResult unicode = ProjectSerializer::deserialize(
+            R"({"projectName":"Progetto \u00c8","scenes":[]})");
+        CHECK(unicode.ok);
+        CHECK(unicode.value.data().projectName == std::string("Progetto \xC3\x88"));
+
+        // Truly absent optional fields retain schema defaults; this is distinct
+        // from the malformed-present cases above.
+        const DeserializeResult minimal =
+            ProjectSerializer::deserialize(R"({"projectName":"Minimal"})");
+        CHECK(minimal.ok);
+        CHECK(minimal.value.data().targetFPS == 60.f);
+        CHECK(minimal.value.data().scenes.empty());
+    }
+
+    // -- P0-03: every deserialize failure leaves the live coordinator intact --
+    {
+        EditorCoordinator c{makeDoc()};
+        c.apply(SelectEntityIntent{kHero});
+        c.apply(ResizePanelIntent{ResizePanelIntent::Panel::Left, 345.f});
+        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {44.f, 55.f}}).ok);
+        const uint64_t revisionBefore = c.document().revision();
+        const uint64_t savedBefore = c.document().savedRevision();
+        const bool dirtyBefore = c.document().isDirty();
+        const std::size_t undoBefore = c.undoSize();
+
+        for (const std::string& hostile : {
+                 std::string{R"({"formatVersion":null})"},
+                 std::string{R"({"targetFPS":1e100})"},
+                 std::string{R"({"scenes":[{"id":"s","instances":[[]]}]})"}}) {
+            const ProjectLoadResult result = loadProjectFromText(c, hostile);
+            CHECK(!result.ok);
+            CHECK(result.error.stage == ProjectLoadStage::Deserialize);
+            expectCoordinatorBaseline(c, "spike", kSceneA, kHero, 345.f,
+                                      undoBefore, revisionBefore, savedBefore, dirtyBefore);
+        }
+    }
+
     // -- Serializer round-trip keeps authoring data, not workspace state ------
     {
         EditorCoordinator c{makeDoc()};
@@ -3562,6 +3640,151 @@ int main() {
         CHECK(fresh.selection().primaryEntity == INVALID_ENTITY);
         CHECK(fresh.state().activeTool == EditorTool::Select);
         CHECK(!fresh.document().isDirty());
+    }
+
+    // -- P0-05: New Project is prepare/save/commit, with exact rollback -------
+    {
+        const std::filesystem::path base = testTempDir();
+        EditorCoordinator c{makeDoc()};
+        c.apply(SelectEntityIntent{kHero});
+        c.apply(ResizePanelIntent{ResizePanelIntent::Panel::Left, 345.f});
+        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {44.f, 55.f}}).ok);
+        const uint64_t revisionBefore = c.document().revision();
+        const uint64_t savedBefore = c.document().savedRevision();
+        const bool dirtyBefore = c.document().isDirty();
+        const std::size_t undoBefore = c.undoSize();
+
+        const auto freshCandidate = [] {
+            ProjectDoc doc;
+            doc.projectName = "Fresh";
+            return ProjectDocument{std::move(doc)};
+        };
+        const auto expectUnchanged = [&] {
+            expectCoordinatorBaseline(c, "spike", kSceneA, kHero, 345.f,
+                                      undoBefore, revisionBefore, savedBefore, dirtyBefore);
+        };
+
+        const NewProjectResult cancelled = createNewProjectTransaction(
+            c, freshCandidate(), std::nullopt);
+        CHECK(!cancelled.ok);
+        CHECK(cancelled.cancelled);
+        CHECK(cancelled.error.stage == NewProjectStage::Cancelled);
+        CHECK(cancelled.destination.empty());
+        expectUnchanged();
+
+        const std::filesystem::path blocker = base / "blocker";
+        writeTextFile(blocker, "not a directory");
+        const NewProjectResult directoryFailed = createNewProjectTransaction(
+            c, freshCandidate(), blocker / "nested" / "Fresh.artcade-project");
+        CHECK(!directoryFailed.ok);
+        CHECK(directoryFailed.error.stage == NewProjectStage::DirectoryCreate);
+        expectUnchanged();
+
+        const NewProjectResult validationFailed = createNewProjectTransaction(
+            c, ProjectDocument{makeInvalidStartDoc()},
+            base / "validation" / "Fresh.artcade-project");
+        CHECK(!validationFailed.ok);
+        CHECK(validationFailed.error.stage == NewProjectStage::Validation);
+        CHECK(!std::filesystem::exists(base / "validation"));
+        expectUnchanged();
+
+        NewProjectTransactionHooks serializeHooks;
+        serializeHooks.saveCandidate = [](
+            const ProjectDocument&, const std::filesystem::path& destination) {
+            return ProjectSaveResult::failure(
+                ProjectSaveStage::Serialize, destination, "forced serialization failure");
+        };
+        const NewProjectResult serializeFailed = createNewProjectTransaction(
+            c, freshCandidate(), base / "serialize" / "Fresh.artcade-project",
+            std::move(serializeHooks));
+        CHECK(!serializeFailed.ok);
+        CHECK(serializeFailed.error.stage == NewProjectStage::Serialize);
+        CHECK(!std::filesystem::exists(base / "serialize"));
+        expectUnchanged();
+
+        NewProjectTransactionHooks writeHooks;
+        writeHooks.saveCandidate = [](
+            const ProjectDocument&, const std::filesystem::path& destination) {
+            const ProjectTextFileResult partial =
+                writeProjectTextFileAtomically(destination, "partial");
+            if (!partial.ok) {
+                return ProjectSaveResult::failure(
+                    ProjectSaveStage::FileWrite, destination, partial.error.message);
+            }
+            return ProjectSaveResult::failure(
+                ProjectSaveStage::FileWrite, destination, "forced temporary write failure");
+        };
+        const std::filesystem::path writeDestination =
+            base / "write" / "Fresh.artcade-project";
+        const NewProjectResult writeFailed = createNewProjectTransaction(
+            c, freshCandidate(), writeDestination, std::move(writeHooks));
+        CHECK(!writeFailed.ok);
+        CHECK(writeFailed.error.stage == NewProjectStage::FileWrite);
+        CHECK(!std::filesystem::exists(writeDestination));
+        CHECK(!std::filesystem::exists(base / "write"));
+        expectUnchanged();
+
+        const std::filesystem::path replaceBlocked = base / "replace-target.artcade-project";
+        std::filesystem::create_directory(replaceBlocked);
+        const NewProjectResult atomicReplaceFailed = createNewProjectTransaction(
+            c, freshCandidate(), replaceBlocked);
+        CHECK(!atomicReplaceFailed.ok);
+        CHECK(atomicReplaceFailed.error.stage == NewProjectStage::FileWrite);
+        CHECK(std::filesystem::is_directory(replaceBlocked));
+        CHECK(!hasTempSibling(replaceBlocked));
+        expectUnchanged();
+
+        NewProjectTransactionHooks commitHooks;
+        commitHooks.commitCandidate = [](
+            EditorCoordinator&, ProjectDocument) {
+            return EditorOperationResult::failure("forced commit failure");
+        };
+        const std::filesystem::path uncommittedDestination =
+            base / "commit-new" / "Fresh.artcade-project";
+        const NewProjectResult commitFailed = createNewProjectTransaction(
+            c, freshCandidate(), uncommittedDestination, std::move(commitHooks));
+        CHECK(!commitFailed.ok);
+        CHECK(commitFailed.error.stage == NewProjectStage::Commit);
+        CHECK(!std::filesystem::exists(uncommittedDestination));
+        CHECK(!std::filesystem::exists(base / "commit-new"));
+        expectUnchanged();
+
+        const std::filesystem::path existingDestination =
+            base / "existing.artcade-project";
+        writeTextFile(existingDestination, "previous bytes");
+        NewProjectTransactionHooks restoreHooks;
+        restoreHooks.commitCandidate = [](
+            EditorCoordinator&, ProjectDocument) {
+            return EditorOperationResult::failure("forced commit failure");
+        };
+        const NewProjectResult restoreFailed = createNewProjectTransaction(
+            c, freshCandidate(), existingDestination, std::move(restoreHooks));
+        CHECK(!restoreFailed.ok);
+        CHECK(restoreFailed.error.stage == NewProjectStage::Commit);
+        CHECK(readTextFile(existingDestination) == "previous bytes");
+        expectUnchanged();
+
+        const std::filesystem::path successDestination =
+            base / "success" / "Fresh.artcade-project";
+        const NewProjectResult created = createNewProjectTransaction(
+            c, freshCandidate(), successDestination);
+        CHECK(created.ok);
+        CHECK(!created.cancelled);
+        CHECK(created.destination == std::filesystem::absolute(successDestination));
+        CHECK(created.operation.change.kind == DomainChangeKind::ProjectReplaced);
+        CHECK(std::filesystem::is_regular_file(successDestination));
+        CHECK(c.document().data().projectName == "Fresh");
+        CHECK(c.document().data().scenes.empty());
+        CHECK(!c.document().isDirty());
+        CHECK(c.undoSize() == 0);
+        CHECK(!c.selection().hasEntity());
+        CHECK(c.state().activeSceneId.empty());
+        CHECK(c.uiState().leftPanelWidth == 345.f);
+
+        EditorCoordinator loaded{makeDoc()};
+        CHECK(loadProjectFromFile(loaded, successDestination).ok);
+        CHECK(loaded.document().data().projectName == "Fresh");
+        CHECK(!loaded.document().isDirty());
     }
 
     // -- §24.11  Play does not modify the ProjectDocument ----------------------
@@ -5998,6 +6221,77 @@ int main() {
         CHECK(missingImage && missingImage->sourcePath == "assets/images/hero.png");
     }
 
+    // -- P0-04: project paths remain inside their canonical root --------------
+    {
+        const std::filesystem::path base = testTempDir();
+        const std::filesystem::path root = base / "project";
+        const std::filesystem::path outside = base / "project-outside";
+        std::error_code ec;
+        std::filesystem::create_directories(root / "assets" / "images", ec);
+        CHECK(!ec);
+        std::filesystem::create_directories(outside, ec);
+        CHECK(!ec);
+        { std::ofstream file(outside / "secret.png", std::ios::binary); file << "secret"; }
+
+        const PathConfinementResult inside =
+            resolvePathInsideRoot(root, "assets/images/hero.png");
+        CHECK(inside.ok);
+        CHECK(inside.value.parent_path().filename() == "images");
+
+        const PathConfinementResult mixed =
+            resolvePathInsideRoot(root, std::filesystem::u8path("assets\\images/hero.png"));
+        CHECK(mixed.ok);
+        CHECK(mixed.value == inside.value);
+
+        for (const std::filesystem::path& hostile : {
+                 std::filesystem::u8path("../secret.png"),
+                 std::filesystem::u8path("assets/../../secret.png"),
+                 std::filesystem::u8path("..\\project-outside\\secret.png"),
+                 std::filesystem::absolute(outside / "secret.png"),
+                 std::filesystem::u8path("Z:/secret.png"),
+                 std::filesystem::u8path("assets/images/hero.png:payload")}) {
+            const PathConfinementResult rejected = resolvePathInsideRoot(root, hostile);
+            CHECK(!rejected.ok);
+            CHECK(!rejected.error.empty());
+            CHECK(!rejected.remediation.empty());
+        }
+
+        const std::filesystem::path unicodeRelative =
+            std::filesystem::u8path("assets/immagini-\xC3\xA8/eroe.png");
+        const PathConfinementResult unicode = resolvePathInsideRoot(root, unicodeRelative);
+        CHECK(unicode.ok);
+
+        // A same-prefix sibling is not a child. The lexical traversal is
+        // rejected before any I/O, independently from string-prefix tricks.
+        CHECK(!resolvePathInsideRoot(
+            root, std::filesystem::u8path("../project-outside/secret.png")).ok);
+
+        const std::filesystem::path link = root / "assets" / "external-link";
+        std::filesystem::create_directory_symlink(outside, link, ec);
+        if (!ec) {
+            CHECK(!resolvePathInsideRoot(root, "assets/external-link/secret.png").ok);
+        } else {
+            // Windows without Developer Mode/SeCreateSymbolicLinkPrivilege cannot
+            // create the fixture. Do not weaken production behavior: assert no
+            // partial reparse point exists; CI hosts that permit symlinks execute
+            // the escape assertion above.
+            CHECK(!std::filesystem::exists(link));
+        }
+
+        ProjectDoc hostileDoc = makeDoc();
+        ImageAssetDef escaped;
+        escaped.assetId = "escaped";
+        escaped.sourcePath = "../secret.png";
+        hostileDoc.imageAssets.push_back(escaped);
+        CHECK(!ProjectValidator::validate(ProjectDocument{hostileDoc}).ok);
+
+        EditorCoordinator c{makeDoc()};
+        const uint64_t revisionBefore = c.document().revision();
+        CHECK(!c.execute(AddImageAssetCommand{"escaped", "../secret.png"}).ok);
+        CHECK(c.document().revision() == revisionBefore);
+        CHECK(!c.document().hasImageAsset("escaped"));
+    }
+
     // -- Asset enum values are validated instead of defaulted silently --------
     {
         const std::string modernKeys =
@@ -6336,6 +6630,10 @@ int main() {
         // Non-positive / non-finite are rejected without mutation.
         CHECK(!c.execute(SetSceneSizeCommand{kSceneA, {0.f, 100.f}}).ok);
         CHECK(!c.execute(SetSceneSizeCommand{kSceneA, {100.f, -5.f}}).ok);
+        CHECK(!c.execute(SetSceneSizeCommand{
+            kSceneA, {std::numeric_limits<float>::infinity(), 100.f}}).ok);
+        CHECK(!c.execute(SetSceneSizeCommand{
+            kSceneA, {100.f, std::numeric_limits<float>::quiet_NaN()}}).ok);
         CHECK(c.document().findScene(kSceneA)->worldSize.x == 320.f);   // unchanged
 
         // Committed values normalize to whole pixels.
@@ -6347,6 +6645,41 @@ int main() {
         CHECK(c.document().findScene(kSceneA)->worldSize.x == 320.f);
         CHECK(c.redo().ok);
         CHECK(c.document().findScene(kSceneA)->worldSize.x == 199.f);
+    }
+
+    // -- Persistent numeric boundaries reject NaN/Inf atomically ------------
+    {
+        EditorCoordinator c{makeDoc()};
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        const float inf = std::numeric_limits<float>::infinity();
+        const float negInf = -std::numeric_limits<float>::infinity();
+        const uint64_t revisionBefore = c.document().revision();
+        const std::size_t undoBefore = c.undoSize();
+        const Vec2 positionBefore =
+            c.document().findInstanceInScene(kSceneA, kHero)->transform.position;
+        const Vec4 backgroundBefore = c.document().findScene(kSceneA)->backgroundColor;
+
+        CHECK(!c.execute(SetEntityPositionCommand{kSceneA, kHero, {nan, 10.f}}).ok);
+        CHECK(!c.execute(SetEntityPositionCommand{kSceneA, kHero, {10.f, inf}}).ok);
+        CHECK(!c.execute(SetEntityPositionCommand{kSceneA, kHero, {negInf, 10.f}}).ok);
+        CHECK(!c.execute(CreateEntityCommand{kSceneA, 1001, "Hero", "Bad", {inf, 0.f}}).ok);
+        CHECK(!c.execute(CloneInstanceCommand{kSceneA, kHero, 1002, "Bad clone", {0.f, nan}}).ok);
+        CHECK(!c.execute(CreateEntityWithDefaultTypeCommand{
+            kSceneA, 1003, "BadType", "Bad", "Bad", {nan, 0.f}}).ok);
+        CHECK(!c.execute(SetSceneBackgroundCommand{kSceneA, {0.f, nan, 0.f, 1.f}}).ok);
+
+        const SceneInstanceDef* hero = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(hero->transform.position.x == positionBefore.x);
+        CHECK(hero->transform.position.y == positionBefore.y);
+        CHECK(c.document().findInstanceInScene(kSceneA, 1001) == nullptr);
+        CHECK(c.document().findInstanceInScene(kSceneA, 1002) == nullptr);
+        CHECK(c.document().findInstanceInScene(kSceneA, 1003) == nullptr);
+        CHECK(!c.document().hasObjectType("BadType"));
+        const Vec4 backgroundAfter = c.document().findScene(kSceneA)->backgroundColor;
+        CHECK(backgroundAfter.r == backgroundBefore.r && backgroundAfter.g == backgroundBefore.g);
+        CHECK(backgroundAfter.b == backgroundBefore.b && backgroundAfter.a == backgroundBefore.a);
+        CHECK(c.document().revision() == revisionBefore);
+        CHECK(c.undoSize() == undoBefore);
     }
 
     // -- Scene name + size survive save/reload --------------------------------
@@ -6396,6 +6729,41 @@ int main() {
         CHECK(c.sceneView(kSceneA).zoom == SceneViewLimits::kZoomMax);
         c.apply(SetViewportZoomIntent{kSceneA, 0.0001f});
         CHECK(c.sceneView(kSceneA).zoom == SceneViewLimits::kZoomMin);
+    }
+
+    // -- Workspace numeric state rejects NaN/Inf; finite extremes clamp ------
+    {
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        const float inf = std::numeric_limits<float>::infinity();
+        EditorCoordinator c{makeAnimationDoc()};
+        const uint64_t revisionBefore = c.document().revision();
+
+        CHECK(!c.apply(SetViewportZoomIntent{kSceneA, nan}).ok);
+        CHECK(!c.apply(SetViewportZoomIntent{kSceneA, 0.f}).ok);
+        CHECK(!c.apply(PanViewportIntent{kSceneA, {inf, 0.f}}).ok);
+        CHECK(c.sceneView(kSceneA).zoom == 1.f);
+        CHECK(c.sceneView(kSceneA).pan.x == 0.f);
+
+        CHECK(c.apply(OpenSpriteAnimationEditorIntent{"hero.anim"}).ok);
+        CHECK(!c.apply(SetSpriteSheetZoomIntent{nan}).ok);
+        CHECK(!c.apply(PanSpriteSheetIntent{{0.f, inf}}).ok);
+        CHECK(c.state().spriteAnimationEditor.sheetZoom == 1.f);
+        CHECK(c.state().spriteAnimationEditor.sheetPan.y == 0.f);
+
+        CHECK(c.apply(OpenTilesetEditorIntent{"tiles-1"}).ok);
+        CHECK(!c.apply(SetTilesetEditorZoomIntent{inf}).ok);
+        CHECK(!c.apply(PanTilesetEditorIntent{{nan, 0.f}}).ok);
+        CHECK(c.state().tilesetEditor.zoom == 1.f);
+        CHECK(c.state().tilesetEditor.pan.x == 0.f);
+
+        const float panelBefore = c.uiState().leftPanelWidth;
+        CHECK(!c.apply(ResizePanelIntent{ResizePanelIntent::Panel::Left, nan}).ok);
+        CHECK(c.uiState().leftPanelWidth == panelBefore);
+        CHECK(c.apply(ResizePanelIntent{
+            ResizePanelIntent::Panel::Left, std::numeric_limits<float>::max()}).ok);
+        CHECK(c.uiState().leftPanelWidth == PanelLimits::kLeftMax);
+        CHECK(c.document().revision() == revisionBefore);
+        CHECK(c.undoSize() == 0);
     }
 
     // -- Reset to 100% changes only the zoom, never the target (pan) ----------
@@ -8027,6 +8395,46 @@ int main() {
         const std::string dup =
             R"({"scenes":[],"objectTypes":[{"id":"A"},{"id":"A"}]})";
         CHECK(!ProjectSerializer::deserialize(dup).ok);
+    }
+
+    // -- Validator rejects hostile non-finite persistent numeric state --------
+    {
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        const float inf = std::numeric_limits<float>::infinity();
+
+        ProjectDoc badTargetFps = makeDoc();
+        badTargetFps.targetFPS = inf;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badTargetFps)}).ok);
+
+        ProjectDoc badRuntimeSettings = makeDoc();
+        badRuntimeSettings.world.pixelsPerMeter = 0.f;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badRuntimeSettings)}).ok);
+
+        ProjectDoc badWorldSize = makeDoc();
+        badWorldSize.scenes.at(kSceneA).worldSize.x = nan;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badWorldSize)}).ok);
+
+        ProjectDoc badViewport = makeDoc();
+        badViewport.scenes.at(kSceneA).viewportSize.y = 0.f;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badViewport)}).ok);
+
+        ProjectDoc badBackground = makeDoc();
+        badBackground.scenes.at(kSceneA).backgroundColor.a = inf;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badBackground)}).ok);
+
+        ProjectDoc badTransform = makeDoc();
+        badTransform.scenes.at(kSceneA).instances.front().transform.scale.x = inf;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badTransform)}).ok);
+
+        ProjectDoc badFill = makeInheritedDoc();
+        badFill.objectTypes.at("Hero").sprite.fillColor.y = nan;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badFill)}).ok);
+
+        ProjectDoc badController = makeInheritedDoc();
+        TopDownControllerComponent controller;
+        controller.acceleration = -1.f;
+        badController.objectTypes.at("Hero").topDownController = controller;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badController)}).ok);
     }
 
     // -- A type carrying two movement drivers is rejected (one-writer invariant)

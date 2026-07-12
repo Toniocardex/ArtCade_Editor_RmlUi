@@ -71,13 +71,13 @@ EditorOperationResult RemoveSpriteAnimationAssetCommand::apply(ProjectDocument& 
     const SpriteAnimationAssetDef* asset = document.findSpriteAnimationAsset(assetId_);
     if (!asset) return EditorOperationResult::failure("Unknown sprite animation asset");
     if (!captured_) {
+        const auto& assets = document.data().spriteAnimationAssets;
+        const auto assetIt = std::find_if(
+            assets.begin(), assets.end(), [&](const SpriteAnimationAssetDef& candidate) {
+                return candidate.id == assetId_;
+            });
+        assetIndex_ = static_cast<std::size_t>(std::distance(assets.begin(), assetIt));
         removed_ = *asset;
-        captured_ = true;
-    }
-    // Delete means delete: instead of refusing while referenced, clear the
-    // animation source (and the now-orphaned animator) from every entity that
-    // used it. Captured once so undo restores each entity exactly.
-    if (!refsCaptured_) {
         for (const auto& [sceneId, scene] : document.data().scenes) {
             for (const SceneInstanceDef& instance : scene.instances) {
                 if (!instance.spriteRenderer
@@ -87,32 +87,65 @@ EditorOperationResult RemoveSpriteAnimationAssetCommand::apply(ProjectDocument& 
                 ClearedRef ref;
                 ref.sceneId = sceneId;
                 ref.entityId = instance.id;
-                ref.hadAnimator = instance.spriteAnimator.has_value();
-                if (ref.hadAnimator) ref.animator = *instance.spriteAnimator;
+                ref.renderer = *instance.spriteRenderer;
+                ref.animator = instance.spriteAnimator;
                 clearedRefs_.push_back(std::move(ref));
             }
         }
-        refsCaptured_ = true;
+        captured_ = true;
     }
-    for (const ClearedRef& ref : clearedRefs_) {
-        document.setSpriteRendererAnimation(ref.sceneId, ref.entityId, AssetId{});
-        if (ref.hadAnimator) document.removeSpriteAnimator(ref.sceneId, ref.entityId);
+
+    ProjectDoc staged = document.data();
+    auto assetIt = std::find_if(
+        staged.spriteAnimationAssets.begin(), staged.spriteAnimationAssets.end(),
+        [&](const SpriteAnimationAssetDef& candidate) { return candidate.id == assetId_; });
+    if (assetIt == staged.spriteAnimationAssets.end()) {
+        return EditorOperationResult::failure("Failed to stage sprite animation asset removal");
     }
-    if (!document.removeSpriteAnimationAsset(assetId_)) {
-        return EditorOperationResult::failure("Failed to remove sprite animation asset");
+    staged.spriteAnimationAssets.erase(assetIt);
+    for (auto& [_, scene] : staged.scenes) {
+        for (SceneInstanceDef& instance : scene.instances) {
+            if (!instance.spriteRenderer
+                || instance.spriteRenderer->animationAssetId != assetId_) {
+                continue;
+            }
+            instance.spriteRenderer->animationAssetId.clear();
+            instance.spriteAnimator.reset();
+        }
     }
+    document.commitStagedCommand(std::move(staged));
     return EditorOperationResult::success(kAssetInvalidation, DomainChange::assetChanged(assetId_));
 }
 
 EditorOperationResult RemoveSpriteAnimationAssetCommand::undo(ProjectDocument& document) {
-    if (!captured_ || !document.addSpriteAnimationAsset(removed_)) {
+    if (!captured_ || document.hasSpriteAnimationAsset(assetId_)) {
         return EditorOperationResult::failure("Cannot undo sprite animation asset removal");
     }
-    // Restore each entity's animation source and its animator verbatim.
-    for (const ClearedRef& ref : clearedRefs_) {
-        document.setSpriteRendererAnimation(ref.sceneId, ref.entityId, assetId_);
-        if (ref.hadAnimator) document.addSpriteAnimator(ref.sceneId, ref.entityId, ref.animator);
+
+    ProjectDoc staged = document.data();
+    if (assetIndex_ > staged.spriteAnimationAssets.size()) {
+        return EditorOperationResult::failure("Cannot restore sprite animation asset order");
     }
+    staged.spriteAnimationAssets.insert(
+        staged.spriteAnimationAssets.begin() + static_cast<std::ptrdiff_t>(assetIndex_), removed_);
+
+    // Restore each entity's complete renderer+animator state in staging. Any
+    // stale target aborts before the authoritative document is touched.
+    for (const ClearedRef& ref : clearedRefs_) {
+        const auto sceneIt = staged.scenes.find(ref.sceneId);
+        if (sceneIt == staged.scenes.end()) {
+            return EditorOperationResult::failure("Cannot restore animation reference: scene missing");
+        }
+        auto instanceIt = std::find_if(
+            sceneIt->second.instances.begin(), sceneIt->second.instances.end(),
+            [&](const SceneInstanceDef& instance) { return instance.id == ref.entityId; });
+        if (instanceIt == sceneIt->second.instances.end() || !instanceIt->spriteRenderer) {
+            return EditorOperationResult::failure("Cannot restore animation reference: instance missing");
+        }
+        instanceIt->spriteRenderer = ref.renderer;
+        instanceIt->spriteAnimator = ref.animator;
+    }
+    document.commitStagedCommand(std::move(staged));
     return EditorOperationResult::success(kAssetInvalidation, DomainChange::assetChanged(assetId_));
 }
 

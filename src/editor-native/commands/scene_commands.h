@@ -28,8 +28,6 @@ public:
 private:
     SceneId     id_;
     std::string name_;
-    SceneId     previousStart_{};       // start scene before this command
-    bool        assignedStart_ = false; // did this command set the start scene?
 };
 
 /**

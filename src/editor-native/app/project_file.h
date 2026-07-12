@@ -9,6 +9,7 @@
 namespace ArtCade::EditorNative {
 
 class EditorCoordinator;
+class ProjectDocument;
 
 struct ProjectFileError {
     std::filesystem::path path;
@@ -69,8 +70,14 @@ struct ProjectSaveResult {
 };
 
 ProjectTextFileResult readProjectTextFile(const std::filesystem::path& path);
+ProjectTextFileResult writeProjectTextFileAtomically(
+    const std::filesystem::path& destination, const std::string& text);
 ProjectLoadResult loadProjectFromFile(EditorCoordinator& coordinator,
                                       const std::filesystem::path& path);
+// Validate, serialize and atomically persist an arbitrary candidate without
+// mutating coordinator state or marking any live document saved.
+ProjectSaveResult saveProjectDocumentToFile(
+    const ProjectDocument& candidate, const std::filesystem::path& destination);
 ProjectSaveResult saveProjectToFile(EditorCoordinator& coordinator,
                                     const std::filesystem::path& destination);
 

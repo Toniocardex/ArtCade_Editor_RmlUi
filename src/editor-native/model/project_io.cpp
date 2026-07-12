@@ -1,4 +1,6 @@
 #include "editor-native/model/project_io.h"
+#include "editor-native/model/numeric_validation.h"
+#include "editor-native/model/path_confinement.h"
 
 #include "editor-native/model/tilemap_validation.h"
 
@@ -7,7 +9,10 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <limits>
 #include <optional>
+#include <stdexcept>
+#include <type_traits>
 #include <unordered_set>
 #include <utility>
 
@@ -18,6 +23,112 @@ namespace {
 // v2: sprite animation source moved from asset-level imageId to per-clip imageId
 // (each clip owns its sheet), plus asset defaultClipId.
 constexpr int kCurrentSchemaVersion = 2;
+
+class JsonReadError final : public std::runtime_error {
+public:
+    explicit JsonReadError(std::string message) : std::runtime_error(std::move(message)) {}
+};
+
+[[noreturn]] void invalidField(const std::string& field, const char* expected) {
+    throw JsonReadError("Invalid project field '" + field + "': expected " + expected);
+}
+
+const nlohmann::json* findMember(const nlohmann::json& object, const char* camel,
+                                 const char* snake = nullptr) {
+    if (const auto it = object.find(camel); it != object.end()) return &*it;
+    if (snake) {
+        if (const auto it = object.find(snake); it != object.end()) return &*it;
+    }
+    return nullptr;
+}
+
+const nlohmann::json& requireObject(const nlohmann::json& value,
+                                    const std::string& field) {
+    if (!value.is_object()) invalidField(field, "object");
+    return value;
+}
+
+const nlohmann::json* optionalObject(const nlohmann::json& object, const char* key,
+                                     const std::string& field) {
+    const auto it = object.find(key);
+    if (it == object.end()) return nullptr;
+    if (!it->is_object()) invalidField(field, "object");
+    return &*it;
+}
+
+const nlohmann::json* optionalArray(const nlohmann::json& object, const char* key,
+                                    const std::string& field) {
+    const auto it = object.find(key);
+    if (it == object.end()) return nullptr;
+    if (!it->is_array()) invalidField(field, "array");
+    return &*it;
+}
+
+template <class T>
+T readNumber(const nlohmann::json& object, const char* key, T fallback,
+             const std::string& field) {
+    const auto it = object.find(key);
+    if (it == object.end()) return fallback;
+    const bool numeric = [&] {
+        if constexpr (std::is_integral_v<T>) {
+            return it->is_number_integer() || it->is_number_unsigned();
+        }
+        return it->is_number();
+    }();
+    if (!numeric) invalidField(field, std::is_integral_v<T> ? "integer" : "number");
+    try {
+        if constexpr (std::is_integral_v<T>) {
+            if (it->is_number_unsigned()) {
+                const std::uint64_t value = it->get<std::uint64_t>();
+                if (value > static_cast<std::uint64_t>(std::numeric_limits<T>::max())) {
+                    throw JsonReadError(
+                        "Invalid project field '" + field + "': number is out of range");
+                }
+                return static_cast<T>(value);
+            }
+            const std::int64_t value = it->get<std::int64_t>();
+            if constexpr (std::is_unsigned_v<T>) {
+                if (value < 0
+                    || static_cast<std::uint64_t>(value)
+                           > static_cast<std::uint64_t>(std::numeric_limits<T>::max())) {
+                    throw JsonReadError(
+                        "Invalid project field '" + field + "': number is out of range");
+                }
+            } else if (value < static_cast<std::int64_t>(std::numeric_limits<T>::min())
+                       || value > static_cast<std::int64_t>(std::numeric_limits<T>::max())) {
+                throw JsonReadError(
+                    "Invalid project field '" + field + "': number is out of range");
+            }
+            return static_cast<T>(value);
+        } else {
+            const T value = it->get<T>();
+            if (!std::isfinite(value)) {
+                throw JsonReadError(
+                    "Invalid project field '" + field + "': number is out of range");
+            }
+            return value;
+        }
+    } catch (const JsonReadError&) {
+        throw;
+    } catch (const nlohmann::json::exception&) {
+        throw JsonReadError("Invalid project field '" + field + "': number is out of range");
+    }
+}
+
+template <class T>
+T readAliasedNumber(const nlohmann::json& object, const char* camel, const char* snake,
+                    T fallback, const std::string& field) {
+    if (object.contains(camel)) return readNumber<T>(object, camel, fallback, field);
+    return readNumber<T>(object, snake, fallback, field);
+}
+
+bool readBool(const nlohmann::json& object, const char* key, bool fallback,
+              const std::string& field) {
+    const auto it = object.find(key);
+    if (it == object.end()) return fallback;
+    if (!it->is_boolean()) invalidField(field, "boolean");
+    return it->get<bool>();
+}
 
 nlohmann::json vec2ToJson(const Vec2& v) {
     return nlohmann::json{{"x", v.x}, {"y", v.y}};
@@ -30,24 +141,18 @@ nlohmann::json vec3ToJson(const Vec3& v) {
 std::string readString(const nlohmann::json& object, const char* camel,
                        const char* snake = nullptr,
                        const std::string& fallback = {}) {
-    if (object.contains(camel) && object[camel].is_string()) {
-        return object[camel].get<std::string>();
-    }
-    if (snake && object.contains(snake) && object[snake].is_string()) {
-        return object[snake].get<std::string>();
-    }
-    return fallback;
+    const nlohmann::json* value = findMember(object, camel, snake);
+    if (!value) return fallback;
+    if (!value->is_string()) invalidField(camel, "string");
+    return value->get<std::string>();
 }
 
 float readFloat(const nlohmann::json& object, const char* key, float fallback) {
-    if (object.contains(key) && object[key].is_number()) {
-        return object[key].get<float>();
-    }
-    return fallback;
+    return readNumber<float>(object, key, fallback, key);
 }
 
 Vec2 readVec2(const nlohmann::json& value, Vec2 fallback = {}) {
-    if (!value.is_object()) return fallback;
+    requireObject(value, "Vec2");
     return Vec2{
         readFloat(value, "x", fallback.x),
         readFloat(value, "y", fallback.y),
@@ -125,12 +230,11 @@ std::string readAssetPath(const nlohmann::json& object) {
 }
 
 bool isPortableAssetPath(const std::string& sourcePath) {
-    return !sourcePath.empty()
-        && !std::filesystem::path(sourcePath).is_absolute();
+    return isSafeProjectRelativePath(std::filesystem::u8path(sourcePath));
 }
 
 Vec4 readVec4(const nlohmann::json& value, Vec4 fallback = {}) {
-    if (!value.is_object()) return fallback;
+    requireObject(value, "Vec4");
     return Vec4{
         readFloat(value, "r", fallback.r),
         readFloat(value, "g", fallback.g),
@@ -140,7 +244,7 @@ Vec4 readVec4(const nlohmann::json& value, Vec4 fallback = {}) {
 }
 
 Vec3 readVec3(const nlohmann::json& value, Vec3 fallback = {}) {
-    if (!value.is_object()) return fallback;
+    requireObject(value, "Vec3");
     return Vec3{
         readFloat(value, "x", fallback.x),
         readFloat(value, "y", fallback.y),
@@ -150,7 +254,7 @@ Vec3 readVec3(const nlohmann::json& value, Vec3 fallback = {}) {
 
 Transform readTransform(const nlohmann::json& value) {
     Transform transform;
-    if (!value.is_object()) return transform;
+    requireObject(value, "transform");
     if (value.contains("position")) transform.position = readVec2(value["position"]);
     if (value.contains("scale")) transform.scale = readVec2(value["scale"], {1.f, 1.f});
     transform.rotation = readFloat(value, "rotation", 0.f);
@@ -158,54 +262,66 @@ Transform readTransform(const nlohmann::json& value) {
 }
 
 bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
-    if (!value.is_object()) return false;
+    requireObject(value, "scenes[].instances[]");
     out = SceneInstanceDef{};
-    out.id = value.value("id", 0u);
+    out.id = readNumber<EntityId>(value, "id", 0u, "scenes[].instances[].id");
     out.objectTypeId = readString(value, "objectTypeId", "object_type_id");
     out.instanceName = readString(value, "instanceName", "instance_name");
     if (value.contains("transform")) out.transform = readTransform(value["transform"]);
-    if (value.contains("visible") && value["visible"].is_boolean()) {
-        out.visible = value["visible"].get<bool>();
-    }
+    out.visible = readBool(value, "visible", out.visible, "scenes[].instances[].visible");
     out.layerId = readString(value, "layerId", "layer_id");
-    if (value.contains("spriteRenderer") && value["spriteRenderer"].is_object()) {
-        const auto& sr = value["spriteRenderer"];
+    if (const nlohmann::json* srValue = optionalObject(
+            value, "spriteRenderer", "scenes[].instances[].spriteRenderer")) {
+        const auto& sr = *srValue;
         SpriteRendererComponent component;
         component.imageAssetId = readString(sr, "imageAssetId", "image_asset_id");
         component.animationAssetId = readString(sr, "animationAssetId", "animation_asset_id");
-        component.visible = sr.value("visible", true);
+        component.visible = readBool(
+            sr, "visible", true, "scenes[].instances[].spriteRenderer.visible");
         out.spriteRenderer = component;
     }
-    if (value.contains("spriteAnimator") && value["spriteAnimator"].is_object()) {
-        const auto& sa = value["spriteAnimator"];
+    if (const nlohmann::json* saValue = optionalObject(
+            value, "spriteAnimator", "scenes[].instances[].spriteAnimator")) {
+        const auto& sa = *saValue;
         SpriteAnimatorComponent component;
         component.initialClipId = readString(sa, "initialClipId", "initial_clip_id");
-        component.autoPlay = sa.value("autoPlay", true);
+        component.autoPlay = readBool(
+            sa, "autoPlay", true, "scenes[].instances[].spriteAnimator.autoPlay");
         component.playbackSpeed = readFloat(sa, "playbackSpeed", 1.f);
         out.spriteAnimator = component;
     }
-    if (value.contains("tilemap") && value["tilemap"].is_object()) {
-        const auto& tm = value["tilemap"];
+    if (const nlohmann::json* tmValue = optionalObject(
+            value, "tilemap", "scenes[].instances[].tilemap")) {
+        const auto& tm = *tmValue;
         TilemapComponent component;
         component.tilesetAssetId = readString(tm, "tilesetAssetId", "tileset_asset_id");
         if (tm.contains("cellSize")) component.cellSize = readVec2(tm["cellSize"], component.cellSize);
-        component.chunkSize = tm.value("chunkSize", component.chunkSize);
-        if (tm.contains("chunks") && tm["chunks"].is_array()) {
-            for (const auto& chunkJson : tm["chunks"]) {
-                if (!chunkJson.is_object()) continue;
+        component.chunkSize = readNumber<int>(
+            tm, "chunkSize", component.chunkSize, "scenes[].instances[].tilemap.chunkSize");
+        if (const nlohmann::json* chunks = optionalArray(
+                tm, "chunks", "scenes[].instances[].tilemap.chunks")) {
+            for (const auto& chunkJson : *chunks) {
+                requireObject(chunkJson, "scenes[].instances[].tilemap.chunks[]");
                 TilemapChunk chunk;
-                chunk.chunkX = chunkJson.value("chunkX", 0);
-                chunk.chunkY = chunkJson.value("chunkY", 0);
-                if (chunkJson.contains("cells") && chunkJson["cells"].is_array()) {
-                    for (const auto& cellJson : chunkJson["cells"]) {
+                chunk.chunkX = readNumber<int>(
+                    chunkJson, "chunkX", 0, "scenes[].instances[].tilemap.chunks[].chunkX");
+                chunk.chunkY = readNumber<int>(
+                    chunkJson, "chunkY", 0, "scenes[].instances[].tilemap.chunks[].chunkY");
+                if (const nlohmann::json* cells = optionalArray(
+                        chunkJson, "cells", "scenes[].instances[].tilemap.chunks[].cells")) {
+                    for (const auto& cellJson : *cells) {
                         if (cellJson.is_object()) {
                             TilemapCellValue cell;
                             cell.tileId = readString(cellJson, "tileId", "tile_id");
                             cell.flags = static_cast<TileTransformFlags>(
-                                cellJson.value("flags", 0));
-                            chunk.cells.push_back(cell);
-                        } else {
+                                readNumber<int>(cellJson, "flags", 0,
+                                    "scenes[].instances[].tilemap.chunks[].cells[].flags"));
+                            chunk.cells.push_back(std::move(cell));
+                        } else if (cellJson.is_null()) {
                             chunk.cells.push_back(std::nullopt);   // null / missing = empty
+                        } else {
+                            invalidField("scenes[].instances[].tilemap.chunks[].cells[]",
+                                         "object or null");
                         }
                     }
                 }
@@ -214,12 +330,12 @@ bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
         }
         out.tilemap = std::move(component);
     }
-    return out.id != INVALID_ENTITY && !out.objectTypeId.empty();
+    return true;
 }
 
 SceneDef readScene(const nlohmann::json& value, const SceneId& fallbackId) {
     SceneDef scene;
-    if (!value.is_object()) return scene;
+    requireObject(value, "scenes[]");
     scene.id = readString(value, "id", nullptr, fallbackId);
     scene.name = readString(value, "name", nullptr, scene.id);
     if (value.contains("worldSize")) {
@@ -231,22 +347,21 @@ SceneDef readScene(const nlohmann::json& value, const SceneId& fallbackId) {
     if (value.contains("backgroundColor")) {
         scene.backgroundColor = readVec4(value["backgroundColor"], scene.backgroundColor);
     }
-    if (value.contains("instances") && value["instances"].is_array()) {
-        for (const auto& item : value["instances"]) {
+    if (const nlohmann::json* instances = optionalArray(value, "instances", "scenes[].instances")) {
+        for (const auto& item : *instances) {
             SceneInstanceDef instance;
-            if (readInstance(item, instance)) scene.instances.push_back(std::move(instance));
+            readInstance(item, instance);
+            scene.instances.push_back(std::move(instance));
         }
     }
-    if (value.contains("layers") && value["layers"].is_array()) {
-        for (const auto& item : value["layers"]) {
-            if (!item.is_object()) continue;
+    if (const nlohmann::json* layers = optionalArray(value, "layers", "scenes[].layers")) {
+        for (const auto& item : *layers) {
+            requireObject(item, "scenes[].layers[]");
             SceneLayerDef layer;
             layer.id = readString(item, "id", nullptr);
             layer.name = readString(item, "name", nullptr, layer.id);
-            if (item.contains("locked") && item["locked"].is_boolean()) {
-                layer.locked = item["locked"].get<bool>();
-            }
-            if (!layer.id.empty()) scene.layers.push_back(layer);
+            layer.locked = readBool(item, "locked", layer.locked, "scenes[].layers[].locked");
+            scene.layers.push_back(std::move(layer));
         }
     }
     scene.defaultLayerId = readString(value, "defaultLayerId", "default_layer_id");
@@ -308,8 +423,9 @@ void insertReadScene(ProjectDoc& out, SceneDef scene) {
 }
 
 void readScenes(const nlohmann::json& root, ProjectDoc& out) {
-    if (!root.contains("scenes")) return;
-    const auto& scenes = root["scenes"];
+    const auto it = root.find("scenes");
+    if (it == root.end()) return;
+    const auto& scenes = *it;
     if (scenes.is_array()) {
         for (const auto& item : scenes) {
             SceneDef scene = readScene(item, "scene_" + std::to_string(out.scenes.size()));
@@ -320,6 +436,8 @@ void readScenes(const nlohmann::json& root, ProjectDoc& out) {
             SceneDef scene = readScene(value, key);
             insertReadScene(out, std::move(scene));
         }
+    } else {
+        invalidField("scenes", "array or object");
     }
 }
 
@@ -488,11 +606,9 @@ nlohmann::json sceneToJson(const SceneDef& scene) {
 } // namespace
 
 DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
-    const nlohmann::json root =
-        nlohmann::json::parse(source.begin(), source.end(), nullptr, false);
-    if (root.is_discarded() || !root.is_object()) {
-        return DeserializeResult::failure("Project JSON is malformed");
-    }
+    try {
+    const nlohmann::json root = nlohmann::json::parse(source.begin(), source.end());
+    if (!root.is_object()) invalidField("$", "object");
 
     ProjectDoc doc;
     doc.projectName = readString(root, "projectName", "project_name", "Untitled");
@@ -502,31 +618,37 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
     doc.activeSceneId = readString(root, "activeSceneId", "active_scene_id");
     doc.mainScriptPath = readString(root, "mainScriptPath", "main_script_path",
                                     "scripts/main.luac");
-    doc.formatVersion = root.value("formatVersion", root.value("format_version", 0));
+    // schemaVersion is emitted for external tooling while formatVersion remains
+    // the migration authority. When present it must still be a representable
+    // integer; malformed metadata is never silently ignored.
+    (void)readNumber<int>(root, "schemaVersion", 0, "schemaVersion");
+    doc.formatVersion = readAliasedNumber<int>(
+        root, "formatVersion", "format_version", 0, "formatVersion");
     readScenes(root, doc);
 
-    if (root.contains("objectTypes") && root["objectTypes"].is_array()) {
+    if (const nlohmann::json* objectTypes = optionalArray(root, "objectTypes", "objectTypes")) {
         std::unordered_set<std::string> seenTypeIds;
-        for (const auto& item : root["objectTypes"]) {
-            if (!item.is_object()) continue;
+        for (const auto& item : *objectTypes) {
+            requireObject(item, "objectTypes[]");
             const std::string id = readString(item, "id", "className");
-            if (id.empty()) continue;
             if (!seenTypeIds.insert(id).second) {
                 return DeserializeResult::failure("Duplicate object type id");
             }
             EntityDef def;
             def.className = id;
             def.name = readString(item, "name", nullptr, id);
-            def.visible = item.value("visible", true);
-            if (item.contains("sprite") && item["sprite"].is_object()) {
-                const auto& sprite = item["sprite"];
+            def.visible = readBool(item, "visible", true, "objectTypes[].visible");
+            if (const nlohmann::json* spriteValue = optionalObject(
+                    item, "sprite", "objectTypes[].sprite")) {
+                const auto& sprite = *spriteValue;
                 def.sprite.spriteAssetId = readString(sprite, "spriteAssetId", "sprite_asset_id");
                 if (sprite.contains("fillColor")) {
                     def.sprite.fillColor = readVec3(sprite["fillColor"], def.sprite.fillColor);
                 }
             }
-            if (item.contains("boxCollider2D") && item["boxCollider2D"].is_object()) {
-                const auto& collider = item["boxCollider2D"];
+            if (const nlohmann::json* colliderValue = optionalObject(
+                    item, "boxCollider2D", "objectTypes[].boxCollider2D")) {
+                const auto& collider = *colliderValue;
                 BoxCollider2DComponent component;
                 if (collider.contains("offset")) {
                     component.offset = readVec2(collider["offset"], component.offset);
@@ -534,9 +656,9 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                 if (collider.contains("size")) {
                     component.size = readVec2(collider["size"], component.size);
                 }
-                if (collider.contains("enabled") && collider["enabled"].is_boolean()) {
-                    component.enabled = collider["enabled"].get<bool>();
-                }
+                component.enabled = readBool(
+                    collider, "enabled", component.enabled,
+                    "objectTypes[].boxCollider2D.enabled");
                 if (collider.contains("mode")) {
                     if (!collider["mode"].is_string()) {
                         return DeserializeResult::failure("BoxCollider2D mode is invalid");
@@ -545,52 +667,61 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                     if (!parsed.has_value()) {
                         return DeserializeResult::failure("BoxCollider2D mode is unknown");
                     }
-                    if (collider.contains("isTrigger") && collider["isTrigger"].is_boolean()
-                        && legacyTriggerMode(collider["isTrigger"].get<bool>()) != *parsed) {
+                    const bool legacy = readBool(
+                        collider, "isTrigger", *parsed == BoxColliderMode::Trigger,
+                        "objectTypes[].boxCollider2D.isTrigger");
+                    if (collider.contains("isTrigger")
+                        && legacyTriggerMode(legacy) != *parsed) {
                         return DeserializeResult::failure(
                             "BoxCollider2D mode conflicts with legacy isTrigger");
                     }
                     component.mode = *parsed;
-                } else if (collider.contains("isTrigger") && collider["isTrigger"].is_boolean()) {
-                    component.mode = legacyTriggerMode(collider["isTrigger"].get<bool>());
+                } else if (collider.contains("isTrigger")) {
+                    component.mode = legacyTriggerMode(readBool(
+                        collider, "isTrigger", false,
+                        "objectTypes[].boxCollider2D.isTrigger"));
                 }
                 def.boxCollider2D = component;
             }
-            if (item.contains("linearMover") && item["linearMover"].is_object()) {
-                const auto& m = item["linearMover"];
+            if (const nlohmann::json* moverValue = optionalObject(
+                    item, "linearMover", "objectTypes[].linearMover")) {
+                const auto& m = *moverValue;
                 LinearMoverComponent component;
-                component.directionX = m.value("directionX", component.directionX);
-                component.directionY = m.value("directionY", component.directionY);
-                component.speed = m.value("speed", component.speed);
+                component.directionX = readFloat(m, "directionX", component.directionX);
+                component.directionY = readFloat(m, "directionY", component.directionY);
+                component.speed = readFloat(m, "speed", component.speed);
                 def.linearMover = component;
             }
-            if (item.contains("topDownController") && item["topDownController"].is_object()) {
-                const auto& t = item["topDownController"];
+            if (const nlohmann::json* topDownValue = optionalObject(
+                    item, "topDownController", "objectTypes[].topDownController")) {
+                const auto& t = *topDownValue;
                 TopDownControllerComponent component;
-                component.maxSpeed = t.value("maxSpeed", component.maxSpeed);
-                component.acceleration = t.value("acceleration", component.acceleration);
-                component.friction = t.value("friction", component.friction);
-                component.fourDirections = t.value("fourDirections", component.fourDirections);
+                component.maxSpeed = readFloat(t, "maxSpeed", component.maxSpeed);
+                component.acceleration = readFloat(t, "acceleration", component.acceleration);
+                component.friction = readFloat(t, "friction", component.friction);
+                component.fourDirections = readBool(
+                    t, "fourDirections", component.fourDirections,
+                    "objectTypes[].topDownController.fourDirections");
                 def.topDownController = component;
             }
-            if (item.contains("platformerController") && item["platformerController"].is_object()) {
-                const auto& p = item["platformerController"];
+            if (const nlohmann::json* platformerValue = optionalObject(
+                    item, "platformerController", "objectTypes[].platformerController")) {
+                const auto& p = *platformerValue;
                 PlatformerControllerComponent component;   // others keep defaults
-                component.maxSpeed      = p.value("moveSpeed", component.maxSpeed);
-                component.jumpForce     = p.value("jumpSpeed", component.jumpForce);
-                component.customGravity = p.value("gravity", component.customGravity);
+                component.maxSpeed = readFloat(p, "moveSpeed", component.maxSpeed);
+                component.jumpForce = readFloat(p, "jumpSpeed", component.jumpForce);
+                component.customGravity = readFloat(p, "gravity", component.customGravity);
                 def.platformerController = component;
             }
             doc.objectTypes.emplace(id, std::move(def));
         }
     }
 
-    if (root.contains("imageAssets") && root["imageAssets"].is_array()) {
-        for (const auto& item : root["imageAssets"]) {
-            if (!item.is_object()) continue;
+    if (const nlohmann::json* imageAssets = optionalArray(root, "imageAssets", "imageAssets")) {
+        for (const auto& item : *imageAssets) {
+            requireObject(item, "imageAssets[]");
             std::string assetId = readString(item, "assetId", "asset_id");
             if (assetId.empty()) assetId = readString(item, "id", nullptr);
-            if (assetId.empty()) continue;
             ImageAssetDef asset;
             asset.assetId = assetId;
             asset.name = readString(item, "name", nullptr, assetId);
@@ -599,33 +730,39 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
         }
     }
 
-    if (root.contains("tilesets") && root["tilesets"].is_array()) {
-        for (const auto& item : root["tilesets"]) {
-            if (!item.is_object()) continue;
+    if (const nlohmann::json* tilesets = optionalArray(root, "tilesets", "tilesets")) {
+        for (const auto& item : *tilesets) {
+            requireObject(item, "tilesets[]");
             const std::string assetId = readString(item, "assetId", "asset_id");
-            if (assetId.empty()) continue;
             TilesetAsset asset;
             asset.assetId = assetId;
             asset.name = readString(item, "name", nullptr, assetId);
             asset.imageAssetId = readString(item, "imageAssetId", "image_asset_id");
-            if (item.contains("slicing") && item["slicing"].is_object()) {
-                const auto& s = item["slicing"];
-                asset.slicing.tileWidth  = s.value("tileWidth", 32);
-                asset.slicing.tileHeight = s.value("tileHeight", 32);
-                asset.slicing.marginX    = s.value("marginX", 0);
-                asset.slicing.marginY    = s.value("marginY", 0);
-                asset.slicing.spacingX   = s.value("spacingX", 0);
-                asset.slicing.spacingY   = s.value("spacingY", 0);
+            if (const nlohmann::json* slicingValue = optionalObject(
+                    item, "slicing", "tilesets[].slicing")) {
+                const auto& s = *slicingValue;
+                asset.slicing.tileWidth = readNumber<int>(s, "tileWidth", 32,
+                                                           "tilesets[].slicing.tileWidth");
+                asset.slicing.tileHeight = readNumber<int>(s, "tileHeight", 32,
+                                                            "tilesets[].slicing.tileHeight");
+                asset.slicing.marginX = readNumber<int>(s, "marginX", 0,
+                                                         "tilesets[].slicing.marginX");
+                asset.slicing.marginY = readNumber<int>(s, "marginY", 0,
+                                                         "tilesets[].slicing.marginY");
+                asset.slicing.spacingX = readNumber<int>(s, "spacingX", 0,
+                                                          "tilesets[].slicing.spacingX");
+                asset.slicing.spacingY = readNumber<int>(s, "spacingY", 0,
+                                                          "tilesets[].slicing.spacingY");
             }
-            if (item.contains("tiles") && item["tiles"].is_array()) {
-                for (const auto& t : item["tiles"]) {
-                    if (!t.is_object()) continue;
+            if (const nlohmann::json* tiles = optionalArray(item, "tiles", "tilesets[].tiles")) {
+                for (const auto& t : *tiles) {
+                    requireObject(t, "tilesets[].tiles[]");
                     TileDefinition tile;
                     tile.id     = readString(t, "id", nullptr);
-                    tile.x      = t.value("x", 0);
-                    tile.y      = t.value("y", 0);
-                    tile.width  = t.value("width", 0);
-                    tile.height = t.value("height", 0);
+                    tile.x = readNumber<int>(t, "x", 0, "tilesets[].tiles[].x");
+                    tile.y = readNumber<int>(t, "y", 0, "tilesets[].tiles[].y");
+                    tile.width = readNumber<int>(t, "width", 0, "tilesets[].tiles[].width");
+                    tile.height = readNumber<int>(t, "height", 0, "tilesets[].tiles[].height");
                     asset.tiles.push_back(std::move(tile));
                 }
             }
@@ -633,22 +770,22 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
         }
     }
 
-    if (root.contains("spriteAnimationAssets")
-        && root["spriteAnimationAssets"].is_array()) {
-        for (const auto& item : root["spriteAnimationAssets"]) {
-            if (!item.is_object()) continue;
+    if (const nlohmann::json* animationAssets = optionalArray(
+            root, "spriteAnimationAssets", "spriteAnimationAssets")) {
+        for (const auto& item : *animationAssets) {
+            requireObject(item, "spriteAnimationAssets[]");
             SpriteAnimationAssetDef asset;
             asset.id = readString(item, "id", "asset_id");
             asset.name = readString(item, "name", nullptr, asset.id);
-            if (asset.id.empty()) continue;
             // Backfill for pre-per-clip files: an old asset-level imageId is the
             // source for every clip that doesn't carry its own (single-authority
             // migration; the model itself never keeps an asset-level image).
             const std::string legacyAssetImage = readString(item, "imageId", "image_id");
             asset.defaultClipId = readString(item, "defaultClipId", "default_clip_id");
-            if (item.contains("clips") && item["clips"].is_array()) {
-                for (const auto& clipJson : item["clips"]) {
-                    if (!clipJson.is_object()) continue;
+            if (const nlohmann::json* clips = optionalArray(
+                    item, "clips", "spriteAnimationAssets[].clips")) {
+                for (const auto& clipJson : *clips) {
+                    requireObject(clipJson, "spriteAnimationAssets[].clips[]");
                     SpriteAnimationClipDef clip;
                     clip.id = readString(clipJson, "id", nullptr);
                     clip.name = readString(clipJson, "name", nullptr, clip.id);
@@ -663,14 +800,19 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                         return DeserializeResult::failure("Animation clip playbackMode is unknown");
                     }
                     clip.playbackMode = *mode;
-                    if (clipJson.contains("frames") && clipJson["frames"].is_array()) {
-                        for (const auto& frameJson : clipJson["frames"]) {
-                            if (!frameJson.is_object()) continue;
+                    if (const nlohmann::json* frames = optionalArray(
+                            clipJson, "frames", "spriteAnimationAssets[].clips[].frames")) {
+                        for (const auto& frameJson : *frames) {
+                            requireObject(frameJson, "spriteAnimationAssets[].clips[].frames[]");
                             SpriteAnimationFrameDef frame;
-                            frame.x = frameJson.value("x", 0);
-                            frame.y = frameJson.value("y", 0);
-                            frame.width = frameJson.value("width", 0);
-                            frame.height = frameJson.value("height", 0);
+                            frame.x = readNumber<int>(frameJson, "x", 0,
+                                "spriteAnimationAssets[].clips[].frames[].x");
+                            frame.y = readNumber<int>(frameJson, "y", 0,
+                                "spriteAnimationAssets[].clips[].frames[].y");
+                            frame.width = readNumber<int>(frameJson, "width", 0,
+                                "spriteAnimationAssets[].clips[].frames[].width");
+                            frame.height = readNumber<int>(frameJson, "height", 0,
+                                "spriteAnimationAssets[].clips[].frames[].height");
                             clip.frames.push_back(frame);
                         }
                     }
@@ -691,12 +833,11 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
         }
     }
 
-    if (root.contains("audioAssets") && root["audioAssets"].is_array()) {
-        for (const auto& item : root["audioAssets"]) {
-            if (!item.is_object()) continue;
+    if (const nlohmann::json* audioAssets = optionalArray(root, "audioAssets", "audioAssets")) {
+        for (const auto& item : *audioAssets) {
+            requireObject(item, "audioAssets[]");
             std::string assetId = readString(item, "assetId", "asset_id");
             if (assetId.empty()) assetId = readString(item, "id", nullptr);
-            if (assetId.empty()) continue;
             AudioAssetDef asset;
             asset.assetId = assetId;
             asset.name = readString(item, "name", nullptr, assetId);
@@ -711,17 +852,17 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
         }
     }
 
-    if (root.contains("fontAssets") && root["fontAssets"].is_array()) {
-        for (const auto& item : root["fontAssets"]) {
-            if (!item.is_object()) continue;
+    if (const nlohmann::json* fontAssets = optionalArray(root, "fontAssets", "fontAssets")) {
+        for (const auto& item : *fontAssets) {
+            requireObject(item, "fontAssets[]");
             std::string assetId = readString(item, "assetId", "asset_id");
             if (assetId.empty()) assetId = readString(item, "id", nullptr);
-            if (assetId.empty()) continue;
             FontAssetDef asset;
             asset.assetId = assetId;
             asset.name = readString(item, "name", nullptr, assetId);
             asset.sourcePath = readAssetPath(item);
-            asset.defaultPixelSize = item.value("defaultPixelSize", 32);
+            asset.defaultPixelSize = readNumber<int>(
+                item, "defaultPixelSize", 32, "fontAssets[].defaultPixelSize");
             const std::string preset = readString(item, "glyphPreset", nullptr, "european");
             const auto parsed = fontGlyphPresetFromString(preset);
             if (!parsed.has_value()) {
@@ -733,6 +874,17 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
     }
 
     return DeserializeResult::success(ProjectDocument{std::move(doc)});
+    } catch (const JsonReadError& error) {
+        return DeserializeResult::failure(error.what());
+    } catch (const nlohmann::json::exception& error) {
+        return DeserializeResult::failure(
+            std::string("Project JSON is malformed: ") + error.what());
+    } catch (const std::exception& error) {
+        return DeserializeResult::failure(
+            std::string("Project JSON could not be read: ") + error.what());
+    } catch (...) {
+        return DeserializeResult::failure("Project JSON could not be read: unknown error");
+    }
 }
 
 SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
@@ -846,6 +998,15 @@ DeserializeResult ProjectMigration::migrate(ProjectDocument document) {
 DeserializeResult ProjectValidator::validate(ProjectDocument document) {
     const ProjectDoc& data = document.data();
 
+    if (!NumericValidation::isFinite(data.targetFPS) || data.targetFPS <= 0.f) {
+        return DeserializeResult::failure("Project targetFPS must be positive");
+    }
+    if (!NumericValidation::isFinite(data.world.gravity)
+        || !NumericValidation::isPositive(data.world.pixelsPerMeter)
+        || !NumericValidation::isNonNegative(data.world.timeScale)) {
+        return DeserializeResult::failure("Project runtime settings contain invalid values");
+    }
+
     std::unordered_set<AssetId> imageAssetIds;
     for (const ImageAssetDef& asset : data.imageAssets) {
         if (asset.assetId.empty()) {
@@ -928,6 +1089,18 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
         if (id != scene.id) {
             return DeserializeResult::failure("Scene map key does not match scene id");
         }
+        if (!NumericValidation::isPositive(scene.worldSize)) {
+            return DeserializeResult::failure("Scene worldSize must be positive");
+        }
+        if (!NumericValidation::isPositive(scene.viewportSize)) {
+            return DeserializeResult::failure("Scene viewportSize must be positive");
+        }
+        if (!NumericValidation::isFinite(scene.cameraStart)) {
+            return DeserializeResult::failure("Scene cameraStart must be finite");
+        }
+        if (!NumericValidation::isFinite(scene.backgroundColor)) {
+            return DeserializeResult::failure("Scene backgroundColor must be finite");
+        }
 
         // Per-scene layer invariants (only when the scene declares layers; a
         // legacy/in-memory scene with none renders its instances directly).
@@ -957,6 +1130,9 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
             }
             if (instance.objectTypeId.empty()) {
                 return DeserializeResult::failure("Entity objectTypeId cannot be empty");
+            }
+            if (!NumericValidation::isFinite(instance.transform)) {
+                return DeserializeResult::failure("Entity transform must be finite");
             }
             // When the scene has layers, an instance must reference a real one.
             if (!scene.layers.empty() && !instance.layerId.empty()
@@ -1014,8 +1190,7 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
                     return DeserializeResult::failure(
                         "SpriteAnimator initialClipId must belong to its animation asset");
                 }
-                if (!std::isfinite(instance.spriteAnimator->playbackSpeed)
-                    || instance.spriteAnimator->playbackSpeed <= 0.f) {
+                if (!NumericValidation::isValid(*instance.spriteAnimator)) {
                     return DeserializeResult::failure(
                         "SpriteAnimator playbackSpeed must be positive");
                 }
@@ -1076,41 +1251,32 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
     for (const auto& [typeId, def] : data.objectTypes) {
         (void)typeId;
         const AssetId& assetId = def.sprite.spriteAssetId;
+        if (!NumericValidation::isFinite(def.sprite.fillColor)) {
+            return DeserializeResult::failure("Object type sprite fillColor must be finite");
+        }
         if (!assetId.empty() && !document.hasImageAsset(assetId)) {
             return DeserializeResult::failure(
                 "Object type sprite references a missing image asset");
         }
         if (def.boxCollider2D.has_value()) {
-            const Vec2 size = def.boxCollider2D->size;
-            if (!std::isfinite(def.boxCollider2D->offset.x)
-                || !std::isfinite(def.boxCollider2D->offset.y)
-                || !std::isfinite(size.x)
-                || !std::isfinite(size.y)
-                || size.x <= 0.f
-                || size.y <= 0.f) {
+            if (!NumericValidation::isValid(*def.boxCollider2D)) {
                 return DeserializeResult::failure("BoxCollider2D size must be positive");
             }
         }
         if (def.linearMover.has_value()) {
-            if (!std::isfinite(def.linearMover->directionX)
-                || !std::isfinite(def.linearMover->directionY)
-                || !std::isfinite(def.linearMover->speed)
-                || def.linearMover->speed < 0.f) {
+            if (!NumericValidation::isValid(*def.linearMover)) {
                 return DeserializeResult::failure("LinearMover has invalid direction or speed");
             }
         }
         if (def.topDownController.has_value()) {
             const TopDownControllerComponent& tdc = *def.topDownController;
-            if (!std::isfinite(tdc.maxSpeed) || tdc.maxSpeed < 0.f
-                || !std::isfinite(tdc.acceleration) || !std::isfinite(tdc.friction)) {
+            if (!NumericValidation::isValid(tdc)) {
                 return DeserializeResult::failure("TopDownController has invalid speed");
             }
         }
         if (def.platformerController.has_value()) {
             const PlatformerControllerComponent& pc = *def.platformerController;
-            if (!std::isfinite(pc.maxSpeed) || pc.maxSpeed < 0.f
-                || !std::isfinite(pc.jumpForce) || pc.jumpForce < 0.f
-                || !std::isfinite(pc.customGravity) || pc.customGravity < 0.f) {
+            if (!NumericValidation::isValid(pc)) {
                 return DeserializeResult::failure("PlatformerController has invalid values");
             }
         }

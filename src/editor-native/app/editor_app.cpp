@@ -7,6 +7,7 @@
 #include "editor-native/app/file_dialog.h"
 #include "editor-native/app/hierarchy_actions.h"
 #include "editor-native/app/input_routing.h"
+#include "editor-native/app/new_project_transaction.h"
 #include "editor-native/app/project_file.h"
 #include "editor-native/app/rml_host.h"
 #include "editor-native/app/sprite_animation_canvas_input.h"
@@ -22,6 +23,7 @@
 #include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
 #include "editor-native/model/play_session.h"
+#include "editor-native/model/path_confinement.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_animation_slicing.h"
 #include "editor-native/model/tilemap_stroke_preview.h"
@@ -413,9 +415,9 @@ void applyWindowIcon(const std::filesystem::path& resourceRoot) {
 std::filesystem::path resolveImageAssetPath(const std::filesystem::path& resourceRoot,
                                             const std::string& sourcePath) {
     if (sourcePath.empty()) return {};
-    const std::filesystem::path path(sourcePath);
-    if (path.is_absolute()) return path.lexically_normal();
-    return std::filesystem::absolute(resourceRoot / path).lexically_normal();
+    const PathConfinementResult resolved = resolvePathInsideRoot(
+        resourceRoot, std::filesystem::u8path(sourcePath));
+    return resolved.ok ? resolved.value : std::filesystem::path{};
 }
 
 std::unordered_map<AssetId, TextureRequest> textureRequestsFor(
@@ -475,12 +477,43 @@ bool copyAssetsForSaveAs(const std::filesystem::path& previousRoot,
                          std::string& error) {
     if (previousRoot.empty() || previousRoot == nextRoot) return true;
 
-    const std::filesystem::path source = previousRoot / "assets";
+    const PathConfinementResult sourceResult =
+        resolvePathInsideRoot(previousRoot, "assets");
+    if (!sourceResult.ok) {
+        error = "Could not resolve existing assets folder: " + sourceResult.error;
+        return false;
+    }
+    const std::filesystem::path& source = sourceResult.value;
     std::error_code ec;
     if (!std::filesystem::exists(source, ec)) return true;
     if (ec) {
         error = "Could not inspect existing assets folder: " + ec.message();
         return false;
+    }
+
+    // Validate every source entry before recursive copy. The iterator does not
+    // opt into following directory symlinks; resolving each lexical relative
+    // path additionally rejects Windows junctions/reparse points that lead out
+    // of previousRoot before std::filesystem::copy can traverse them.
+    std::filesystem::recursive_directory_iterator it{
+        source, std::filesystem::directory_options::none, ec};
+    const std::filesystem::recursive_directory_iterator end;
+    if (ec) {
+        error = "Could not inspect existing assets tree: " + ec.message();
+        return false;
+    }
+    for (; it != end;) {
+        const std::filesystem::path relative = it->path().lexically_relative(previousRoot);
+        const PathConfinementResult entry = resolvePathInsideRoot(previousRoot, relative);
+        if (!entry.ok) {
+            error = "Assets tree contains an unsafe path: " + entry.error;
+            return false;
+        }
+        it.increment(ec);
+        if (ec) {
+            error = "Could not inspect existing assets tree: " + ec.message();
+            return false;
+        }
     }
 
     std::filesystem::create_directories(nextRoot, ec);
@@ -489,9 +522,16 @@ bool copyAssetsForSaveAs(const std::filesystem::path& previousRoot,
         return false;
     }
 
-    const std::filesystem::path destination = nextRoot / "assets";
+    const PathConfinementResult destinationResult =
+        resolvePathInsideRoot(nextRoot, "assets");
+    if (!destinationResult.ok) {
+        error = "Could not resolve destination assets folder: " + destinationResult.error;
+        return false;
+    }
+    const std::filesystem::path& destination = destinationResult.value;
     std::filesystem::copy(source, destination,
                           std::filesystem::copy_options::recursive
+                        | std::filesystem::copy_options::skip_symlinks
                         | std::filesystem::copy_options::overwrite_existing,
                           ec);
     if (ec) {
@@ -663,14 +703,22 @@ int EditorApp::run(int argc, char** argv) {
             if (!guardPasses()) return;     // dirty + Cancel / failed Save: abort
             const auto picked = saveProjectFileDialog(
                 suggestedProjectSavePath(coordinator.document().data()));
-            if (!picked) return;            // cancelled: the current project stays
+            const std::optional<std::filesystem::path> destination = picked
+                ? std::optional<std::filesystem::path>{normalizeProjectSavePath(*picked)}
+                : std::nullopt;
             ProjectDoc fresh;
-            fresh.projectName = normalizeProjectSavePath(*picked).stem().string();
-            coordinator.replaceProject(ProjectDocument{std::move(fresh)});  // empty valid project
-            textureCache.clear();           // explicit app path consuming ProjectReplaced
-            currentProjectPath.clear();     // saveTo sets the path only on success
+            if (destination) fresh.projectName = destination->stem().string();
+            const NewProjectResult created = createNewProjectTransaction(
+                coordinator, ProjectDocument{std::move(fresh)}, destination);
+            if (created.cancelled) return;   // current project/path/cache stay exact
+            if (!created.ok) {
+                coordinator.logError("New project failed: " + created.error.message);
+                return;
+            }
+            textureCache.clear(); // only after committed ProjectReplaced
+            currentProjectPath = created.destination;
             refreshWindowTitle();
-            if (saveTo(*picked)) coordinator.logInfo("New project");
+            coordinator.logInfo("New project");
         },
         [&]() {  // Open
             if (coordinator.isPlaying()) {
