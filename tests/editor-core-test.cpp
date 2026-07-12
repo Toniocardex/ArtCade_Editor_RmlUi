@@ -8,6 +8,7 @@
 #include "editor-native/app/hierarchy_actions.h"
 #include "editor-native/app/input_routing.h"
 #include "editor-native/app/inspector_commit.h"
+#include "editor-native/app/new_project_transaction.h"
 #include "editor-native/app/asset_import.h"
 #include "editor-native/app/project_file.h"
 #include "editor-native/app/project_load.h"
@@ -3639,6 +3640,151 @@ int main() {
         CHECK(fresh.selection().primaryEntity == INVALID_ENTITY);
         CHECK(fresh.state().activeTool == EditorTool::Select);
         CHECK(!fresh.document().isDirty());
+    }
+
+    // -- P0-05: New Project is prepare/save/commit, with exact rollback -------
+    {
+        const std::filesystem::path base = testTempDir();
+        EditorCoordinator c{makeDoc()};
+        c.apply(SelectEntityIntent{kHero});
+        c.apply(ResizePanelIntent{ResizePanelIntent::Panel::Left, 345.f});
+        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {44.f, 55.f}}).ok);
+        const uint64_t revisionBefore = c.document().revision();
+        const uint64_t savedBefore = c.document().savedRevision();
+        const bool dirtyBefore = c.document().isDirty();
+        const std::size_t undoBefore = c.undoSize();
+
+        const auto freshCandidate = [] {
+            ProjectDoc doc;
+            doc.projectName = "Fresh";
+            return ProjectDocument{std::move(doc)};
+        };
+        const auto expectUnchanged = [&] {
+            expectCoordinatorBaseline(c, "spike", kSceneA, kHero, 345.f,
+                                      undoBefore, revisionBefore, savedBefore, dirtyBefore);
+        };
+
+        const NewProjectResult cancelled = createNewProjectTransaction(
+            c, freshCandidate(), std::nullopt);
+        CHECK(!cancelled.ok);
+        CHECK(cancelled.cancelled);
+        CHECK(cancelled.error.stage == NewProjectStage::Cancelled);
+        CHECK(cancelled.destination.empty());
+        expectUnchanged();
+
+        const std::filesystem::path blocker = base / "blocker";
+        writeTextFile(blocker, "not a directory");
+        const NewProjectResult directoryFailed = createNewProjectTransaction(
+            c, freshCandidate(), blocker / "nested" / "Fresh.artcade-project");
+        CHECK(!directoryFailed.ok);
+        CHECK(directoryFailed.error.stage == NewProjectStage::DirectoryCreate);
+        expectUnchanged();
+
+        const NewProjectResult validationFailed = createNewProjectTransaction(
+            c, ProjectDocument{makeInvalidStartDoc()},
+            base / "validation" / "Fresh.artcade-project");
+        CHECK(!validationFailed.ok);
+        CHECK(validationFailed.error.stage == NewProjectStage::Validation);
+        CHECK(!std::filesystem::exists(base / "validation"));
+        expectUnchanged();
+
+        NewProjectTransactionHooks serializeHooks;
+        serializeHooks.saveCandidate = [](
+            const ProjectDocument&, const std::filesystem::path& destination) {
+            return ProjectSaveResult::failure(
+                ProjectSaveStage::Serialize, destination, "forced serialization failure");
+        };
+        const NewProjectResult serializeFailed = createNewProjectTransaction(
+            c, freshCandidate(), base / "serialize" / "Fresh.artcade-project",
+            std::move(serializeHooks));
+        CHECK(!serializeFailed.ok);
+        CHECK(serializeFailed.error.stage == NewProjectStage::Serialize);
+        CHECK(!std::filesystem::exists(base / "serialize"));
+        expectUnchanged();
+
+        NewProjectTransactionHooks writeHooks;
+        writeHooks.saveCandidate = [](
+            const ProjectDocument&, const std::filesystem::path& destination) {
+            const ProjectTextFileResult partial =
+                writeProjectTextFileAtomically(destination, "partial");
+            if (!partial.ok) {
+                return ProjectSaveResult::failure(
+                    ProjectSaveStage::FileWrite, destination, partial.error.message);
+            }
+            return ProjectSaveResult::failure(
+                ProjectSaveStage::FileWrite, destination, "forced temporary write failure");
+        };
+        const std::filesystem::path writeDestination =
+            base / "write" / "Fresh.artcade-project";
+        const NewProjectResult writeFailed = createNewProjectTransaction(
+            c, freshCandidate(), writeDestination, std::move(writeHooks));
+        CHECK(!writeFailed.ok);
+        CHECK(writeFailed.error.stage == NewProjectStage::FileWrite);
+        CHECK(!std::filesystem::exists(writeDestination));
+        CHECK(!std::filesystem::exists(base / "write"));
+        expectUnchanged();
+
+        const std::filesystem::path replaceBlocked = base / "replace-target.artcade-project";
+        std::filesystem::create_directory(replaceBlocked);
+        const NewProjectResult atomicReplaceFailed = createNewProjectTransaction(
+            c, freshCandidate(), replaceBlocked);
+        CHECK(!atomicReplaceFailed.ok);
+        CHECK(atomicReplaceFailed.error.stage == NewProjectStage::FileWrite);
+        CHECK(std::filesystem::is_directory(replaceBlocked));
+        CHECK(!hasTempSibling(replaceBlocked));
+        expectUnchanged();
+
+        NewProjectTransactionHooks commitHooks;
+        commitHooks.commitCandidate = [](
+            EditorCoordinator&, ProjectDocument) {
+            return EditorOperationResult::failure("forced commit failure");
+        };
+        const std::filesystem::path uncommittedDestination =
+            base / "commit-new" / "Fresh.artcade-project";
+        const NewProjectResult commitFailed = createNewProjectTransaction(
+            c, freshCandidate(), uncommittedDestination, std::move(commitHooks));
+        CHECK(!commitFailed.ok);
+        CHECK(commitFailed.error.stage == NewProjectStage::Commit);
+        CHECK(!std::filesystem::exists(uncommittedDestination));
+        CHECK(!std::filesystem::exists(base / "commit-new"));
+        expectUnchanged();
+
+        const std::filesystem::path existingDestination =
+            base / "existing.artcade-project";
+        writeTextFile(existingDestination, "previous bytes");
+        NewProjectTransactionHooks restoreHooks;
+        restoreHooks.commitCandidate = [](
+            EditorCoordinator&, ProjectDocument) {
+            return EditorOperationResult::failure("forced commit failure");
+        };
+        const NewProjectResult restoreFailed = createNewProjectTransaction(
+            c, freshCandidate(), existingDestination, std::move(restoreHooks));
+        CHECK(!restoreFailed.ok);
+        CHECK(restoreFailed.error.stage == NewProjectStage::Commit);
+        CHECK(readTextFile(existingDestination) == "previous bytes");
+        expectUnchanged();
+
+        const std::filesystem::path successDestination =
+            base / "success" / "Fresh.artcade-project";
+        const NewProjectResult created = createNewProjectTransaction(
+            c, freshCandidate(), successDestination);
+        CHECK(created.ok);
+        CHECK(!created.cancelled);
+        CHECK(created.destination == std::filesystem::absolute(successDestination));
+        CHECK(created.operation.change.kind == DomainChangeKind::ProjectReplaced);
+        CHECK(std::filesystem::is_regular_file(successDestination));
+        CHECK(c.document().data().projectName == "Fresh");
+        CHECK(c.document().data().scenes.empty());
+        CHECK(!c.document().isDirty());
+        CHECK(c.undoSize() == 0);
+        CHECK(!c.selection().hasEntity());
+        CHECK(c.state().activeSceneId.empty());
+        CHECK(c.uiState().leftPanelWidth == 345.f);
+
+        EditorCoordinator loaded{makeDoc()};
+        CHECK(loadProjectFromFile(loaded, successDestination).ok);
+        CHECK(loaded.document().data().projectName == "Fresh");
+        CHECK(!loaded.document().isDirty());
     }
 
     // -- §24.11  Play does not modify the ProjectDocument ----------------------

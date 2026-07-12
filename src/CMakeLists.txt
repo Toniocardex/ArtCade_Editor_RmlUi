@@ -50,6 +50,7 @@ add_library(artcade-editor-core STATIC
     editor-native/app/inspector_commit.cpp
     editor-native/app/project_file.cpp
     editor-native/app/project_load.cpp
+    editor-native/app/new_project_transaction.cpp
 )
 
 target_include_directories(artcade-editor-core PUBLIC

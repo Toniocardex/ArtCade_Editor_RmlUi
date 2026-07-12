@@ -4,6 +4,7 @@
 #include "editor-native/model/project_io.h"
 
 #include <chrono>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -83,6 +84,11 @@ ProjectTextFileResult writeFileAtomically(const std::filesystem::path& destinati
 
 } // namespace
 
+ProjectTextFileResult writeProjectTextFileAtomically(
+    const std::filesystem::path& destination, const std::string& text) {
+    return writeFileAtomically(destination, text);
+}
+
 ProjectTextFileResult readProjectTextFile(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
@@ -109,25 +115,9 @@ ProjectLoadResult loadProjectFromFile(EditorCoordinator& coordinator,
 
 ProjectSaveResult saveProjectToFile(EditorCoordinator& coordinator,
                                     const std::filesystem::path& destination) {
-    DeserializeResult validated =
-        ProjectValidator::validate(ProjectDocument{coordinator.document().data()});
-    if (!validated.ok) {
-        return ProjectSaveResult::failure(ProjectSaveStage::Validation,
-                                          destination, std::move(validated.error));
-    }
-
-    SerializeResult serialized = ProjectSerializer::serialize(coordinator.document());
-    if (!serialized.ok) {
-        return ProjectSaveResult::failure(ProjectSaveStage::Serialize,
-                                          destination, std::move(serialized.error));
-    }
-
-    ProjectTextFileResult written = writeFileAtomically(destination, serialized.value);
-    if (!written.ok) {
-        return ProjectSaveResult::failure(ProjectSaveStage::FileWrite,
-                                          written.error.path,
-                                          std::move(written.error.message));
-    }
+    ProjectSaveResult persisted =
+        saveProjectDocumentToFile(coordinator.document(), destination);
+    if (!persisted.ok) return persisted;
 
     EditorOperationResult saved = coordinator.markProjectSaved();
     if (!saved.ok) {
@@ -135,6 +125,46 @@ ProjectSaveResult saveProjectToFile(EditorCoordinator& coordinator,
                                           destination, saved.error);
     }
     return ProjectSaveResult::success(std::move(saved));
+}
+
+ProjectSaveResult saveProjectDocumentToFile(
+    const ProjectDocument& candidate, const std::filesystem::path& destination) {
+    DeserializeResult validated;
+    try {
+        validated = ProjectValidator::validate(ProjectDocument{candidate.data()});
+    } catch (const std::exception& error) {
+        return ProjectSaveResult::failure(
+            ProjectSaveStage::Validation, destination,
+            std::string("Project validation failed: ") + error.what());
+    }
+    if (!validated.ok) {
+        return ProjectSaveResult::failure(ProjectSaveStage::Validation,
+                                          destination, std::move(validated.error));
+    }
+
+    SerializeResult serialized;
+    try {
+        serialized = ProjectSerializer::serialize(candidate);
+    } catch (const std::exception& error) {
+        return ProjectSaveResult::failure(
+            ProjectSaveStage::Serialize, destination,
+            std::string("Project serialization failed: ") + error.what());
+    }
+    if (!serialized.ok) {
+        return ProjectSaveResult::failure(ProjectSaveStage::Serialize,
+                                          destination, std::move(serialized.error));
+    }
+
+    ProjectTextFileResult written =
+        writeProjectTextFileAtomically(destination, serialized.value);
+    if (!written.ok) {
+        return ProjectSaveResult::failure(ProjectSaveStage::FileWrite,
+                                          written.error.path,
+                                          std::move(written.error.message));
+    }
+
+    return ProjectSaveResult::success(
+        EditorOperationResult::success(EditorInvalidation::None));
 }
 
 } // namespace ArtCade::EditorNative

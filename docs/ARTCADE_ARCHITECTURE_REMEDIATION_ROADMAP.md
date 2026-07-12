@@ -54,7 +54,7 @@ La remediation è conclusa soltanto quando:
 | P0-02 | P0 | Invarianti numeriche nel core | [x] | BASE-01 |
 | P0-03 | P0 | Parser JSON rigoroso ed exception-safe | [x] | P0-02 |
 | P0-04 | P0 | Root confinement dei path | [x] | BASE-01 |
-| P0-05 | P0 | New Project transazionale | [ ] | P0-03, P0-04 |
+| P0-05 | P0 | New Project transazionale | [x] | P0-03, P0-04 |
 | P0-06 | P0 | Pending edits prima dell'unsaved guard | [ ] | P0-02 |
 | P0-07 | P0 | Lifecycle RmlUi deterministico | [ ] | BASE-01 |
 | P0-08 | P0 | Separazione core/persistence/platform | [ ] | P0-03, P0-04 |
@@ -260,21 +260,21 @@ aggiorna path, cache, titolo e capability
 
 **Attività**
 
-- [ ] Estrarre il salvataggio di un `ProjectDocument` candidato dal mutamento del Coordinator.
-- [ ] Non chiamare `replaceProject` durante Prepare.
-- [ ] Committare soltanto dopo scrittura riuscita.
-- [ ] Aggiornare `currentProjectPath` soltanto dopo successo.
-- [ ] Definire cleanup di directory/file temporanei.
+- [x] Estrarre il salvataggio di un `ProjectDocument` candidato dal mutamento del Coordinator.
+- [x] Non chiamare `replaceProject` durante Prepare.
+- [x] Committare soltanto dopo scrittura riuscita.
+- [x] Aggiornare `currentProjectPath` soltanto dopo successo.
+- [x] Definire cleanup di directory/file temporanei.
 
 **Test obbligatori**
 
-- [ ] Annullamento Save As.
-- [ ] Creazione directory fallita.
-- [ ] Validazione o serializzazione fallita.
-- [ ] Scrittura temporanea fallita.
-- [ ] Atomic replace fallito.
-- [ ] Progetto corrente, history, selection, cache e path invariati su errore.
-- [ ] Successo → candidato attivo e clean.
+- [x] Annullamento Save As.
+- [x] Creazione directory fallita.
+- [x] Validazione o serializzazione fallita.
+- [x] Scrittura temporanea fallita.
+- [x] Atomic replace fallito.
+- [x] Progetto corrente, history, selection, cache e path invariati su errore.
+- [x] Successo → candidato attivo e clean.
 
 **Gate di uscita**
 
@@ -643,3 +643,4 @@ Usare questa sezione per decisioni e risultati sintetici, senza sostituire commi
 | 2026-07-12 | P0-02 | Completato e pubblicato | Aggiunti helper numerici condivisi, guardie in Command/primitivi di dominio/workspace e validazione Load/Save; coperti NaN, ±Inf, range, documenti ostili e atomicità dei failure. Build Release verde, `editor_core_test`: 3.415 passed, 0 failed. Incluso nel commit `010684b`, pubblicato su `origin/codex/p0-architecture-remediation`. |
 | 2026-07-12 | P0-03 | Completato e pubblicato | Deserializer convertito a reader tipizzati: i default valgono solo per campi assenti, mentre tipi errati, interi/float fuori rappresentazione, collezioni corrotte e JSON/Unicode malformati producono errori contestualizzati e exception-safe. Verificata l'immutabilità del coordinator su failure. Build Release verde, `editor_core_test`: 3.478 passed, 0 failed. Incluso nel commit `010684b`, pubblicato su `origin/codex/p0-architecture-remediation`. |
 | 2026-07-12 | P0-04 | Completato e pubblicato | Introdotta `resolvePathInsideRoot` con normalizzazione portabile, canonicalizzazione del parent esistente e containment per componenti; applicata a validator/primitivi asset, texture Edit/Play, import e copia Save As con pre-scan dell'albero. Coperti traversal, separatori misti, path assoluti/drive, sibling-prefix, Unicode e symlink quando consentiti dalla piattaforma. Build Release verde, `editor_core_test`: 3.509 passed, 0 failed. Pubblicato con commit dedicato su `origin/codex/p0-architecture-remediation`. |
+| 2026-07-12 | P0-05 | Completato e pubblicato | Estratto il salvataggio atomico di candidati indipendenti dal coordinator e introdotta una transazione New prepare/save/commit con snapshot e rollback di destinazione/directory. Path, cache e titolo cambiano solo dopo `ProjectReplaced`. Coperti cancel, directory, validation, serialization, temp write, atomic replace, commit rollback e successo clean. Build Release verde, `editor_core_test`: 3.616 passed, 0 failed. Pubblicato con commit dedicato su `origin/codex/p0-architecture-remediation`. |
