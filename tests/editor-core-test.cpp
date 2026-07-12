@@ -6977,8 +6977,10 @@ int main() {
 
     // -- Grid snap uses nearest world grid point, including negative values ---
     {
-        const SceneGridDefinition grid = makeSceneGridDefinition();
-        CHECK(grid.cellSize == 48.0f);
+        const SceneGridDefinition grid = worldAuthoringGrid(EditorSceneViewState{});
+        CHECK(grid.kind == SceneGridKind::World);
+        CHECK(grid.cellSize.x == 48.0f);
+        CHECK(grid.cellSize.y == 48.0f);
         CHECK(snapWorldPositionToGrid(Vec2{31.f, 73.f}, grid).x == 48.f);
         CHECK(snapWorldPositionToGrid(Vec2{31.f, 73.f}, grid).y == 96.f);
         CHECK(snapWorldPositionToGrid(Vec2{-15.f, -26.f}, grid).x == 0.f);
@@ -6988,24 +6990,229 @@ int main() {
         CHECK(snapWorldPositionToGrid(Vec2{24.f, -24.f}, grid).x == 48.f);
         CHECK(snapWorldPositionToGrid(Vec2{24.f, -24.f}, grid).y == -48.f);
 
-        const SceneGridDefinition shifted{16.0f, Vec2{8.0f, 8.0f}};
+        const SceneGridDefinition shifted{
+            SceneGridKind::World,
+            Vec2{16.0f, 16.0f},
+            Vec2{8.0f, 8.0f},
+        };
         const Vec2 snapped = snapWorldPositionToGrid(Vec2{15.f, -1.f}, shifted);
         CHECK(snapped.x == 8.f);
         CHECK(snapped.y == -8.f);
 
         EditorSceneViewState view;
         view.gridCellSize = 32.0f;
-        const SceneGridDefinition fromView = makeSceneGridDefinition(view);
-        CHECK(fromView.cellSize == 32.0f);
+        const SceneGridDefinition fromView = worldAuthoringGrid(view);
+        CHECK(fromView.cellSize.x == 32.0f);
         CHECK(fromView.origin.x == 0.0f);
         CHECK(fromView.origin.y == 0.0f);
         CHECK(snapWorldPositionToGrid(Vec2{47.f, -15.f}, fromView).x == 32.f);
         CHECK(snapWorldPositionToGrid(Vec2{47.f, -15.f}, fromView).y == 0.f);
         CHECK(snapWorldPositionToGrid(Vec2{47.f, -17.f}, fromView).y == -32.f);
 
-        const SceneGridDefinition tiny{1.0f, Vec2{0.0f, 0.0f}};
-        CHECK(visualGridStrideForZoom(tiny, 0.1f) > 1);
+        CHECK(visualGridStrideForZoom(1.0f, 0.1f) > 1);
+        const SceneGridDefinition tiny{
+            SceneGridKind::World,
+            Vec2{1.0f, 1.0f},
+            Vec2{0.0f, 0.0f},
+        };
         CHECK(snapWorldPositionToGrid(Vec2{2.4f, 0.0f}, tiny).x == 2.0f);
+    }
+
+    // -- Contextual grid resolver: world vs tilemap by active tool -------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {213.f, 119.f}}).ok);
+        CHECK(c.execute(SetTilemapCellSizeCommand{kSceneA, kHero, {16.f, 16.f}}).ok);
+        c.apply(SetSceneGridCellSizeIntent{kSceneA, 32.0f});
+
+        const auto worldToCell = [](Vec2 world, Vec2 origin, Vec2 cellSize) {
+            return TilemapCellCoord{
+                static_cast<int>(std::floor((world.x - origin.x) / cellSize.x)),
+                static_cast<int>(std::floor((world.y - origin.y) / cellSize.y)),
+            };
+        };
+
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+        CHECK(c.state().activeTool == EditorTool::Brush);
+        CHECK(selectionSupportsTilemapEditing(c.document(), c.state(), kSceneA));
+        const SceneGridDefinition brushGrid =
+            viewportDisplayGrid(c.document(), c.state(), kSceneA);
+        CHECK(brushGrid.kind == SceneGridKind::Tilemap);
+        CHECK(brushGrid.origin.x == 213.f);
+        CHECK(brushGrid.origin.y == 119.f);
+        CHECK(brushGrid.cellSize.x == 16.f);
+        CHECK(brushGrid.cellSize.y == 16.f);
+
+        const SceneGridDefinition worldWhileBrush = worldAuthoringGrid(c.sceneView(kSceneA));
+        CHECK(worldWhileBrush.kind == SceneGridKind::World);
+        CHECK(worldWhileBrush.cellSize.x == 32.f);
+        CHECK(snapWorldPositionToGrid(Vec2{220.f, 130.f}, worldWhileBrush).x == 224.f);
+        CHECK(snapWorldPositionToGrid(Vec2{220.f, 130.f}, worldWhileBrush).y == 128.f);
+
+        const TilemapCellCoord painted =
+            worldToCell(Vec2{220.f, 130.f}, brushGrid.origin, brushGrid.cellSize);
+        CHECK(painted.cellX == 0);
+        CHECK(painted.cellY == 0);
+
+        const TilemapCellCoord withSnapOn = painted;
+        c.apply(SetSceneGridSnapEnabledIntent{kSceneA, true});
+        CHECK(withSnapOn == worldToCell(Vec2{220.f, 130.f}, brushGrid.origin, brushGrid.cellSize));
+        c.apply(SetSceneGridSnapEnabledIntent{kSceneA, false});
+        CHECK(withSnapOn == worldToCell(Vec2{220.f, 130.f}, brushGrid.origin, brushGrid.cellSize));
+
+        const uint64_t revBeforeContext = c.document().revision();
+        c.apply(SetActiveToolIntent{EditorTool::Select});
+        CHECK(c.document().revision() == revBeforeContext);
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+        CHECK(c.document().revision() == revBeforeContext);
+        c.apply(SetSceneGridVisibilityIntent{kSceneA, false});
+        CHECK(viewportDisplayGrid(c.document(), c.state(), kSceneA).kind == SceneGridKind::Tilemap);
+        c.apply(SetSceneGridVisibilityIntent{kSceneA, true});
+
+        c.apply(SetActiveToolIntent{EditorTool::Select});
+        const SceneGridDefinition selectGrid =
+            viewportDisplayGrid(c.document(), c.state(), kSceneA);
+        CHECK(selectGrid.kind == SceneGridKind::World);
+        CHECK(selectGrid.origin.x == 0.f);
+        CHECK(selectGrid.origin.y == 0.f);
+        CHECK(selectGrid.cellSize.x == 32.f);
+
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {100.f, 50.f}}).ok);
+        const SceneGridDefinition moved =
+            viewportDisplayGrid(c.document(), c.state(), kSceneA);
+        CHECK(moved.origin.x == 100.f);
+        CHECK(moved.origin.y == 50.f);
+
+        CHECK(c.execute(SetTilemapCellSizeCommand{kSceneA, kHero, {16.f, 32.f}}).ok);
+        const SceneGridDefinition rectangular =
+            viewportDisplayGrid(c.document(), c.state(), kSceneA);
+        CHECK(rectangular.cellSize.x == 16.f);
+        CHECK(rectangular.cellSize.y == 32.f);
+
+        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {-48.f, -32.f}}).ok);
+        const SceneGridDefinition negative =
+            viewportDisplayGrid(c.document(), c.state(), kSceneA);
+        CHECK(negative.origin.x == -48.f);
+        CHECK(negative.origin.y == -32.f);
+        const TilemapCellCoord negCell =
+            worldToCell(Vec2{-40.f, -20.f}, negative.origin, negative.cellSize);
+        CHECK(negCell.cellX == 0);
+        CHECK(negCell.cellY == 0);
+
+        c.apply(SetActiveToolIntent{EditorTool::Select});
+        CHECK(tilemapCellGrid(c.document(), c.state(), kSceneA).has_value());
+        CHECK(viewportDisplayGrid(c.document(), c.state(), kSceneA).kind == SceneGridKind::World);
+    }
+
+    // -- selectionSupportsTilemapEditing: legacy layers, layer scope, locks ---
+    {
+        // Legacy scene (makeDoc): no SceneDef::layers — empty layer id is valid.
+        {
+            EditorCoordinator c{makeSpriteDoc()};
+            const SceneDef* scene = c.document().findScene(kSceneA);
+            CHECK(scene != nullptr);
+            CHECK(scene->layers.empty());
+            CHECK(c.state().activeSceneId == kSceneA);
+            setUpTilemapForPainting(c);
+            CHECK(selectionSupportsTilemapEditing(c.document(), c.state(), kSceneA));
+        }
+
+        // Legacy scene, entity without TilemapComponent.
+        {
+            EditorCoordinator c{makeSpriteDoc()};
+            CHECK(c.state().activeSceneId == kSceneA);
+            CHECK(c.apply(SelectEntityIntent{kHero}).ok);
+            CHECK(!selectionSupportsTilemapEditing(c.document(), c.state(), kSceneA));
+        }
+
+        // Modern scene: active layer matches entity layer.
+        {
+            EditorCoordinator c{ProjectDoc{}};
+            CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+            c.apply(SelectSceneIntent{"s"});
+            CHECK(c.state().activeSceneId == "s");
+            CHECK(c.execute(AddImageAssetCommand{"img-1", "some/path.png"}).ok);
+            CHECK(c.execute(AddTilesetAssetCommand{"tiles-1", "Tiles", "img-1", TilesetSlicing{}}).ok);
+            sliceTilesOne(c);
+            TilemapComponent tm;
+            tm.tilesetAssetId = "tiles-1";
+            tm.chunkSize = 16;
+            CHECK(c.execute(CreateEntityCommand{"s", 1, "Hero", "Hero", {}}).ok);
+            CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
+            CHECK(c.apply(SelectEntityIntent{1}).ok);
+            CHECK(selectionSupportsTilemapEditing(c.document(), c.state(), "s"));
+        }
+
+        // Modern scene: entity layer differs from the workspace active layer.
+        {
+            EditorCoordinator c{ProjectDoc{}};
+            CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+            c.apply(SelectSceneIntent{"s"});
+            CHECK(c.execute(AddImageAssetCommand{"img-1", "some/path.png"}).ok);
+            CHECK(c.execute(AddTilesetAssetCommand{"tiles-1", "Tiles", "img-1", TilesetSlicing{}}).ok);
+            CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
+            sliceTilesOne(c);
+            TilemapComponent tm;
+            tm.tilesetAssetId = "tiles-1";
+            tm.chunkSize = 16;
+            CHECK(c.execute(CreateEntityCommand{"s", 1, "Hero", "Hero", {}, "layer-1"}).ok);
+            CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
+            CHECK(c.apply(SelectEntityIntent{1}).ok);
+            EditorState mismatched = c.state();
+            mismatched.sceneViews["s"].activeLayerId = "fg";
+            CHECK(!selectionSupportsTilemapEditing(c.document(), mismatched, "s"));
+        }
+
+        // Matching layer but locked.
+        {
+            ProjectDoc doc = makeSpriteDoc();
+            SceneDef& scene = doc.scenes.at(kSceneA);
+            SceneLayerDef locked;
+            locked.id = "locked-layer";
+            locked.name = "Locked";
+            locked.locked = true;
+            scene.layers.push_back(locked);
+            scene.defaultLayerId = "locked-layer";
+            TilemapComponent tm;
+            tm.tilesetAssetId = "tiles-1";
+            tm.chunkSize = 16;
+            scene.instances.front().tilemap = tm;
+            scene.instances.front().layerId = "locked-layer";
+            EditorCoordinator c{doc};
+            CHECK(c.apply(SelectEntityIntent{kHero}).ok);
+            CHECK(!selectionSupportsTilemapEditing(c.document(), c.state(), kSceneA));
+        }
+
+        // sceneId must match the active scene.
+        {
+            EditorCoordinator c{makeSpriteDoc()};
+            setUpTilemapForPainting(c);
+            CHECK(!selectionSupportsTilemapEditing(c.document(), c.state(), kSceneB));
+        }
+
+        // No selection.
+        {
+            EditorCoordinator c{makeSpriteDoc()};
+            setUpTilemapForPainting(c);
+            CHECK(c.apply(SelectEntityIntent{INVALID_ENTITY}).ok);
+            CHECK(!selectionSupportsTilemapEditing(c.document(), c.state(), kSceneA));
+        }
+    }
+
+    // -- Grid hidden: overlay off, tilemap paint input unchanged ---------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+        c.apply(SetSceneGridVisibilityIntent{kSceneA, false});
+        CHECK(!c.sceneView(kSceneA).gridVisible);
+        CHECK(viewportDisplayGrid(c.document(), c.state(), kSceneA).kind == SceneGridKind::Tilemap);
+        CHECK(c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Brush, {0, 0}}).ok);
+        CHECK(c.state().tilemapEditor.pendingStroke.has_value());
+        c.apply(EndTilePaintStrokeIntent{});
     }
 
     // -- Auto-fit flag lives in the scene view state, cleared by replaceProject

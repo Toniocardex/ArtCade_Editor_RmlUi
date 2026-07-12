@@ -226,7 +226,7 @@ Vec2 applySceneGridSnap(const EditorCoordinator& coordinator, const SceneId& sce
                         Vec2 worldPosition) {
     if (!coordinator.sceneView(sceneId).gridSnapEnabled) return worldPosition;
     return snapWorldPositionToGrid(
-        worldPosition, makeSceneGridDefinition(coordinator.sceneView(sceneId)));
+        worldPosition, worldAuthoringGrid(coordinator.sceneView(sceneId)));
 }
 
 std::optional<Vec2> dragPreviewPosition(const EditorCoordinator& coordinator,
@@ -1397,7 +1397,9 @@ int EditorApp::run(int argc, char** argv) {
         }
         if (playSession || (!animationAsset && !tilesetAsset)) {
             textureCache.prepare(snapshot.sprites, snapshot.tilemaps, textureRequests);
-            sceneView.render(snapshot, renderView, rect, textureCache);
+            const SceneGridDefinition displayGrid = viewportDisplayGrid(
+                coordinator.document(), coordinator.state(), active);
+            sceneView.render(snapshot, renderView, displayGrid, rect, textureCache);
             if (!playSession) {
                 drawTilemapPaintOverlay(coordinator.document(), coordinator.state().tilemapEditor,
                                         active, coordinator.selection().primaryEntity, rect,

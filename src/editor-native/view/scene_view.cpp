@@ -104,6 +104,7 @@ void drawDashedRectangle(Rectangle r, float thickness, Color color) {
 
 void SceneView::render(const SceneFrameSnapshot& frame,
                        const EditorSceneViewState& view,
+                       const SceneGridDefinition& displayGrid,
                        const ViewportRect& rect,
                        const TextureCache& textures) const {
     if (!rect.valid()) return;
@@ -142,28 +143,33 @@ void SceneView::render(const SceneFrameSnapshot& frame,
 
     if (view.gridVisible) {
         // Zinc grid: keep snap on the logical cell while thinning visual lines
-        // at low zoom or very small cells.
-        const SceneGridDefinition grid = makeSceneGridDefinition(view);
-        const int visualStride = visualGridStrideForZoom(grid, cam.zoom);
-        const float visualStep = grid.cellSize * static_cast<float>(visualStride);
+        // at low zoom or very small cells. displayGrid is resolved by the caller
+        // from the active tool (world authoring vs tilemap cell grid).
+        const SceneGridDefinition& grid = displayGrid;
+        const int visualStrideX = visualGridStrideForZoom(grid.cellSize.x, cam.zoom);
+        const int visualStrideY = visualGridStrideForZoom(grid.cellSize.y, cam.zoom);
+        const float visualStepX = grid.cellSize.x * static_cast<float>(visualStrideX);
+        const float visualStepY = grid.cellSize.y * static_cast<float>(visualStrideY);
         const Color gridMinor{120, 120, 130, 36};
         const Color gridMajor{120, 120, 130, 68};
-        if (visualStep > 0.0f && std::isfinite(visualStep)) {
-            const auto firstLine = [](float origin, float step) {
-                return origin + std::ceil((0.0f - origin) / step) * step;
-            };
+        const auto firstLine = [](float origin, float step) {
+            return origin + std::ceil((0.0f - origin) / step) * step;
+        };
+        if (visualStepX > 0.0f && std::isfinite(visualStepX)) {
             int ix = static_cast<int>(
-                std::round((firstLine(grid.origin.x, visualStep) - grid.origin.x)
-                           / grid.cellSize));
-            for (float gx = firstLine(grid.origin.x, visualStep); gx <= world.x;
-                 gx += visualStep, ix += visualStride) {
+                std::round((firstLine(grid.origin.x, visualStepX) - grid.origin.x)
+                           / grid.cellSize.x));
+            for (float gx = firstLine(grid.origin.x, visualStepX); gx <= world.x;
+                 gx += visualStepX, ix += visualStrideX) {
                 DrawLineV({gx, 0.f}, {gx, world.y}, (ix % 4 == 0) ? gridMajor : gridMinor);
             }
+        }
+        if (visualStepY > 0.0f && std::isfinite(visualStepY)) {
             int iy = static_cast<int>(
-                std::round((firstLine(grid.origin.y, visualStep) - grid.origin.y)
-                           / grid.cellSize));
-            for (float gy = firstLine(grid.origin.y, visualStep); gy <= world.y;
-                 gy += visualStep, iy += visualStride) {
+                std::round((firstLine(grid.origin.y, visualStepY) - grid.origin.y)
+                           / grid.cellSize.y));
+            for (float gy = firstLine(grid.origin.y, visualStepY); gy <= world.y;
+                 gy += visualStepY, iy += visualStrideY) {
                 DrawLineV({0.f, gy}, {world.x, gy}, (iy % 4 == 0) ? gridMajor : gridMinor);
             }
         }

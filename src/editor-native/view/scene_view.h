@@ -2,6 +2,7 @@
 
 #include "editor-native/model/editor_state.h"
 #include "editor-native/model/scene_frame_snapshot.h"
+#include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view_camera.h"
 
 namespace ArtCade::EditorNative {
@@ -15,6 +16,7 @@ class SceneView {
 public:
     void render(const SceneFrameSnapshot& frame,
                 const EditorSceneViewState& view,
+                const SceneGridDefinition& displayGrid,
                 const ViewportRect& rect,
                 const TextureCache& textures) const;
 };

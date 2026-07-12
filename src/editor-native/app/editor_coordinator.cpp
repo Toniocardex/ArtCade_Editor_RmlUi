@@ -4,6 +4,7 @@
 #include "editor-native/model/numeric_validation.h"
 #include "editor-native/model/tilemap_region_math.h"
 #include "editor-native/model/tilemap_stroke_math.h"
+#include "editor-native/view/scene_grid.h"
 
 #include <cassert>
 #include <algorithm>
@@ -340,12 +341,7 @@ void EditorCoordinator::reconcileWorkspaceAndAnnounce() {
 }
 
 bool EditorCoordinator::selectionSupportsTilemapTool() const {
-    const SceneInstanceDef* inst =
-        document_.findInstanceInScene(state_.activeSceneId, state_.selection.primaryEntity);
-    return inst != nullptr
-        && inst->tilemap.has_value()
-        && document_.effectiveLayerId(state_.activeSceneId, *inst) == activeLayerId(state_.activeSceneId)
-        && !document_.isInstanceLayerLocked(state_.activeSceneId, *inst);
+    return selectionSupportsTilemapEditing(document_, state_, state_.activeSceneId);
 }
 
 void EditorCoordinator::reconcileTilemapEditingContext() {

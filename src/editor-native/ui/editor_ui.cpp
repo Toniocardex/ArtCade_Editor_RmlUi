@@ -15,6 +15,7 @@
 #include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/project_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
+#include "editor-native/view/scene_grid.h"
 
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
@@ -1158,8 +1159,6 @@ void EditorUi::refreshToolbar() {
     const bool gridActionable = !playing && hasScene;
     setEnabledBoth("btn-fit-view",     "menu-fit-view",     gridActionable);
     setEnabledBoth("btn-grid-visible", "menu-grid-visible", gridActionable);
-    setEnabledBoth("btn-grid-snap",    "menu-grid-snap",    gridActionable);
-    setEnabled("btn-grid-size", gridActionable);
     // Zoom, unlike Grid/Snap/Fit, tracks the PlaySession's scene while
     // playing (see the zoom-in/out and reset-zoom handlers) — Play always has
     // a real scene, so it stays available then. Only truly nothing-to-zoom
@@ -1175,17 +1174,43 @@ void EditorUi::refreshToolbar() {
     }
 
     const EditorSceneViewState& view = coordinator_.sceneView(currentViewSceneId());
+    const SceneId viewSceneId = currentViewSceneId();
+    const SceneGridDefinition displayGrid =
+        viewportDisplayGrid(coordinator_.document(), coordinator_.state(), viewSceneId);
+    const bool tilemapGridMode =
+        displayGrid.kind == SceneGridKind::Tilemap && isTilemapTool(coordinator_.state().activeTool);
+    const bool sceneSnapActionable = gridActionable && !tilemapGridMode;
+
     setActiveBoth("btn-grid-visible", "menu-grid-visible", view.gridVisible && gridActionable);
-    setActiveBoth("btn-grid-snap",    "menu-grid-snap",    view.gridSnapEnabled && gridActionable);
-    const std::string cellSize = compactNumber(view.gridCellSize);
-    if (Rml::Element* el = document_->GetElementById("btn-grid-size"))
-        el->SetInnerRML(escapeRml(cellSize) + " <span class=\"icon-caret\">&#xeb5d;</span>");
+    setActiveBoth("btn-grid-snap", "menu-grid-snap",
+                  view.gridSnapEnabled && sceneSnapActionable);
+    setEnabledBoth("btn-grid-snap", "menu-grid-snap", sceneSnapActionable);
+    setEnabled("btn-grid-size", gridActionable && !tilemapGridMode);
+
+    std::string gridSizeLabel;
+    if (tilemapGridMode) {
+        gridSizeLabel = compactNumber(displayGrid.cellSize.x) + " \xC3\x97 "
+                      + compactNumber(displayGrid.cellSize.y);
+    } else {
+        gridSizeLabel = compactNumber(view.gridCellSize);
+    }
+    if (Rml::Element* el = document_->GetElementById("btn-grid-size")) {
+        if (tilemapGridMode) {
+            el->SetInnerRML(escapeRml(gridSizeLabel));
+        } else {
+            el->SetInnerRML(escapeRml(gridSizeLabel)
+                            + " <span class=\"icon-caret\">&#xeb5d;</span>");
+        }
+    }
     if (Rml::Element* el = document_->GetElementById("grid-size-control"))
-        el->SetClass("disabled", !gridActionable);
+        el->SetClass("disabled", !gridActionable || tilemapGridMode);
+    if (Rml::Element* el = document_->GetElementById("grid-size-title")) {
+        el->SetInnerRML(tilemapGridMode ? "Grid: Tilemap" : "Grid: World");
+    }
     if (Rml::Element* el = document_->GetElementById("grid-cell-size-input")) {
-        el->SetAttribute("value", cellSize);
+        el->SetAttribute("value", gridSizeLabel);
         if (auto* control = rmlui_dynamic_cast<Rml::ElementFormControl*>(el))
-            control->SetValue(cellSize);
+            control->SetValue(gridSizeLabel);
     }
 }
 
