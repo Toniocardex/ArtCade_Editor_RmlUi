@@ -1,0 +1,54 @@
+---
+description: ArtCade RmlUi P0 architecture — authority, mutations, Edit/Play, stop-the-line
+alwaysApply: true
+---
+
+# ArtCade — paletti P0
+
+Full spec (precedence order):
+1. `docs/ARTCADE_RMLUI_ARCHITECTURE_CONSTITUTION.md`
+2. `docs/ARTCADE_RMLUI_ARCHITECTURE.md`
+3. `docs/ARTCADE_RMLUI_ENGINEERING_GATES.md`
+4. `docs/RMLUI_MIGRATION_CONTRACT.md` (React porting only)
+
+## Authority (one source each)
+
+| Data | Owner |
+|------|-------|
+| Persistent project | `ProjectDocument` |
+| Workspace (scene, selection, tools, camera) | `EditorState` |
+| Layout/filters only | `EditorUiState` or panel-local state |
+| Runtime during Play | `PlaySession` |
+| Loaded textures | `TextureCache` (derived, never authoritative) |
+
+## Mutation flow
+
+```
+UI/SceneView → Intent (workspace) or Command (persistent/undo)
+  → EditorCoordinator → ProjectDocument → DomainChange → targeted invalidation
+```
+
+- RmlUi never mutates `ProjectDocument` directly.
+- Input buffers commit on Enter/blur only when valid and changed.
+- No polling, sync service, event bus, or `RefreshAll()` per frame.
+
+## Edit / Play
+
+- Start Play: materialize once from `ProjectDocument`; runtime never reads document per frame.
+- During Play: authoring Commands blocked at coordinator (UI disable is affordance only).
+- Stop: destroy `PlaySession`; no reverse-sync to authoring.
+
+## Module boundaries (forbidden)
+
+- `artcade-editor-core` → no RmlUi, Raylib, concrete filesystem.
+- Renderer / `SceneView` → no `ProjectDocument`; consume `SceneFrameSnapshot` only.
+- Commands → no `Rml::Element`, no UI types.
+
+## Before implementing a slice
+
+Classify change (Gates §3). Define: authority, Intent/Command, invariants, Undo, Play effect, tests.
+Use the simplest solution that preserves the above. Stop immediately on any P0 violation.
+
+## Stop-the-line
+
+Do not proceed if introducing: duplicate authority, UI→domain mutation, runtime→authoring contamination, non-atomic save/replace, listener without detach, `Element*` after invalidation, or complexity without a concrete problem.
