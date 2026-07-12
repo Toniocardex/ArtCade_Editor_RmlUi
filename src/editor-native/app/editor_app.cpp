@@ -54,8 +54,12 @@
 
 // raylib (5.0) has no public way to cancel a requested window close, so we reset
 // GLFW's flag directly to keep the app open when the user picks Cancel in the
-// unsaved-changes guard. GetWindowHandle() returns the GLFWwindow*.
-extern "C" void glfwSetWindowShouldClose(void* window, int value);
+// unsaved-changes guard. NOTE: on Windows raylib's GetWindowHandle() returns the
+// native HWND, not the GLFWwindow* this call needs — glfwGetCurrentContext()
+// returns the GLFW window owning the main thread's GL context, which is
+// raylib's one and only window.
+extern "C" void  glfwSetWindowShouldClose(void* window, int value);
+extern "C" void* glfwGetCurrentContext(void);
 
 namespace ArtCade::EditorNative {
 
@@ -1068,7 +1072,7 @@ int EditorApp::run(int argc, char** argv) {
         // Screenshot mode skips the guard (no window interaction).
         if (WindowShouldClose()) {
             if (shotPath.empty() && !guardPasses()) {
-                glfwSetWindowShouldClose(GetWindowHandle(), 0);
+                glfwSetWindowShouldClose(glfwGetCurrentContext(), 0);
             } else {
                 break;
             }
