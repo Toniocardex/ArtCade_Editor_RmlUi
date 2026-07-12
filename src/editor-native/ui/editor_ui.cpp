@@ -971,6 +971,18 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         inspector_.closeAddMenu();   // then fall through to execute the add
     }
 
+    // Inspector value dropdowns (Layer / Source / Tileset) follow the same
+    // pattern: toggle here, close when an entry commits a pick (the pick
+    // invalidates the Inspector, which re-renders with the list collapsed).
+    if (action == "toggle-inspector-dropdown") {
+        if (!coordinator_.isPlaying()) inspector_.toggleDropdown(document_, coordinator_, arg);
+        return;
+    }
+    if (action == "set-entity-layer" || action == "set-sprite-asset"
+        || action == "set-sprite-animation" || action == "set-tilemap-tileset") {
+        inspector_.closeDropdowns();   // then fall through to execute the pick
+    }
+
     if (handleProjectFileAction(action, arg, value)) return;
     if (handleConsoleAction(action, arg, value)) return;
     if (handleAssetsAction(action, arg, value)) return;

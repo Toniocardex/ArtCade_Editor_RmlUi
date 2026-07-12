@@ -329,6 +329,9 @@
     color: #d4d4d8;
     font-size: 12dp;
 }
+/* Buttons inside a prop-row ("Set as Start", On/Off toggles): panel-btn's
+   default 5dp bottom margin would push them ~2dp above the row's centre. */
+.prop-row .panel-btn { margin: 0; }
 .mode-block {
     display: block;
     margin: 2dp 0 8dp 0;
@@ -363,6 +366,9 @@
     color: #d8b44a;
     font-size: 11dp;
 }
+/* Variant for a warning that opens the panel (locked-layer note): match the
+   14dp breathing room a comp-header would give as the first element. */
+.outside-warning.panel-top { margin-top: 14dp; }
 .type-owned-note {
     display: block;
     margin: 0 0 6dp 0;
@@ -402,6 +408,9 @@
     border: 1px #27272a;
     border-radius: 4dp;
 }
+/* The "Open Tileset Editor" call-to-action follows the message on its own
+   line — give it air above and drop the stray default bottom margin. */
+.tile-palette-empty .panel-btn { margin: 8dp 0 0 0; }
 .tile-palette-selected {
     display: block;
     margin: 0 0 10dp 0;

@@ -368,6 +368,72 @@
 }
 .add-entry:hover { background-color: #222226; color: #d4d4d8; }
 
+/* -- Inspector value dropdown (Layer / Source / Tileset) --------------------
+   One prop-row trigger showing the current value; the option list expands
+   in-flow below it (same click-toggle pattern as Add Component — a floating
+   popup would be clipped by the Inspector's scroll region). Trigger text is
+   centred via line-height with the caret pinned right, per the flex/raw-text
+   note at the top of this file. */
+.drop-trigger {
+    flex: 1;
+    display: block;
+    position: relative;
+    height: 26dp;
+    line-height: 26dp;
+    padding: 0 26dp 0 8dp;
+    background-color: #111113;
+    border: 1px #27272a;
+    border-radius: 3dp;
+    color: #d4d4d8;
+    font-size: 12dp;
+    white-space: nowrap;
+    overflow: hidden;
+    transition: background-color 0.1s, border-color 0.1s, color 0.1s;
+}
+.drop-trigger:hover { border-color: #323236; }
+.drop-trigger.open  { border-color: #3b82f6; background-color: #3b82f618; }
+.drop-trigger.disabled {
+    background-color: #161618;
+    border-color: #242427;
+    color: #52525b;
+}
+.drop-caret {
+    position: absolute;
+    top: 0;
+    right: 6dp;
+    font-family: tabler-icons;
+    font-weight: normal;
+    color: #8a8a93;
+}
+.drop-trigger.disabled .drop-caret { color: #3f3f46; }
+.drop-list {
+    display: block;
+    margin: 2dp 0 8dp 0;
+    padding: 4dp;
+    background-color: #1c1c1f;
+    border: 1px #2f2f33;
+    border-radius: 4dp;
+}
+.drop-entry {
+    display: block;
+    height: 24dp;
+    line-height: 24dp;
+    padding: 0 8dp;
+    border-radius: 3dp;
+    color: #c4c4c8;
+    font-size: 11dp;
+    white-space: nowrap;
+    overflow: hidden;
+    transition: background-color 0.1s, color 0.1s;
+}
+.drop-entry:hover { background-color: #222226; color: #d4d4d8; }
+.drop-entry.selected { background-color: #3b82f626; color: #d4d4d8; }
+.drop-entry.disabled { color: #3f3f46; }
+.drop-entry.disabled:hover { background-color: transparent; color: #3f3f46; }
+.drop-mark { color: #7aa2e8; }
+/* Group eyebrows (Images / Animations) sit tighter inside the list. */
+.drop-list .asset-group-title { margin: 6dp 0 3dp 4dp; }
+
 /* -- Inspector asset picker ------------------------------------------------ */
 .asset-options { display: block; margin: 6dp 0 8dp 0; }
 .asset-option {
@@ -426,6 +492,7 @@
     align-items: center;
     height: 26dp;
     padding: 0 4dp;
+    margin-bottom: 2dp;
     border-radius: 3dp;
     color: #c4c4c8;
     transition: background-color 0.1s, color 0.1s;
@@ -461,9 +528,11 @@
     color: #d4d4d8;
     font-size: 12dp;
 }
+/* Indent lines up with the layer name text: 4dp row padding + 22dp eye
+   + 22dp lock + 4dp name padding. */
 .layer-rename-error {
     display: block;
-    margin: 0 0 4dp 28dp;
+    margin: 0 0 4dp 52dp;
     color: #e5706b;
     font-size: 10dp;
 }
@@ -487,6 +556,9 @@
     transition: background-color 0.1s, color 0.1s;
 }
 .layer-remove:hover { background-color: #2a1f20; color: #e5706b; }
+/* "Add Layer" sits in-flow right under the last layer row — separate it so
+   the action reads apart from the list (panel-btn has no top margin). */
+.layer-add-btn { margin-top: 6dp; }
 
 /* -- Scene tabs — flat ----------------------------------------------------- */
 /* A distinct background (not the bare panel colour) reads as its own toolbar

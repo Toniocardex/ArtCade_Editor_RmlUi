@@ -7,6 +7,7 @@
 #include "editor-native/app/file_dialog.h"
 #include "editor-native/app/hierarchy_actions.h"
 #include "editor-native/app/input_routing.h"
+#include "editor-native/app/new_project_transaction.h"
 #include "editor-native/app/project_file.h"
 #include "editor-native/app/rml_host.h"
 #include "editor-native/app/sprite_animation_canvas_input.h"
@@ -699,14 +700,22 @@ int EditorApp::run(int argc, char** argv) {
             if (!guardPasses()) return;     // dirty + Cancel / failed Save: abort
             const auto picked = saveProjectFileDialog(
                 suggestedProjectSavePath(coordinator.document().data()));
-            if (!picked) return;            // cancelled: the current project stays
+            const std::optional<std::filesystem::path> destination = picked
+                ? std::optional<std::filesystem::path>{normalizeProjectSavePath(*picked)}
+                : std::nullopt;
             ProjectDoc fresh;
-            fresh.projectName = normalizeProjectSavePath(*picked).stem().string();
-            coordinator.replaceProject(ProjectDocument{std::move(fresh)});  // empty valid project
-            textureCache.clear();           // explicit app path consuming ProjectReplaced
-            currentProjectPath.clear();     // saveTo sets the path only on success
+            if (destination) fresh.projectName = destination->stem().string();
+            const NewProjectResult created = createNewProjectTransaction(
+                coordinator, ProjectDocument{std::move(fresh)}, destination);
+            if (created.cancelled) return;   // current project/path/cache stay exact
+            if (!created.ok) {
+                coordinator.logError("New project failed: " + created.error.message);
+                return;
+            }
+            textureCache.clear(); // only after committed ProjectReplaced
+            currentProjectPath = created.destination;
             refreshWindowTitle();
-            if (saveTo(*picked)) coordinator.logInfo("New project");
+            coordinator.logInfo("New project");
         },
         [&]() {  // Open
             if (coordinator.isPlaying()) {
@@ -1000,8 +1009,14 @@ int EditorApp::run(int argc, char** argv) {
                 if (scene && shotEntityIndex < static_cast<int>(scene->instances.size())) {
                     coordinator.apply(SelectEntityIntent{
                         scene->instances[static_cast<std::size_t>(shotEntityIndex)].id});
-                    if (!shotDropdown.empty())
+                    if (!shotDropdown.empty()) {
+                        // Flush the selection repaint first, as a real frame
+                        // would: the Inspector resets its transient dropdown
+                        // state on a selection change, so toggling in the same
+                        // breath would be undone by that reset.
+                        ui.processFrame();
                         ui.handleAction("toggle-inspector-dropdown", shotDropdown, "");
+                    }
                 }
             }
             // Exercise the real save path (asset copy + atomic write) so the
