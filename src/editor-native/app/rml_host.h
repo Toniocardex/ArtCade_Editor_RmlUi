@@ -21,6 +21,8 @@ namespace ArtCade::EditorNative {
 // =============================================================================
 class RmlHost {
 public:
+    ~RmlHost();
+
     bool initialize(int width, int height, float dpRatio,
                     const std::filesystem::path& resourceRoot,
                     const std::string& documentPath);
@@ -28,7 +30,7 @@ public:
     void resize(int width, int height, float dpRatio);
     void update();
     void render();           // assumes a current raylib drawing pass
-    void shutdown();         // idempotent
+    void shutdown();         // unload documents/context, then Rml::Shutdown; idempotent
 
     Rml::Context*         context()  const { return context_; }
     Rml::ElementDocument* document() const { return document_; }
@@ -42,6 +44,7 @@ private:
     Rml::Context*         context_     = nullptr;
     Rml::ElementDocument* document_    = nullptr;
     bool                  initialized_ = false;
+    bool                  debuggerInitialized_ = false;
     bool                  debugger_    = false;
 };
 

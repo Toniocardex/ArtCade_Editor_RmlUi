@@ -54,7 +54,9 @@ public:
     ~EditorUi();
 
     void bind();           // attach the listener + do the initial full refresh
+    void detach();         // remove listeners and invalidate observed documents; idempotent
     void processFrame();   // consume invalidations and refresh affected panels
+    bool isBound() const { return listener_ != nullptr; }
 
     // Commit the focused data-action="commit-*" field through its normal blur
     // path before Save/New/Open/Close/Play or selection navigation can inspect

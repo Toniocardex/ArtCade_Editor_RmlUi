@@ -350,10 +350,13 @@ EditorUi::EditorUi(EditorCoordinator& coordinator, Rml::ElementDocument* documen
       animationDocument_(animationDocument),
       tilesetDocument_(tilesetDocument) {}
 
-EditorUi::~EditorUi() = default;
+EditorUi::~EditorUi() { detach(); }
 
 void EditorUi::bind() {
-    if (!document_) return;
+    // A second bind must never register a duplicate copy of the listener.
+    // After detach the document pointers are deliberately invalidated, so bind
+    // remains a safe no-op instead of resurrecting a closed document session.
+    if (listener_ || !document_) return;
     listener_ = std::make_unique<Listener>(*this);
     const auto bindDocument = [&](Rml::ElementDocument* doc) {
         if (!doc) return;
@@ -376,7 +379,53 @@ void EditorUi::bind() {
     updateZoomReadout();   // initial paint (zoom % is Viewport-driven, not in the set)
 }
 
+void EditorUi::detach() {
+    if (listener_) {
+        const auto detachDocument = [&](Rml::ElementDocument* doc) {
+            if (!doc) return;
+            doc->RemoveEventListener("click", listener_.get());
+            doc->RemoveEventListener("dblclick", listener_.get());
+            doc->RemoveEventListener("focus", listener_.get(), true);
+            doc->RemoveEventListener("blur", listener_.get(), true);
+            doc->RemoveEventListener("keydown", listener_.get(), true);
+            doc->RemoveEventListener("drag", listener_.get());
+        };
+        detachDocument(document_);
+        detachDocument(animationDocument_);
+        detachDocument(tilesetDocument_);
+        // RmlUi completes EventListener::OnDetach synchronously in each remove;
+        // only then is the listener destroyed.
+        listener_.reset();
+    }
+
+    pendingHierarchyMenu_.reset();
+    pendingAssetMenu_.reset();
+    viewportContextMenuVisible_ = false;
+    hierarchyContextMenuVisible_ = false;
+    assetsContextMenuVisible_ = false;
+    newProjectRequest_ = {};
+    openProjectRequest_ = {};
+    saveProjectRequest_ = {};
+    saveProjectAsRequest_ = {};
+    importAssetRequest_ = {};
+    importImageForAnimationRequest_ = {};
+    addEntityRequest_ = {};
+    addInstanceRequest_ = {};
+    createEntityHereRequest_ = {};
+    createInstanceHereRequest_ = {};
+    fitViewRequest_ = {};
+    sliceAnimationRequest_ = {};
+    applyTilesetSlicingRequest_ = {};
+
+    // These are non-owning and become invalid as soon as the host unloads its
+    // documents. Null them even when bind never succeeded (missing document).
+    document_ = nullptr;
+    animationDocument_ = nullptr;
+    tilesetDocument_ = nullptr;
+}
+
 void EditorUi::processFrame() {
+    if (!listener_ || !document_) return;
     applyInvalidations(coordinator_.consumeInvalidations());
     // Deferred context menus: shown here, after the application's
     // outside-click check for this frame has already run.

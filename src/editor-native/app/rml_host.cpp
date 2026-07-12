@@ -9,6 +9,8 @@
 
 namespace ArtCade::EditorNative {
 
+RmlHost::~RmlHost() { shutdown(); }
+
 bool RmlHost::initialize(int width, int height, float dpRatio,
                          const std::filesystem::path& resourceRoot,
                          const std::string& documentPath) {
@@ -16,9 +18,14 @@ bool RmlHost::initialize(int width, int height, float dpRatio,
 
     Rml::SetSystemInterface(&system_);
     Rml::SetRenderInterface(&renderer_);
-    if (!Rml::Initialise()) return false;
+    if (!Rml::Initialise()) {
+        Rml::SetRenderInterface(nullptr);
+        Rml::SetSystemInterface(nullptr);
+        return false;
+    }
+    initialized_ = true;
     if (!renderer_) {
-        Rml::Shutdown();
+        shutdown();
         return false;
     }
     resourceRoot_ = resourceRoot;
@@ -26,24 +33,23 @@ bool RmlHost::initialize(int width, int height, float dpRatio,
     const FontLoadResult fontResult = loadEditorFonts(resourceRoot);
     if (!fontResult.ok) {
         TraceLog(LOG_ERROR, "[editor] %s", fontResult.error.c_str());
-        Rml::Shutdown();
+        shutdown();
         return false;
     }
 
     context_ = Rml::CreateContext("editor", Rml::Vector2i(width, height));
     if (!context_) {
-        Rml::Shutdown();
+        shutdown();
         return false;
     }
     context_->SetDensityIndependentPixelRatio(dpRatio);
     renderer_.SetViewport(width, height);
-    Rml::Debugger::Initialise(context_);
+    debuggerInitialized_ = Rml::Debugger::Initialise(context_);
 
     const std::filesystem::path fullDocumentPath = resourceRoot / documentPath;
     document_ = context_->LoadDocument(fullDocumentPath.string());
     if (document_) document_->Show();
 
-    initialized_ = true;
     return document_ != nullptr;
 }
 
@@ -79,9 +85,34 @@ void RmlHost::toggleDebugger() {
 
 void RmlHost::shutdown() {
     if (!initialized_) return;
-    Rml::Shutdown();   // releases contexts, documents and textures (via ReleaseTexture)
-    context_ = nullptr;
+
+    if (context_) {
+        // The debugger owns private documents on this context. It must release
+        // them itself before the host unloads application documents.
+        if (debuggerInitialized_) {
+            Rml::Debugger::Shutdown();
+            debuggerInitialized_ = false;
+            context_->Update();
+        }
+        // Unload is deferred by RmlUi. One final Update completes document
+        // destruction while the context and custom interfaces are still alive.
+        document_ = nullptr;
+        context_->UnloadAllDocuments();
+        context_->Update();
+        Rml::RemoveContext("editor");
+        context_ = nullptr;
+    }
+
+    // system_ and renderer_ are members declared before the runtime pointers;
+    // they remain alive through this call, as required by RmlUi's interface
+    // lifetime contract. Clear the global non-owning pointers only afterwards.
+    Rml::Shutdown();
+    Rml::SetRenderInterface(nullptr);
+    Rml::SetSystemInterface(nullptr);
     document_ = nullptr;
+    resourceRoot_.clear();
+    debuggerInitialized_ = false;
+    debugger_ = false;
     initialized_ = false;
 }
 

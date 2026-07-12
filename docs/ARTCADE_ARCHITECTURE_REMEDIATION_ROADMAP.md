@@ -56,7 +56,7 @@ La remediation è conclusa soltanto quando:
 | P0-04 | P0 | Root confinement dei path | [x] | BASE-01 |
 | P0-05 | P0 | New Project transazionale | [x] | P0-03, P0-04 |
 | P0-06 | P0 | Pending edits prima dell'unsaved guard | [x] | P0-02 |
-| P0-07 | P0 | Lifecycle RmlUi deterministico | [ ] | BASE-01 |
+| P0-07 | P0 | Lifecycle RmlUi deterministico | [x] | BASE-01 |
 | P0-08 | P0 | Separazione core/persistence/platform | [ ] | P0-03, P0-04 |
 | GATE-P0 | Gate | Riesame completo P0 | [ ] | P0-01…P0-08 |
 | P1-01 | P1 | Migrazioni esplicite e sequenziali | [ ] | GATE-P0 |
@@ -331,13 +331,13 @@ I listener sono registrati su più documenti senza detach esplicito prima dello 
 
 **Design richiesto**
 
-- [ ] Rendere `bind()` sicuro rispetto a una seconda chiamata.
-- [ ] Implementare `detach()` idempotente.
-- [ ] Rimuovere ogni listener mentre i documenti sono validi.
-- [ ] Invalidare i puntatori ai documenti dopo detach.
-- [ ] Distruggere controller e listener prima dei documenti osservati.
-- [ ] Chiudere i documenti prima del context.
-- [ ] Mantenere le custom interface vive fino al completamento di `Rml::Shutdown()`.
+- [x] Rendere `bind()` sicuro rispetto a una seconda chiamata.
+- [x] Implementare `detach()` idempotente.
+- [x] Rimuovere ogni listener mentre i documenti sono validi.
+- [x] Invalidare i puntatori ai documenti dopo detach.
+- [x] Distruggere controller e listener prima dei documenti osservati.
+- [x] Chiudere i documenti prima del context.
+- [x] Mantenere le custom interface vive fino al completamento di `Rml::Shutdown()`.
 
 **Ordine di shutdown**
 
@@ -359,14 +359,14 @@ chiudi Raylib
 
 **Test obbligatori**
 
-- [ ] Bind e detach normali.
-- [ ] Doppio detach.
-- [ ] Secondo bind.
-- [ ] Documento mancante.
-- [ ] Nessuna callback dopo detach.
-- [ ] Close con pannelli aperti.
-- [ ] Stress open/close.
-- [ ] Shutdown senza leak o use-after-free.
+- [x] Bind e detach normali.
+- [x] Doppio detach.
+- [x] Secondo bind.
+- [x] Documento mancante.
+- [x] Nessuna callback dopo detach.
+- [x] Close con pannelli aperti.
+- [x] Stress open/close.
+- [x] Shutdown senza leak o use-after-free.
 
 **Gate di uscita**
 
@@ -646,3 +646,4 @@ Usare questa sezione per decisioni e risultati sintetici, senza sostituire commi
 | 2026-07-12 | P0-05 | Completato e pubblicato | Estratto il salvataggio atomico di candidati indipendenti dal coordinator e introdotta una transazione New prepare/save/commit con snapshot e rollback di destinazione/directory. Path, cache e titolo cambiano solo dopo `ProjectReplaced`. Coperti cancel, directory, validation, serialization, temp write, atomic replace, commit rollback e successo clean. Build Release verde, `editor_core_test`: 3.616 passed, 0 failed. Integrato e pubblicato su `origin/master`. |
 | 2026-07-12 | BASE-01 | Completato e riallineato | Diff preesistenti revisionati e preservati, remediation integrata con merge `73b3004`, build Release e 3.616 test verdi. Il workspace principale e `origin/HEAD` puntano a `master`; il branch temporaneo è stato eliminato localmente e sul remoto. |
 | 2026-07-12 | P0-06 | Completato | Introdotti `PendingEditStatus` (`Resolved`, `Invalid`, `Incomplete`) e classificazione UI-free che riusa `parseNumberField`; blur/Invio trattengono focus e diagnostica per buffer incompleti o invalidi, Escape ripristinato è un no-op. `resolvePendingEdits()` precede unsaved guard, Save/New/Open/Close/Play e navigazione di selezione, riusando il normale commit su blur. Build Release isolata linkata con successo mentre l'eseguibile principale era aperto; `editor_core_test`: 3.676 passed, 0 failed. |
+| 2026-07-12 | P0-07 | Completato | `EditorUi::bind()` non duplica registrazioni e `detach()` rimuove simmetricamente tutti i listener, svuota callback/pending state e invalida i documenti. L'app distrugge UI/controller prima dell'host; `RmlHost` chiude Debugger, documenti differiti e context prima di `Rml::Shutdown()`, mantenendo vive le custom interface. Build Release verde, `editor_core_test`: 3.676 passed, 0 failed; smoke RmlUi reale e nascosto: 20/20 cicli puliti tramite `scripts/test-rml-lifecycle.ps1`. |

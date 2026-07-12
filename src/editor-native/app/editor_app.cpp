@@ -571,6 +571,7 @@ int EditorApp::run(int argc, char** argv) {
     int shotEntityIndex = -1;   // >= 0: select the Nth instance of the active scene
     std::string shotDropdown;   // non-empty: open this Inspector value dropdown
     std::string shotAssetMenu;  // "kind|id": open the Assets row menu on that asset
+    bool lifecycleSmoke = false; // hidden, self-checking bind/detach/shutdown run
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--shot") == 0 && i + 1 < argc) shotPath = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-project") == 0 && i + 1 < argc)
@@ -587,6 +588,8 @@ int EditorApp::run(int argc, char** argv) {
             shotDropdown = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-asset-menu") == 0 && i + 1 < argc)
             shotAssetMenu = argv[i + 1];
+        else if (std::strcmp(argv[i], "--lifecycle-smoke") == 0)
+            lifecycleSmoke = true;
     }
 
     // Start empty: the editor opens a real project (File > Open) or builds one
@@ -596,8 +599,10 @@ int EditorApp::run(int argc, char** argv) {
     // FLAG_WINDOW_HIGHDPI: create a framebuffer at the monitor's physical
     // resolution so RmlUi rasterises and renders at real pixels (crisp text on
     // scaled displays) instead of being upscaled from a logical-size buffer.
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT |
-                   FLAG_WINDOW_HIGHDPI);
+    unsigned int windowFlags = FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT
+                             | FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI;
+    if (lifecycleSmoke) windowFlags |= FLAG_WINDOW_HIDDEN;
+    SetConfigFlags(windowFlags);
     InitWindow(1340, 840, "ArtCade Studio");
 #if defined(_WIN32)
     // Dark caption matching the editor chrome: the default light title bar
@@ -617,7 +622,7 @@ int EditorApp::run(int argc, char** argv) {
 #endif
     const std::filesystem::path resourceRoot = editorResourceRoot();
     applyWindowIcon(resourceRoot);
-    MaximizeWindow();
+    if (!lifecycleSmoke) MaximizeWindow();
     SetExitKey(KEY_NULL);
     SetTargetFPS(60);
 
@@ -655,7 +660,10 @@ int EditorApp::run(int argc, char** argv) {
     syncAnimationDocumentViewport(tilesetDocument);   // same absolute full-window sync, generic
     tilesetDocument->Hide();
 
-    EditorUi ui(coordinator, host.document(), animationDocument, tilesetDocument);
+    int exitCode = 0;
+    std::optional<EditorUi> uiOwner{std::in_place, coordinator, host.document(),
+                                    animationDocument, tilesetDocument};
+    EditorUi& ui = *uiOwner;
     ui.bind();
     coordinator.logInfo("ArtCade Studio ready.");
     SceneView sceneView;
@@ -1417,16 +1425,52 @@ int EditorApp::run(int argc, char** argv) {
         }
         EndDrawing();
 
-        if (!shotPath.empty() && ++frame == 12) {
+        ++frame;
+        if (lifecycleSmoke && frame == 2) {
+            // Real RmlUi contract smoke:
+            //  * second bind must not duplicate callbacks (one toggle only),
+            //  * detach with an open popup removes every callback,
+            //  * double detach and a missing-document session are safe.
+            ui.bind();
+            ui.showViewportContextMenu(20, 20, true);
+            Rml::Element* probe = host.document()
+                ? host.document()->GetElementById("btn-console-info") : nullptr;
+            const bool before = coordinator.uiState().consoleShowInfo;
+            if (probe) probe->DispatchEvent("click", Rml::Dictionary{});
+            const bool afterSingleDispatch = coordinator.uiState().consoleShowInfo;
+            const bool exactlyOneCallback = probe && afterSingleDispatch != before;
+
+            ui.detach();
+            if (probe) probe->DispatchEvent("click", Rml::Dictionary{});
+            const bool noCallbackAfterDetach =
+                coordinator.uiState().consoleShowInfo == afterSingleDispatch;
+            ui.detach();
+
+            EditorUi missingDocumentUi(coordinator, nullptr, nullptr, nullptr);
+            missingDocumentUi.bind();
+            missingDocumentUi.detach();
+            missingDocumentUi.detach();
+
+            if (!exactlyOneCallback || !noCallbackAfterDetach || ui.isBound()) {
+                TraceLog(LOG_ERROR, "[editor] RmlUi lifecycle smoke failed");
+                exitCode = 1;
+            } else {
+                TraceLog(LOG_INFO, "[editor] RmlUi lifecycle smoke passed");
+            }
+            break;
+        }
+        if (!shotPath.empty() && frame == 12) {
             TakeScreenshot(shotPath.c_str());
             break;
         }
     }
 
     textureCache.clear();
+    ui.detach();
+    uiOwner.reset(); // Destroy UI/controllers before host documents and context.
     host.shutdown();
     CloseWindow();
-    return 0;
+    return exitCode;
 }
 
 } // namespace ArtCade::EditorNative
