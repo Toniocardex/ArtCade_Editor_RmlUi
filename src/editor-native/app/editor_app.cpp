@@ -640,14 +640,20 @@ int EditorApp::run(int argc, char** argv) {
     // only requests these operations; it never touches files or the renderer.
     std::filesystem::path currentProjectPath;
     // The window title reflects the current project: its file name, or "Untitled"
-    // before the first Save As. Kept truthful wherever the path changes (New,
-    // Open, Save), so "Untitled" means "no destination on disk yet", which is
-    // distinct from dirty (content differs from the last baseline).
+    // before the first Save As, plus a bullet while there are unsaved changes -
+    // the only always-visible dirty cue (the unsaved guard otherwise fires only
+    // on close). Dirty derives from the document's revision baseline; the title
+    // re-renders on path changes (New, Open, Save) and, change-guarded, from the
+    // frame loop when the dirty flag flips (an O(1) revision compare, same
+    // pattern as the pointer readout - not document polling).
+    bool titleShowsDirty = false;
     const auto refreshWindowTitle = [&]() {
         const std::string name = currentProjectPath.empty()
             ? std::string("Untitled")
             : currentProjectPath.stem().string();
-        SetWindowTitle(("ArtCade Studio - " + name).c_str());
+        titleShowsDirty = coordinator.document().isDirty();
+        SetWindowTitle(("ArtCade Studio - " + name
+                        + (titleShowsDirty ? " \xe2\x80\xa2" : "")).c_str());
     };
     const auto saveTo = [&](const std::filesystem::path& path) -> bool {
         const std::filesystem::path destination = normalizeProjectSavePath(path);
@@ -1217,6 +1223,9 @@ int EditorApp::run(int argc, char** argv) {
         }
 
         ui.processFrame();
+        // Title dirty-cue: follows undo/redo/save as well as edits, so it can't
+        // hang off any single action path. Change-guarded O(1) check per frame.
+        if (coordinator.document().isDirty() != titleShowsDirty) refreshWindowTitle();
         if (!coordinator.isPlaying() && !animationEditorOpen && !tilesetEditorOpen) {
             if (const std::optional<Vec2> preview = dragPreviewPosition(coordinator, rect, drag)) {
                 ui.showEntityPositionPreview(drag.entity, *preview);
