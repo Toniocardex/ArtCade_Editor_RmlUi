@@ -8,13 +8,16 @@
 
 #include <cstddef>
 #include <string>
+#include <vector>
 
 namespace ArtCade::EditorNative {
 
 namespace {
 
 // While Play runs, every asset operation mutates the authoring document, so the
-// buttons render disabled (the coordinator/import pipeline reject them anyway).
+// Import trigger renders disabled (the coordinator/import pipeline reject them
+// anyway). Row menus need no equivalent: showPendingAssetMenu suppresses the
+// menu during Play, hierarchy-menu parity.
 const char* btnClass(bool disabled) { return disabled ? "panel-btn disabled" : "panel-btn"; }
 
 // One import entry point for every asset kind (audit 4.6): a hover dropdown in
@@ -39,29 +42,58 @@ std::string groupTitle(const char* label, std::size_t count) {
          + "<span class=\"asset-count\">" + std::to_string(count) + "</span></div>";
 }
 
-std::string removeButton(const char* action, const std::string& id, bool disabled) {
-    return std::string("<button class=\"") + btnClass(disabled) + "\" data-action=\"" + action +
-           "\" data-arg=\"" + id + "\"><span class=\"icon\">&#xeb41;</span></button>";
+// An image consumed by a derived asset (animation clip or tileset) has no row
+// of its own: the derived asset is the usable thing, the raw sheet becomes its
+// "from ..." subtitle. Same mental model the Inspector's Source dropdown
+// already applies via its imageHasDerivedAnimation rule. Re-deriving from a
+// consumed image stays possible through the derived row's menu ("New ... from
+// Source Image").
+bool imageIsConsumed(const ProjectDoc& doc, const AssetId& imageId) {
+    for (const SpriteAnimationAssetDef& asset : doc.spriteAnimationAssets) {
+        for (const SpriteAnimationClipDef& clip : asset.clips) {
+            if (clip.imageId == imageId) return true;
+        }
+    }
+    for (const TilesetAsset& tileset : doc.tilesets) {
+        if (tileset.imageAssetId == imageId) return true;
+    }
+    return false;
 }
 
-std::string smallButton(const char* action, const std::string& id,
-                        const char* label, bool disabled) {
-    return std::string("<button class=\"") + btnClass(disabled) + "\" data-action=\"" + action +
-           "\" data-arg=\"" + id + "\">" + label + "</button>";
+// The row's single action affordance: "⌄" opening the Assets context menu
+// (same .row-menu pattern as hierarchy rows and scene tabs). `kindTag` must
+// match parseAssetMenuKind.
+std::string menuAffordance(const char* kindTag, const std::string& id) {
+    return "<span class=\"row-menu\" data-action=\"open-asset-menu\" data-arg=\""
+         + escapeRml(std::string(kindTag) + "|" + id) + "\">&#xeb5d;</span>";
 }
 
-std::string row(const std::string& name, const std::string& trailing) {
-    // title: a narrow sidebar can clip a long name (RmlUi has no text-overflow
-    // support to ellipsize it), so the full name is still readable on hover.
-    return "<div class=\"asset-row\"><span class=\"asset-name\" title=\"" + name + "\">"
-         + name + "</span>" + trailing + "</div>";
+// One list row: kind icon + display name + optional trailing meta + "⌄" menu.
+// title: a narrow sidebar can clip a long name (RmlUi has no text-overflow
+// support to ellipsize it), so the full id is still readable on hover.
+std::string assetRow(const char* iconCp, const std::string& display,
+                     const std::string& tooltip, const char* dblAction,
+                     const std::string& id, const std::string& meta,
+                     const std::string& menu) {
+    std::string row = "<div class=\"asset-row\"";
+    if (dblAction && *dblAction) {
+        row += " data-dbl-action=\"" + std::string(dblAction)
+             + "\" data-arg=\"" + escapeRml(id) + "\"";
+    }
+    row += "><span class=\"icon asset-ico\">";
+    if (iconCp) row += iconCp;
+    row += "</span><span class=\"asset-name\" title=\"" + escapeRml(tooltip) + "\">"
+         + escapeRml(display) + "</span>";
+    row += meta;
+    row += menu;
+    row += "</div>";
+    return row;
 }
 
-std::string actionRow(const std::string& name, const char* action,
-                      const std::string& arg, const std::string& trailing) {
-    return "<div class=\"asset-row\" data-dbl-action=\"" + std::string(action)
-         + "\" data-arg=\"" + arg + "\"><span class=\"asset-name\" title=\"" + name + "\">"
-         + name + "</span>" + trailing + "</div>";
+// Provenance subtitle under a derived asset's row ("from <source image>").
+std::string sourceSubtitle(const AssetId& imageId) {
+    if (imageId.empty()) return {};
+    return "<div class=\"asset-sub\">from " + escapeRml(imageId) + "</div>";
 }
 
 } // namespace
@@ -78,7 +110,7 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
 
     html += importMenu(playing);
 
-    // Empty catalog: one guidance block instead of four "None" rows (audit 4.6).
+    // Empty catalog: one guidance block instead of empty group rows (audit 4.6).
     const bool anyAsset = !doc.imageAssets.empty() || !doc.spriteAnimationAssets.empty()
                        || !doc.audioAssets.empty() || !doc.fontAssets.empty()
                        || !doc.tilesets.empty();
@@ -89,57 +121,67 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
         return;
     }
 
-    // -- Images: name + Use (assign to selected sprite) + Remove --------------
-    html += groupTitle("Images", doc.imageAssets.size());
+    // Empty groups are omitted entirely: the Import dropdown above is the entry
+    // point for every kind, so a permanent "Audio 0" row is pure noise.
+
+    // -- Images: only sheets not yet consumed by a derived asset --------------
+    std::vector<const ImageAssetDef*> freeImages;
     for (const ImageAssetDef& asset : doc.imageAssets) {
-        const std::string id = escapeRml(asset.assetId);
-        const std::string label = escapeRml(asset.name.empty() ? asset.assetId : asset.name);
-        html += row(label,
-            "<button class=\"" + std::string(btnClass(playing))
-                + "\" data-action=\"set-sprite-asset\" data-arg=\"" + id
-                + "\">Use</button>"
-                + smallButton("create-sprite-animation", id, "Anim", playing)
-                + smallButton("create-tileset-from-image", id, "Tileset", playing)
-                + removeButton("remove-image-asset", id, playing));
+        if (!imageIsConsumed(doc, asset.assetId)) freeImages.push_back(&asset);
+    }
+    if (!freeImages.empty()) {
+        html += groupTitle("Images", freeImages.size());
+        for (const ImageAssetDef* asset : freeImages) {
+            html += assetRow("&#xeb0a;", assetDisplayName(asset->name, asset->assetId),
+                             asset->assetId, nullptr, asset->assetId, "",
+                             menuAffordance("image", asset->assetId));
+        }
     }
 
-    // -- Sprite Animations: clip containers created from an image --------------
-    html += groupTitle("Sprite Animations", doc.spriteAnimationAssets.size());
-    for (const SpriteAnimationAssetDef& asset : doc.spriteAnimationAssets) {
-        const std::string id = escapeRml(asset.id);
-        html += actionRow(id, "open-sprite-animation", id,
-            smallButton("open-sprite-animation", id, "Edit", playing)
-            + smallButton("set-sprite-animation", id, "Use", playing)
-            + removeButton("remove-sprite-animation", id, playing));
+    // -- Animations: clip containers created from an image ---------------------
+    if (!doc.spriteAnimationAssets.empty()) {
+        html += groupTitle("Animations", doc.spriteAnimationAssets.size());
+        for (const SpriteAnimationAssetDef& asset : doc.spriteAnimationAssets) {
+            html += assetRow("&#xed46;", assetDisplayName(asset.name, asset.id),
+                             asset.id, "open-sprite-animation", asset.id, "",
+                             menuAffordance("anim", asset.id));
+            if (!asset.clips.empty()) html += sourceSubtitle(asset.clips.front().imageId);
+        }
     }
 
-    // -- Tilesets: sliced spritesheets created from an image -------------------
-    html += groupTitle("Tilesets", doc.tilesets.size());
-    for (const TilesetAsset& asset : doc.tilesets) {
-        const std::string id = escapeRml(asset.assetId);
-        const std::string label = escapeRml(asset.name.empty() ? asset.assetId : asset.name);
-        html += actionRow(label, "open-tileset-editor", id,
-            smallButton("open-tileset-editor", id, "Edit", playing)
-            + removeButton("remove-tileset", id, playing));
+    // -- Tilesets: sliced spritesheets created from an image --------------------
+    if (!doc.tilesets.empty()) {
+        html += groupTitle("Tilesets", doc.tilesets.size());
+        for (const TilesetAsset& asset : doc.tilesets) {
+            html += assetRow("&#xea3b;", assetDisplayName(asset.name, asset.assetId),
+                             asset.assetId, "open-tileset-editor", asset.assetId, "",
+                             menuAffordance("tileset", asset.assetId));
+            html += sourceSubtitle(asset.imageAssetId);
+        }
     }
 
-    // -- Audio: name + load mode + Remove -------------------------------------
-    html += groupTitle("Audio", doc.audioAssets.size());
-    for (const AudioAssetDef& asset : doc.audioAssets) {
-        const std::string id = escapeRml(asset.assetId);
-        const std::string label = escapeRml(asset.name.empty() ? asset.assetId : asset.name);
-        const char* mode = asset.loadMode == AudioLoadMode::Stream ? "Stream" : "Sound";
-        html += row(label, "<span class=\"asset-meta\">" + std::string(mode) + "</span>"
-                            + removeButton("remove-audio-asset", id, playing));
+    // -- Audio: name + load mode ------------------------------------------------
+    if (!doc.audioAssets.empty()) {
+        html += groupTitle("Audio", doc.audioAssets.size());
+        for (const AudioAssetDef& asset : doc.audioAssets) {
+            const char* mode = asset.loadMode == AudioLoadMode::Stream ? "Stream" : "Sound";
+            html += assetRow(nullptr, assetDisplayName(asset.name, asset.assetId),
+                             asset.assetId, nullptr, asset.assetId,
+                             "<span class=\"asset-meta\">" + std::string(mode) + "</span>",
+                             menuAffordance("audio", asset.assetId));
+        }
     }
 
-    // -- Fonts: name + size + Remove ------------------------------------------
-    html += groupTitle("Fonts", doc.fontAssets.size());
-    for (const FontAssetDef& asset : doc.fontAssets) {
-        const std::string id = escapeRml(asset.assetId);
-        const std::string label = escapeRml(asset.name.empty() ? asset.assetId : asset.name);
-        html += row(label, "<span class=\"asset-meta\">" + std::to_string(asset.defaultPixelSize)
-                            + "px</span>" + removeButton("remove-font-asset", id, playing));
+    // -- Fonts: name + size ------------------------------------------------------
+    if (!doc.fontAssets.empty()) {
+        html += groupTitle("Fonts", doc.fontAssets.size());
+        for (const FontAssetDef& asset : doc.fontAssets) {
+            html += assetRow(nullptr, assetDisplayName(asset.name, asset.assetId),
+                             asset.assetId, nullptr, asset.assetId,
+                             "<span class=\"asset-meta\">"
+                                 + std::to_string(asset.defaultPixelSize) + "px</span>",
+                             menuAffordance("font", asset.assetId));
+        }
     }
 
     list->SetInnerRML(html);

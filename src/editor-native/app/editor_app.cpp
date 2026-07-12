@@ -557,6 +557,7 @@ int EditorApp::run(int argc, char** argv) {
     std::string shotSavePath;   // non-empty: save the project here via the real path
     int shotEntityIndex = -1;   // >= 0: select the Nth instance of the active scene
     std::string shotDropdown;   // non-empty: open this Inspector value dropdown
+    std::string shotAssetMenu;  // "kind|id": open the Assets row menu on that asset
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--shot") == 0 && i + 1 < argc) shotPath = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-project") == 0 && i + 1 < argc)
@@ -571,6 +572,8 @@ int EditorApp::run(int argc, char** argv) {
             shotEntityIndex = std::atoi(argv[i + 1]);
         else if (std::strcmp(argv[i], "--shot-dropdown") == 0 && i + 1 < argc)
             shotDropdown = argv[i + 1];
+        else if (std::strcmp(argv[i], "--shot-asset-menu") == 0 && i + 1 < argc)
+            shotAssetMenu = argv[i + 1];
     }
 
     // Start empty: the editor opens a real project (File > Open) or builds one
@@ -1017,6 +1020,19 @@ int EditorApp::run(int argc, char** argv) {
                         ui.processFrame();
                         ui.handleAction("toggle-inspector-dropdown", shotDropdown, "");
                     }
+                }
+            }
+            // Assets row-menu smoke test: request the menu exactly as the "⌄"
+            // click would (same deferred-show path); it appears on the loop's
+            // first processFrame, well before the frame-12 capture.
+            if (!shotAssetMenu.empty()) {
+                const std::size_t sep = shotAssetMenu.find('|');
+                std::optional<AssetMenuKind> kind;
+                if (sep != std::string::npos)
+                    kind = parseAssetMenuKind(shotAssetMenu.substr(0, sep));
+                if (kind) {
+                    ui.requestAssetContextMenu(*kind, shotAssetMenu.substr(sep + 1),
+                                               320, 700);
                 }
             }
             // Exercise the real save path (asset copy + atomic write) so the

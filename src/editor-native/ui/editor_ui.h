@@ -23,8 +23,19 @@ enum class AssetKind;   // defined in app/asset_import.h
 // Target kind of the hierarchy context menu (scene tab vs entity row).
 enum class HierarchyMenuKind { Scene, Entity };
 
+// Target kind of the Assets row menu ("⌄" affordance on an asset row).
+enum class AssetMenuKind { Image, Animation, Tileset, Audio, Font };
+// Parses the kind tag carried by open-asset-menu args ("image", "anim", ...).
+std::optional<AssetMenuKind> parseAssetMenuKind(const std::string& tag);
+
 /** Escape &, <, > so authored names are safe inside generated RML. */
 std::string escapeRml(const std::string& text);
+
+// Presentation name of an asset: the authored name (id fallback) minus the
+// ".anim"/".tileset" suffix that generated ids historically embed — group
+// titles and kind icons already say the kind, so the suffix is display noise.
+// Display only: ids, args and the document are never touched.
+std::string assetDisplayName(const std::string& name, const std::string& assetId);
 
 // =============================================================================
 // EditorUi — owns the panels and the single RmlUi event listener, and turns
@@ -88,7 +99,10 @@ public:
     // would otherwise measure a menu whose layout is not resolved yet.
     void requestHierarchyContextMenu(HierarchyMenuKind kind, std::string targetId,
                                      int physicalX, int physicalY);
-    // Hide / hit-test cover every open context menu (viewport + hierarchy).
+    // Assets row menu ("⌄" on an asset row); same deferred-show pattern.
+    void requestAssetContextMenu(AssetMenuKind kind, std::string assetId,
+                                 int physicalX, int physicalY);
+    // Hide / hit-test cover every open context menu (viewport + hierarchy + assets).
     void hideContextMenus();
     bool isContextMenuHit(int physicalX, int physicalY) const;
 
@@ -151,6 +165,7 @@ private:
     void updateZoomReadout();   // toolbar zoom %, refreshed on Viewport invalidation
     void commitGridCellSize(const std::string& text);
     void showPendingHierarchyMenu();   // consumes the deferred menu request
+    void showPendingAssetMenu();       // same, for the Assets row menu
     // Applies EditorUiState.consoleVisible to the actual panel (Layout invalidation).
     void refreshLayout();
     // The scene the Scene View camera (zoom/pan) is currently showing: the
@@ -193,6 +208,15 @@ private:
         int               y = 0;
     };
     std::optional<PendingHierarchyMenu> pendingHierarchyMenu_;
+    bool                                assetsContextMenuVisible_ = false;
+    // Deferred Assets row menu request (applied on the next processFrame).
+    struct PendingAssetMenu {
+        AssetMenuKind kind;
+        std::string   assetId;
+        int           x = 0;
+        int           y = 0;
+    };
+    std::optional<PendingAssetMenu>     pendingAssetMenu_;
     std::string                         pointerReadout_;   // last coords text shown
     std::string                         spriteAnimationEditorMarkup_;
     std::string                         tilesetEditorMarkup_;
