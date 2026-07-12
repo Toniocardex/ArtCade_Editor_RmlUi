@@ -1,5 +1,6 @@
 #include "editor-native/model/project_document.h"
 #include "editor-native/model/numeric_validation.h"
+#include "editor-native/model/path_confinement.h"
 
 #include <algorithm>
 #include <utility>
@@ -658,7 +659,8 @@ bool ProjectDocument::setPlatformerValue(const std::string& objectTypeId, int fi
 }
 
 bool ProjectDocument::addImageAsset(ImageAssetDef asset) {
-    if (asset.assetId.empty() || hasImageAsset(asset.assetId)) return false;
+    if (asset.assetId.empty() || hasImageAsset(asset.assetId)
+        || !isSafeProjectRelativePath(std::filesystem::u8path(asset.sourcePath))) return false;
     doc_.imageAssets.push_back(std::move(asset));
     markDirty();
     return true;
@@ -821,7 +823,8 @@ const AudioAssetDef* ProjectDocument::findAudioAsset(const AssetId& id) const {
 }
 
 bool ProjectDocument::addAudioAsset(AudioAssetDef asset) {
-    if (asset.assetId.empty() || hasAudioAsset(asset.assetId)) return false;
+    if (asset.assetId.empty() || hasAudioAsset(asset.assetId)
+        || !isSafeProjectRelativePath(std::filesystem::u8path(asset.sourcePath))) return false;
     doc_.audioAssets.push_back(std::move(asset));
     markDirty();
     return true;
@@ -850,7 +853,8 @@ const FontAssetDef* ProjectDocument::findFontAsset(const AssetId& id) const {
 }
 
 bool ProjectDocument::addFontAsset(FontAssetDef asset) {
-    if (asset.assetId.empty() || hasFontAsset(asset.assetId)) return false;
+    if (asset.assetId.empty() || hasFontAsset(asset.assetId)
+        || !isSafeProjectRelativePath(std::filesystem::u8path(asset.sourcePath))) return false;
     doc_.fontAssets.push_back(std::move(asset));
     markDirty();
     return true;

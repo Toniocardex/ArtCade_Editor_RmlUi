@@ -53,7 +53,7 @@ La remediation è conclusa soltanto quando:
 | P0-01 | P0 | Atomicità dei Command multi-mutazione | [x] | BASE-01 |
 | P0-02 | P0 | Invarianti numeriche nel core | [x] | BASE-01 |
 | P0-03 | P0 | Parser JSON rigoroso ed exception-safe | [x] | P0-02 |
-| P0-04 | P0 | Root confinement dei path | [ ] | BASE-01 |
+| P0-04 | P0 | Root confinement dei path | [x] | BASE-01 |
 | P0-05 | P0 | New Project transazionale | [ ] | P0-03, P0-04 |
 | P0-06 | P0 | Pending edits prima dell'unsaved guard | [ ] | P0-02 |
 | P0-07 | P0 | Lifecycle RmlUi deterministico | [ ] | BASE-01 |
@@ -213,24 +213,24 @@ Un path relativo può contenere traversal e risolversi fuori dalla root del prog
 
 **Design richiesto**
 
-- [ ] Creare un'unica funzione `resolvePathInsideRoot` o equivalente.
-- [ ] Rifiutare path assoluti e root differenti.
-- [ ] Normalizzare i componenti del path.
-- [ ] Canonicalizzare la root e il parent esistente.
-- [ ] Verificare containment per componenti, non per prefisso stringa.
-- [ ] Gestire symlink, junction e reparse point.
-- [ ] Restituire `Result<path>` con errore e remediation.
-- [ ] Riutilizzare la funzione in Edit, Play, texture, import e Save As.
+- [x] Creare un'unica funzione `resolvePathInsideRoot` o equivalente.
+- [x] Rifiutare path assoluti e root differenti.
+- [x] Normalizzare i componenti del path.
+- [x] Canonicalizzare la root e il parent esistente.
+- [x] Verificare containment per componenti, non per prefisso stringa.
+- [x] Gestire symlink, junction e reparse point.
+- [x] Restituire `Result<path>` con errore e remediation.
+- [x] Riutilizzare la funzione in Edit, Play, texture, import e Save As.
 
 **Test obbligatori**
 
-- [ ] `../secret.png`.
-- [ ] Separatori Windows/Unix misti.
-- [ ] Path assoluto e drive differente.
-- [ ] Root con nome avente lo stesso prefisso di un'altra directory.
-- [ ] Symlink/junction verso l'esterno.
-- [ ] Path interno valido.
-- [ ] Path Unicode.
+- [x] `../secret.png`.
+- [x] Separatori Windows/Unix misti.
+- [x] Path assoluto e drive differente.
+- [x] Root con nome avente lo stesso prefisso di un'altra directory.
+- [x] Symlink/junction verso l'esterno.
+- [x] Path interno valido.
+- [x] Path Unicode.
 
 **Gate di uscita**
 
@@ -639,6 +639,7 @@ Usare questa sezione per decisioni e risultati sintetici, senza sostituire commi
 | Data | ID | Stato | Evidenza / nota |
 |---|---|---|---|
 | 2026-07-12 | ROADMAP | Creato | Roadmap iniziale derivata dall'audit architetturale. |
-| 2026-07-12 | P0-01 | Completato nel working tree | Command sprite e delete-cascade convertiti a commit atomico; anche CreateScene e CreateEntityWithDefaultType ricondotti a una sola revisione. Build Release verde, `editor_core_test`: 3.367 passed, 0 failed. Nessun commit creato; BASE-01 resta aperta. |
-| 2026-07-12 | P0-02 | Completato nel working tree | Aggiunti helper numerici condivisi, guardie in Command/primitivi di dominio/workspace e validazione Load/Save; coperti NaN, ±Inf, range, documenti ostili e atomicità dei failure. Build Release verde, `editor_core_test`: 3.415 passed, 0 failed. Nessun commit creato; BASE-01 resta aperta. |
-| 2026-07-12 | P0-03 | Completato nel working tree | Deserializer convertito a reader tipizzati: i default valgono solo per campi assenti, mentre tipi errati, interi/float fuori rappresentazione, collezioni corrotte e JSON/Unicode malformati producono errori contestualizzati e exception-safe. Verificata l'immutabilità del coordinator su failure. Build Release verde, `editor_core_test`: 3.478 passed, 0 failed. Nessun commit creato; BASE-01 resta aperta. |
+| 2026-07-12 | P0-01 | Completato e pubblicato | Command sprite e delete-cascade convertiti a commit atomico; anche CreateScene e CreateEntityWithDefaultType ricondotti a una sola revisione. Build Release verde, `editor_core_test`: 3.367 passed, 0 failed. Incluso nel commit `010684b`, pubblicato su `origin/codex/p0-architecture-remediation`; BASE-01 resta aperta per il working tree misto. |
+| 2026-07-12 | P0-02 | Completato e pubblicato | Aggiunti helper numerici condivisi, guardie in Command/primitivi di dominio/workspace e validazione Load/Save; coperti NaN, ±Inf, range, documenti ostili e atomicità dei failure. Build Release verde, `editor_core_test`: 3.415 passed, 0 failed. Incluso nel commit `010684b`, pubblicato su `origin/codex/p0-architecture-remediation`. |
+| 2026-07-12 | P0-03 | Completato e pubblicato | Deserializer convertito a reader tipizzati: i default valgono solo per campi assenti, mentre tipi errati, interi/float fuori rappresentazione, collezioni corrotte e JSON/Unicode malformati producono errori contestualizzati e exception-safe. Verificata l'immutabilità del coordinator su failure. Build Release verde, `editor_core_test`: 3.478 passed, 0 failed. Incluso nel commit `010684b`, pubblicato su `origin/codex/p0-architecture-remediation`. |
+| 2026-07-12 | P0-04 | Completato e pubblicato | Introdotta `resolvePathInsideRoot` con normalizzazione portabile, canonicalizzazione del parent esistente e containment per componenti; applicata a validator/primitivi asset, texture Edit/Play, import e copia Save As con pre-scan dell'albero. Coperti traversal, separatori misti, path assoluti/drive, sibling-prefix, Unicode e symlink quando consentiti dalla piattaforma. Build Release verde, `editor_core_test`: 3.509 passed, 0 failed. Pubblicato con commit dedicato su `origin/codex/p0-architecture-remediation`. |

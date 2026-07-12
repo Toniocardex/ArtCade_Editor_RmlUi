@@ -22,6 +22,7 @@
 #include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
 #include "editor-native/model/play_session.h"
+#include "editor-native/model/path_confinement.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_animation_slicing.h"
 #include "editor-native/model/tilemap_stroke_preview.h"
@@ -413,9 +414,9 @@ void applyWindowIcon(const std::filesystem::path& resourceRoot) {
 std::filesystem::path resolveImageAssetPath(const std::filesystem::path& resourceRoot,
                                             const std::string& sourcePath) {
     if (sourcePath.empty()) return {};
-    const std::filesystem::path path(sourcePath);
-    if (path.is_absolute()) return path.lexically_normal();
-    return std::filesystem::absolute(resourceRoot / path).lexically_normal();
+    const PathConfinementResult resolved = resolvePathInsideRoot(
+        resourceRoot, std::filesystem::u8path(sourcePath));
+    return resolved.ok ? resolved.value : std::filesystem::path{};
 }
 
 std::unordered_map<AssetId, TextureRequest> textureRequestsFor(
@@ -475,12 +476,43 @@ bool copyAssetsForSaveAs(const std::filesystem::path& previousRoot,
                          std::string& error) {
     if (previousRoot.empty() || previousRoot == nextRoot) return true;
 
-    const std::filesystem::path source = previousRoot / "assets";
+    const PathConfinementResult sourceResult =
+        resolvePathInsideRoot(previousRoot, "assets");
+    if (!sourceResult.ok) {
+        error = "Could not resolve existing assets folder: " + sourceResult.error;
+        return false;
+    }
+    const std::filesystem::path& source = sourceResult.value;
     std::error_code ec;
     if (!std::filesystem::exists(source, ec)) return true;
     if (ec) {
         error = "Could not inspect existing assets folder: " + ec.message();
         return false;
+    }
+
+    // Validate every source entry before recursive copy. The iterator does not
+    // opt into following directory symlinks; resolving each lexical relative
+    // path additionally rejects Windows junctions/reparse points that lead out
+    // of previousRoot before std::filesystem::copy can traverse them.
+    std::filesystem::recursive_directory_iterator it{
+        source, std::filesystem::directory_options::none, ec};
+    const std::filesystem::recursive_directory_iterator end;
+    if (ec) {
+        error = "Could not inspect existing assets tree: " + ec.message();
+        return false;
+    }
+    for (; it != end;) {
+        const std::filesystem::path relative = it->path().lexically_relative(previousRoot);
+        const PathConfinementResult entry = resolvePathInsideRoot(previousRoot, relative);
+        if (!entry.ok) {
+            error = "Assets tree contains an unsafe path: " + entry.error;
+            return false;
+        }
+        it.increment(ec);
+        if (ec) {
+            error = "Could not inspect existing assets tree: " + ec.message();
+            return false;
+        }
     }
 
     std::filesystem::create_directories(nextRoot, ec);
@@ -489,9 +521,16 @@ bool copyAssetsForSaveAs(const std::filesystem::path& previousRoot,
         return false;
     }
 
-    const std::filesystem::path destination = nextRoot / "assets";
+    const PathConfinementResult destinationResult =
+        resolvePathInsideRoot(nextRoot, "assets");
+    if (!destinationResult.ok) {
+        error = "Could not resolve destination assets folder: " + destinationResult.error;
+        return false;
+    }
+    const std::filesystem::path& destination = destinationResult.value;
     std::filesystem::copy(source, destination,
                           std::filesystem::copy_options::recursive
+                        | std::filesystem::copy_options::skip_symlinks
                         | std::filesystem::copy_options::overwrite_existing,
                           ec);
     if (ec) {
@@ -515,6 +554,8 @@ int EditorApp::run(int argc, char** argv) {
     int shotSliceColumns = 0;   // > 0: slice the open clip into N frames for the shot
     bool shotSliceAll = false;  // slice every animation asset in turn (overwrite repro)
     std::string shotSavePath;   // non-empty: save the project here via the real path
+    int shotEntityIndex = -1;   // >= 0: select the Nth instance of the active scene
+    std::string shotDropdown;   // non-empty: open this Inspector value dropdown
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--shot") == 0 && i + 1 < argc) shotPath = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-project") == 0 && i + 1 < argc)
@@ -525,6 +566,10 @@ int EditorApp::run(int argc, char** argv) {
         else if (std::strcmp(argv[i], "--shot-slice-all") == 0) shotSliceAll = true;
         else if (std::strcmp(argv[i], "--shot-save") == 0 && i + 1 < argc)
             shotSavePath = argv[i + 1];
+        else if (std::strcmp(argv[i], "--shot-entity") == 0 && i + 1 < argc)
+            shotEntityIndex = std::atoi(argv[i + 1]);
+        else if (std::strcmp(argv[i], "--shot-dropdown") == 0 && i + 1 < argc)
+            shotDropdown = argv[i + 1];
     }
 
     // Start empty: the editor opens a real project (File > Open) or builds one
@@ -943,6 +988,20 @@ int EditorApp::run(int argc, char** argv) {
                             ui.handleAction("slice-animation-grid", "", "");
                         }
                     }
+                }
+            }
+            // Inspector smoke test: select the Nth instance of the active
+            // scene (--shot-entity N), optionally with one of its value
+            // dropdowns open (--shot-dropdown layer|sprite-source|tilemap-
+            // tileset) — same Intent/action path a real click takes.
+            if (shotEntityIndex >= 0) {
+                const SceneDef* scene =
+                    coordinator.document().findScene(coordinator.state().activeSceneId);
+                if (scene && shotEntityIndex < static_cast<int>(scene->instances.size())) {
+                    coordinator.apply(SelectEntityIntent{
+                        scene->instances[static_cast<std::size_t>(shotEntityIndex)].id});
+                    if (!shotDropdown.empty())
+                        ui.handleAction("toggle-inspector-dropdown", shotDropdown, "");
                 }
             }
             // Exercise the real save path (asset copy + atomic write) so the

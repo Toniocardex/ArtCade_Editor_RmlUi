@@ -29,6 +29,7 @@
 #include "editor-native/commands/scene_commands.h"
 #include "editor-native/commands/sprite_commands.h"
 #include "editor-native/model/project_io.h"
+#include "editor-native/model/path_confinement.h"
 #include "editor-native/model/play_session.h"
 #include "editor-native/model/box_collider_view.h"
 #include "editor-native/model/box_collider_geometry.h"
@@ -6072,6 +6073,77 @@ int main() {
             missingFileReload.document().findImageAsset("hero");
         CHECK(missingImage != nullptr);
         CHECK(missingImage && missingImage->sourcePath == "assets/images/hero.png");
+    }
+
+    // -- P0-04: project paths remain inside their canonical root --------------
+    {
+        const std::filesystem::path base = testTempDir();
+        const std::filesystem::path root = base / "project";
+        const std::filesystem::path outside = base / "project-outside";
+        std::error_code ec;
+        std::filesystem::create_directories(root / "assets" / "images", ec);
+        CHECK(!ec);
+        std::filesystem::create_directories(outside, ec);
+        CHECK(!ec);
+        { std::ofstream file(outside / "secret.png", std::ios::binary); file << "secret"; }
+
+        const PathConfinementResult inside =
+            resolvePathInsideRoot(root, "assets/images/hero.png");
+        CHECK(inside.ok);
+        CHECK(inside.value.parent_path().filename() == "images");
+
+        const PathConfinementResult mixed =
+            resolvePathInsideRoot(root, std::filesystem::u8path("assets\\images/hero.png"));
+        CHECK(mixed.ok);
+        CHECK(mixed.value == inside.value);
+
+        for (const std::filesystem::path& hostile : {
+                 std::filesystem::u8path("../secret.png"),
+                 std::filesystem::u8path("assets/../../secret.png"),
+                 std::filesystem::u8path("..\\project-outside\\secret.png"),
+                 std::filesystem::absolute(outside / "secret.png"),
+                 std::filesystem::u8path("Z:/secret.png"),
+                 std::filesystem::u8path("assets/images/hero.png:payload")}) {
+            const PathConfinementResult rejected = resolvePathInsideRoot(root, hostile);
+            CHECK(!rejected.ok);
+            CHECK(!rejected.error.empty());
+            CHECK(!rejected.remediation.empty());
+        }
+
+        const std::filesystem::path unicodeRelative =
+            std::filesystem::u8path("assets/immagini-\xC3\xA8/eroe.png");
+        const PathConfinementResult unicode = resolvePathInsideRoot(root, unicodeRelative);
+        CHECK(unicode.ok);
+
+        // A same-prefix sibling is not a child. The lexical traversal is
+        // rejected before any I/O, independently from string-prefix tricks.
+        CHECK(!resolvePathInsideRoot(
+            root, std::filesystem::u8path("../project-outside/secret.png")).ok);
+
+        const std::filesystem::path link = root / "assets" / "external-link";
+        std::filesystem::create_directory_symlink(outside, link, ec);
+        if (!ec) {
+            CHECK(!resolvePathInsideRoot(root, "assets/external-link/secret.png").ok);
+        } else {
+            // Windows without Developer Mode/SeCreateSymbolicLinkPrivilege cannot
+            // create the fixture. Do not weaken production behavior: assert no
+            // partial reparse point exists; CI hosts that permit symlinks execute
+            // the escape assertion above.
+            CHECK(!std::filesystem::exists(link));
+        }
+
+        ProjectDoc hostileDoc = makeDoc();
+        ImageAssetDef escaped;
+        escaped.assetId = "escaped";
+        escaped.sourcePath = "../secret.png";
+        hostileDoc.imageAssets.push_back(escaped);
+        CHECK(!ProjectValidator::validate(ProjectDocument{hostileDoc}).ok);
+
+        EditorCoordinator c{makeDoc()};
+        const uint64_t revisionBefore = c.document().revision();
+        CHECK(!c.execute(AddImageAssetCommand{"escaped", "../secret.png"}).ok);
+        CHECK(c.document().revision() == revisionBefore);
+        CHECK(!c.document().hasImageAsset("escaped"));
     }
 
     // -- Asset enum values are validated instead of defaulted silently --------

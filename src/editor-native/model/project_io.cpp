@@ -1,5 +1,6 @@
 #include "editor-native/model/project_io.h"
 #include "editor-native/model/numeric_validation.h"
+#include "editor-native/model/path_confinement.h"
 
 #include "editor-native/model/tilemap_validation.h"
 
@@ -229,8 +230,7 @@ std::string readAssetPath(const nlohmann::json& object) {
 }
 
 bool isPortableAssetPath(const std::string& sourcePath) {
-    return !sourcePath.empty()
-        && !std::filesystem::path(sourcePath).is_absolute();
+    return isSafeProjectRelativePath(std::filesystem::u8path(sourcePath));
 }
 
 Vec4 readVec4(const nlohmann::json& value, Vec4 fallback = {}) {

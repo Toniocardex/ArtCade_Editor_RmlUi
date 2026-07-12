@@ -10,6 +10,7 @@
 add_library(artcade-editor-core STATIC
     editor-native/model/project_document.cpp
     editor-native/model/project_io.cpp
+    editor-native/model/path_confinement.cpp
     editor-native/model/play_session.cpp
     editor-native/model/box_collider_geometry.cpp
     editor-native/model/box_collider_view.cpp
