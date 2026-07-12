@@ -2991,7 +2991,8 @@ static void runTilemapPlaySessionTests() {
     }
 
     // -- collectSceneFrameSnapshot(PlaySession&): a painted tilemap appears in
-    // snapshot.tilemaps and never as the generic editor placeholder -----------
+    // snapshot.tilemaps and in frame.entities (SceneView render order) without
+    // relying on the generic editor placeholder ----------------------------
     {
         EditorCoordinator c{makeSpriteDoc()};
         setUpTilemapForPainting(c);
@@ -3006,8 +3007,14 @@ static void runTilemapPlaySessionTests() {
             [](const SceneFrameTilemap& t) { return t.entityId == kHero; });
         CHECK(tilemapIt != snap.tilemaps.end());
         CHECK(tilemapIt->cells.size() == 1);
-        CHECK(std::none_of(snap.entities.begin(), snap.entities.end(),
-            [](const SceneFrameEntity& e) { return e.entityId == kHero; }));
+        const auto entityIt = std::find_if(snap.entities.begin(), snap.entities.end(),
+            [](const SceneFrameEntity& e) { return e.entityId == kHero; });
+        CHECK(entityIt != snap.entities.end());
+        // Play snapshot must be pickable at the painted cell (same draw-order
+        // contract SceneView uses - regression for tilemaps invisible in Play).
+        const SceneFrameRect& dest = tilemapIt->cells[0].destination;
+        CHECK(pickEntityAt(snap, Vec2{dest.x + dest.width * 0.5f, dest.y + dest.height * 0.5f})
+              == kHero);
     }
 
     // -- An empty (unpainted) tilemap is fully invisible in Play - unlike Edit,

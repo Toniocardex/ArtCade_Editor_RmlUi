@@ -147,10 +147,17 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const PlaySession& session) {
     for (std::size_t index : scene.renderOrder) {
         const RuntimeEntity& entity = scene.entities[index];
         const SceneFrameRect bounds = transformBounds(entity.transform);
-        // A tilemap entity never falls back to the generic editor placeholder
-        // in Play, painted or not - unlike Edit, where the placeholder is a
-        // deliberate authoring affordance (see tilemap_render_view.h / Slice 5).
-        if (!entity.tilemap.has_value()) {
+        const bool hasSprite =
+            entity.sprite.has_value() && !entity.sprite->assetId.empty();
+        const bool paintedTilemap =
+            entity.tilemap.has_value() && !entity.tilemap->cells.empty();
+        // SceneView walks frame.entities in render order; tilemaps are drawn
+        // per entity inside that loop. An unpainted tilemap-only entity stays
+        // out of the snapshot entirely (no placeholder, no cells) - unlike
+        // Edit, where the placeholder is a deliberate authoring affordance.
+        const bool emptyTilemapOnly =
+            entity.tilemap.has_value() && !paintedTilemap && !hasSprite;
+        if (!emptyTilemapOnly) {
             snapshot.entities.push_back(SceneFrameEntity{
                 entity.id,
                 entity.name,

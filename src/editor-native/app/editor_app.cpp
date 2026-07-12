@@ -1386,11 +1386,16 @@ int EditorApp::run(int argc, char** argv) {
         if (playSession) renderView.gridVisible = false;
         const SpriteAnimationAssetDef* animationAsset = nullptr;
         const TilesetAsset* tilesetAsset = nullptr;
-        if (const auto& open = coordinator.state().spriteAnimationEditor.openAssetId) {
-            animationAsset = coordinator.document().findSpriteAnimationAsset(*open);
-        } else if (const auto& openTileset = coordinator.state().tilesetEditor.openAssetId) {
-            tilesetAsset = coordinator.document().findTilesetAsset(*openTileset);
-        } else {
+        // Asset editors replace the scene viewport only in Edit mode. During
+        // Play the runtime scene must always render regardless of workspace UI.
+        if (!playSession) {
+            if (const auto& open = coordinator.state().spriteAnimationEditor.openAssetId) {
+                animationAsset = coordinator.document().findSpriteAnimationAsset(*open);
+            } else if (const auto& openTileset = coordinator.state().tilesetEditor.openAssetId) {
+                tilesetAsset = coordinator.document().findTilesetAsset(*openTileset);
+            }
+        }
+        if (playSession || (!animationAsset && !tilesetAsset)) {
             textureCache.prepare(snapshot.sprites, snapshot.tilemaps, textureRequests);
             sceneView.render(snapshot, renderView, rect, textureCache);
             if (!playSession) {
