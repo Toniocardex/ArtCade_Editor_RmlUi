@@ -157,11 +157,41 @@ const SceneLayerDef* findLayer(const SceneDef& scene, const std::string& layerId
     return nullptr;
 }
 
+// A one-row value dropdown trigger filling the value slot of a prop-row. The
+// option list is emitted separately by the caller (in-flow, Add Component
+// pattern — a floating popup would be clipped by the Inspector's scroll
+// region). Raw text centred via line-height, caret pinned right (see the
+// RmlUi flex/raw-text note in controls.rcss).
+std::string dropdownTrigger(const char* label, const char* dropdownId,
+                            const std::string& valueText, bool open, bool disabled) {
+    std::string row = "<div class=\"prop-row\"><span class=\"prop-label\">";
+    row += label;
+    row += "</span><div class=\"drop-trigger";
+    if (open) row += " open";
+    if (disabled) row += " disabled";
+    row += "\"";
+    if (!disabled) {
+        row += " data-action=\"toggle-inspector-dropdown\" data-arg=\"";
+        row += dropdownId;
+        row += "\"";
+    }
+    row += ">" + escapeRml(valueText)
+         + "<span class=\"drop-caret\">&#xeb5d;</span></div></div>";
+    return row;
+}
+
 } // namespace
 
 void InspectorPanel::toggleAddMenu(Rml::ElementDocument* document,
                                    const EditorCoordinator& coordinator) {
     addMenuOpen_ = !addMenuOpen_;
+    refresh(document, coordinator);
+}
+
+void InspectorPanel::toggleDropdown(Rml::ElementDocument* document,
+                                    const EditorCoordinator& coordinator,
+                                    const std::string& dropdownId) {
+    openDropdownId_ = (openDropdownId_ == dropdownId) ? std::string() : dropdownId;
     refresh(document, coordinator);
 }
 
@@ -303,6 +333,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     if (!inst) {
         lastEntity_ = INVALID_ENTITY;
         addMenuOpen_ = false;
+        openDropdownId_.clear();   // value dropdowns exist only in entity mode
         reconcileSceneLayerRenameUiState(coordinator);
         const bool playing = coordinator.isPlaying();
         const SceneId& activeScene = coordinator.state().activeSceneId;
@@ -401,7 +432,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             }
         }
         if (!playing)
-            html += "<button class=\"" + btn + "\" data-action=\"add-layer\">"
+            html += "<button class=\"" + btn + " layer-add-btn\" data-action=\"add-layer\">"
                     "<span class=\"icon\">&#xeb0b;</span>Add Layer</button>";
 
         // -- DIAGNOSTICS (derived query, recomputed each refresh) --------------
@@ -426,12 +457,16 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
 
     const bool playing = coordinator.isPlaying();
     layerRename_.reset();
-    // The Add menu is transient: a new selection or entering Play closes it.
-    if (selected != lastEntity_) { addMenuOpen_ = false; lastEntity_ = selected; }
-    if (playing) addMenuOpen_ = false;
+    // The Add menu and value dropdowns are transient: a new selection or
+    // entering Play closes them.
+    if (selected != lastEntity_) {
+        addMenuOpen_ = false;
+        openDropdownId_.clear();
+        lastEntity_ = selected;
+    }
+    if (playing) { addMenuOpen_ = false; openDropdownId_.clear(); }
 
     const std::string btn = playing ? "panel-btn disabled" : "panel-btn";
-    const std::string opt = playing ? "asset-option disabled" : "asset-option";
 
     // A locked layer makes its instances' own authoring state read-only - but
     // only what's genuinely instance-owned (SceneId + EntityId addressed):
@@ -444,7 +479,6 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         coordinator.state().activeSceneId, *inst);
     const bool instanceDisabled = playing || instanceLocked;
     const std::string instanceBtn = instanceDisabled ? "panel-btn disabled" : "panel-btn";
-    const std::string instanceOpt = instanceDisabled ? "asset-option disabled" : "asset-option";
     // Shown under every TYPE-badged (object-type-owned) component header while
     // this instance's layer is locked, so it reads as a deliberate exception
     // rather than a bug that Box Collider/movers/controllers stay editable.
@@ -460,7 +494,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     std::string html;
 
     if (instanceLocked) {
-        html += "<div class=\"outside-warning\"><span class=\"icon\">&#xeae2;</span>"
+        html += "<div class=\"outside-warning panel-top\"><span class=\"icon\">&#xeae2;</span>"
                 "<span>This entity belongs to a locked layer.</span></div>";
     }
 
@@ -485,34 +519,43 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         std::string curLayerName = curLayer;
         for (const SceneLayerDef& l : instScene->layers)
             if (l.id == curLayer) curLayerName = l.name;
-        html += "<div class=\"prop-row\"><span class=\"prop-label\">Layer</span>"
-                "<span class=\"prop-readonly\">" + escapeRml(curLayerName) + "</span></div>";
-        html += "<div class=\"asset-options\">";
-        const EditorSceneViewState& instSceneView =
-            coordinator.sceneView(coordinator.state().activeSceneId);
-        for (const SceneLayerDef& l : instScene->layers) {
-            const bool isCurrent = l.id == curLayer;
-            // A locked *target* layer is shown but unpickable - the Command
-            // already rejects it, this just avoids a doomed click. The source
-            // layer being locked instead disables the whole picker already,
-            // via instanceDisabled (computed above from isInstanceLayerLocked).
-            const bool targetLocked = !isCurrent && l.locked;
-            const bool targetHidden = instSceneView.hiddenLayerIds.count(l.id) > 0;
-            const bool optDisabled = instanceDisabled || targetLocked;
-            html += "<div class=\"" + std::string(optDisabled ? "asset-option disabled" : "asset-option");
-            if (isCurrent) html += " selected";
-            html += "\"";
-            if (!optDisabled) {
-                html += " data-action=\"set-entity-layer\" data-arg=\"" + escapeRml(l.id) + "\"";
+        const bool layerOpen = openDropdownId_ == "layer" && !instanceDisabled;
+        html += dropdownTrigger("Layer", "layer", curLayerName, layerOpen, instanceDisabled);
+        if (layerOpen) {
+            html += "<div class=\"drop-list\">";
+            const EditorSceneViewState& instSceneView =
+                coordinator.sceneView(coordinator.state().activeSceneId);
+            // Reversed so the foreground layer sits on top, matching the scene
+            // inspector's Layers list.
+            for (std::size_t i = instScene->layers.size(); i-- > 0;) {
+                const SceneLayerDef& l = instScene->layers[i];
+                const bool isCurrent = l.id == curLayer;
+                // A locked *target* layer is shown but unpickable - the Command
+                // already rejects it, this just avoids a doomed click. The source
+                // layer being locked instead disables the whole picker already,
+                // via instanceDisabled (computed above from isInstanceLayerLocked).
+                const bool targetLocked = !isCurrent && l.locked;
+                const bool targetHidden = instSceneView.hiddenLayerIds.count(l.id) > 0;
+                html += "<div class=\"drop-entry";
+                if (isCurrent) html += " selected";
+                if (targetLocked) html += " disabled";
+                html += "\"";
+                if (isCurrent) {
+                    // Picking the current layer again just closes the list.
+                    html += " data-action=\"toggle-inspector-dropdown\" data-arg=\"layer\"";
+                } else if (!targetLocked) {
+                    html += " data-action=\"set-entity-layer\" data-arg=\"" + escapeRml(l.id) + "\"";
+                }
+                if (targetLocked) html += " title=\"Layer is locked\"";
+                else if (targetHidden) html += " title=\"Layer is hidden\"";
+                html += ">";
+                if (isCurrent) html += "<span class=\"drop-mark\">&#x25cf;</span> ";
+                if (targetLocked) html += "<span class=\"icon\">&#xeae2;</span> ";
+                else if (targetHidden) html += "<span class=\"icon\">&#xea9a;</span> ";
+                html += escapeRml(l.name) + "</div>";
             }
-            if (targetLocked) html += " title=\"Layer is locked\"";
-            else if (targetHidden) html += " title=\"Layer is hidden\"";
-            html += ">";
-            if (targetLocked) html += "<span class=\"icon\">&#xeae2;</span> ";
-            else if (targetHidden) html += "<span class=\"icon\">&#xea9a;</span> ";
-            html += escapeRml(l.name) + "</div>";
+            html += "</div>";
         }
-        html += "</div>";
     }
 
     // -- Transform (instance-owned; structural, no remove) --------------------
@@ -541,11 +584,66 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 "<button class=\"" + instanceBtn + "\" data-action=\"toggle-sprite-visible\">";
         html += sr.visible ? "On" : "Off";
         html += "</button></div>";
-        html += "<div class=\"prop-row\"><span class=\"prop-label\">Source</span>"
-                "<span class=\"prop-readonly\">";
-        if (!sr.animationAssetId.empty()) html += escapeRml(sr.animationAssetId);
-        else html += sr.imageAssetId.empty() ? "(none)" : escapeRml(sr.imageAssetId);
-        html += "</span></div>";
+        const std::string sourceLabel = !sr.animationAssetId.empty()
+            ? sr.animationAssetId
+            : (sr.imageAssetId.empty() ? std::string("(none)") : sr.imageAssetId);
+        const bool sourceOpen = openDropdownId_ == "sprite-source" && !instanceDisabled;
+        html += dropdownTrigger("Source", "sprite-source", sourceLabel, sourceOpen,
+                                instanceDisabled);
+        if (sourceOpen) {
+            html += "<div class=\"drop-list\">";
+            const bool noneSelected = sr.animationAssetId.empty() && sr.imageAssetId.empty();
+            html += "<div class=\"drop-entry";
+            if (noneSelected) html += " selected";
+            html += noneSelected
+                ? "\" data-action=\"toggle-inspector-dropdown\" data-arg=\"sprite-source\">"
+                : "\" data-action=\"set-sprite-asset\" data-arg=\"\">";
+            if (noneSelected) html += "<span class=\"drop-mark\">&#x25cf;</span> ";
+            html += "(none)</div>";
+
+            // An image already turned into an animation is dropped from the
+            // Images group (you almost always want the animation from then on) -
+            // unless it's the instance's current source, so the picker never
+            // hides what's actually assigned.
+            std::vector<const ImageAssetDef*> pickableImages;
+            for (const ImageAssetDef& asset : coordinator.document().data().imageAssets) {
+                const bool isCurrent = sr.animationAssetId.empty() && asset.assetId == sr.imageAssetId;
+                if (isCurrent || !imageHasDerivedAnimation(coordinator, asset.assetId)) {
+                    pickableImages.push_back(&asset);
+                }
+            }
+            if (!pickableImages.empty()) {
+                html += "<div class=\"asset-group-title\">Images</div>";
+                for (const ImageAssetDef* asset : pickableImages) {
+                    const bool isCurrent =
+                        sr.animationAssetId.empty() && asset->assetId == sr.imageAssetId;
+                    html += "<div class=\"drop-entry";
+                    if (isCurrent) html += " selected";
+                    html += isCurrent
+                        ? "\" data-action=\"toggle-inspector-dropdown\" data-arg=\"sprite-source\">"
+                        : "\" data-action=\"set-sprite-asset\" data-arg=\""
+                            + escapeRml(asset->assetId) + "\">";
+                    if (isCurrent) html += "<span class=\"drop-mark\">&#x25cf;</span> ";
+                    html += escapeRml(asset->assetId) + "</div>";
+                }
+            }
+            const auto& animations = coordinator.document().data().spriteAnimationAssets;
+            if (!animations.empty()) {
+                html += "<div class=\"asset-group-title\">Animations</div>";
+                for (const SpriteAnimationAssetDef& asset : animations) {
+                    const bool isCurrent = asset.id == sr.animationAssetId;
+                    html += "<div class=\"drop-entry";
+                    if (isCurrent) html += " selected";
+                    html += isCurrent
+                        ? "\" data-action=\"toggle-inspector-dropdown\" data-arg=\"sprite-source\">"
+                        : "\" data-action=\"set-sprite-animation\" data-arg=\""
+                            + escapeRml(asset.id) + "\">";
+                    if (isCurrent) html += "<span class=\"drop-mark\">&#x25cf;</span> ";
+                    html += escapeRml(asset.id) + "</div>";
+                }
+            }
+            html += "</div>";
+        }
         if (!sr.animationAssetId.empty()) {
             // Navigates to view/edit the shared animation asset, not this
             // instance - unaffected by this instance's own layer lock.
@@ -553,40 +651,6 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                   + escapeRml(sr.animationAssetId)
                   + "\"><span class=\"icon\">&#xeb0a;</span>Open Animation Editor</button>";
         }
-        html += "<div class=\"asset-options\">";
-        html += "<div class=\"" + instanceOpt + "\" data-action=\"set-sprite-asset\" data-arg=\"\">(none)</div>";
-
-        // An image already turned into an animation is dropped from the
-        // Images group (you almost always want the animation from then on) -
-        // unless it's the instance's current source, so the picker never
-        // hides what's actually assigned.
-        std::vector<const ImageAssetDef*> pickableImages;
-        for (const ImageAssetDef& asset : coordinator.document().data().imageAssets) {
-            const bool isCurrent = sr.animationAssetId.empty() && asset.assetId == sr.imageAssetId;
-            if (isCurrent || !imageHasDerivedAnimation(coordinator, asset.assetId)) {
-                pickableImages.push_back(&asset);
-            }
-        }
-        if (!pickableImages.empty()) {
-            html += "<div class=\"asset-group-title\">Images</div>";
-            for (const ImageAssetDef* asset : pickableImages) {
-                html += "<div class=\"" + instanceOpt;
-                if (sr.animationAssetId.empty() && asset->assetId == sr.imageAssetId) html += " selected";
-                html += "\" data-action=\"set-sprite-asset\" data-arg=\"" + escapeRml(asset->assetId)
-                      + "\">" + escapeRml(asset->assetId) + "</div>";
-            }
-        }
-        const auto& animations = coordinator.document().data().spriteAnimationAssets;
-        if (!animations.empty()) {
-            html += "<div class=\"asset-group-title\">Animations</div>";
-            for (const SpriteAnimationAssetDef& asset : animations) {
-                html += "<div class=\"" + instanceOpt;
-                if (asset.id == sr.animationAssetId) html += " selected";
-                html += "\" data-action=\"set-sprite-animation\" data-arg=\"" + escapeRml(asset.id)
-                      + "\">" + escapeRml(asset.id) + "</div>";
-            }
-        }
-        html += "</div>";
         if (inst->spriteAnimator.has_value()) {
             const SpriteAnimatorComponent& animator = *inst->spriteAnimator;
             html += header("&#xeb0a;", "Sprite Animator", "INSTANCE", "", "", instanceDisabled);
@@ -618,20 +682,32 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         const TilemapComponent& tm = *inst->tilemap;
         const TilesetAsset* tmTileset = coordinator.document().findTilesetAsset(tm.tilesetAssetId);
         html += header("&#xf22f;", "Tilemap", "INSTANCE", "", "remove-tilemap-component", instanceDisabled);
-        html += "<div class=\"prop-row\"><span class=\"prop-label\">Tileset</span>"
-                "<span class=\"prop-readonly\">"
-              + (tmTileset ? escapeRml(tmTileset->name.empty() ? tmTileset->assetId : tmTileset->name)
-                           : std::string("(missing)"))
-              + "</span></div>";
+        const std::string tilesetLabel = tmTileset
+            ? (tmTileset->name.empty() ? tmTileset->assetId : tmTileset->name)
+            : std::string("(missing)");
         if (coordinator.document().data().tilesets.size() > 1) {
-            html += "<div class=\"asset-options\">";
-            for (const TilesetAsset& ts : coordinator.document().data().tilesets) {
-                html += "<div class=\"" + instanceOpt;
-                if (ts.assetId == tm.tilesetAssetId) html += " selected";
-                html += "\" data-action=\"set-tilemap-tileset\" data-arg=\"" + escapeRml(ts.assetId)
-                      + "\">" + escapeRml(ts.name.empty() ? ts.assetId : ts.name) + "</div>";
+            const bool tilesetOpen = openDropdownId_ == "tilemap-tileset" && !instanceDisabled;
+            html += dropdownTrigger("Tileset", "tilemap-tileset", tilesetLabel, tilesetOpen,
+                                    instanceDisabled);
+            if (tilesetOpen) {
+                html += "<div class=\"drop-list\">";
+                for (const TilesetAsset& ts : coordinator.document().data().tilesets) {
+                    const bool isCurrent = ts.assetId == tm.tilesetAssetId;
+                    html += "<div class=\"drop-entry";
+                    if (isCurrent) html += " selected";
+                    html += isCurrent
+                        ? "\" data-action=\"toggle-inspector-dropdown\" data-arg=\"tilemap-tileset\">"
+                        : "\" data-action=\"set-tilemap-tileset\" data-arg=\""
+                            + escapeRml(ts.assetId) + "\">";
+                    if (isCurrent) html += "<span class=\"drop-mark\">&#x25cf;</span> ";
+                    html += escapeRml(ts.name.empty() ? ts.assetId : ts.name) + "</div>";
+                }
+                html += "</div>";
             }
-            html += "</div>";
+        } else {
+            // A single tileset is not a choice: keep the plain readout.
+            html += "<div class=\"prop-row\"><span class=\"prop-label\">Tileset</span>"
+                    "<span class=\"prop-readonly\">" + escapeRml(tilesetLabel) + "</span></div>";
         }
         // cellSize is editable (SetTilemapCellSizeCommand, Slice 4); chunkSize
         // is genuinely immutable after creation (no setter command exists).

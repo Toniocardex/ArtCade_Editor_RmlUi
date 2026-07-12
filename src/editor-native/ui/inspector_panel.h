@@ -21,6 +21,14 @@ public:
     void toggleAddMenu(Rml::ElementDocument* document, const EditorCoordinator& coordinator);
     void closeAddMenu() { addMenuOpen_ = false; }
 
+    // Toggle the in-flow value dropdown named `dropdownId` (Layer / Source /
+    // Tileset pickers); at most one is open at a time. closeDropdowns() runs
+    // when an entry commits a pick — the pick invalidates the Inspector, which
+    // then re-renders with the list collapsed (same pattern as closeAddMenu).
+    void toggleDropdown(Rml::ElementDocument* document, const EditorCoordinator& coordinator,
+                        const std::string& dropdownId);
+    void closeDropdowns() { openDropdownId_.clear(); }
+
     void beginSceneLayerRename(Rml::ElementDocument* document,
                                const EditorCoordinator& coordinator,
                                const std::string& layerId);
@@ -48,6 +56,7 @@ private:
     void focusSceneLayerRenameInput(Rml::ElementDocument* document);
 
     bool     addMenuOpen_ = false;
+    std::string openDropdownId_;             // open value dropdown ("" = none)
     EntityId lastEntity_ = INVALID_ENTITY;   // detect a selection change to reset the menu
     std::optional<SceneLayerRenameUiState> layerRename_;
 };
