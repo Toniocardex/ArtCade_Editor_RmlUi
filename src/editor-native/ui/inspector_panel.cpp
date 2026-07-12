@@ -32,6 +32,14 @@ std::string icon(const char* cp) {
     return std::string("<span class=\"icon\">") + cp + "</span>";
 }
 
+// Display label of a Sprite Animation asset: its authored name when the id
+// still resolves, with the historical ".anim" suffix stripped either way
+// (assetDisplayName). Ids in data-args stay untouched.
+std::string animationAssetLabel(const EditorCoordinator& coordinator, const AssetId& id) {
+    const SpriteAnimationAssetDef* asset = coordinator.document().findSpriteAnimationAsset(id);
+    return assetDisplayName(asset ? asset->name : std::string(), id);
+}
+
 // SpriteAnimatorComponent::initialClipId is a stable id, not a display value
 // (the Sprite Animation Editor's rename only ever touches SpriteAnimationClipDef
 // ::name, never ::id, precisely so this reference survives a rename). Look the
@@ -585,7 +593,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         html += sr.visible ? "On" : "Off";
         html += "</button></div>";
         const std::string sourceLabel = !sr.animationAssetId.empty()
-            ? sr.animationAssetId
+            ? animationAssetLabel(coordinator, sr.animationAssetId)
             : (sr.imageAssetId.empty() ? std::string("(none)") : sr.imageAssetId);
         const bool sourceOpen = openDropdownId_ == "sprite-source" && !instanceDisabled;
         html += dropdownTrigger("Source", "sprite-source", sourceLabel, sourceOpen,
@@ -639,7 +647,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                         : "\" data-action=\"set-sprite-animation\" data-arg=\""
                             + escapeRml(asset.id) + "\">";
                     if (isCurrent) html += "<span class=\"drop-mark\">&#x25cf;</span> ";
-                    html += escapeRml(asset.id) + "</div>";
+                    html += escapeRml(assetDisplayName(asset.name, asset.id)) + "</div>";
                 }
             }
             html += "</div>";
@@ -683,7 +691,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         const TilesetAsset* tmTileset = coordinator.document().findTilesetAsset(tm.tilesetAssetId);
         html += header("&#xf22f;", "Tilemap", "INSTANCE", "", "remove-tilemap-component", instanceDisabled);
         const std::string tilesetLabel = tmTileset
-            ? (tmTileset->name.empty() ? tmTileset->assetId : tmTileset->name)
+            ? assetDisplayName(tmTileset->name, tmTileset->assetId)
             : std::string("(missing)");
         if (coordinator.document().data().tilesets.size() > 1) {
             const bool tilesetOpen = openDropdownId_ == "tilemap-tileset" && !instanceDisabled;
@@ -700,7 +708,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                         : "\" data-action=\"set-tilemap-tileset\" data-arg=\""
                             + escapeRml(ts.assetId) + "\">";
                     if (isCurrent) html += "<span class=\"drop-mark\">&#x25cf;</span> ";
-                    html += escapeRml(ts.name.empty() ? ts.assetId : ts.name) + "</div>";
+                    html += escapeRml(assetDisplayName(ts.name, ts.assetId)) + "</div>";
                 }
                 html += "</div>";
             }

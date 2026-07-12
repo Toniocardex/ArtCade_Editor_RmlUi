@@ -53,6 +53,27 @@ std::string escapeRml(const std::string& text) {
     return out;
 }
 
+std::optional<AssetMenuKind> parseAssetMenuKind(const std::string& tag) {
+    if (tag == "image")   return AssetMenuKind::Image;
+    if (tag == "anim")    return AssetMenuKind::Animation;
+    if (tag == "tileset") return AssetMenuKind::Tileset;
+    if (tag == "audio")   return AssetMenuKind::Audio;
+    if (tag == "font")    return AssetMenuKind::Font;
+    return std::nullopt;
+}
+
+std::string assetDisplayName(const std::string& name, const std::string& assetId) {
+    std::string display = name.empty() ? assetId : name;
+    for (const std::string& suffix : {std::string(".anim"), std::string(".tileset")}) {
+        if (display.size() > suffix.size()
+            && display.compare(display.size() - suffix.size(), suffix.size(), suffix) == 0) {
+            display.erase(display.size() - suffix.size());
+            break;
+        }
+    }
+    return display;
+}
+
 // ----------------------------------------------------------------------------
 // The single RmlUi event listener. Attached to the document root; reads
 // data-action / data-arg off the bubbled target and forwards to the coordinator.
@@ -210,6 +231,20 @@ public:
             return;
         }
 
+        // Assets row menu trigger: arg is "kind|assetId" (same deferred show).
+        if (type == "click" && action == "open-asset-menu") {
+            const std::size_t sep = arg.find('|');
+            std::optional<AssetMenuKind> kind;
+            if (sep != std::string::npos) kind = parseAssetMenuKind(arg.substr(0, sep));
+            if (kind) {
+                ui_.requestAssetContextMenu(
+                    *kind, arg.substr(sep + 1),
+                    static_cast<int>(event.GetParameter<float>("mouse_x", 0.f)),
+                    static_cast<int>(event.GetParameter<float>("mouse_y", 0.f)));
+            }
+            return;
+        }
+
         const bool isCommit = action.rfind("commit-", 0) == 0;
         const bool isResize = action.rfind("resize-", 0) == 0;
 
@@ -297,9 +332,10 @@ void EditorUi::bind() {
 
 void EditorUi::processFrame() {
     applyInvalidations(coordinator_.consumeInvalidations());
-    // Deferred hierarchy context menu: shown here, after the application's
+    // Deferred context menus: shown here, after the application's
     // outside-click check for this frame has already run.
     showPendingHierarchyMenu();
+    showPendingAssetMenu();
     // The preview playhead advances without invalidation (workspace tick), so
     // the timeline highlight and Play/Pause affordance follow it live here,
     // class-only — never via a markup rebuild that would steal input focus.
@@ -726,6 +762,100 @@ void EditorUi::requestHierarchyContextMenu(HierarchyMenuKind kind, std::string t
                                                  physicalX, physicalY};
 }
 
+void EditorUi::requestAssetContextMenu(AssetMenuKind kind, std::string assetId,
+                                       int physicalX, int physicalY) {
+    pendingAssetMenu_ = PendingAssetMenu{kind, std::move(assetId), physicalX, physicalY};
+}
+
+void EditorUi::showPendingAssetMenu() {
+    if (!pendingAssetMenu_ || !document_) {
+        pendingAssetMenu_.reset();
+        return;
+    }
+    const PendingAssetMenu request = *pendingAssetMenu_;
+    pendingAssetMenu_.reset();
+    // Every entry mutates the authoring document or opens an authoring editor;
+    // during Play the menu has nothing to offer (parity with the hierarchy menu).
+    if (coordinator_.isPlaying()) return;
+    Rml::Element* menu = document_->GetElementById("assets-context-menu");
+    if (!menu) return;
+    hideContextMenus();
+
+    const ProjectDoc& doc = coordinator_.document().data();
+    const bool isImage   = request.kind == AssetMenuKind::Image;
+    const bool isAnim    = request.kind == AssetMenuKind::Animation;
+    const bool isTileset = request.kind == AssetMenuKind::Tileset;
+
+    // Re-resolve at show time: the clicked row may be stale by one frame.
+    // For derived assets also resolve the source image, offered for re-derivation
+    // ("New ... from Source Image") since consumed images have no row of their own.
+    bool exists = false;
+    AssetId sourceImageId;
+    switch (request.kind) {
+        case AssetMenuKind::Image:
+            exists = coordinator_.document().hasImageAsset(request.assetId);
+            break;
+        case AssetMenuKind::Animation:
+            for (const SpriteAnimationAssetDef& asset : doc.spriteAnimationAssets) {
+                if (asset.id != request.assetId) continue;
+                exists = true;
+                if (!asset.clips.empty()) sourceImageId = asset.clips.front().imageId;
+                break;
+            }
+            break;
+        case AssetMenuKind::Tileset:
+            if (const TilesetAsset* ts = coordinator_.document().findTilesetAsset(request.assetId)) {
+                exists = true;
+                sourceImageId = ts->imageAssetId;
+            }
+            break;
+        case AssetMenuKind::Audio:
+            for (const AudioAssetDef& asset : doc.audioAssets)
+                if (asset.assetId == request.assetId) { exists = true; break; }
+            break;
+        case AssetMenuKind::Font:
+            for (const FontAssetDef& asset : doc.fontAssets)
+                if (asset.assetId == request.assetId) { exists = true; break; }
+            break;
+    }
+    if (!exists) return;
+
+    // Entries are stamped with the same actions the panel's old always-visible
+    // buttons dispatched — menu and buttons share one semantic operation path.
+    const auto setEntry = [&](const char* id, bool shown, const char* action,
+                              const std::string& arg) {
+        if (Rml::Element* entry = document_->GetElementById(id)) {
+            entry->SetClass("hidden", !shown);
+            if (shown) {
+                entry->SetAttribute("data-action", action);
+                entry->SetAttribute("data-arg", arg);
+            }
+        }
+    };
+    const bool hasSource = (isAnim || isTileset) && !sourceImageId.empty()
+        && coordinator_.document().hasImageAsset(sourceImageId);
+    setEntry("actx-edit", isAnim || isTileset,
+             isAnim ? "open-sprite-animation" : "open-tileset-editor", request.assetId);
+    setEntry("actx-use", isImage || isAnim,
+             isImage ? "set-sprite-asset" : "set-sprite-animation", request.assetId);
+    setEntry("actx-make-anim",   isImage, "create-sprite-animation",   request.assetId);
+    setEntry("actx-make-tileset", isImage, "create-tileset-from-image", request.assetId);
+    setEntry("actx-src-anim",    hasSource, "create-sprite-animation",   sourceImageId);
+    setEntry("actx-src-tileset", hasSource, "create-tileset-from-image", sourceImageId);
+    const char* removeAction =
+        isImage   ? "remove-image-asset"
+      : isAnim    ? "remove-sprite-animation"
+      : isTileset ? "remove-tileset"
+      : request.kind == AssetMenuKind::Audio ? "remove-audio-asset"
+                                             : "remove-font-asset";
+    setEntry("actx-delete", true, removeAction, request.assetId);
+
+    menu->SetProperty("left", std::to_string(request.x) + "px");
+    menu->SetProperty("top",  std::to_string(request.y) + "px");
+    menu->SetClass("hidden", false);
+    assetsContextMenuVisible_ = true;
+}
+
 void EditorUi::showPendingHierarchyMenu() {
     if (!pendingHierarchyMenu_ || !document_) {
         pendingHierarchyMenu_.reset();
@@ -781,8 +911,12 @@ void EditorUi::hideContextMenus() {
     if (Rml::Element* menu = document_->GetElementById("hierarchy-context-menu")) {
         menu->SetClass("hidden", true);
     }
+    if (Rml::Element* menu = document_->GetElementById("assets-context-menu")) {
+        menu->SetClass("hidden", true);
+    }
     viewportContextMenuVisible_ = false;
     hierarchyContextMenuVisible_ = false;
+    assetsContextMenuVisible_ = false;
 }
 
 bool EditorUi::isContextMenuHit(int physicalX, int physicalY) const {
@@ -801,7 +935,8 @@ bool EditorUi::isContextMenuHit(int physicalX, int physicalY) const {
         return x >= left && x < right && y >= top && y < bottom;
     };
     return hits("viewport-context-menu", viewportContextMenuVisible_)
-        || hits("hierarchy-context-menu", hierarchyContextMenuVisible_);
+        || hits("hierarchy-context-menu", hierarchyContextMenuVisible_)
+        || hits("assets-context-menu", assetsContextMenuVisible_);
 }
 
 void EditorUi::refreshToolbar() {
@@ -957,6 +1092,12 @@ void EditorUi::commitGridCellSize(const std::string& text) {
 void EditorUi::handleAction(const std::string& action, const std::string& arg,
                             const std::string& value) {
     const EntityId selected = coordinator_.selection().primaryEntity;
+
+    // An action arriving while the Assets row menu is open was either picked
+    // from it or makes it stale (shortcut, double-click): close it. Clicks that
+    // miss the menu are already dismissed by the application's outside-click
+    // check, and the hierarchy/viewport menus close inside their own entries.
+    if (assetsContextMenuVisible_) hideContextMenus();
 
     // Inspector Add Component menu: toggle it open/closed, and close it whenever a
     // component is actually added (the add invalidates the Inspector, which then

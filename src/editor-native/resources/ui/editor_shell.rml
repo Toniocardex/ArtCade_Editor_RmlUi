@@ -145,5 +145,18 @@
         <div id="hctx-clone-entity" class="context-entry" data-action="clone-entity"><span class="icon">&#xedef;</span>Clone</div>
         <div id="hctx-del-entity" class="context-entry destructive" data-action="delete-entity"><span class="icon">&#xeb41;</span>Delete Entity</div>
     </div>
+
+    <!-- Assets row menu. Entries carry no static data-action: showPendingAssetMenu
+         stamps action + arg per asset kind at show time, reusing the exact actions
+         the panel's old always-visible buttons dispatched (one operation path). -->
+    <div id="assets-context-menu" class="context-menu hidden">
+        <div id="actx-edit" class="context-entry hidden"><span class="icon">&#xeb0a;</span>Open Editor</div>
+        <div id="actx-use" class="context-entry hidden"><span class="icon">&#xea5f;</span>Use on Selected Entity</div>
+        <div id="actx-make-anim" class="context-entry hidden"><span class="icon">&#xeb0b;</span>Create Animation</div>
+        <div id="actx-make-tileset" class="context-entry hidden"><span class="icon">&#xeb0b;</span>Create Tileset</div>
+        <div id="actx-src-anim" class="context-entry hidden"><span class="icon">&#xeb0b;</span>New Animation from Source Image</div>
+        <div id="actx-src-tileset" class="context-entry hidden"><span class="icon">&#xeb0b;</span>New Tileset from Source Image</div>
+        <div id="actx-delete" class="context-entry destructive hidden"><span class="icon">&#xeb41;</span>Delete</div>
+    </div>
 </body>
 </rml>
