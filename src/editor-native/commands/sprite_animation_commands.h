@@ -3,6 +3,8 @@
 #include "core/types.h"
 #include "editor-native/commands/editor_command.h"
 
+#include <cstddef>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -36,14 +38,14 @@ private:
     struct ClearedRef {
         SceneId  sceneId;
         EntityId entityId;
-        bool     hadAnimator = false;
-        SpriteAnimatorComponent animator{};
+        SpriteRendererComponent renderer{};
+        std::optional<SpriteAnimatorComponent> animator;
     };
     AssetId assetId_;
     SpriteAnimationAssetDef removed_{};
+    std::size_t assetIndex_ = 0;
     bool captured_ = false;
     std::vector<ClearedRef> clearedRefs_;
-    bool refsCaptured_ = false;
 };
 
 // Adds a clip carrying its own sheet (imageId). The first clip of an asset also

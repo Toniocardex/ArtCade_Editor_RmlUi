@@ -3400,6 +3400,82 @@ int main() {
         CHECK(!c.document().isDirty());
     }
 
+    // -- P0-03: malformed present fields never fall back or escape as throws --
+    {
+        const std::string formatPrefix = R"({"formatVersion":)";
+        for (const std::string& badValue : {std::string{"\"2\""}, std::string{"null"},
+                                            std::string{"[]"}, std::string{"{}"}}) {
+            const DeserializeResult result =
+                ProjectSerializer::deserialize(formatPrefix + badValue + "}");
+            CHECK(!result.ok);
+            CHECK(result.error.find("formatVersion") != std::string::npos);
+        }
+
+        const std::string instancePrefix =
+            R"({"activeSceneId":"s","scenes":[{"id":"s","instances":[{"id":1,"objectTypeId":"T","transform":)";
+        for (const std::string& badTransform : {std::string{"7"}, std::string{"false"},
+                                                std::string{"\"bad\""}, std::string{"[]"}}) {
+            const DeserializeResult result = ProjectSerializer::deserialize(
+                instancePrefix + badTransform + "}]}]}");
+            CHECK(!result.ok);
+            CHECK(result.error.find("transform") != std::string::npos);
+        }
+
+        CHECK(!ProjectSerializer::deserialize(R"({"scenes":[42]})").ok);
+        CHECK(!ProjectSerializer::deserialize(R"({"objectTypes":[null]})").ok);
+        CHECK(!ProjectSerializer::deserialize(R"({"imageAssets":{}})").ok);
+        CHECK(!ProjectSerializer::deserialize(
+            R"({"activeSceneId":"s","scenes":[{"id":"s","instances":"bad"}]})").ok);
+
+        const DeserializeResult hugeFloat =
+            ProjectSerializer::deserialize(R"({"targetFPS":1e100})");
+        CHECK(!hugeFloat.ok);
+        CHECK(hugeFloat.error.find("out of range") != std::string::npos);
+        CHECK(!ProjectSerializer::deserialize(R"({"formatVersion":2147483648})").ok);
+        CHECK(!ProjectSerializer::deserialize(R"({"schemaVersion":"2"})").ok);
+        CHECK(!ProjectSerializer::deserialize(
+            R"({"activeSceneId":"s","scenes":[{"id":"s","instances":[{"id":4294967296,"objectTypeId":"T"}]}]})").ok);
+
+        CHECK(!ProjectSerializer::deserialize("{\"scenes\":[").ok);   // truncated
+        CHECK(!ProjectSerializer::deserialize("{ not json").ok);       // malformed
+
+        const DeserializeResult unicode = ProjectSerializer::deserialize(
+            R"({"projectName":"Progetto \u00c8","scenes":[]})");
+        CHECK(unicode.ok);
+        CHECK(unicode.value.data().projectName == std::string("Progetto \xC3\x88"));
+
+        // Truly absent optional fields retain schema defaults; this is distinct
+        // from the malformed-present cases above.
+        const DeserializeResult minimal =
+            ProjectSerializer::deserialize(R"({"projectName":"Minimal"})");
+        CHECK(minimal.ok);
+        CHECK(minimal.value.data().targetFPS == 60.f);
+        CHECK(minimal.value.data().scenes.empty());
+    }
+
+    // -- P0-03: every deserialize failure leaves the live coordinator intact --
+    {
+        EditorCoordinator c{makeDoc()};
+        c.apply(SelectEntityIntent{kHero});
+        c.apply(ResizePanelIntent{ResizePanelIntent::Panel::Left, 345.f});
+        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {44.f, 55.f}}).ok);
+        const uint64_t revisionBefore = c.document().revision();
+        const uint64_t savedBefore = c.document().savedRevision();
+        const bool dirtyBefore = c.document().isDirty();
+        const std::size_t undoBefore = c.undoSize();
+
+        for (const std::string& hostile : {
+                 std::string{R"({"formatVersion":null})"},
+                 std::string{R"({"targetFPS":1e100})"},
+                 std::string{R"({"scenes":[{"id":"s","instances":[[]]}]})"}}) {
+            const ProjectLoadResult result = loadProjectFromText(c, hostile);
+            CHECK(!result.ok);
+            CHECK(result.error.stage == ProjectLoadStage::Deserialize);
+            expectCoordinatorBaseline(c, "spike", kSceneA, kHero, 345.f,
+                                      undoBefore, revisionBefore, savedBefore, dirtyBefore);
+        }
+    }
+
     // -- Serializer round-trip keeps authoring data, not workspace state ------
     {
         EditorCoordinator c{makeDoc()};
@@ -6336,6 +6412,10 @@ int main() {
         // Non-positive / non-finite are rejected without mutation.
         CHECK(!c.execute(SetSceneSizeCommand{kSceneA, {0.f, 100.f}}).ok);
         CHECK(!c.execute(SetSceneSizeCommand{kSceneA, {100.f, -5.f}}).ok);
+        CHECK(!c.execute(SetSceneSizeCommand{
+            kSceneA, {std::numeric_limits<float>::infinity(), 100.f}}).ok);
+        CHECK(!c.execute(SetSceneSizeCommand{
+            kSceneA, {100.f, std::numeric_limits<float>::quiet_NaN()}}).ok);
         CHECK(c.document().findScene(kSceneA)->worldSize.x == 320.f);   // unchanged
 
         // Committed values normalize to whole pixels.
@@ -6347,6 +6427,41 @@ int main() {
         CHECK(c.document().findScene(kSceneA)->worldSize.x == 320.f);
         CHECK(c.redo().ok);
         CHECK(c.document().findScene(kSceneA)->worldSize.x == 199.f);
+    }
+
+    // -- Persistent numeric boundaries reject NaN/Inf atomically ------------
+    {
+        EditorCoordinator c{makeDoc()};
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        const float inf = std::numeric_limits<float>::infinity();
+        const float negInf = -std::numeric_limits<float>::infinity();
+        const uint64_t revisionBefore = c.document().revision();
+        const std::size_t undoBefore = c.undoSize();
+        const Vec2 positionBefore =
+            c.document().findInstanceInScene(kSceneA, kHero)->transform.position;
+        const Vec4 backgroundBefore = c.document().findScene(kSceneA)->backgroundColor;
+
+        CHECK(!c.execute(SetEntityPositionCommand{kSceneA, kHero, {nan, 10.f}}).ok);
+        CHECK(!c.execute(SetEntityPositionCommand{kSceneA, kHero, {10.f, inf}}).ok);
+        CHECK(!c.execute(SetEntityPositionCommand{kSceneA, kHero, {negInf, 10.f}}).ok);
+        CHECK(!c.execute(CreateEntityCommand{kSceneA, 1001, "Hero", "Bad", {inf, 0.f}}).ok);
+        CHECK(!c.execute(CloneInstanceCommand{kSceneA, kHero, 1002, "Bad clone", {0.f, nan}}).ok);
+        CHECK(!c.execute(CreateEntityWithDefaultTypeCommand{
+            kSceneA, 1003, "BadType", "Bad", "Bad", {nan, 0.f}}).ok);
+        CHECK(!c.execute(SetSceneBackgroundCommand{kSceneA, {0.f, nan, 0.f, 1.f}}).ok);
+
+        const SceneInstanceDef* hero = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(hero->transform.position.x == positionBefore.x);
+        CHECK(hero->transform.position.y == positionBefore.y);
+        CHECK(c.document().findInstanceInScene(kSceneA, 1001) == nullptr);
+        CHECK(c.document().findInstanceInScene(kSceneA, 1002) == nullptr);
+        CHECK(c.document().findInstanceInScene(kSceneA, 1003) == nullptr);
+        CHECK(!c.document().hasObjectType("BadType"));
+        const Vec4 backgroundAfter = c.document().findScene(kSceneA)->backgroundColor;
+        CHECK(backgroundAfter.r == backgroundBefore.r && backgroundAfter.g == backgroundBefore.g);
+        CHECK(backgroundAfter.b == backgroundBefore.b && backgroundAfter.a == backgroundBefore.a);
+        CHECK(c.document().revision() == revisionBefore);
+        CHECK(c.undoSize() == undoBefore);
     }
 
     // -- Scene name + size survive save/reload --------------------------------
@@ -6396,6 +6511,41 @@ int main() {
         CHECK(c.sceneView(kSceneA).zoom == SceneViewLimits::kZoomMax);
         c.apply(SetViewportZoomIntent{kSceneA, 0.0001f});
         CHECK(c.sceneView(kSceneA).zoom == SceneViewLimits::kZoomMin);
+    }
+
+    // -- Workspace numeric state rejects NaN/Inf; finite extremes clamp ------
+    {
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        const float inf = std::numeric_limits<float>::infinity();
+        EditorCoordinator c{makeAnimationDoc()};
+        const uint64_t revisionBefore = c.document().revision();
+
+        CHECK(!c.apply(SetViewportZoomIntent{kSceneA, nan}).ok);
+        CHECK(!c.apply(SetViewportZoomIntent{kSceneA, 0.f}).ok);
+        CHECK(!c.apply(PanViewportIntent{kSceneA, {inf, 0.f}}).ok);
+        CHECK(c.sceneView(kSceneA).zoom == 1.f);
+        CHECK(c.sceneView(kSceneA).pan.x == 0.f);
+
+        CHECK(c.apply(OpenSpriteAnimationEditorIntent{"hero.anim"}).ok);
+        CHECK(!c.apply(SetSpriteSheetZoomIntent{nan}).ok);
+        CHECK(!c.apply(PanSpriteSheetIntent{{0.f, inf}}).ok);
+        CHECK(c.state().spriteAnimationEditor.sheetZoom == 1.f);
+        CHECK(c.state().spriteAnimationEditor.sheetPan.y == 0.f);
+
+        CHECK(c.apply(OpenTilesetEditorIntent{"tiles-1"}).ok);
+        CHECK(!c.apply(SetTilesetEditorZoomIntent{inf}).ok);
+        CHECK(!c.apply(PanTilesetEditorIntent{{nan, 0.f}}).ok);
+        CHECK(c.state().tilesetEditor.zoom == 1.f);
+        CHECK(c.state().tilesetEditor.pan.x == 0.f);
+
+        const float panelBefore = c.uiState().leftPanelWidth;
+        CHECK(!c.apply(ResizePanelIntent{ResizePanelIntent::Panel::Left, nan}).ok);
+        CHECK(c.uiState().leftPanelWidth == panelBefore);
+        CHECK(c.apply(ResizePanelIntent{
+            ResizePanelIntent::Panel::Left, std::numeric_limits<float>::max()}).ok);
+        CHECK(c.uiState().leftPanelWidth == PanelLimits::kLeftMax);
+        CHECK(c.document().revision() == revisionBefore);
+        CHECK(c.undoSize() == 0);
     }
 
     // -- Reset to 100% changes only the zoom, never the target (pan) ----------
@@ -8027,6 +8177,46 @@ int main() {
         const std::string dup =
             R"({"scenes":[],"objectTypes":[{"id":"A"},{"id":"A"}]})";
         CHECK(!ProjectSerializer::deserialize(dup).ok);
+    }
+
+    // -- Validator rejects hostile non-finite persistent numeric state --------
+    {
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        const float inf = std::numeric_limits<float>::infinity();
+
+        ProjectDoc badTargetFps = makeDoc();
+        badTargetFps.targetFPS = inf;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badTargetFps)}).ok);
+
+        ProjectDoc badRuntimeSettings = makeDoc();
+        badRuntimeSettings.world.pixelsPerMeter = 0.f;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badRuntimeSettings)}).ok);
+
+        ProjectDoc badWorldSize = makeDoc();
+        badWorldSize.scenes.at(kSceneA).worldSize.x = nan;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badWorldSize)}).ok);
+
+        ProjectDoc badViewport = makeDoc();
+        badViewport.scenes.at(kSceneA).viewportSize.y = 0.f;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badViewport)}).ok);
+
+        ProjectDoc badBackground = makeDoc();
+        badBackground.scenes.at(kSceneA).backgroundColor.a = inf;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badBackground)}).ok);
+
+        ProjectDoc badTransform = makeDoc();
+        badTransform.scenes.at(kSceneA).instances.front().transform.scale.x = inf;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badTransform)}).ok);
+
+        ProjectDoc badFill = makeInheritedDoc();
+        badFill.objectTypes.at("Hero").sprite.fillColor.y = nan;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badFill)}).ok);
+
+        ProjectDoc badController = makeInheritedDoc();
+        TopDownControllerComponent controller;
+        controller.acceleration = -1.f;
+        badController.objectTypes.at("Hero").topDownController = controller;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badController)}).ok);
     }
 
     // -- A type carrying two movement drivers is rejected (one-writer invariant)

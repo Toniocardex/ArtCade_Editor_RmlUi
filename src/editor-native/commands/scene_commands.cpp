@@ -1,4 +1,5 @@
 #include "editor-native/commands/scene_commands.h"
+#include "editor-native/model/numeric_validation.h"
 
 #include "editor-native/model/project_document.h"
 
@@ -29,16 +30,8 @@ EditorOperationResult CreateSceneCommand::apply(ProjectDocument& document) {
     if (document.hasScene(id_)) {
         return EditorOperationResult::failure("A scene with that id already exists");
     }
-    const bool wasFirstScene = document.data().scenes.empty();
-    previousStart_ = document.startSceneId();
     if (!document.createScene(id_, name_)) {
         return EditorOperationResult::failure("Failed to create scene");
-    }
-    // Keep the persisted invariant: a project that has scenes has a valid start
-    // scene. The very first scene becomes it (the workspace is left untouched).
-    if (wasFirstScene) {
-        document.setStartSceneId(id_);
-        assignedStart_ = true;
     }
     return EditorOperationResult::success(kSceneStructureInvalidation,
                                           DomainChange::sceneAdded(id_));
@@ -47,9 +40,6 @@ EditorOperationResult CreateSceneCommand::apply(ProjectDocument& document) {
 EditorOperationResult CreateSceneCommand::undo(ProjectDocument& document) {
     if (!document.deleteScene(id_)) {
         return EditorOperationResult::failure("Cannot undo scene creation");
-    }
-    if (assignedStart_) {
-        document.setStartSceneId(previousStart_);   // empty again for the first scene
     }
     return EditorOperationResult::success(kSceneStructureInvalidation,
                                           DomainChange::sceneRemoved(id_));
@@ -211,6 +201,9 @@ SetSceneBackgroundCommand::SetSceneBackgroundCommand(SceneId sceneId, Vec4 color
     : sceneId_(std::move(sceneId)), newColor_(color) {}
 
 EditorOperationResult SetSceneBackgroundCommand::apply(ProjectDocument& document) {
+    if (!NumericValidation::isFinite(newColor_)) {
+        return EditorOperationResult::failure("Scene background color must be finite");
+    }
     const SceneDef* scene = document.findScene(sceneId_);
     if (!scene) {
         return EditorOperationResult::failure("No target scene");

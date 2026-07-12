@@ -161,11 +161,11 @@ EditorOperationResult SetSpriteRendererAssetCommand::apply(ProjectDocument& docu
         previousAnimator_ = inst->spriteAnimator;
         captured_ = true;
     }
-    if (!document.setSpriteRendererAsset(sceneId_, id_, next_)) {
+    SpriteRendererComponent nextRenderer = *current;
+    nextRenderer.imageAssetId = next_;
+    nextRenderer.animationAssetId.clear();
+    if (!document.setSpritePresentationState(sceneId_, id_, std::move(nextRenderer), std::nullopt)) {
         return EditorOperationResult::failure("Failed to set sprite asset");
-    }
-    if (inst->spriteAnimator && !document.removeSpriteAnimator(sceneId_, id_)) {
-        return EditorOperationResult::failure("Failed to remove stale SpriteAnimator");
     }
     return EditorOperationResult::success(
         kSpriteInvalidation,
@@ -176,17 +176,9 @@ EditorOperationResult SetSpriteRendererAssetCommand::undo(ProjectDocument& docum
     if (!captured_) {
         return EditorOperationResult::failure("Cannot undo sprite asset change");
     }
-    if (previous_.animationAssetId.empty()) {
-        if (!document.setSpriteRendererAsset(sceneId_, id_, previous_.imageAssetId)) {
-            return EditorOperationResult::failure("Cannot undo sprite asset change");
-        }
-    } else if (!document.setSpriteRendererAnimation(sceneId_, id_, previous_.animationAssetId)) {
+    if (!document.setSpritePresentationState(
+            sceneId_, id_, previous_, previousAnimator_)) {
         return EditorOperationResult::failure("Cannot undo sprite asset change");
-    }
-    if (previousAnimator_) {
-        if (!document.addSpriteAnimator(sceneId_, id_, *previousAnimator_)) {
-            return EditorOperationResult::failure("Cannot undo SpriteAnimator restore");
-        }
     }
     return EditorOperationResult::success(
         kSpriteInvalidation,
@@ -223,19 +215,22 @@ EditorOperationResult SetSpriteRendererAnimationCommand::apply(ProjectDocument& 
         previousAnimator_ = inst->spriteAnimator;
         captured_ = true;
     }
-    if (!document.setSpriteRendererAnimation(sceneId_, id_, next_)) {
-        return EditorOperationResult::failure("Failed to set sprite animation source");
-    }
-    if (!next_.empty() && !inst->spriteAnimator) {
+    SpriteRendererComponent nextRenderer = *current;
+    nextRenderer.animationAssetId = next_;
+    if (!next_.empty()) nextRenderer.imageAssetId.clear();
+
+    std::optional<SpriteAnimatorComponent> nextAnimator = inst->spriteAnimator;
+    if (!next_.empty() && !nextAnimator) {
         SpriteAnimatorComponent animator;
         if (asset && !asset->clips.empty()) animator.initialClipId = asset->clips.front().id;
-        if (!document.addSpriteAnimator(sceneId_, id_, animator)) {
-            return EditorOperationResult::failure("Failed to add SpriteAnimator");
-        }
-    } else if (next_.empty() && inst->spriteAnimator) {
-        if (!document.removeSpriteAnimator(sceneId_, id_)) {
-            return EditorOperationResult::failure("Failed to remove SpriteAnimator");
-        }
+        nextAnimator = std::move(animator);
+    } else if (next_.empty()) {
+        nextAnimator.reset();
+    }
+
+    if (!document.setSpritePresentationState(
+            sceneId_, id_, std::move(nextRenderer), std::move(nextAnimator))) {
+        return EditorOperationResult::failure("Failed to set sprite animation source");
     }
     return EditorOperationResult::success(
         kSpriteInvalidation | EditorInvalidation::Inspector,
@@ -246,17 +241,9 @@ EditorOperationResult SetSpriteRendererAnimationCommand::undo(ProjectDocument& d
     if (!captured_) {
         return EditorOperationResult::failure("Cannot undo sprite animation source change");
     }
-    const SceneInstanceDef* inst = instanceOf(document, sceneId_, id_);
-    if (inst && inst->spriteAnimator) document.removeSpriteAnimator(sceneId_, id_);
-    if (previous_.animationAssetId.empty()) {
-        if (!document.setSpriteRendererAsset(sceneId_, id_, previous_.imageAssetId)) {
-            return EditorOperationResult::failure("Cannot undo sprite animation source change");
-        }
-    } else if (!document.setSpriteRendererAnimation(sceneId_, id_, previous_.animationAssetId)) {
+    if (!document.setSpritePresentationState(
+            sceneId_, id_, previous_, previousAnimator_)) {
         return EditorOperationResult::failure("Cannot undo sprite animation source change");
-    }
-    if (previousAnimator_ && !document.addSpriteAnimator(sceneId_, id_, *previousAnimator_)) {
-        return EditorOperationResult::failure("Cannot undo SpriteAnimator restore");
     }
     return EditorOperationResult::success(
         kSpriteInvalidation | EditorInvalidation::Inspector,

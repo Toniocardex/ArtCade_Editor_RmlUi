@@ -2,6 +2,7 @@
 
 #include "editor-native/model/project_document.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace ArtCade::EditorNative {
@@ -61,39 +62,71 @@ EditorOperationResult RemoveImageAssetCommand::apply(ProjectDocument& document) 
         }
     }
     if (!captured_) {
+        const auto& assets = document.data().imageAssets;
+        const auto assetIt = std::find_if(
+            assets.begin(), assets.end(), [&](const ImageAssetDef& candidate) {
+                return candidate.assetId == assetId_;
+            });
+        assetIndex_ = static_cast<std::size_t>(std::distance(assets.begin(), assetIt));
         removed_ = *current;
-        captured_ = true;
-    }
-    // Capture every sprite renderer pointing at this image before it goes, so the
-    // clear is exact and reversible. Do this once; redo reuses the same list.
-    if (!refsCaptured_) {
         for (const auto& [sceneId, scene] : document.data().scenes) {
             for (const SceneInstanceDef& instance : scene.instances) {
                 if (instance.spriteRenderer
                     && instance.spriteRenderer->imageAssetId == assetId_) {
-                    clearedRefs_.emplace_back(sceneId, instance.id);
+                    clearedRefs_.push_back(ClearedRef{
+                        sceneId, instance.id, *instance.spriteRenderer, instance.spriteAnimator});
                 }
             }
         }
-        refsCaptured_ = true;
+        captured_ = true;
     }
-    for (const auto& [sceneId, entityId] : clearedRefs_) {
-        document.setSpriteRendererAsset(sceneId, entityId, AssetId{});   // "" = no image
+
+    ProjectDoc staged = document.data();
+    const auto assetIt = std::find_if(
+        staged.imageAssets.begin(), staged.imageAssets.end(),
+        [&](const ImageAssetDef& candidate) { return candidate.assetId == assetId_; });
+    if (assetIt == staged.imageAssets.end()) {
+        return EditorOperationResult::failure("Failed to stage image asset removal");
     }
-    if (!document.removeImageAsset(assetId_)) {
-        return EditorOperationResult::failure("Failed to remove image asset");
+    staged.imageAssets.erase(assetIt);
+    for (auto& [_, scene] : staged.scenes) {
+        for (SceneInstanceDef& instance : scene.instances) {
+            if (instance.spriteRenderer
+                && instance.spriteRenderer->imageAssetId == assetId_) {
+                instance.spriteRenderer->imageAssetId.clear();
+            }
+        }
     }
+    document.commitStagedCommand(std::move(staged));
     return EditorOperationResult::success(kRemoveInvalidation, DomainChange::assetChanged(assetId_));
 }
 
 EditorOperationResult RemoveImageAssetCommand::undo(ProjectDocument& document) {
-    if (!captured_ || !document.addImageAsset(removed_)) {
+    if (!captured_ || document.hasImageAsset(assetId_)) {
         return EditorOperationResult::failure("Cannot undo image asset removal");
     }
-    // Re-point every renderer we cleared back at the restored image.
-    for (const auto& [sceneId, entityId] : clearedRefs_) {
-        document.setSpriteRendererAsset(sceneId, entityId, assetId_);
+
+    ProjectDoc staged = document.data();
+    if (assetIndex_ > staged.imageAssets.size()) {
+        return EditorOperationResult::failure("Cannot restore image asset order");
     }
+    staged.imageAssets.insert(
+        staged.imageAssets.begin() + static_cast<std::ptrdiff_t>(assetIndex_), removed_);
+    for (const ClearedRef& ref : clearedRefs_) {
+        const auto sceneIt = staged.scenes.find(ref.sceneId);
+        if (sceneIt == staged.scenes.end()) {
+            return EditorOperationResult::failure("Cannot restore image reference: scene missing");
+        }
+        const auto instanceIt = std::find_if(
+            sceneIt->second.instances.begin(), sceneIt->second.instances.end(),
+            [&](const SceneInstanceDef& instance) { return instance.id == ref.entityId; });
+        if (instanceIt == sceneIt->second.instances.end() || !instanceIt->spriteRenderer) {
+            return EditorOperationResult::failure("Cannot restore image reference: instance missing");
+        }
+        instanceIt->spriteRenderer = ref.renderer;
+        instanceIt->spriteAnimator = ref.animator;
+    }
+    document.commitStagedCommand(std::move(staged));
     return EditorOperationResult::success(kRemoveInvalidation, DomainChange::assetChanged(assetId_));
 }
 

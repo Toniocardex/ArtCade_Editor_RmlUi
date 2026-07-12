@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -267,8 +268,12 @@ private:
     bool addSpriteRenderer(const SceneId& sceneId, EntityId id, SpriteRendererComponent component);
     bool removeSpriteRenderer(const SceneId& sceneId, EntityId id);
     bool setSpriteRendererVisible(const SceneId& sceneId, EntityId id, bool visible);
-    bool setSpriteRendererAsset(const SceneId& sceneId, EntityId id, AssetId assetId);
-    bool setSpriteRendererAnimation(const SceneId& sceneId, EntityId id, AssetId animationAssetId);
+    // Atomically replace the two coupled instance-owned sprite components. Used
+    // when changing source kind (image/animation/none), where updating the
+    // renderer and adding/removing SpriteAnimator is one logical mutation.
+    bool setSpritePresentationState(
+        const SceneId& sceneId, EntityId id, SpriteRendererComponent renderer,
+        std::optional<SpriteAnimatorComponent> animator);
     bool addSpriteAnimator(const SceneId& sceneId, EntityId id, SpriteAnimatorComponent component);
     bool removeSpriteAnimator(const SceneId& sceneId, EntityId id);
     bool setSpriteAnimatorInitialClip(const SceneId& sceneId, EntityId id, std::string clipId);
@@ -335,6 +340,10 @@ private:
     bool setTilesetName(const AssetId& assetId, std::string name);
     bool setTilesetSlicing(const AssetId& assetId, TilesetSlicing slicing,
                            std::vector<TileDefinition> tiles);
+    // Commit a fully prepared authoring candidate as one Command mutation. This
+    // does not represent Project Replace: replaceCount and savedRevision remain
+    // untouched, while exactly one fresh dirty revision is allocated.
+    void commitStagedCommand(ProjectDoc staged);
     void replaceClean(ProjectDocument replacement);
     void markSaved();
     // Set the current revision to a previously observed value (undo/redo). Unlike

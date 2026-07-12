@@ -1,4 +1,5 @@
 #include "editor-native/model/project_document.h"
+#include "editor-native/model/numeric_validation.h"
 
 #include <algorithm>
 #include <utility>
@@ -102,6 +103,7 @@ bool ProjectDocument::setProjectName(std::string name) {
 }
 
 bool ProjectDocument::setInstancePosition(const SceneId& sceneId, EntityId id, Vec2 position) {
+    if (!NumericValidation::isFinite(position)) return false;
     SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
     if (!instance) return false;
     instance->transform.position = position;
@@ -126,6 +128,7 @@ bool ProjectDocument::setSceneName(const SceneId& sceneId, std::string name) {
 }
 
 bool ProjectDocument::setSceneSize(const SceneId& sceneId, Vec2 size) {
+    if (!NumericValidation::isPositive(size)) return false;
     SceneDef* scene = mutableScene(sceneId);
     if (!scene) return false;
     scene->worldSize = size;   // instances are never moved (no clamp)
@@ -134,6 +137,7 @@ bool ProjectDocument::setSceneSize(const SceneId& sceneId, Vec2 size) {
 }
 
 bool ProjectDocument::setSceneBackground(const SceneId& sceneId, Vec4 color) {
+    if (!NumericValidation::isFinite(color)) return false;
     SceneDef* scene = mutableScene(sceneId);
     if (!scene) return false;
     scene->backgroundColor = color;
@@ -151,6 +155,7 @@ bool ProjectDocument::setStartSceneId(const SceneId& sceneId) {
 
 bool ProjectDocument::createScene(const SceneId& id, const std::string& name) {
     if (id.empty() || hasScene(id)) return false;
+    const bool firstScene = doc_.scenes.empty();
     SceneDef scene;
     scene.id = id;
     scene.name = name;
@@ -158,6 +163,7 @@ bool ProjectDocument::createScene(const SceneId& id, const std::string& name) {
     scene.layers.push_back(SceneLayerDef{"layer-1", "Layer 1", false});
     scene.defaultLayerId = "layer-1";
     doc_.scenes.emplace(id, std::move(scene));
+    if (firstScene) doc_.activeSceneId = id;
     markDirty();
     return true;
 }
@@ -334,6 +340,7 @@ bool ProjectDocument::setObjectTypeName(const std::string& id, std::string name)
 }
 
 bool ProjectDocument::createInstance(const SceneId& sceneId, SceneInstanceDef instance) {
+    if (!NumericValidation::isFinite(instance.transform)) return false;
     SceneDef* scene = mutableScene(sceneId);
     if (!scene) return false;
     for (const auto& existing : scene->instances) {
@@ -346,6 +353,7 @@ bool ProjectDocument::createInstance(const SceneId& sceneId, SceneInstanceDef in
 
 bool ProjectDocument::insertInstance(const SceneId& sceneId, std::size_t index,
                                      SceneInstanceDef instance) {
+    if (!NumericValidation::isFinite(instance.transform)) return false;
     SceneDef* scene = mutableScene(sceneId);
     if (!scene) return false;
     for (const auto& existing : scene->instances) {
@@ -396,29 +404,21 @@ bool ProjectDocument::setSpriteRendererVisible(const SceneId& sceneId, EntityId 
     return true;
 }
 
-bool ProjectDocument::setSpriteRendererAsset(const SceneId& sceneId, EntityId id, AssetId assetId) {
+bool ProjectDocument::setSpritePresentationState(
+    const SceneId& sceneId, EntityId id, SpriteRendererComponent renderer,
+    std::optional<SpriteAnimatorComponent> animator) {
+    if (animator.has_value() && !NumericValidation::isValid(*animator)) return false;
     SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
     if (!instance || !instance->spriteRenderer.has_value()) return false;
-    instance->spriteRenderer->imageAssetId = std::move(assetId);
-    instance->spriteRenderer->animationAssetId.clear();
-    markDirty();
-    return true;
-}
-
-bool ProjectDocument::setSpriteRendererAnimation(const SceneId& sceneId, EntityId id,
-                                                 AssetId animationAssetId) {
-    SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
-    if (!instance || !instance->spriteRenderer.has_value()) return false;
-    instance->spriteRenderer->animationAssetId = std::move(animationAssetId);
-    if (!instance->spriteRenderer->animationAssetId.empty()) {
-        instance->spriteRenderer->imageAssetId.clear();
-    }
+    instance->spriteRenderer = std::move(renderer);
+    instance->spriteAnimator = std::move(animator);
     markDirty();
     return true;
 }
 
 bool ProjectDocument::addSpriteAnimator(const SceneId& sceneId, EntityId id,
                                         SpriteAnimatorComponent component) {
+    if (!NumericValidation::isValid(component)) return false;
     SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
     if (!instance || instance->spriteAnimator.has_value()) return false;
     instance->spriteAnimator = std::move(component);
@@ -445,6 +445,7 @@ bool ProjectDocument::setSpriteAnimatorInitialClip(const SceneId& sceneId, Entit
 
 bool ProjectDocument::setSpriteAnimatorPlaybackSpeed(const SceneId& sceneId, EntityId id,
                                                      float speed) {
+    if (!NumericValidation::isPositive(speed)) return false;
     SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
     if (!instance || !instance->spriteAnimator.has_value()) return false;
     instance->spriteAnimator->playbackSpeed = speed;
@@ -463,6 +464,7 @@ bool ProjectDocument::setSpriteAnimatorAutoPlay(const SceneId& sceneId, EntityId
 
 bool ProjectDocument::addTilemapComponent(const SceneId& sceneId, EntityId id,
                                           TilemapComponent component) {
+    if (!NumericValidation::isValid(component)) return false;
     SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
     if (!instance || instance->tilemap.has_value()) return false;
     instance->tilemap = std::move(component);
@@ -488,6 +490,7 @@ bool ProjectDocument::setTilemapTileset(const SceneId& sceneId, EntityId id,
 }
 
 bool ProjectDocument::setTilemapCellSize(const SceneId& sceneId, EntityId id, Vec2 cellSize) {
+    if (!NumericValidation::isPositive(cellSize)) return false;
     SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
     if (!instance || !instance->tilemap.has_value()) return false;
     instance->tilemap->cellSize = cellSize;
@@ -497,6 +500,7 @@ bool ProjectDocument::setTilemapCellSize(const SceneId& sceneId, EntityId id, Ve
 
 bool ProjectDocument::setTilemapComponent(const SceneId& sceneId, EntityId id,
                                           TilemapComponent replacement) {
+    if (!NumericValidation::isValid(replacement)) return false;
     SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
     if (!instance || !instance->tilemap.has_value()) return false;
     instance->tilemap = std::move(replacement);
@@ -506,6 +510,7 @@ bool ProjectDocument::setTilemapComponent(const SceneId& sceneId, EntityId id,
 
 bool ProjectDocument::addBoxCollider(const std::string& objectTypeId,
                                      BoxCollider2DComponent component) {
+    if (!NumericValidation::isValid(component)) return false;
     auto it = doc_.objectTypes.find(objectTypeId);
     if (it == doc_.objectTypes.end() || it->second.boxCollider2D.has_value()) return false;
     it->second.boxCollider2D = component;
@@ -522,6 +527,7 @@ bool ProjectDocument::removeBoxCollider(const std::string& objectTypeId) {
 }
 
 bool ProjectDocument::setBoxColliderOffset(const std::string& objectTypeId, Vec2 offset) {
+    if (!NumericValidation::isFinite(offset)) return false;
     auto it = doc_.objectTypes.find(objectTypeId);
     if (it == doc_.objectTypes.end() || !it->second.boxCollider2D.has_value()) return false;
     it->second.boxCollider2D->offset = offset;
@@ -530,6 +536,7 @@ bool ProjectDocument::setBoxColliderOffset(const std::string& objectTypeId, Vec2
 }
 
 bool ProjectDocument::setBoxColliderSize(const std::string& objectTypeId, Vec2 size) {
+    if (!NumericValidation::isPositive(size)) return false;
     auto it = doc_.objectTypes.find(objectTypeId);
     if (it == doc_.objectTypes.end() || !it->second.boxCollider2D.has_value()) return false;
     it->second.boxCollider2D->size = size;
@@ -555,6 +562,7 @@ bool ProjectDocument::setBoxColliderMode(const std::string& objectTypeId, BoxCol
 
 bool ProjectDocument::addLinearMover(const std::string& objectTypeId,
                                      LinearMoverComponent component) {
+    if (!NumericValidation::isValid(component)) return false;
     auto it = doc_.objectTypes.find(objectTypeId);
     if (it == doc_.objectTypes.end() || it->second.linearMover.has_value()) return false;
     it->second.linearMover = component;
@@ -571,6 +579,7 @@ bool ProjectDocument::removeLinearMover(const std::string& objectTypeId) {
 }
 
 bool ProjectDocument::setLinearMoverDirection(const std::string& objectTypeId, Vec2 direction) {
+    if (!NumericValidation::isFinite(direction)) return false;
     auto it = doc_.objectTypes.find(objectTypeId);
     if (it == doc_.objectTypes.end() || !it->second.linearMover.has_value()) return false;
     it->second.linearMover->directionX = direction.x;
@@ -580,6 +589,7 @@ bool ProjectDocument::setLinearMoverDirection(const std::string& objectTypeId, V
 }
 
 bool ProjectDocument::setLinearMoverSpeed(const std::string& objectTypeId, float speed) {
+    if (!NumericValidation::isNonNegative(speed)) return false;
     auto it = doc_.objectTypes.find(objectTypeId);
     if (it == doc_.objectTypes.end() || !it->second.linearMover.has_value()) return false;
     it->second.linearMover->speed = speed;
@@ -589,6 +599,7 @@ bool ProjectDocument::setLinearMoverSpeed(const std::string& objectTypeId, float
 
 bool ProjectDocument::addTopDownController(const std::string& objectTypeId,
                                           TopDownControllerComponent component) {
+    if (!NumericValidation::isValid(component)) return false;
     auto it = doc_.objectTypes.find(objectTypeId);
     if (it == doc_.objectTypes.end() || it->second.topDownController.has_value()) return false;
     it->second.topDownController = component;
@@ -605,6 +616,7 @@ bool ProjectDocument::removeTopDownController(const std::string& objectTypeId) {
 }
 
 bool ProjectDocument::setTopDownControllerSpeed(const std::string& objectTypeId, float speed) {
+    if (!NumericValidation::isNonNegative(speed)) return false;
     auto it = doc_.objectTypes.find(objectTypeId);
     if (it == doc_.objectTypes.end() || !it->second.topDownController.has_value()) return false;
     it->second.topDownController->maxSpeed = speed;
@@ -614,6 +626,7 @@ bool ProjectDocument::setTopDownControllerSpeed(const std::string& objectTypeId,
 
 bool ProjectDocument::addPlatformerController(const std::string& objectTypeId,
                                              PlatformerControllerComponent component) {
+    if (!NumericValidation::isValid(component)) return false;
     auto it = doc_.objectTypes.find(objectTypeId);
     if (it == doc_.objectTypes.end() || it->second.platformerController.has_value()) return false;
     it->second.platformerController = component;
@@ -630,6 +643,7 @@ bool ProjectDocument::removePlatformerController(const std::string& objectTypeId
 }
 
 bool ProjectDocument::setPlatformerValue(const std::string& objectTypeId, int field, float value) {
+    if (!NumericValidation::isNonNegative(value)) return false;
     auto it = doc_.objectTypes.find(objectTypeId);
     if (it == doc_.objectTypes.end() || !it->second.platformerController.has_value()) return false;
     PlatformerControllerComponent& pc = *it->second.platformerController;
@@ -682,8 +696,15 @@ bool ProjectDocument::removeSpriteAnimationAsset(const AssetId& assetId) {
     return false;
 }
 
+void ProjectDocument::commitStagedCommand(ProjectDoc staged) {
+    using std::swap;
+    swap(doc_, staged);
+    markDirty();
+}
+
 bool ProjectDocument::addAnimationClip(const AssetId& assetId,
                                        SpriteAnimationClipDef clip) {
+    if (!NumericValidation::isPositive(clip.framesPerSecond)) return false;
     for (SpriteAnimationAssetDef& asset : doc_.spriteAnimationAssets) {
         if (asset.id != assetId) continue;
         if (clip.id.empty() || clip.name.empty()) return false;
@@ -758,6 +779,7 @@ bool ProjectDocument::setAnimationClipFrames(
 bool ProjectDocument::setAnimationClipFrameRate(const AssetId& assetId,
                                                 const std::string& clipId,
                                                 float fps) {
+    if (!NumericValidation::isPositive(fps)) return false;
     for (SpriteAnimationAssetDef& asset : doc_.spriteAnimationAssets) {
         if (asset.id != assetId) continue;
         for (SpriteAnimationClipDef& clip : asset.clips) {
