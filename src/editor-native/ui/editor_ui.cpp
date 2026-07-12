@@ -91,11 +91,6 @@ std::string formValue(Rml::Element* element, Rml::Event& event) {
     return event.GetParameter<Rml::String>("value", Rml::String());
 }
 
-void restoreFormValue(Rml::Element* element) {
-    if (auto* control = rmlui_dynamic_cast<Rml::ElementFormControl*>(element))
-        control->SetValue(attribute(element, "value"));
-}
-
 std::string lower(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -227,6 +222,17 @@ public:
                 break;
             }
         }
+        // Baseline of the field being edited, captured at focus time. The live
+        // "value" attribute cannot serve as the pre-edit reference for change
+        // detection or Escape-restore: RmlUi's WidgetTextInput rewrites that
+        // attribute on every keystroke, so it always equals the typed text.
+        if (type == "focus") {
+            const bool commitField = action.rfind("commit-", 0) == 0;
+            focusBaselineElement_ = commitField ? actionElement : nullptr;
+            focusBaselineValue_ = commitField ? formValue(actionElement, event)
+                                              : std::string();
+            return;
+        }
         if (action.empty()) return;
 
         // Hierarchy context menu triggers carry the click position; the show is
@@ -272,8 +278,11 @@ public:
             if (type == "keydown" && key == Rml::Input::KI_ESCAPE) {
                 if (action == "commit-layer-rename") {
                     ui_.handleAction("cancel-layer-rename", arg, formValue(actionElement, event));
-                } else {
-                    restoreFormValue(actionElement);
+                } else if (actionElement == focusBaselineElement_) {
+                    if (auto* control =
+                            rmlui_dynamic_cast<Rml::ElementFormControl*>(actionElement)) {
+                        control->SetValue(focusBaselineValue_);
+                    }
                 }
                 event.StopPropagation();
                 return;
@@ -290,8 +299,14 @@ public:
                 event.StopPropagation();
                 return;
             }
-            if (!pendingEditNeedsCommit(
-                    action, pendingValue, attribute(actionElement, "value"))) {
+            // Unchanged-value skip only when the focus-time baseline is known;
+            // without one, commit - a no-op command is cheaper than losing the
+            // edit. The baseline is consumed either way.
+            const bool baselineKnown = actionElement
+                && actionElement == focusBaselineElement_;
+            focusBaselineElement_ = nullptr;
+            if (baselineKnown
+                && !pendingEditNeedsCommit(action, pendingValue, focusBaselineValue_)) {
                 return;
             }
         }
@@ -319,6 +334,11 @@ private:
     EditorUi& ui_;
     std::string lastLayerClickId_;
     std::chrono::steady_clock::time_point lastLayerClickTime_{};
+    // Pre-edit value of the commit field being edited (set on focus). The
+    // element pointer is only ever compared, never dereferenced: a rebuild
+    // invalidates it, and the next focus event re-stamps the stash.
+    Rml::Element* focusBaselineElement_ = nullptr;
+    std::string   focusBaselineValue_;
 };
 
 // ----------------------------------------------------------------------------
@@ -339,6 +359,7 @@ void EditorUi::bind() {
         if (!doc) return;
         doc->AddEventListener("click", listener_.get());
         doc->AddEventListener("dblclick", listener_.get());
+        doc->AddEventListener("focus", listener_.get(), true);
         doc->AddEventListener("blur", listener_.get(), true);
         doc->AddEventListener("keydown", listener_.get(), true);
         doc->AddEventListener("drag", listener_.get());
