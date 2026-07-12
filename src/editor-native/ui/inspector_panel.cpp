@@ -350,7 +350,9 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             ? std::string("Untitled")
             : coordinator.document().data().projectName;
         std::string html;
-        html += header("&#xeb0b;", "Project", "", "", "", playing);
+        // Folder glyph, not the plus: "+" is the add-action icon everywhere else
+        // (+ Create, + Import, + Add Layer), so "+ PROJECT" read as a button.
+        html += header("&#xeaad;", "Project", "", "", "", playing);
         html += field("Name", "commit-project-name", projectName, playing);
         if (!scene) {
             layerRename_.reset();
@@ -425,10 +427,26 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 html += escapeRml(layer.name) + "</span>";
             }
             if (!playing) {
-                html += "<span class=\"layer-btn\" data-action=\"move-layer-up\" data-arg=\""
-                      + escapeRml(layer.id) + "\">&#x2191;</span>";
-                html += "<span class=\"layer-btn\" data-action=\"move-layer-down\" data-arg=\""
-                      + escapeRml(layer.id) + "\">&#x2193;</span>";
+                // Reorder arrows only when there is an order to change; the top
+                // and bottom rows keep an inert (disabled) arrow so the arrow
+                // columns stay aligned across rows. "Up" = toward foreground =
+                // a higher index in scene->layers.
+                if (scene->layers.size() > 1) {
+                    const bool canUp   = i + 1 < scene->layers.size();
+                    const bool canDown = i > 0;
+                    html += "<span class=\"layer-btn";
+                    if (!canUp) html += " disabled";
+                    html += "\"";
+                    if (canUp) html += " data-action=\"move-layer-up\" data-arg=\""
+                                     + escapeRml(layer.id) + "\"";
+                    html += ">&#x2191;</span>";
+                    html += "<span class=\"layer-btn";
+                    if (!canDown) html += " disabled";
+                    html += "\"";
+                    if (canDown) html += " data-action=\"move-layer-down\" data-arg=\""
+                                       + escapeRml(layer.id) + "\"";
+                    html += ">&#x2193;</span>";
+                }
                 if (!isDefault)
                     html += "<span class=\"layer-remove\" data-action=\"remove-layer\" data-arg=\""
                           + escapeRml(layer.id) + "\">&#xd7;</span>";

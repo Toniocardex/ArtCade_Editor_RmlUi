@@ -546,6 +546,10 @@
     transition: background-color 0.1s, color 0.1s;
 }
 .layer-btn:hover { background-color: #222226; color: #d4d4d8; }
+/* Inert reorder arrow (top row's ↑, bottom row's ↓): keeps the arrow columns
+   aligned across rows without pretending to be clickable. */
+.layer-btn.disabled { color: #2e2e33; }
+.layer-btn.disabled:hover { background-color: transparent; color: #2e2e33; }
 .layer-remove {
     display: inline-block;
     width: 20dp;
@@ -572,6 +576,9 @@
     background-color: #1c1c1f;
     border-bottom: 1px #27272a;
 }
+/* No scenes: the empty strip is just a dark band — collapse it. Needs its own
+   rule: .scene-tabs above outranks the generic .hidden by order. */
+.scene-tabs.hidden { display: none; }
 .tab {
     display: inline-block;
     height: 28dp;

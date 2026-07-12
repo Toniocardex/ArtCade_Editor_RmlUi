@@ -1020,9 +1020,11 @@ void EditorUi::refreshToolbar() {
         if (playing && coordinator_.playSession()) {
             text = "PLAYING - " + coordinator_.playSession()->scene().name;
         } else {
+            // No scene -> no readout: "-  -  EDIT" with a placeholder dash reads
+            // like a rendering glitch, and the empty-state UI already says it all.
             const SceneDef* scene =
                 coordinator_.document().findScene(coordinator_.state().activeSceneId);
-            text = (scene ? scene->name : std::string("-")) + "  -  EDIT";
+            if (scene) text = scene->name + "  -  EDIT";
         }
         status->SetInnerRML(escapeRml(text));
     }

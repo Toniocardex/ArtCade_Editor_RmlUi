@@ -93,6 +93,11 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
         tabs += "</div>";
     }
     setHtml(document, "scene-tabs", tabs);
+    // With no scenes the strip is an empty dark band: collapse it and let the
+    // single "No scenes yet" line below carry the whole empty state.
+    if (Rml::Element* strip = document->GetElementById("scene-tabs")) {
+        strip->SetClass("hidden", scenesSorted.empty());
+    }
 
     // -- Entity tree of the active scene --------------------------------------
     const std::string filter = coordinator.uiState().hierarchyFilter;
@@ -119,10 +124,12 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
         }
     }
     if (rows.empty()) {
+        // Without a scene, "No entities" is noise (entities cannot exist yet)
+        // and competes with the viewport's Create Scene call to action.
         rows = scene
             ? "<div class=\"tree-empty\">No entities in this scene.<br/>"
               "Create an entity, then place instances.</div>"
-            : "<div class=\"tree-empty\">No entities</div>";
+            : "<div class=\"tree-empty\">No scenes yet.</div>";
     } else {
         // What the list contains: instances of the active scene (their object
         // type shows as the trailing tag).
