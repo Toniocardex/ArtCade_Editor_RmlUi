@@ -499,7 +499,9 @@ static void runSpriteAnimationTests() {
     {
         EditorCoordinator c{makeAnimationDoc()};
         CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
+        const uint64_t revisionBefore = c.document().revision();
         CHECK(c.execute(SetSpriteRendererAnimationCommand{kSceneA, kHero, "hero.anim"}).ok);
+        CHECK(c.document().revision() == revisionBefore + 1);  // one logical mutation
         const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, kHero);
         CHECK(inst && inst->spriteRenderer);
         CHECK(inst && inst->spriteRenderer->imageAssetId.empty());
@@ -519,22 +521,64 @@ static void runSpriteAnimationTests() {
         CHECK(inst && inst->spriteRenderer);
         CHECK(inst && inst->spriteRenderer->animationAssetId.empty());
         CHECK(inst && !inst->spriteAnimator.has_value());
+
+        CHECK(c.redo().ok);
+        inst = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(inst && inst->spriteRenderer->animationAssetId == "hero.anim");
+        CHECK(inst && inst->spriteAnimator.has_value()
+              && inst->spriteAnimator->initialClipId == "idle");
     }
 
-    // -- Removing an animation asset clears the entity's source + animator ----
+    // -- Animation -> image is one atomic renderer+animator state change -----
     {
         EditorCoordinator c{makeAnimationDoc()};
         CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
         CHECK(c.execute(SetSpriteRendererAnimationCommand{kSceneA, kHero, "hero.anim"}).ok);
+        const uint64_t imageRevisionBefore = c.document().revision();
+        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-hero"}).ok);
+        CHECK(c.document().revision() == imageRevisionBefore + 1);
+        const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(inst && inst->spriteRenderer->imageAssetId == "img-hero");
+        CHECK(inst && inst->spriteRenderer->animationAssetId.empty());
+        CHECK(inst && !inst->spriteAnimator.has_value());
+        CHECK(c.undo().ok);
+        inst = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(inst && inst->spriteRenderer->animationAssetId == "hero.anim");
+        CHECK(inst && inst->spriteAnimator.has_value()
+              && inst->spriteAnimator->initialClipId == "idle");
+        CHECK(c.redo().ok);
+        inst = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(inst && inst->spriteRenderer->imageAssetId == "img-hero");
+        CHECK(inst && !inst->spriteAnimator.has_value());
+    }
+
+    // -- Removing an animation asset clears every reference atomically --------
+    {
+        ProjectDoc doc = makeAnimationDoc();
+        SceneInstanceDef second = doc.scenes.at(kSceneA).instances.front();
+        second.id = 77;
+        second.instanceName = "Hero 2";
+        doc.scenes.at(kSceneA).instances.push_back(second);
+        EditorCoordinator c{std::move(doc)};
+        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
+        CHECK(c.execute(SetSpriteRendererAnimationCommand{kSceneA, kHero, "hero.anim"}).ok);
+        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, 77}).ok);
+        CHECK(c.execute(SetSpriteRendererAnimationCommand{kSceneA, 77, "hero.anim"}).ok);
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)
                   ->spriteRenderer->animationAssetId == "hero.anim");
+        const uint64_t revisionBefore = c.document().revision();
         // Delete means delete: the asset goes AND the entity is left clean, not
         // blocked and not dangling.
         CHECK(c.execute(RemoveSpriteAnimationAssetCommand{"hero.anim"}).ok);
+        CHECK(c.document().revision() == revisionBefore + 1);  // one staged commit
         CHECK(!c.document().hasSpriteAnimationAsset("hero.anim"));
         const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, kHero);
         CHECK(inst && inst->spriteRenderer && inst->spriteRenderer->animationAssetId.empty());
         CHECK(inst && !inst->spriteAnimator.has_value());
+        const SceneInstanceDef* secondInst = c.document().findInstanceInScene(kSceneA, 77);
+        CHECK(secondInst && secondInst->spriteRenderer
+              && secondInst->spriteRenderer->animationAssetId.empty());
+        CHECK(secondInst && !secondInst->spriteAnimator.has_value());
         // Undo restores the asset, the source, and the animator (with its clip).
         CHECK(c.undo().ok);
         CHECK(c.document().hasSpriteAnimationAsset("hero.anim"));
@@ -542,6 +586,18 @@ static void runSpriteAnimationTests() {
         CHECK(inst && inst->spriteRenderer->animationAssetId == "hero.anim");
         CHECK(inst && inst->spriteAnimator.has_value()
               && inst->spriteAnimator->initialClipId == "idle");
+        secondInst = c.document().findInstanceInScene(kSceneA, 77);
+        CHECK(secondInst && secondInst->spriteRenderer->animationAssetId == "hero.anim");
+        CHECK(secondInst && secondInst->spriteAnimator.has_value()
+              && secondInst->spriteAnimator->initialClipId == "idle");
+        CHECK(c.redo().ok);
+        CHECK(!c.document().hasSpriteAnimationAsset("hero.anim"));
+        inst = c.document().findInstanceInScene(kSceneA, kHero);
+        secondInst = c.document().findInstanceInScene(kSceneA, 77);
+        CHECK(inst && inst->spriteRenderer->animationAssetId.empty());
+        CHECK(inst && !inst->spriteAnimator.has_value());
+        CHECK(secondInst && secondInst->spriteRenderer->animationAssetId.empty());
+        CHECK(secondInst && !secondInst->spriteAnimator.has_value());
     }
 
     // -- Slicing a second animation must not overwrite the first's clip -------
@@ -1509,6 +1565,12 @@ static void setUpTilemapForPainting(EditorCoordinator& c) {
     tm.cellSize = {32.f, 32.f};
     tm.chunkSize = 16;
     CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+    // Real production paint strokes always target coordinator.selection()
+    // (see routeViewportTilemapPaint), never an arbitrary entityId - select
+    // kHero here so EditorCoordinator::reconcileTilemapEditingContext() (run
+    // after every Command) sees a selection that supports the tilemap tool,
+    // matching how every test in this suite actually paints kHero.
+    CHECK(c.apply(SelectEntityIntent{kHero}).ok);
 }
 
 static void runTilemapPaintingTests() {
@@ -1967,6 +2029,7 @@ static void runTilemapPaintingTests() {
     // effectiveTilemapTool(): no override -> the persistent tool -------------------
     {
         EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);   // Brush only sticks with a selection that supports it
         c.apply(SetActiveToolIntent{EditorTool::Brush});
         CHECK(c.effectiveTilemapTool() == EditorTool::Brush);
     }
@@ -1975,6 +2038,7 @@ static void runTilemapPaintingTests() {
     // ever writing activeTool - this is the whole point of the design ------------
     {
         EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
         c.apply(SetActiveToolIntent{EditorTool::Brush});
         const auto begin = c.apply(BeginTemporaryToolOverrideIntent{EditorTool::Eraser});
         CHECK(begin.ok);
@@ -1986,6 +2050,7 @@ static void runTilemapPaintingTests() {
     // EndTemporaryToolOverrideIntent: clears it, reverting to the persistent tool -
     {
         EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
         c.apply(SetActiveToolIntent{EditorTool::Brush});
         c.apply(BeginTemporaryToolOverrideIntent{EditorTool::Eraser});
         const auto end = c.apply(EndTemporaryToolOverrideIntent{});
@@ -2047,7 +2112,12 @@ static void runTilemapPaintingTests() {
         CHECK(c.execute(DeleteEntityCommand{kSceneA, kHero}).ok);
         CHECK(!c.state().tilemapEditor.pendingStroke.has_value());
         CHECK(!c.state().tilemapEditor.temporaryToolOverride.has_value());
-        CHECK(c.effectiveTilemapTool() == EditorTool::Brush);
+        // The deleted entity was the selection too - with nothing left to
+        // paint, reconcileTilemapEditingContext() (run by reconcileWorkspace
+        // after the DeleteEntityCommand) falls the persistent tool back to
+        // Select as well, not just the override.
+        CHECK(c.effectiveTilemapTool() == EditorTool::Select);
+        CHECK(c.state().activeTool == EditorTool::Select);
     }
 }
 
@@ -2463,8 +2533,10 @@ static void runTilemapRegionTests() {
         CHECK(readTilemapCell(tm, {1, 1})->tileId == "tile-1");
     }
 
-    // -- Selected entity changed mid-drag never redirects the commit: it
-    // always targets the entity the rectangle actually started on ---------------
+    // -- Selecting a different entity mid-drag cancels the pending rectangle,
+    // never redirects or auto-commits it: a gesture belongs to whatever was
+    // selected when it started, and a selection change always discards it
+    // (Scene View Selection & Tool Context slice) -------------------------------
     {
         ProjectDoc doc = makeSpriteDoc();
         SceneInstanceDef other;
@@ -2481,14 +2553,16 @@ static void runTilemapRegionTests() {
 
         c.apply(SelectPaintTileIntent{"tile-1"});
         CHECK(c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);   // starts on kHero
+        CHECK(c.state().tilemapEditor.pendingRectangle.has_value());
         c.apply(SelectEntityIntent{99});   // user clicks the other entity mid-drag
-        CHECK(c.apply(UpdateTileRectangleIntent{{1, 1}}).ok);
-        CHECK(c.apply(CommitTileRectangleIntent{}).ok);
+        CHECK(!c.state().tilemapEditor.pendingRectangle.has_value());   // discarded, not redirected
+        CHECK(!c.apply(UpdateTileRectangleIntent{{1, 1}}).ok);          // nothing left to update
+        CHECK(!c.apply(CommitTileRectangleIntent{}).ok);                // nothing left to commit
 
         const TilemapComponent& heroTm = *c.document().findInstanceInScene(kSceneA, kHero)->tilemap;
         const TilemapComponent& otherTm = *c.document().findInstanceInScene(kSceneA, 99)->tilemap;
-        CHECK(readTilemapCell(heroTm, {0, 0}).has_value());     // landed on the entity it started on
-        CHECK(!readTilemapCell(otherTm, {0, 0}).has_value());   // never touched
+        CHECK(!readTilemapCell(heroTm, {0, 0}).has_value());     // abandoned rectangle never painted
+        CHECK(!readTilemapCell(otherTm, {0, 0}).has_value());    // never touched
     }
 
     // ======================= UpdateTileRectangleIntent =======================
@@ -2585,8 +2659,10 @@ static void runTilemapRegionTests() {
     }
 
     // ======================= reconcileWorkspace =======================
-    // -- Entity deleted mid-drag: only pendingRectangle is cleared; the tile/
-    // shape preferences the user already chose survive ---------------------------
+    // -- Entity deleted mid-drag: pendingRectangle is cleared, and so is
+    // selectedTileId (there is no longer a target tileset it could belong to
+    // - Scene View Selection & Tool Context slice); rectangleOutlineMode is a
+    // general drawing preference, not tied to any tileset, so it survives ------
     {
         EditorCoordinator c{makeSpriteDoc()};
         setUpTilemapForPainting(c);
@@ -2596,8 +2672,7 @@ static void runTilemapRegionTests() {
         CHECK(c.state().tilemapEditor.pendingRectangle.has_value());
         CHECK(c.execute(DeleteEntityCommand{kSceneA, kHero}).ok);
         CHECK(!c.state().tilemapEditor.pendingRectangle.has_value());
-        CHECK(c.state().tilemapEditor.selectedTileId.has_value());
-        CHECK(*c.state().tilemapEditor.selectedTileId == "tile-1");
+        CHECK(!c.state().tilemapEditor.selectedTileId.has_value());
         CHECK(c.state().tilemapEditor.rectangleOutlineMode);
     }
 
@@ -3565,7 +3640,7 @@ int main() {
         CHECK(c.selection().primaryEntity == kHero);
 
         const auto tool = c.apply(SetActiveToolIntent{EditorTool::Pan});
-        CHECK(tool.invalidation == EditorInvalidation::Inspector);
+        CHECK(tool.invalidation == (EditorInvalidation::Inspector | EditorInvalidation::Toolbar));
         CHECK(c.state().activeTool == EditorTool::Pan);
         CHECK(c.uiState().consoleVisible);
 
@@ -4153,6 +4228,31 @@ int main() {
         CHECK(c.document().data().objectTypes.size() == typesBefore);
         CHECK(c.document().findInstanceInScene(kSceneA, 999) == nullptr);
         CHECK(c.document().revision() == revBefore);        // no partial state
+    }
+
+    // -- Create type + instance is one staged authoring mutation --------------
+    {
+        ProjectDoc fresh;
+        SceneDef scene;
+        scene.id = "s";
+        scene.name = "S";
+        scene.layers.push_back(SceneLayerDef{"layer-1", "Layer 1", false});
+        scene.defaultLayerId = "layer-1";
+        fresh.scenes.emplace("s", scene);
+        fresh.activeSceneId = "s";
+        EditorCoordinator c{std::move(fresh)};
+        const uint64_t revisionBefore = c.document().revision();
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Entity", "Entity", {}, "layer-1"}).ok);
+        CHECK(c.document().revision() == revisionBefore + 1);
+        CHECK(c.document().hasObjectType("obj-1"));
+        CHECK(c.document().findInstanceInScene("s", 1) != nullptr);
+        CHECK(c.undo().ok);
+        CHECK(!c.document().hasObjectType("obj-1"));
+        CHECK(c.document().findInstanceInScene("s", 1) == nullptr);
+        CHECK(c.redo().ok);
+        CHECK(c.document().hasObjectType("obj-1"));
+        CHECK(c.document().findInstanceInScene("s", 1) != nullptr);
     }
 
     // -- (8) Save/reload keeps the two created types distinct ------------------
@@ -5782,8 +5882,10 @@ int main() {
         CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-hero"}).ok);
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)
                   ->spriteRenderer->imageAssetId == "img-hero");
+        const uint64_t revisionBefore = c.document().revision();
         // Removing the image drops the reference - the entity keeps no dangling id.
         CHECK(c.execute(RemoveImageAssetCommand{"img-hero"}).ok);
+        CHECK(c.document().revision() == revisionBefore + 1);
         CHECK(!c.document().hasImageAsset("img-hero"));
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)
                   ->spriteRenderer->imageAssetId.empty());
@@ -6025,11 +6127,17 @@ int main() {
         CHECK(pickEntityAt(f, Vec2{200.f, 200.f}) == INVALID_ENTITY);
     }
 
-    // -- pickEntityAt: a visible sprite occludes a placeholder ----------------
+    // -- pickEntityAt: a visible sprite occludes a placeholder -----------------
+    // frame.entities is the pick order authority (collectSceneFrameSnapshot
+    // always emits every instance into it, in render order) - 1 is background,
+    // 3 and 2 are foreground of it, so this exercises both "later in
+    // frame.entities wins" and "invisible sprite never hits regardless".
     {
         SceneFrameSnapshot f;
         f.hasScene = true;
         f.entities.push_back(SceneFrameEntity{1, "P", {}, SceneFrameRect{0, 0, 50, 50}, false});
+        f.entities.push_back(SceneFrameEntity{3, "S3", {}, SceneFrameRect{10, 10, 50, 50}, false});
+        f.entities.push_back(SceneFrameEntity{2, "S2", {}, SceneFrameRect{10, 10, 50, 50}, false});
         f.sprites.push_back(SceneFrameSprite{2, "img", SceneFrameRect{10, 10, 50, 50}, {}, true, false});
         f.sprites.push_back(SceneFrameSprite{3, "img", SceneFrameRect{10, 10, 50, 50}, {}, false, false});
         CHECK(pickEntityAt(f, Vec2{20.f, 20.f}) == 2);   // sprite over placeholder
@@ -6061,19 +6169,21 @@ int main() {
         CHECK(fallback->y == 70.f);
     }
 
-    // -- pickEntityAt: a tilemap cell is hit-testable, and a sprite drawn on
-    // top of a tile still wins (draw order: placeholders, tilemaps, sprites) -
+    // -- pickEntityAt: a tilemap cell is hit-testable, and a sprite-owning
+    // entity later in frame.entities (foreground) still wins over one earlier
+    // (background) that owns a tilemap ------------------------------------------
     {
         SceneFrameSnapshot f;
         f.hasScene = true;
         f.entities.push_back(SceneFrameEntity{1, "Ground", {}, SceneFrameRect{0, 0, 10, 10}, false});
+        f.entities.push_back(SceneFrameEntity{2, "Hero", {}, SceneFrameRect{10, 10, 10, 10}, false});
         f.tilemaps.push_back(SceneFrameTilemap{
             1, "tiles-img",
             {SceneFrameTilemapCell{SceneFrameRect{0, 0, 32, 32}, SceneFrameRect{0, 0, 16, 16}}},
             false});
         f.sprites.push_back(SceneFrameSprite{2, "img", SceneFrameRect{10, 10, 10, 10}, {}, true, false});
         CHECK(pickEntityAt(f, Vec2{5.f, 5.f}) == 1);      // hits the tile, not just the placeholder
-        CHECK(pickEntityAt(f, Vec2{15.f, 15.f}) == 2);    // sprite on top of the tile wins
+        CHECK(pickEntityAt(f, Vec2{15.f, 15.f}) == 2);    // sprite entity, later in render order, wins
         CHECK(pickEntityAt(f, Vec2{500.f, 500.f}) == INVALID_ENTITY);
     }
 
@@ -7153,6 +7263,253 @@ int main() {
         CHECK(readTilemapCell(*moved->tilemap, {0, 0})->tileId == "tile-1");
     }
 
+    // == Scene View Selection & Tool Context =====================================
+    // reconcileTilemapEditingContext() keeps EditorState::activeTool /
+    // pendingStroke|Rectangle / temporaryToolOverride / selectedTileId in line
+    // with whether the current selection actually supports a tilemap tool -
+    // called after every Command (via reconcileWorkspace) and directly from
+    // the selection/tool-changing Intents.
+
+    // -- End-to-end: Eraser stuck on a tilemap selection no longer blocks
+    // dragging a different entity selected from the Hierarchy afterwards -----
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        c.apply(SelectSceneIntent{"s"});
+        CHECK(c.execute(AddImageAssetCommand{"img-1", "some/path.png"}).ok);
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-1", "Tiles", "img-1", TilesetSlicing{32, 32}}).ok);
+        CHECK(c.execute(ChangeTilesetSlicingCommand{
+                  "tiles-1", TilesetSlicing{32, 32},
+                  tilesForSlicing(64, 64, TilesetSlicing{32, 32})}).ok);
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Ground", "Ground", {}, "layer-1"}).ok);
+        TilemapComponent tm; tm.tilesetAssetId = "tiles-1";
+        CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 2, "obj-2", "Hero", "Hero", {5.f, 5.f}, "layer-1"}).ok);
+
+        // 1. Eraser active on the tilemap entity.
+        c.apply(SelectEntityIntent{1});
+        c.apply(SetActiveToolIntent{EditorTool::Eraser});
+        CHECK(c.state().activeTool == EditorTool::Eraser);
+        const uint64_t revBefore = c.document().revision();
+        const std::size_t undoBefore = c.undoSize();
+
+        // 2. Select Entity 2 (no tilemap) from the Hierarchy.
+        CHECK(c.apply(SelectEntityIntent{2}).ok);
+        // 3. Tool falls back to Select.
+        CHECK(c.state().activeTool == EditorTool::Select);
+        CHECK(c.effectiveTilemapTool() == EditorTool::Select);
+        // Pure workspace reconciliation: no authoring mutation happened.
+        CHECK(c.document().revision() == revBefore);
+        CHECK(c.undoSize() == undoBefore);
+
+        // 4-6. Pointer down/drag/up equivalent - exactly what
+        // routeViewportPickDrag issues on release, now reachable because its
+        // own "activeTool == Select" guard passes again.
+        CHECK(c.execute(SetEntityPositionCommand{"s", 2, {50.f, 50.f}}).ok);
+        CHECK(c.document().findInstanceInScene("s", 2)->transform.position.x == 50.f);
+
+        // 7. Undo restores the position.
+        CHECK(c.undo().ok);
+        CHECK(c.document().findInstanceInScene("s", 2)->transform.position.x == 5.f);
+    }
+
+    // -- Selecting the scene (Hierarchy "Scene 1" row) cancels any pending
+    // gesture, falls the tool back to Select, and clears the selection -------
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        c.apply(SelectSceneIntent{"s"});
+        CHECK(c.execute(AddImageAssetCommand{"img-1", "some/path.png"}).ok);
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-1", "Tiles", "img-1", TilesetSlicing{32, 32}}).ok);
+        CHECK(c.execute(ChangeTilesetSlicingCommand{
+                  "tiles-1", TilesetSlicing{32, 32},
+                  tilesForSlicing(64, 64, TilesetSlicing{32, 32})}).ok);
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Ground", "Ground", {}, "layer-1"}).ok);
+        TilemapComponent tm; tm.tilesetAssetId = "tiles-1";
+        CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
+
+        c.apply(SelectEntityIntent{1});
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(BeginTilePaintStrokeIntent{"s", 1, EditorTool::Brush, {0, 0}}).ok);
+        CHECK(c.state().tilemapEditor.pendingStroke.has_value());
+
+        CHECK(c.apply(SelectSceneIntent{"s"}).ok);   // re-selecting the scene itself
+        CHECK(!c.state().tilemapEditor.pendingStroke.has_value());
+        CHECK(c.state().activeTool == EditorTool::Select);
+        CHECK(!c.selection().hasEntity());
+    }
+
+    // -- Switching between two tilemaps keeps the tool, retargets, keeps a
+    // still-valid tile pick but clears one that doesn't exist in the new
+    // tileset (never substitutes one), and never touches the old tilemap -----
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        c.apply(SelectSceneIntent{"s"});
+        CHECK(c.execute(AddImageAssetCommand{"img-1", "a.png"}).ok);
+        CHECK(c.execute(AddImageAssetCommand{"img-2", "b.png"}).ok);
+        // tiles-1: 64x64 sliced at 32x32 -> "tile-1".."tile-4".
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-1", "Tiles A", "img-1", TilesetSlicing{32, 32}}).ok);
+        CHECK(c.execute(ChangeTilesetSlicingCommand{
+                  "tiles-1", TilesetSlicing{32, 32},
+                  tilesForSlicing(64, 64, TilesetSlicing{32, 32})}).ok);
+        // tiles-2: 32x32 sliced at 32x32 -> "tile-1" only - deliberately does
+        // not include "tile-4".
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-2", "Tiles B", "img-2", TilesetSlicing{32, 32}}).ok);
+        CHECK(c.execute(ChangeTilesetSlicingCommand{
+                  "tiles-2", TilesetSlicing{32, 32},
+                  tilesForSlicing(32, 32, TilesetSlicing{32, 32})}).ok);
+
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Ground", "Ground", {}, "layer-1"}).ok);
+        TilemapComponent tmA; tmA.tilesetAssetId = "tiles-1";
+        CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tmA}).ok);
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 2, "obj-2", "Decoration", "Decoration", {}, "layer-1"}).ok);
+        TilemapComponent tmB; tmB.tilesetAssetId = "tiles-2";
+        CHECK(c.execute(AddTilemapComponentCommand{"s", 2, tmB}).ok);
+
+        c.apply(SelectEntityIntent{1});
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+        c.apply(SelectPaintTileIntent{"tile-4"});
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{0, 0}, std::nullopt,
+                                            TilemapCellValue{"tile-4", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{"s", 1, changes}).ok);
+
+        CHECK(c.apply(SelectEntityIntent{2}).ok);   // switch to the other tilemap
+        CHECK(c.state().activeTool == EditorTool::Brush);         // tool stays
+        CHECK(!c.state().tilemapEditor.selectedTileId.has_value());   // "tile-4" doesn't exist in tiles-2
+
+        const TilemapComponent& tmAfter = *c.document().findInstanceInScene("s", 1)->tilemap;
+        CHECK(readTilemapCell(tmAfter, {0, 0})->tileId == "tile-4");   // old tilemap untouched
+
+        // Switching back to a tile that IS valid in the new target keeps it.
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(SelectEntityIntent{1}).ok);   // back to tiles-1, which also has "tile-1"
+        CHECK(c.state().tilemapEditor.selectedTileId.has_value());
+        CHECK(*c.state().tilemapEditor.selectedTileId == "tile-1");
+    }
+
+    // -- Locking the active layer while its tilemap is selected: selection
+    // survives (Hierarchy/Inspector may still show it), but the tool falls
+    // back to Select and painting is rejected with no pending residue --------
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        c.apply(SelectSceneIntent{"s"});
+        CHECK(c.execute(AddImageAssetCommand{"img-1", "some/path.png"}).ok);
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-1", "Tiles", "img-1", TilesetSlicing{32, 32}}).ok);
+        CHECK(c.execute(ChangeTilesetSlicingCommand{
+                  "tiles-1", TilesetSlicing{32, 32},
+                  tilesForSlicing(64, 64, TilesetSlicing{32, 32})}).ok);
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Ground", "Ground", {}, "layer-1"}).ok);
+        TilemapComponent tm; tm.tilesetAssetId = "tiles-1";
+        CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
+
+        c.apply(SelectEntityIntent{1});
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+        CHECK(c.state().activeTool == EditorTool::Brush);
+
+        CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", true}).ok);
+        CHECK(c.selection().primaryEntity == 1);           // selection itself survives
+        CHECK(c.state().activeTool == EditorTool::Select);  // but the tool falls back
+        CHECK(!c.state().tilemapEditor.pendingStroke.has_value());
+
+        const auto begin = c.apply(BeginTilePaintStrokeIntent{"s", 1, EditorTool::Eraser, {0, 0}});
+        CHECK(!begin.ok);
+        CHECK(!c.state().tilemapEditor.pendingStroke.has_value());
+    }
+
+    // -- Pan is not a tilemap tool: a selection change never resets it --------
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        c.apply(SelectSceneIntent{"s"});
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+        c.apply(SetActiveToolIntent{EditorTool::Pan});
+        CHECK(c.apply(SelectEntityIntent{1}).ok);
+        CHECK(c.state().activeTool == EditorTool::Pan);
+        CHECK(c.apply(SelectSceneIntent{"s"}).ok);
+        CHECK(c.state().activeTool == EditorTool::Pan);
+    }
+
+    // -- A momentary Eraser override is always cleared by a selection change,
+    // even when the newly selected entity also supports tilemap tools --------
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        c.apply(SelectSceneIntent{"s"});
+        CHECK(c.execute(AddImageAssetCommand{"img-1", "some/path.png"}).ok);
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-1", "Tiles", "img-1", TilesetSlicing{32, 32}}).ok);
+        CHECK(c.execute(ChangeTilesetSlicingCommand{
+                  "tiles-1", TilesetSlicing{32, 32},
+                  tilesForSlicing(64, 64, TilesetSlicing{32, 32})}).ok);
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Ground", "Ground", {}, "layer-1"}).ok);
+        TilemapComponent tm1; tm1.tilesetAssetId = "tiles-1";
+        CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm1}).ok);
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 2, "obj-2", "Decoration", "Decoration", {}, "layer-1"}).ok);
+        TilemapComponent tm2; tm2.tilesetAssetId = "tiles-1";
+        CHECK(c.execute(AddTilemapComponentCommand{"s", 2, tm2}).ok);
+
+        c.apply(SelectEntityIntent{1});
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+        c.apply(BeginTemporaryToolOverrideIntent{EditorTool::Eraser});
+        CHECK(c.state().tilemapEditor.temporaryToolOverride.has_value());
+
+        CHECK(c.apply(SelectEntityIntent{2}).ok);   // entity 2 also has a tilemap
+        CHECK(!c.state().tilemapEditor.temporaryToolOverride.has_value());
+        CHECK(c.state().activeTool == EditorTool::Brush);   // persistent tool untouched
+    }
+
+    // -- Front-to-back picking respects real layer order: a sprite on the
+    // foreground layer wins over an overlapping tilemap on the background
+    // layer, and inverting which entity is on which layer flips the result --
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        c.apply(SelectSceneIntent{"s"});
+        CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
+        CHECK(c.execute(AddImageAssetCommand{"img-1", "some/path.png"}).ok);
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-1", "Tiles", "img-1", TilesetSlicing{32, 32}}).ok);
+        CHECK(c.execute(ChangeTilesetSlicingCommand{
+                  "tiles-1", TilesetSlicing{32, 32},
+                  tilesForSlicing(64, 64, TilesetSlicing{32, 32})}).ok);
+
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 1, "obj-1", "Ground", "Ground", {16.f, 16.f}, "layer-1"}).ok);
+        TilemapComponent tm; tm.tilesetAssetId = "tiles-1"; tm.cellSize = {32.f, 32.f};
+        CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{0, 0}, std::nullopt,
+                                            TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{"s", 1, changes}).ok);
+
+        CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                  "s", 2, "obj-2", "Hero", "Hero", {16.f, 16.f}, "fg"}).ok);
+        CHECK(c.execute(AddSpriteRendererCommand{"s", 2}).ok);
+        CHECK(c.execute(SetSpriteRendererAssetCommand{"s", 2, "img-1"}).ok);
+
+        const SceneFrameSnapshot before =
+            collectSceneFrameSnapshot(c.document(), "s", INVALID_ENTITY);
+        CHECK(pickEntityAt(before, Vec2{16.f, 16.f}) == 2);   // sprite: foreground layer wins
+
+        // Invert which entity is on which layer - the pick must flip too.
+        CHECK(c.execute(SetEntityLayerCommand{"s", 2, "layer-1"}).ok);
+        CHECK(c.execute(SetEntityLayerCommand{"s", 1, "fg"}).ok);
+        const SceneFrameSnapshot after =
+            collectSceneFrameSnapshot(c.document(), "s", INVALID_ENTITY);
+        CHECK(pickEntityAt(after, Vec2{16.f, 16.f}) == 1);   // tilemap: now foreground
+    }
+
     // == Start-scene invariant: scenes exist => startSceneId is valid ==========
 
     // -- (1)(2)(3) First scene becomes the start scene; workspace untouched ----
@@ -7160,7 +7517,9 @@ int main() {
         EditorCoordinator c{ProjectDoc{}};
         CHECK(c.document().startSceneId().empty());
         const SceneId activeBefore = c.state().activeSceneId;
+        const uint64_t revisionBefore = c.document().revision();
         CHECK(c.execute(CreateSceneCommand{"scene-1", "Scene 1"}).ok);
+        CHECK(c.document().revision() == revisionBefore + 1);
         CHECK(c.document().startSceneId() == "scene-1");   // (1) invariant maintained
         CHECK(c.state().activeSceneId == activeBefore);    // (2) no auto-select
         CHECK(!c.state().selection.hasEntity());           // (3) selection untouched
@@ -7326,8 +7685,12 @@ int main() {
     {
         EditorCoordinator c{makeSpriteDoc()};
         CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
+        const uint64_t revisionBefore = c.document().revision();
+        const std::size_t undoBefore = c.undoSize();
         CHECK(!c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "does-not-exist"}).ok);
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->spriteRenderer->imageAssetId.empty());
+        CHECK(c.document().revision() == revisionBefore);
+        CHECK(c.undoSize() == undoBefore);
     }
 
     // -- (6) A non-image asset id (a tileset) is rejected ---------------------

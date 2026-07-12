@@ -844,6 +844,21 @@ void EditorUi::refreshToolbar() {
     // Undo/Redo are derived affordances: available only with history and outside Play.
     setEnabledBoth("btn-undo", "menu-undo", !playing && coordinator_.canUndo());
     setEnabledBoth("btn-redo", "menu-redo", !playing && coordinator_.canRedo());
+    // Select/Pan are always present, unlike the Tilemap tools (Brush/Eraser/
+    // Picker/Rectangle/Fill), which only render inside a selected tilemap's
+    // own Inspector section - both read and write the same EditorState
+    // ::activeTool, no second local state.
+    {
+        const bool toolActionable = !playing
+            && coordinator_.document().findScene(coordinator_.state().activeSceneId) != nullptr;
+        const EditorTool activeTool = coordinator_.state().activeTool;
+        setEnabled("btn-tool-select", toolActionable);
+        setEnabled("btn-tool-pan", toolActionable);
+        if (Rml::Element* el = document_->GetElementById("btn-tool-select"))
+            el->SetClass("active", toolActionable && activeTool == EditorTool::Select);
+        if (Rml::Element* el = document_->GetElementById("btn-tool-pan"))
+            el->SetClass("active", toolActionable && activeTool == EditorTool::Pan);
+    }
     {
         const EntityId primarySel = coordinator_.selection().primaryEntity;
         const SceneInstanceDef* selInst = primarySel != INVALID_ENTITY
@@ -1164,6 +1179,10 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
             coordinator_.execute(
                 SetTilemapCellSizeCommand{coordinator_.state().activeSceneId, selected, cellSize});
         }
+    } else if (action == "select-tool-select") {
+        coordinator_.apply(SetActiveToolIntent{EditorTool::Select});
+    } else if (action == "select-tool-pan") {
+        coordinator_.apply(SetActiveToolIntent{EditorTool::Pan});
     } else if (action == "select-tilemap-brush") {
         coordinator_.apply(SetActiveToolIntent{EditorTool::Brush});
     } else if (action == "select-tilemap-eraser") {

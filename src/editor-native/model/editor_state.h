@@ -121,6 +121,16 @@ enum class EditorTool {
     Fill,
 };
 
+// The single authority for "does this tool paint/edit tilemap cells" - used
+// both to gate tilemap input routing and to decide when the active tool must
+// fall back to Select because the current selection no longer supports it
+// (EditorCoordinator::reconcileTilemapEditingContext). Select and Pan are
+// deliberately never tilemap tools.
+inline bool isTilemapTool(EditorTool tool) {
+    return tool == EditorTool::Brush || tool == EditorTool::Eraser || tool == EditorTool::Picker
+        || tool == EditorTool::Rectangle || tool == EditorTool::Fill;
+}
+
 // An in-progress paint/erase stroke: pointer-down to pointer-up, never
 // touching ProjectDocument until pointer-up dispatches exactly one
 // PaintTilemapCellsCommand. sceneId/entityId are captured once at

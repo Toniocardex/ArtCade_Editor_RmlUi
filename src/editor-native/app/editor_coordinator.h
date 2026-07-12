@@ -59,6 +59,13 @@ public:
     EditorTool effectiveTilemapTool() const {
         return state_.tilemapEditor.temporaryToolOverride.value_or(state_.activeTool);
     }
+    // Cancels any pending stroke/rectangle and drops a momentary tool override.
+    // Returns true iff something was actually cancelled. The single shared
+    // primitive for "a gesture in progress no longer applies" - called by a
+    // selection change, the global Escape router (editor_app.cpp), and
+    // tilemap_paint_input.cpp's own focus-loss handling. Workspace-only: no
+    // dirty/revision/undo.
+    bool cancelPendingTilemapGesture();
     const EditorSceneViewState& sceneView(const SceneId& id) const;
     // The layer authoring operations actually target: the workspace's own
     // activeLayerId if it's set and still resolves to a real layer, else the
@@ -212,6 +219,29 @@ private:
     // before/after and, if an entity is selected and the layer genuinely
     // changed to a hidden one, posts a single edge-triggered Info message.
     void reconcileWorkspaceAndAnnounce();
+
+    // True iff the current selection is a live instance, in the active scene,
+    // whose tilemap is genuinely editable right now (has a TilemapComponent,
+    // sits on the active layer, and that layer isn't locked). Pure query - no
+    // mutation, callable freely.
+    bool selectionSupportsTilemapTool() const;
+    // Mutable, idempotent reconciliation of tool/gesture/tile-selection state
+    // against selectionSupportsTilemapTool() - NOT a pure function. When the
+    // selection no longer supports a tilemap tool: cancels any pending
+    // gesture, clears selectedTileId, and falls the active tool back to
+    // Select if it was a tilemap tool (Select/Pan are left untouched). When it
+    // does, only reconciles selectedTileId (see reconcileSelectedTileAgainstTileset).
+    // Called from reconcileWorkspace() (covers every Command) and directly
+    // from the selection/tool-changing Intents (which never go through
+    // reconcileWorkspace()). Workspace-only: no dirty/revision/undo.
+    void reconcileTilemapEditingContext();
+    // Sub-step of reconcileTilemapEditingContext()'s "editable" branch: if
+    // selectedTileId doesn't name a tile in the selected instance's own
+    // tileset (e.g. after switching to a different tilemap, or the tileset
+    // was resliced/changed), clear it. Never implicitly selects a substitute -
+    // an unset tile forces the user to pick one before Brush can paint again,
+    // rather than silently painting with a tile they didn't choose.
+    void reconcileSelectedTileAgainstTileset();
 
     ProjectDocument                                  document_;
     EditorState                                      state_;

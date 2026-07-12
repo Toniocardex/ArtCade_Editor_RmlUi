@@ -231,6 +231,27 @@ std::optional<Vec2> dragPreviewPosition(const EditorCoordinator& coordinator,
         coordinator, active, Vec2{drag.startEntityPos.x + d.x, drag.startEntityPos.y + d.y});
 }
 
+// Escape is a keyboard-wide gesture, not scoped to whichever panel/viewport
+// currently has mouse focus, so it is arbitrated once per frame here rather
+// than inside any single input-routing module. Exactly one level fires per
+// press: (1) cancel a pending tilemap gesture - tilemap_paint_input.cpp keeps
+// only its own focus-loss trigger for the same shared primitive, never
+// Escape-key polling itself; (2) if nothing was pending and a tilemap tool is
+// active, fall back to Select; (3) if the tool was already Select and an
+// entity is selected, clear the selection (the scene's own Inspector, then
+// visible again, is the existing fallback - no new code needed for that
+// part). None of the three levels touches ProjectDocument/dirty/undo.
+void routeGlobalEscape(EditorCoordinator& coordinator) {
+    if (coordinator.cancelPendingTilemapGesture()) return;
+    if (isTilemapTool(coordinator.state().activeTool)) {
+        coordinator.apply(SetActiveToolIntent{EditorTool::Select});
+        return;
+    }
+    if (coordinator.selection().hasEntity()) {
+        coordinator.apply(SelectEntityIntent{INVALID_ENTITY});
+    }
+}
+
 // Edit-mode pick + drag: press hit-tests and selects; release commits one move.
 // Motion between press and release is shown as a local preview by the draw path,
 // not as a stream of commands.
@@ -1060,6 +1081,7 @@ int EditorApp::run(int argc, char** argv) {
             if (!editScene.empty() && !coordinator.sceneView(editScene).initialized) {
                 if (fitActiveScene()) coordinator.markSceneViewInitialized(editScene);
             }
+            if (!rml.textFocus && IsKeyPressed(KEY_ESCAPE)) routeGlobalEscape(coordinator);
             routeViewportPickDrag(coordinator, rect, rml, drag, contextMenuHit);
             routeViewportContextMenu(coordinator, ui, rect, rml, contextClick,
                                      pendingContextSpawn, contextMenuHit);

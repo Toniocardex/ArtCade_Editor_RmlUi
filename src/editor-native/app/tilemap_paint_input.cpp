@@ -16,11 +16,6 @@ namespace ArtCade::EditorNative {
 
 namespace {
 
-bool isPaintTool(EditorTool tool) {
-    return tool == EditorTool::Brush || tool == EditorTool::Eraser || tool == EditorTool::Picker
-        || tool == EditorTool::Rectangle || tool == EditorTool::Fill;
-}
-
 // screen -> world (existing screenToWorld/makeSceneViewCamera) -> cell, the
 // inverse of tilemapRenderCells'/applyPendingTilemapStrokePreview's own
 // originPosition.x + cellX*cellSize.x.
@@ -37,30 +32,24 @@ void routeViewportTilemapPaint(EditorCoordinator& coordinator, const ViewportRec
                                const RmlInputResult& rml) {
     const EditorTool tool = coordinator.effectiveTilemapTool();
 
-    // Escape / lost window focus mid-operation: cancel, never commit - safer
-    // to cancel an incomplete stroke/rectangle than commit it. pendingStroke
-    // and pendingRectangle are mutually exclusive, so at most one of these
-    // two calls ever does anything. EndTemporaryToolOverrideIntent is always
-    // safe to send (a no-op with nothing pending), so it never needs its own
-    // guard here - a right-click Eraser stroke cancelled this way still
-    // leaves the user back on their own persistent tool.
+    // Lost window focus mid-operation: cancel, never commit - safer to cancel
+    // an incomplete stroke/rectangle than commit it. Escape itself is handled
+    // by the global router (editor_app.cpp's routeGlobalEscape) via the same
+    // shared cancelPendingTilemapGesture(), so this module only owns its own
+    // focus-loss trigger, not Escape-key arbitration.
     if ((coordinator.state().tilemapEditor.pendingStroke
          || coordinator.state().tilemapEditor.pendingRectangle)
-        && (IsKeyPressed(KEY_ESCAPE) || !IsWindowFocused())) {
-        if (coordinator.state().tilemapEditor.pendingStroke) coordinator.apply(CancelTilePaintStrokeIntent{});
-        if (coordinator.state().tilemapEditor.pendingRectangle) coordinator.apply(CancelTileRectangleIntent{});
-        coordinator.apply(EndTemporaryToolOverrideIntent{});
+        && !IsWindowFocused()) {
+        coordinator.cancelPendingTilemapGesture();
         return;
     }
-    if (!isPaintTool(tool)) return;
+    if (!isTilemapTool(tool)) return;
 
     const ViewportInputContext ctx{rect.contains(GetMouseX(), GetMouseY()),
                                    /*rmlConsumedEvent*/ false, rml.textFocus,
                                    /*rmlPopupOpen*/ false};
     if (!shouldViewportReceiveInput(ctx)) {
-        if (coordinator.state().tilemapEditor.pendingStroke) coordinator.apply(CancelTilePaintStrokeIntent{});
-        if (coordinator.state().tilemapEditor.pendingRectangle) coordinator.apply(CancelTileRectangleIntent{});
-        coordinator.apply(EndTemporaryToolOverrideIntent{});
+        coordinator.cancelPendingTilemapGesture();
         return;
     }
 

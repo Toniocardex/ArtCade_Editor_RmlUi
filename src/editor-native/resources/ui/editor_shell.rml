@@ -51,6 +51,9 @@
         <button id="btn-undo" class="tool-btn" data-action="undo"><span class="icon">&#xeb77;</span>Undo</button>
         <button id="btn-redo" class="tool-btn" data-action="redo"><span class="icon">&#xeb13;</span>Redo</button>
         <span class="tool-sep"></span>
+        <button id="btn-tool-select" class="tool-btn" data-action="select-tool-select" title="Select">Select</button>
+        <button id="btn-tool-pan" class="tool-btn" data-action="select-tool-pan" title="Pan">Pan</button>
+        <span class="tool-sep"></span>
         <button id="btn-zoom-out" class="tool-btn tool-icon" data-action="zoom-out" title="Zoom Out"><span class="icon">&#xeb57;</span></button>
         <span id="toolbar-zoom" class="toolbar-zoom" data-action="reset-zoom" title="Reset Zoom to 100%">100%</span>
         <button id="btn-zoom-in" class="tool-btn tool-icon" data-action="zoom-in" title="Zoom In"><span class="icon">&#xeb56;</span></button>

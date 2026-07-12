@@ -1,6 +1,7 @@
 #include "editor-native/app/editor_coordinator.h"
 
 #include "editor-native/commands/tilemap_commands.h"
+#include "editor-native/model/numeric_validation.h"
 #include "editor-native/model/tilemap_region_math.h"
 #include "editor-native/model/tilemap_stroke_math.h"
 
@@ -72,6 +73,14 @@ std::string EditorCoordinator::activeLayerId(const SceneId& sceneId) const {
     std::string active = sceneView(sceneId).activeLayerId;
     if (active.empty() || !document_.hasLayer(sceneId, active)) active = scene->defaultLayerId;
     return active;
+}
+
+bool EditorCoordinator::cancelPendingTilemapGesture() {
+    bool any = false;
+    if (state_.tilemapEditor.pendingStroke) { apply(CancelTilePaintStrokeIntent{}); any = true; }
+    if (state_.tilemapEditor.pendingRectangle) { apply(CancelTileRectangleIntent{}); any = true; }
+    if (state_.tilemapEditor.temporaryToolOverride) { apply(EndTemporaryToolOverrideIntent{}); any = true; }
+    return any;
 }
 
 // ----------------------------------------------------------------------------
@@ -303,6 +312,13 @@ EditorInvalidation EditorCoordinator::reconcileWorkspace() {
         }
     }
 
+    // Last: with the selection/scene/layer state above now fully valid, bring
+    // the tool/gesture/tile-selection context back in line with it - covers
+    // every Command that could change what the selected instance's tilemap
+    // editability is (tileset swap, tilemap component removal, layer lock),
+    // not just the selection-changing Intents that also call this directly.
+    reconcileTilemapEditingContext();
+
     return extra;
 }
 
@@ -321,6 +337,62 @@ void EditorCoordinator::reconcileWorkspaceAndAnnounce() {
     }
     appendConsole(ConsoleMessage::Level::Info,
                   "Entity moved to hidden layer \"" + layerName + "\"");
+}
+
+bool EditorCoordinator::selectionSupportsTilemapTool() const {
+    const SceneInstanceDef* inst =
+        document_.findInstanceInScene(state_.activeSceneId, state_.selection.primaryEntity);
+    return inst != nullptr
+        && inst->tilemap.has_value()
+        && document_.effectiveLayerId(state_.activeSceneId, *inst) == activeLayerId(state_.activeSceneId)
+        && !document_.isInstanceLayerLocked(state_.activeSceneId, *inst);
+}
+
+void EditorCoordinator::reconcileTilemapEditingContext() {
+    if (selectionSupportsTilemapTool()) {
+        reconcileSelectedTileAgainstTileset();
+        return;
+    }
+    // The selection can no longer support a tilemap tool (nothing selected,
+    // no TilemapComponent, moved off the active layer, or the layer got
+    // locked) - a pending gesture belongs to whatever *was* selected, so it
+    // must not survive; a stale tile pick is meaningless without a target;
+    // and a tilemap tool has nothing left to operate on, so it falls back to
+    // Select (never Pan, which isn't a tilemap tool either and stays as-is).
+    cancelPendingTilemapGesture();
+    if (state_.tilemapEditor.selectedTileId) {
+        state_.tilemapEditor.selectedTileId.reset();
+        accumulate(EditorInvalidation::Inspector);
+    }
+    if (isTilemapTool(state_.activeTool)) {
+        state_.activeTool = EditorTool::Select;
+        accumulate(EditorInvalidation::Inspector);
+    }
+}
+
+void EditorCoordinator::reconcileSelectedTileAgainstTileset() {
+    if (!state_.tilemapEditor.selectedTileId) return;
+    const SceneInstanceDef* inst =
+        document_.findInstanceInScene(state_.activeSceneId, state_.selection.primaryEntity);
+    // selectionSupportsTilemapTool() already guarantees inst && inst->tilemap
+    // when reached via reconcileTilemapEditingContext(), but this stays
+    // defensive since it's a distinct, independently callable step.
+    if (!inst || !inst->tilemap.has_value()) {
+        state_.tilemapEditor.selectedTileId.reset();
+        accumulate(EditorInvalidation::Inspector);
+        return;
+    }
+    const TilesetAsset* tileset = document_.findTilesetAsset(inst->tilemap->tilesetAssetId);
+    const bool valid = tileset != nullptr && std::any_of(
+        tileset->tiles.begin(), tileset->tiles.end(),
+        [&](const TileDefinition& tile) { return tile.id == *state_.tilemapEditor.selectedTileId; });
+    // Keep a still-valid pick, clear an invalid one - never implicitly select
+    // a substitute tile, which could make Brush silently paint something the
+    // user never chose.
+    if (!valid) {
+        state_.tilemapEditor.selectedTileId.reset();
+        accumulate(EditorInvalidation::Inspector);
+    }
 }
 
 EditorOperationResult EditorCoordinator::replaceProject(ProjectDocument replacement) {
@@ -452,7 +524,12 @@ EditorOperationResult EditorCoordinator::finishIntent(EditorOperationResult resu
 }
 EditorOperationResult EditorCoordinator::apply(const SelectEntityIntent& intent) {
     if (intent.entityId == INVALID_ENTITY) {
+        // A pending gesture belongs to whatever *was* selected - it must not
+        // survive the selection changing out from under it, regardless of
+        // whether the new selection (here, none) would itself support one.
+        cancelPendingTilemapGesture();
         state_.selection.primaryEntity = INVALID_ENTITY;
+        reconcileTilemapEditingContext();
         accumulate(kSelectionInvalidation);
         return EditorOperationResult::success(kSelectionInvalidation);
     }
@@ -461,6 +538,7 @@ EditorOperationResult EditorCoordinator::apply(const SelectEntityIntent& intent)
     if (!inst) {
         return finishIntent(EditorOperationResult::failure("Unknown entity id in active scene"));
     }
+    cancelPendingTilemapGesture();
     state_.selection.primaryEntity = intent.entityId;
     // A layer is a real authoring scope: selecting an entity - from the
     // Hierarchy (any layer) or the Scene View (already active-layer-only,
@@ -469,6 +547,11 @@ EditorOperationResult EditorCoordinator::apply(const SelectEntityIntent& intent)
     // entity after the selection itself has moved on.
     state_.sceneViews[state_.activeSceneId].activeLayerId =
         document_.effectiveLayerId(state_.activeSceneId, *inst);
+    // If the newly selected entity doesn't support the active tilemap tool,
+    // this falls the tool back to Select; if it does (e.g. switching between
+    // two tilemaps), the tool is deliberately left alone and only the tile
+    // selection is reconciled against the new target's tileset.
+    reconcileTilemapEditingContext();
     accumulate(kSelectionInvalidation);
     return EditorOperationResult::success(kSelectionInvalidation);
 }
@@ -477,11 +560,16 @@ EditorOperationResult EditorCoordinator::apply(const SelectSceneIntent& intent) 
     if (!document_.hasScene(intent.sceneId)) {
         return finishIntent(EditorOperationResult::failure("Unknown scene id"));
     }
+    // A pending gesture belonged to the scene just left, not the one becoming
+    // active - and the scene's Inspector has no selection to support a
+    // tilemap tool either way, so it always falls back to Select.
+    cancelPendingTilemapGesture();
     // Editorial focus only — workspace state, not ProjectDocument.
     state_.activeSceneId = intent.sceneId;
     state_.selection.clear();
     // Ensure a per-scene view state exists (restored on return to this scene).
     state_.sceneViews.try_emplace(intent.sceneId);
+    reconcileTilemapEditingContext();
     accumulate(kSceneChangeInvalidation);
     return EditorOperationResult::success(kSceneChangeInvalidation);
 }
@@ -496,6 +584,9 @@ EditorOperationResult EditorCoordinator::apply(const SetViewportZoomIntent& inte
     if (!document_.hasScene(intent.sceneId)) {
         return finishIntent(EditorOperationResult::failure("Unknown scene"));
     }
+    if (!NumericValidation::isFinite(intent.zoom) || intent.zoom <= 0.f) {
+        return finishIntent(EditorOperationResult::failure("Viewport zoom must be positive"));
+    }
     state_.sceneViews[intent.sceneId].zoom = clampZoom(intent.zoom);
     accumulate(EditorInvalidation::Viewport);
     return EditorOperationResult::success(EditorInvalidation::Viewport);
@@ -506,8 +597,11 @@ EditorOperationResult EditorCoordinator::apply(const PanViewportIntent& intent) 
         return finishIntent(EditorOperationResult::failure("Unknown scene"));
     }
     EditorSceneViewState& view = state_.sceneViews[intent.sceneId];
-    view.pan.x += intent.delta.x;
-    view.pan.y += intent.delta.y;
+    const Vec2 next{view.pan.x + intent.delta.x, view.pan.y + intent.delta.y};
+    if (!NumericValidation::isFinite(intent.delta) || !NumericValidation::isFinite(next)) {
+        return finishIntent(EditorOperationResult::failure("Viewport pan must be finite"));
+    }
+    view.pan = next;
     accumulate(EditorInvalidation::Viewport);
     return EditorOperationResult::success(EditorInvalidation::Viewport);
 }
@@ -644,6 +738,9 @@ EditorOperationResult EditorCoordinator::apply(const SetSpriteSheetZoomIntent& i
     if (!state_.spriteAnimationEditor.openAssetId) {
         return finishIntent(EditorOperationResult::failure("Sprite Animation Editor is not open"));
     }
+    if (!NumericValidation::isFinite(intent.zoom) || intent.zoom <= 0.f) {
+        return finishIntent(EditorOperationResult::failure("Sprite sheet zoom must be positive"));
+    }
     state_.spriteAnimationEditor.sheetZoom = clampSheetZoom(intent.zoom);
     accumulate(EditorInvalidation::Viewport);
     return EditorOperationResult::success(EditorInvalidation::Viewport);
@@ -654,8 +751,12 @@ EditorOperationResult EditorCoordinator::apply(const PanSpriteSheetIntent& inten
         return finishIntent(EditorOperationResult::failure("Sprite Animation Editor is not open"));
     }
     SpriteAnimationEditorState& editor = state_.spriteAnimationEditor;
-    editor.sheetPan.x += intent.delta.x;
-    editor.sheetPan.y += intent.delta.y;
+    const Vec2 next{editor.sheetPan.x + intent.delta.x,
+                    editor.sheetPan.y + intent.delta.y};
+    if (!NumericValidation::isFinite(intent.delta) || !NumericValidation::isFinite(next)) {
+        return finishIntent(EditorOperationResult::failure("Sprite sheet pan must be finite"));
+    }
+    editor.sheetPan = next;
     accumulate(EditorInvalidation::Viewport);
     return EditorOperationResult::success(EditorInvalidation::Viewport);
 }
@@ -755,7 +856,7 @@ void EditorCoordinator::advanceSpriteAnimationPreview(float dt) {
         accumulate(EditorInvalidation::Viewport);
         return;
     }
-    if (!(dt > 0.f)) return;
+    if (!NumericValidation::isFinite(dt) || dt <= 0.f) return;
     if (editor.previewFrameIndex >= clip->frames.size()) {
         editor.previewFrameIndex = 0;   // frames edited under a stale playhead
         editor.previewElapsed = 0.f;
@@ -819,6 +920,9 @@ EditorOperationResult EditorCoordinator::apply(const SetTilesetEditorZoomIntent&
     if (!state_.tilesetEditor.openAssetId) {
         return finishIntent(EditorOperationResult::failure("Tileset Editor is not open"));
     }
+    if (!NumericValidation::isFinite(intent.zoom) || intent.zoom <= 0.f) {
+        return finishIntent(EditorOperationResult::failure("Tileset editor zoom must be positive"));
+    }
     state_.tilesetEditor.zoom = clampTilesetEditorZoom(intent.zoom);
     accumulate(EditorInvalidation::Viewport);
     return EditorOperationResult::success(EditorInvalidation::Viewport);
@@ -829,8 +933,11 @@ EditorOperationResult EditorCoordinator::apply(const PanTilesetEditorIntent& int
         return finishIntent(EditorOperationResult::failure("Tileset Editor is not open"));
     }
     TilesetEditorState& editor = state_.tilesetEditor;
-    editor.pan.x += intent.delta.x;
-    editor.pan.y += intent.delta.y;
+    const Vec2 next{editor.pan.x + intent.delta.x, editor.pan.y + intent.delta.y};
+    if (!NumericValidation::isFinite(intent.delta) || !NumericValidation::isFinite(next)) {
+        return finishIntent(EditorOperationResult::failure("Tileset editor pan must be finite"));
+    }
+    editor.pan = next;
     accumulate(EditorInvalidation::Viewport);
     return EditorOperationResult::success(EditorInvalidation::Viewport);
 }
@@ -884,16 +991,8 @@ EditorOperationResult EditorCoordinator::apply(const SetActiveLayerIntent& inten
     if (intent.sceneId == state_.activeSceneId) {
         // A layer switch always ends any in-progress paint gesture - it
         // belonged to whichever layer/entity was being edited a moment ago,
-        // not to the layer that's active now. Also drops a momentary Eraser
-        // override (right-click shortcut) so it can never outlive the stroke
-        // it belonged to - the same "every termination path clears it" rule
-        // BeginTilePaintStrokeIntent's own failure path already follows.
-        if (state_.tilemapEditor.pendingStroke || state_.tilemapEditor.pendingRectangle) {
-            state_.tilemapEditor.pendingStroke.reset();
-            state_.tilemapEditor.pendingRectangle.reset();
-            state_.tilemapEditor.temporaryToolOverride.reset();
-            inv |= EditorInvalidation::Viewport;
-        }
+        // not to the layer that's active now.
+        if (cancelPendingTilemapGesture()) inv |= EditorInvalidation::Viewport;
         // The selection is an authoring scope, not just a UI highlight: an
         // entity from the layer just left must not stay the operative target
         // for Delete/Inspector/tilemap tools once the active layer moves on.
@@ -905,6 +1004,11 @@ EditorOperationResult EditorCoordinator::apply(const SetActiveLayerIntent& inten
                 inv |= EditorInvalidation::Hierarchy | EditorInvalidation::Viewport;
             }
         }
+        // Whether the selection just got cleared above, or survived because
+        // it's already on the new active layer, bring the tool back in line:
+        // a tilemap tool with nothing left to (or newly unable to) operate on
+        // falls back to Select.
+        reconcileTilemapEditingContext();
     }
 
     accumulate(inv);
@@ -924,21 +1028,26 @@ EditorOperationResult EditorCoordinator::apply(const ToggleLayerEditorVisibility
 }
 
 EditorOperationResult EditorCoordinator::apply(const SetActiveToolIntent& intent) {
-    if (intent.tool != state_.activeTool
-        && (state_.tilemapEditor.pendingStroke || state_.tilemapEditor.pendingRectangle)) {
-        // A pending stroke/rectangle belongs to the tool that started it -
-        // switching tools must never leave one dangling (not just relying on
-        // the keyboard-shortcut guards at the input-routing call sites).
-        state_.tilemapEditor.pendingStroke.reset();
-        state_.tilemapEditor.pendingRectangle.reset();
-        accumulate(EditorInvalidation::Viewport);
+    if (intent.tool != state_.activeTool) {
+        // A pending stroke/rectangle/override belongs to the tool that
+        // started it - switching tools must never leave one dangling (not
+        // just relying on the keyboard-shortcut guards at the input-routing
+        // call sites).
+        cancelPendingTilemapGesture();
     }
     state_.activeTool = intent.tool;
+    // Defence in depth: nothing in this codebase currently offers a tilemap
+    // tool button without a selection that supports it (the Inspector's Tool
+    // row only renders inside a selected tilemap's own section), but the B/E
+    // /I/R/F keyboard shortcuts (editor_app.cpp) reach this with no such
+    // guard - so if the requested tool doesn't fit the current selection,
+    // this immediately falls it back to Select rather than sticking.
+    reconcileTilemapEditingContext();
     // The active tool is rendered as button state in the Inspector's Tool
-    // row (inspector_panel.cpp), not anywhere in the top toolbar - Inspector
-    // is the invalidation that actually redraws it.
-    accumulate(EditorInvalidation::Inspector);
-    return EditorOperationResult::success(EditorInvalidation::Inspector);
+    // row (inspector_panel.cpp) and, for Select/Pan, the top toolbar - both
+    // read EditorState::activeTool directly, so both invalidations fire.
+    accumulate(EditorInvalidation::Inspector | EditorInvalidation::Toolbar);
+    return EditorOperationResult::success(EditorInvalidation::Inspector | EditorInvalidation::Toolbar);
 }
 
 EditorOperationResult EditorCoordinator::apply(const BeginTemporaryToolOverrideIntent& intent) {
@@ -1220,6 +1329,9 @@ EditorOperationResult EditorCoordinator::apply(const ToggleConsoleIntent&) {
 }
 
 EditorOperationResult EditorCoordinator::apply(const ResizePanelIntent& intent) {
+    if (!NumericValidation::isFinite(intent.size)) {
+        return finishIntent(EditorOperationResult::failure("Panel size must be finite"));
+    }
     switch (intent.panel) {
         case ResizePanelIntent::Panel::Left:
             uiState_.leftPanelWidth = clampLeftPanel(intent.size);

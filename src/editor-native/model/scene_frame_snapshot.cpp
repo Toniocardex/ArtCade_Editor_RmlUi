@@ -206,18 +206,36 @@ bool rectContains(const SceneFrameRect& r, Vec2 p) {
 } // namespace
 
 EntityId pickEntityAt(const SceneFrameSnapshot& frame, Vec2 worldPoint) {
-    // Placeholders draw first, then tilemap cells, then sprites; the last
-    // drawn item that contains the point is on top, so let later hits
-    // override earlier ones (matches SceneView::render's pass order).
-    EntityId hit = INVALID_ENTITY;
-    for (const SceneFrameEntity& entity : frame.entities)
-        if (rectContains(entity.bounds, worldPoint)) hit = entity.entityId;
-    for (const SceneFrameTilemap& tilemap : frame.tilemaps)
-        for (const SceneFrameTilemapCell& cell : tilemap.cells)
-            if (rectContains(cell.destination, worldPoint)) hit = tilemap.entityId;
-    for (const SceneFrameSprite& sprite : frame.sprites)
-        if (sprite.visible && rectContains(sprite.destination, worldPoint)) hit = sprite.entityId;
-    return hit;
+    // frame.entities is the single authority for visual (and therefore pick)
+    // order - already back-to-front by scene layer via
+    // ProjectDocument::instancesInRenderOrder, the exact same sequence
+    // SceneView::render() consumes forward. Walking it in reverse (front-to-
+    // back) and returning the first hit mirrors that draw order exactly;
+    // grouping by type instead (every tilemap, then every sprite) - the
+    // previous implementation here - drops cross-type layer interleaving,
+    // the same class of bug already fixed once for rendering itself. Each
+    // entity's own sprite/tilemap (an instance can have both at once) is
+    // checked before moving to the next entity, never across entities.
+    for (auto it = frame.entities.rbegin(); it != frame.entities.rend(); ++it) {
+        const EntityId id = it->entityId;
+        bool hasVisual = false;
+        for (const SceneFrameSprite& sprite : frame.sprites) {
+            if (sprite.entityId != id) continue;
+            hasVisual = true;
+            if (sprite.visible && rectContains(sprite.destination, worldPoint)) return id;
+            break;   // one SpriteRenderer per entity
+        }
+        for (const SceneFrameTilemap& tilemap : frame.tilemaps) {
+            if (tilemap.entityId != id) continue;
+            hasVisual = true;
+            for (const SceneFrameTilemapCell& cell : tilemap.cells) {
+                if (rectContains(cell.destination, worldPoint)) return id;
+            }
+            break;   // one Tilemap component per entity
+        }
+        if (!hasVisual && rectContains(it->bounds, worldPoint)) return id;
+    }
+    return INVALID_ENTITY;
 }
 
 std::optional<WorldRect> editorBoundsForEntity(const SceneFrameSnapshot& frame,
