@@ -7215,6 +7215,131 @@ int main() {
         c.apply(EndTilePaintStrokeIntent{});
     }
 
+    // -- SceneGridPresentation: toolbar projection (no document mutation) ------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {213.f, 119.f}}).ok);
+        CHECK(c.execute(SetTilemapCellSizeCommand{kSceneA, kHero, {16.f, 32.f}}).ok);
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+
+        const SceneGridPresentation brushPres =
+            makeSceneGridPresentation(c.document(), c.state(), kSceneA);
+        CHECK(brushPres.kind == SceneGridKind::Tilemap);
+        CHECK(brushPres.contextName == "Hero");
+        CHECK(brushPres.toolbarContextName == "Hero");
+        CHECK(brushPres.sizeEditable == false);
+        CHECK(brushPres.cellSize.x == 16.f);
+        CHECK(brushPres.cellSize.y == 32.f);
+        CHECK(brushPres.sourceEntityId == kHero);
+        CHECK(brushPres.toolbarTooltip == "Tilemap grid from \"Hero\"");
+
+        CHECK(c.execute(RenameEntityCommand{kSceneA, kHero, "Terrain"}).ok);
+        const SceneGridPresentation renamed =
+            makeSceneGridPresentation(c.document(), c.state(), kSceneA);
+        CHECK(renamed.contextName == "Terrain");
+        CHECK(renamed.toolbarContextName == "Terrain");
+
+        c.apply(SetActiveToolIntent{EditorTool::Select});
+        const SceneGridPresentation selectPres =
+            makeSceneGridPresentation(c.document(), c.state(), kSceneA);
+        CHECK(selectPres.kind == SceneGridKind::World);
+        CHECK(selectPres.contextName == "World");
+        CHECK(selectPres.sizeEditable == true);
+        CHECK(selectPres.sourceEntityId == std::nullopt);
+
+        CHECK(c.execute(RenameEntityCommand{kSceneA, kHero, "Environment Decorations"}).ok);
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+        const SceneGridPresentation longName =
+            makeSceneGridPresentation(c.document(), c.state(), kSceneA);
+        CHECK(longName.contextName == "Environment Decorations");
+        CHECK(longName.toolbarContextName.size() < longName.contextName.size());
+        CHECK(longName.toolbarContextName != longName.contextName);
+
+        CHECK(c.execute(RenameEntityCommand{kSceneA, kHero, "Decorazioni città meravigliosa"}).ok);
+        const SceneGridPresentation accented =
+            makeSceneGridPresentation(c.document(), c.state(), kSceneA);
+        CHECK(accented.contextName == "Decorazioni città meravigliosa");
+        CHECK(accented.toolbarContextName.size() < accented.contextName.size());
+        CHECK(accented.toolbarContextName.find("Decorazioni") == 0);
+        // Truncation must not split the multibyte "à" (0xC3 0xA0).
+        CHECK(accented.toolbarContextName.find("cit\xC3") == std::string::npos);
+        CHECK(accented.toolbarContextName.find("\xE2\x80\xA6") != std::string::npos);
+    }
+
+    // -- ViewportPointerReadout: world + cell from contextual grid -------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {213.f, 119.f}}).ok);
+        CHECK(c.execute(SetTilemapCellSizeCommand{kSceneA, kHero, {16.f, 16.f}}).ok);
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+
+        const ViewportRect rect{0, 0, 800, 600};
+        const SceneViewCamera camera =
+            makeSceneViewCamera(rect, c.sceneView(kSceneA), Vec2{1920.f, 1080.f});
+        const Vec2 screen = Vec2{400.f, 300.f};
+        const ViewportPointerReadout readout =
+            makePointerReadout(screen, camera, c.document(), c.state(), kSceneA);
+        CHECK(readout.valid);
+        CHECK(readout.tilemapCell.has_value());
+        CHECK(readout.tilemapEntityId == kHero);
+        CHECK(readout.tilemapCell->cellX
+              == worldPositionToTilemapCell(readout.worldPosition, {213.f, 119.f}, {16.f, 16.f}).cellX);
+        CHECK(readout.tilemapCell->cellY
+              == worldPositionToTilemapCell(readout.worldPosition, {213.f, 119.f}, {16.f, 16.f}).cellY);
+
+        const TilemapCellCoord fromWorld =
+            worldPositionToTilemapCell(Vec2{245.f, 183.f}, {213.f, 119.f}, {16.f, 16.f});
+        CHECK(fromWorld.cellX == 2);
+        CHECK(fromWorld.cellY == 4);
+
+        const std::string formatted = formatViewportPointerReadout(readout);
+        CHECK(formatted.find("World ") == 0);
+        CHECK(formatted.find("Cell ") != std::string::npos);
+
+        c.apply(SetActiveToolIntent{EditorTool::Select});
+        const ViewportPointerReadout selectOnly =
+            makePointerReadout(screen, camera, c.document(), c.state(), kSceneA);
+        CHECK(!selectOnly.tilemapCell.has_value());
+        CHECK(formatViewportPointerReadout(selectOnly).find("Cell ") == std::string::npos);
+
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+        c.apply(SetSceneGridVisibilityIntent{kSceneA, false});
+        const ViewportPointerReadout gridHidden =
+            makePointerReadout(screen, camera, c.document(), c.state(), kSceneA);
+        CHECK(gridHidden.tilemapCell.has_value());
+
+        const TilemapCellCoord neg =
+            worldPositionToTilemapCell(Vec2{-40.f, -20.f}, {213.f, 119.f}, {16.f, 16.f});
+        CHECK(neg.cellX == -16);
+        CHECK(neg.cellY == -9);
+    }
+
+    // -- RevealInspectorPropertyIntent: navigation only, no dirty/history ------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        const uint64_t revision = c.document().revision();
+        const std::size_t undoBefore = c.undoSize();
+        const bool dirtyBefore = c.document().isDirty();
+
+        CHECK(c.apply(RevealInspectorPropertyIntent{kHero, InspectorProperty::TilemapCellSize}).ok);
+        CHECK(c.uiState().inspectorRevealRequest.has_value());
+        CHECK(c.uiState().inspectorRevealRequest->entityId == kHero);
+        CHECK(c.uiState().inspectorRevealRequest->property == InspectorProperty::TilemapCellSize);
+        CHECK(c.selection().primaryEntity == kHero);
+        CHECK(c.document().revision() == revision);
+        CHECK(c.undoSize() == undoBefore);
+        CHECK(c.document().isDirty() == dirtyBefore);
+
+        const std::optional<InspectorRevealRequest> taken = c.takeInspectorRevealRequest();
+        CHECK(taken.has_value());
+        CHECK(!c.uiState().inspectorRevealRequest.has_value());
+
+        CHECK(!c.apply(RevealInspectorPropertyIntent{9999, InspectorProperty::TilemapCellSize}).ok);
+    }
+
     // -- Auto-fit flag lives in the scene view state, cleared by replaceProject
     {
         EditorCoordinator c{makeDoc()};

@@ -1324,6 +1324,40 @@ EditorOperationResult EditorCoordinator::apply(const ToggleConsoleIntent&) {
     return EditorOperationResult::success(inv);
 }
 
+EditorOperationResult EditorCoordinator::apply(const RevealInspectorPropertyIntent& intent) {
+    if (isPlaying()) {
+        return finishIntent(EditorOperationResult::failure("Stop Play before editing tilemap properties"));
+    }
+    if (intent.entityId == INVALID_ENTITY) {
+        return finishIntent(EditorOperationResult::failure("No entity to reveal in the Inspector"));
+    }
+    const SceneInstanceDef* inst =
+        document_.findInstanceInScene(state_.activeSceneId, intent.entityId);
+    if (!inst || !inst->tilemap.has_value()) {
+        return finishIntent(EditorOperationResult::failure("Entity has no Tilemap component"));
+    }
+    if (intent.property != InspectorProperty::TilemapCellSize) {
+        return finishIntent(EditorOperationResult::failure("Unknown Inspector property"));
+    }
+
+    if (state_.selection.primaryEntity != intent.entityId) {
+        const EditorOperationResult selectResult = apply(SelectEntityIntent{intent.entityId});
+        if (!selectResult.ok) return finishIntent(selectResult);
+    }
+
+    static std::uint64_t nextRevealRequestId = 1;
+    uiState_.inspectorRevealRequest = InspectorRevealRequest{
+        intent.entityId, intent.property, nextRevealRequestId++};
+    accumulate(EditorInvalidation::Inspector);
+    return EditorOperationResult::success(EditorInvalidation::Inspector);
+}
+
+std::optional<InspectorRevealRequest> EditorCoordinator::takeInspectorRevealRequest() {
+    std::optional<InspectorRevealRequest> request = uiState_.inspectorRevealRequest;
+    uiState_.inspectorRevealRequest.reset();
+    return request;
+}
+
 EditorOperationResult EditorCoordinator::apply(const ResizePanelIntent& intent) {
     if (!NumericValidation::isFinite(intent.size)) {
         return finishIntent(EditorOperationResult::failure("Panel size must be finite"));

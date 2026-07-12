@@ -2,6 +2,7 @@
 
 #include "core/types.h"
 #include "editor-native/model/editor_state.h"
+#include "editor-native/model/editor_ui_state.h"
 
 #include <cstddef>
 #include <optional>
@@ -280,6 +281,13 @@ struct FillTilemapIntent {
 };
 
 struct ToggleConsoleIntent {};
+
+// Workspace/UI navigation: scroll the Inspector to a property on an entity.
+// No document mutation, undo, or dirty flag.
+struct RevealInspectorPropertyIntent {
+    EntityId          entityId = INVALID_ENTITY;
+    InspectorProperty property = InspectorProperty::TilemapCellSize;
+};
 
 struct ResizePanelIntent {
     enum class Panel { Left, Right, Console };

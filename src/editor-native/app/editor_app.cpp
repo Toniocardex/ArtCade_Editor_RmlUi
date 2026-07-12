@@ -1224,22 +1224,23 @@ int EditorApp::run(int argc, char** argv) {
             routeViewportTilemapPaint(coordinator, rect, rml);
         }
 
-        // Pointer world-position readout (Edit mode, mouse over the viewport).
+        // Pointer world/cell readout (Edit mode, mouse over the viewport).
         // Presentation only; the UI writes the label just when the text changes.
         {
-            std::optional<Vec2> pointerWorld;
+            ViewportPointerReadout pointerReadout;
             if (!coordinator.isPlaying() && !animationEditorOpen && !tilesetEditorOpen
                 && rect.contains(GetMouseX(), GetMouseY())) {
                 const SceneId& active = coordinator.state().activeSceneId;
                 if (const SceneDef* scene = coordinator.document().findScene(active)) {
                     const SceneViewCamera camera = makeSceneViewCamera(
                         rect, coordinator.sceneView(active), scene->worldSize);
-                    pointerWorld = screenToWorld(
-                        camera, Vec2{static_cast<float>(GetMouseX()),
-                                     static_cast<float>(GetMouseY())});
+                    pointerReadout = makePointerReadout(
+                        Vec2{static_cast<float>(GetMouseX()),
+                             static_cast<float>(GetMouseY())},
+                        camera, coordinator.document(), coordinator.state(), active);
                 }
             }
-            ui.showPointerWorldPosition(pointerWorld);
+            ui.showViewportPointerReadout(pointerReadout);
         }
 
         // Sprite source paths are relative to the loaded project; with no project

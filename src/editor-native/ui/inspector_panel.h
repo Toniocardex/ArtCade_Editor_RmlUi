@@ -44,6 +44,11 @@ public:
                                    EntityId entity,
                                    Vec2 position);
 
+    // Consumes a one-shot InspectorRevealRequest from the coordinator after
+    // refresh() has rebuilt the target fields.
+    void consumeInspectorReveal(Rml::ElementDocument* document,
+                                EditorCoordinator& coordinator);
+
 private:
     struct SceneLayerRenameUiState {
         SceneId     sceneId;
@@ -54,6 +59,8 @@ private:
 
     bool reconcileSceneLayerRenameUiState(const EditorCoordinator& coordinator);
     void focusSceneLayerRenameInput(Rml::ElementDocument* document);
+    void revealTilemapCellSize(Rml::ElementDocument* document,
+                               const EditorCoordinator& coordinator);
 
     bool     addMenuOpen_ = false;
     std::string openDropdownId_;             // open value dropdown ("" = none)

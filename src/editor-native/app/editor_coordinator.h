@@ -174,7 +174,11 @@ public:
     EditorOperationResult apply(const CancelTileRectangleIntent& intent);
     EditorOperationResult apply(const FillTilemapIntent& intent);
     EditorOperationResult apply(const ToggleConsoleIntent& intent);
+    EditorOperationResult apply(const RevealInspectorPropertyIntent& intent);
     EditorOperationResult apply(const ResizePanelIntent& intent);
+
+    // Consumes a pending Inspector navigation request (one-shot).
+    std::optional<InspectorRevealRequest> takeInspectorRevealRequest();
 
     // ---- console -------------------------------------------------------------
     void logInfo(std::string text);

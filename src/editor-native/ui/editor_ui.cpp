@@ -16,6 +16,7 @@
 #include "editor-native/commands/project_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
 #include "editor-native/view/scene_grid.h"
+#include "editor-native/view/scene_view_camera.h"
 
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
@@ -487,8 +488,10 @@ void EditorUi::applyInvalidations(EditorInvalidation flags) {
     if (flags == EditorInvalidation::None) return;
     if (has(flags, EditorInvalidation::Hierarchy) || has(flags, EditorInvalidation::Project))
         hierarchy_.refresh(document_, coordinator_);
-    if (has(flags, EditorInvalidation::Inspector))
+    if (has(flags, EditorInvalidation::Inspector)) {
         inspector_.refresh(document_, coordinator_);
+        inspector_.consumeInspectorReveal(document_, coordinator_);
+    }
     if (has(flags, EditorInvalidation::Console))
         console_.refresh(document_, coordinator_);
     if (has(flags, EditorInvalidation::Assets) || has(flags, EditorInvalidation::Project))
@@ -1091,11 +1094,22 @@ void EditorUi::refreshToolbar() {
         if (playing && coordinator_.playSession()) {
             text = "PLAYING - " + coordinator_.playSession()->scene().name;
         } else {
-            // No scene -> no readout: "-  -  EDIT" with a placeholder dash reads
-            // like a rendering glitch, and the empty-state UI already says it all.
             const SceneDef* scene =
                 coordinator_.document().findScene(coordinator_.state().activeSceneId);
-            if (scene) text = scene->name + "  -  EDIT";
+            if (scene) {
+                text = scene->name;
+                const std::string layerId =
+                    coordinator_.activeLayerId(coordinator_.state().activeSceneId);
+                if (!layerId.empty()) {
+                    for (const SceneLayerDef& layer : scene->layers) {
+                        if (layer.id == layerId) {
+                            text += "  |  " + layer.name;
+                            break;
+                        }
+                    }
+                }
+                text += "  |  EDIT";
+            }
         }
         status->SetInnerRML(escapeRml(text));
     }
@@ -1175,29 +1189,36 @@ void EditorUi::refreshToolbar() {
 
     const EditorSceneViewState& view = coordinator_.sceneView(currentViewSceneId());
     const SceneId viewSceneId = currentViewSceneId();
-    const SceneGridDefinition displayGrid =
-        viewportDisplayGrid(coordinator_.document(), coordinator_.state(), viewSceneId);
+    const SceneGridPresentation gridPres =
+        makeSceneGridPresentation(coordinator_.document(), coordinator_.state(), viewSceneId);
     const bool tilemapGridMode =
-        displayGrid.kind == SceneGridKind::Tilemap && isTilemapTool(coordinator_.state().activeTool);
+        gridPres.kind == SceneGridKind::Tilemap && isTilemapTool(coordinator_.state().activeTool);
     const bool sceneSnapActionable = gridActionable && !tilemapGridMode;
 
     setActiveBoth("btn-grid-visible", "menu-grid-visible", view.gridVisible && gridActionable);
     setActiveBoth("btn-grid-snap", "menu-grid-snap",
                   view.gridSnapEnabled && sceneSnapActionable);
     setEnabledBoth("btn-grid-snap", "menu-grid-snap", sceneSnapActionable);
-    setEnabled("btn-grid-size", gridActionable && !tilemapGridMode);
+    setEnabled("btn-grid-size", gridActionable);
 
     std::string gridSizeLabel;
     if (tilemapGridMode) {
-        gridSizeLabel = compactNumber(displayGrid.cellSize.x) + " \xC3\x97 "
-                      + compactNumber(displayGrid.cellSize.y);
+        gridSizeLabel = compactNumber(gridPres.cellSize.x) + " \xC3\x97 "
+                      + compactNumber(gridPres.cellSize.y);
     } else {
-        gridSizeLabel = compactNumber(view.gridCellSize);
+        gridSizeLabel = compactNumber(gridPres.cellSize.x);
     }
     if (Rml::Element* el = document_->GetElementById("btn-grid-size")) {
+        el->SetClass("grid-size-nav", tilemapGridMode);
+        el->SetClass("grid-size-trigger", !tilemapGridMode);
         if (tilemapGridMode) {
-            el->SetInnerRML(escapeRml(gridSizeLabel));
+            el->SetAttribute("data-action", "reveal-tilemap-cell-size");
+            el->SetAttribute("title", "Open Tilemap cell size in Inspector");
+            el->SetInnerRML(escapeRml(gridSizeLabel)
+                            + " <span class=\"grid-nav-icon\">&#x2197;</span>");
         } else {
+            el->RemoveAttribute("data-action");
+            el->SetAttribute("title", "Grid Cell Size");
             el->SetInnerRML(escapeRml(gridSizeLabel)
                             + " <span class=\"icon-caret\">&#xeb5d;</span>");
         }
@@ -1205,7 +1226,12 @@ void EditorUi::refreshToolbar() {
     if (Rml::Element* el = document_->GetElementById("grid-size-control"))
         el->SetClass("disabled", !gridActionable || tilemapGridMode);
     if (Rml::Element* el = document_->GetElementById("grid-size-title")) {
-        el->SetInnerRML(tilemapGridMode ? "Grid: Tilemap" : "Grid: World");
+        const std::string title = tilemapGridMode
+            ? "Grid: Tilemap \xC2\xB7 " + gridPres.toolbarContextName
+            : "Grid: World";
+        el->SetInnerRML(escapeRml(title));
+        if (!gridPres.toolbarTooltip.empty()) el->SetAttribute("title", gridPres.toolbarTooltip);
+        else el->RemoveAttribute("title");
     }
     if (Rml::Element* el = document_->GetElementById("grid-cell-size-input")) {
         el->SetAttribute("value", gridSizeLabel);
@@ -1229,14 +1255,10 @@ void EditorUi::showEntityPositionPreview(EntityId entity, Vec2 position) {
     inspector_.showEntityPositionPreview(document_, coordinator_, entity, position);
 }
 
-void EditorUi::showPointerWorldPosition(const std::optional<Vec2>& worldPosition) {
+void EditorUi::showViewportPointerReadout(const ViewportPointerReadout& readout) {
     if (!document_) return;
-    std::string text;
-    if (worldPosition) {
-        text = "X " + std::to_string(static_cast<long>(std::lround(worldPosition->x)))
-             + "  Y " + std::to_string(static_cast<long>(std::lround(worldPosition->y)));
-    }
-    if (text == pointerReadout_) return;   // per-frame call: write only on change
+    const std::string text = readout.valid ? formatViewportPointerReadout(readout) : std::string();
+    if (text == pointerReadout_) return;
     pointerReadout_ = text;
     if (Rml::Element* el = document_->GetElementById("toolbar-coords")) {
         el->SetInnerRML(escapeRml(text));
@@ -1570,6 +1592,13 @@ bool EditorUi::handleToolbarAction(const std::string& action, const std::string&
         commitGridCellSize(value);
     } else if (action == "set-grid-cell-size") {
         commitGridCellSize(arg);
+    } else if (action == "reveal-tilemap-cell-size") {
+        const SceneGridPresentation pres = makeSceneGridPresentation(
+            coordinator_.document(), coordinator_.state(), coordinator_.state().activeSceneId);
+        if (pres.sourceEntityId) {
+            coordinator_.apply(RevealInspectorPropertyIntent{
+                *pres.sourceEntityId, InspectorProperty::TilemapCellSize});
+        }
     } else if (action == "zoom-in" || action == "zoom-out") {
         const SceneId active = currentViewSceneId();
         const float current = coordinator_.sceneView(active).zoom;

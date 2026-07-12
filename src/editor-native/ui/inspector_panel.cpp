@@ -324,6 +324,59 @@ void InspectorPanel::focusSceneLayerRenameInput(Rml::ElementDocument* document) 
     }
 }
 
+void InspectorPanel::revealTilemapCellSize(Rml::ElementDocument* document,
+                                           const EditorCoordinator& coordinator) {
+    if (!document) return;
+    Rml::Element* width = document->GetElementById("inspector-tilemap-cell-width");
+    if (!width) return;
+
+    width->ScrollIntoView(Rml::ScrollIntoViewOptions{
+        Rml::ScrollAlignment::Start, Rml::ScrollAlignment::Nearest,
+        Rml::ScrollBehavior::Smooth});
+    width->SetClass("inspector-reveal-highlight", true);
+    width->Focus(true);
+    if (auto* control = rmlui_dynamic_cast<Rml::ElementFormControlInput*>(width)) {
+        control->Select();
+    }
+
+    const SceneInstanceDef* inst = coordinator.document().findInstanceInScene(
+        coordinator.state().activeSceneId, coordinator.selection().primaryEntity);
+    if (!inst) return;
+    if (!coordinator.document().isInstanceLayerLocked(coordinator.state().activeSceneId, *inst)) {
+        return;
+    }
+
+    const std::string layerId =
+        coordinator.document().effectiveLayerId(coordinator.state().activeSceneId, *inst);
+    const SceneDef* scene = coordinator.document().findScene(coordinator.state().activeSceneId);
+    std::string layerName = layerId;
+    if (scene) {
+        for (const SceneLayerDef& layer : scene->layers) {
+            if (layer.id == layerId) {
+                layerName = layer.name;
+                break;
+            }
+        }
+    }
+    const std::string tooltip =
+        "Cell size cannot be edited because layer \"" + layerName + "\" is locked.";
+    width->SetAttribute("title", tooltip);
+}
+
+void InspectorPanel::consumeInspectorReveal(Rml::ElementDocument* document,
+                                            EditorCoordinator& coordinator) {
+    const std::optional<InspectorRevealRequest> request =
+        coordinator.takeInspectorRevealRequest();
+    if (!request) return;
+    if (coordinator.selection().primaryEntity != request->entityId) return;
+
+    switch (request->property) {
+        case InspectorProperty::TilemapCellSize:
+            revealTilemapCellSize(document, coordinator);
+            break;
+    }
+}
+
 void InspectorPanel::refresh(Rml::ElementDocument* document,
                              const EditorCoordinator& coordinator) {
     if (!document) return;
@@ -737,8 +790,10 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         }
         // cellSize is editable (SetTilemapCellSizeCommand, Slice 4); chunkSize
         // is genuinely immutable after creation (no setter command exists).
-        html += field("Cell Width", "commit-tilemap-cell-width", num(tm.cellSize.x), instanceDisabled);
-        html += field("Cell Height", "commit-tilemap-cell-height", num(tm.cellSize.y), instanceDisabled);
+        html += field("Cell Width", "commit-tilemap-cell-width", num(tm.cellSize.x), instanceDisabled,
+                      "inspector-tilemap-cell-width");
+        html += field("Cell Height", "commit-tilemap-cell-height", num(tm.cellSize.y), instanceDisabled,
+                      "inspector-tilemap-cell-height");
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Chunk Size</span>"
                 "<span class=\"prop-readonly\">" + std::to_string(tm.chunkSize) + "</span></div>";
 

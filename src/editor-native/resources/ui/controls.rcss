@@ -230,6 +230,25 @@
 }
 .grid-size-control.disabled .grid-size-popover { display: none; }
 
+/* Tilemap cell size: read-only navigation affordance (not an editor). */
+#btn-grid-size.grid-size-nav {
+    color: #93c5fd;
+    border-color: #3b82f680;
+    cursor: pointer;
+}
+#btn-grid-size.grid-size-nav:hover {
+    background-color: #1e293b;
+    border-color: #3b82f6;
+    color: #bfdbfe;
+}
+.grid-nav-icon {
+    display: inline-block;
+    margin-left: 4dp;
+    font-size: 10dp;
+    line-height: 28dp;
+    vertical-align: top;
+}
+
 /* Disabled toolbar buttons (state class wins). */
 .tool-btn.disabled,
 #btn-play-project.disabled,
@@ -658,6 +677,10 @@
 }
 .prop-input:hover { border-color: #323236; }
 .prop-input:focus { border-color: #3b82f6; }
+.prop-input.inspector-reveal-highlight {
+    border-color: #3b82f6;
+    background-color: #3b82f612;
+}
 /* Frozen while Play runs: the field is non-editable, so it reads as inert. */
 .prop-input:disabled {
     background-color: #161618;

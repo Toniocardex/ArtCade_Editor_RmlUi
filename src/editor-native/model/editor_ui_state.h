@@ -3,10 +3,24 @@
 #include "core/types.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_set>
 
 namespace ArtCade::EditorNative {
+
+enum class InspectorProperty {
+    TilemapCellSize,
+};
+
+// One-shot navigation request from the toolbar (or elsewhere) to the Inspector.
+// Consumed after scroll/focus; never persisted across sessions.
+struct InspectorRevealRequest {
+    EntityId          entityId = INVALID_ENTITY;
+    InspectorProperty property = InspectorProperty::TilemapCellSize;
+    std::uint64_t     requestId = 0;
+};
 
 // =============================================================================
 // EditorUiState — small, non-persistent UI layout/filter state (prompt §14).
@@ -41,6 +55,8 @@ struct EditorUiState {
     bool transformSectionExpanded = true;
     bool spriteSectionExpanded    = true;
     bool collisionSectionExpanded = false;
+
+    std::optional<InspectorRevealRequest> inspectorRevealRequest;
 };
 
 inline float clampLeftPanel(float v)    { return std::clamp(v, PanelLimits::kLeftMin,    PanelLimits::kLeftMax); }

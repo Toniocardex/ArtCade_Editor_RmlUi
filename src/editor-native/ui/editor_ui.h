@@ -20,6 +20,7 @@ namespace ArtCade::EditorNative {
 
 class EditorCoordinator;
 enum class AssetKind;   // defined in app/asset_import.h
+struct ViewportPointerReadout;
 
 // Target kind of the hierarchy context menu (scene tab vs entity row).
 enum class HierarchyMenuKind { Scene, Entity };
@@ -125,10 +126,10 @@ public:
     // Viewport drag preview for the selected entity transform. Presentation only:
     // the model still changes once, on mouse release, through SetEntityPositionCommand.
     void showEntityPositionPreview(EntityId entity, Vec2 position);
-    // Pointer world-position readout in the toolbar (Edit mode, mouse over the
-    // scene). Presentation-only per-frame update like the animation playhead:
-    // change-guarded, no invalidation, never touches authoring state.
-    void showPointerWorldPosition(const std::optional<Vec2>& worldPosition);
+    // Pointer world/cell readout in the toolbar (Edit mode, mouse over the
+    // scene). Presentation-only per-frame update: change-guarded, no
+    // invalidation, never touches authoring state.
+    void showViewportPointerReadout(const ViewportPointerReadout& readout);
 
     // Called by the listener; routes one UI interaction to command/intent.
     void handleAction(const std::string& action, const std::string& arg,
