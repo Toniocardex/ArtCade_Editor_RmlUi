@@ -61,6 +61,15 @@
 extern "C" void  glfwSetWindowShouldClose(void* window, int value);
 extern "C" void* glfwGetCurrentContext(void);
 
+#if defined(_WIN32)
+// DWM caption theming, declared by hand: including <windows.h> here clashes
+// with raylib symbol names (CloseWindow, ShowCursor, ...). Cosmetic calls —
+// on Windows builds that predate an attribute they fail and are ignored.
+extern "C" __declspec(dllimport) long __stdcall DwmSetWindowAttribute(
+    void* hwnd, unsigned long attribute, const void* value, unsigned long size);
+#pragma comment(lib, "dwmapi")
+#endif
+
 namespace ArtCade::EditorNative {
 
 namespace {
@@ -590,6 +599,22 @@ int EditorApp::run(int argc, char** argv) {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT |
                    FLAG_WINDOW_HIGHDPI);
     InitWindow(1340, 840, "ArtCade Studio");
+#if defined(_WIN32)
+    // Dark caption matching the editor chrome: the default light title bar
+    // clashed with the dark UI — even the 1px caption sliver DWM leaves under
+    // the close button's hover highlight read as a stray white gap against it.
+    // 20 = DWMWA_USE_IMMERSIVE_DARK_MODE (themes the caption buttons),
+    // 35/36 = DWMWA_CAPTION_COLOR / DWMWA_TEXT_COLOR (Windows 11) pin the
+    // exact menubar colors; COLORREF is 0x00BBGGRR.
+    if (void* hwnd = GetWindowHandle()) {
+        const int darkMode = 1;
+        const unsigned long captionColor = 0x001B1818;   // #18181b
+        const unsigned long textColor    = 0x00D8D4D4;   // #d4d4d8
+        DwmSetWindowAttribute(hwnd, 20, &darkMode, sizeof(darkMode));
+        DwmSetWindowAttribute(hwnd, 35, &captionColor, sizeof(captionColor));
+        DwmSetWindowAttribute(hwnd, 36, &textColor, sizeof(textColor));
+    }
+#endif
     const std::filesystem::path resourceRoot = editorResourceRoot();
     applyWindowIcon(resourceRoot);
     MaximizeWindow();
