@@ -1150,6 +1150,32 @@ static void runTilemapComponentTests() {
         CHECK(tilemapRenderCells(tm, tileset, Vec2{}).empty());
     }
 
+    // -- tilemapAtlasSourceRect: half-texel inset prevents atlas bleeding ------
+    {
+        const SceneFrameRect atlas{64.f, 128.f, 32.f, 32.f};
+        const SceneFrameRect inset = tilemapAtlasSourceRect(atlas);
+        CHECK(inset.x == 64.5f);
+        CHECK(inset.y == 128.5f);
+        CHECK(inset.width == 31.f);
+        CHECK(inset.height == 31.f);
+
+        const SceneFrameRect rectangular = tilemapAtlasSourceRect({32.f, 64.f, 16.f, 32.f});
+        CHECK(rectangular.x == 32.5f);
+        CHECK(rectangular.y == 64.5f);
+        CHECK(rectangular.width == 15.f);
+        CHECK(rectangular.height == 31.f);
+
+        const SceneFrameRect onePxWide{0.f, 0.f, 1.f, 8.f};
+        CHECK(tilemapAtlasSourceRect(onePxWide).x == onePxWide.x);
+        CHECK(tilemapAtlasSourceRect(onePxWide).y == onePxWide.y);
+        CHECK(tilemapAtlasSourceRect(onePxWide).width == onePxWide.width);
+        CHECK(tilemapAtlasSourceRect(onePxWide).height == onePxWide.height);
+
+        const SceneFrameRect tiny{0.f, 0.f, 0.5f, 0.5f};
+        CHECK(tilemapAtlasSourceRect(tiny).x == tiny.x);
+        CHECK(tilemapAtlasSourceRect(tiny).width == tiny.width);
+    }
+
     // -- AddTilemapComponentCommand: success, then rejections, no partial
     // mutation on any rejection ------------------------------------------------
     {

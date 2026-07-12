@@ -48,6 +48,17 @@ std::vector<SceneFrameTilemapCell> tilemapRenderCells(
     return result;
 }
 
+SceneFrameRect tilemapAtlasSourceRect(const SceneFrameRect& rect) {
+    constexpr float kHalfTexel = 0.5f;
+    if (rect.width <= 2.0f * kHalfTexel || rect.height <= 2.0f * kHalfTexel) return rect;
+    return SceneFrameRect{
+        rect.x + kHalfTexel,
+        rect.y + kHalfTexel,
+        rect.width - 2.0f * kHalfTexel,
+        rect.height - 2.0f * kHalfTexel,
+    };
+}
+
 std::optional<std::vector<TilemapResolvedCell>> resolveTilemapCellsStrict(
     const TilemapComponent& tilemap, const TilesetAsset& tileset) {
     std::vector<TilemapResolvedCell> result;

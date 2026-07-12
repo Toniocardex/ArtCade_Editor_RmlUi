@@ -1,5 +1,6 @@
 #include "editor-native/view/scene_view.h"
 
+#include "editor-native/model/tilemap_render_view.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/texture_cache.h"
 
@@ -204,7 +205,8 @@ void SceneView::render(const SceneFrameSnapshot& frame,
                 const TextureResource* resource = textures.find(tilemap.imageAssetId);
                 if (resource && resource->loaded) {
                     for (const SceneFrameTilemapCell& cell : tilemap.cells) {
-                        DrawTexturePro(resource->texture, toRectangle(cell.source),
+                        DrawTexturePro(resource->texture,
+                                      toRectangle(tilemapAtlasSourceRect(cell.source)),
                                       toRectangle(cell.destination), Vector2{0.f, 0.f}, 0.f, WHITE);
                     }
                 }

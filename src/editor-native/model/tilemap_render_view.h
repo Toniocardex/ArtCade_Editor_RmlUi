@@ -31,6 +31,13 @@ SceneFrameRect tilemapCellDestination(Vec2 origin, Vec2 cellSize, int cellX, int
 std::vector<SceneFrameTilemapCell> tilemapRenderCells(
     const TilemapComponent& tilemap, const TilesetAsset& tileset, Vec2 originPosition);
 
+// Half-texel inset on the atlas source rect so DrawTexturePro at fractional zoom
+// does not sample the neighbouring tile in the atlas. Applied only at draw time in
+// SceneView — destination rects and snapshot data stay untouched.
+// When tile flip via negative width/height is added, inset must shrink toward the
+// interior while preserving sign (negative widths must not hit the passthrough guard).
+SceneFrameRect tilemapAtlasSourceRect(const SceneFrameRect& rect);
+
 // One populated cell resolved against a tileset, in *local* cell coordinates -
 // never world-space, since the caller may not have a final world position yet
 // (or may need to recompute it every frame from one that changes, e.g. a
