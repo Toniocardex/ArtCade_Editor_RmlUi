@@ -149,10 +149,64 @@ static void testInvalidPlayIsAtomic() {
     CHECK(coordinator.document().revision() == revision);
 }
 
+static void testWorkspaceTargetAndSwitchPolicy() {
+    ProjectDoc data = makeProjectData();
+    EntityDef enemy;
+    enemy.name = "Enemy";
+    enemy.className = "Enemy";
+    data.objectTypes.emplace("Enemy", enemy);
+    SceneInstanceDef enemyInstance;
+    enemyInstance.id = 2;
+    enemyInstance.objectTypeId = "Enemy";
+    enemyInstance.instanceName = "Enemy 1";
+    enemyInstance.layerId = "layer-1";
+    data.scenes.at("scene-1").instances.push_back(enemyInstance);
+    data.scenes.at("scene-1").entityIds.push_back(2);
+
+    EditorCoordinator coordinator{std::move(data)};
+    const uint64_t revision = coordinator.document().revision();
+    const std::size_t undoSize = coordinator.undoSize();
+
+    auto opened = coordinator.apply(OpenLogicBoardIntent{"Hero"});
+    CHECK(opened.ok);
+    CHECK(coordinator.state().logicBoardEditor.mode == CenterWorkspaceMode::Logic);
+    CHECK(coordinator.state().logicBoardEditor.objectTypeId == std::optional<ObjectTypeId>{"Hero"});
+    CHECK(has(opened.invalidation, EditorInvalidation::Layout));
+    CHECK(has(opened.invalidation, EditorInvalidation::Toolbar));
+    CHECK(has(opened.invalidation, EditorInvalidation::Viewport));
+
+    // Selection alone never retargets the open board. The Hierarchy controller
+    // follows this with one explicit OpenLogicBoardIntent when policy requires.
+    CHECK(coordinator.apply(SelectEntityIntent{2}).ok);
+    CHECK(coordinator.state().logicBoardEditor.objectTypeId == std::optional<ObjectTypeId>{"Hero"});
+    const EditorOperationResult retargeted = coordinator.apply(OpenLogicBoardIntent{"Enemy"});
+    CHECK(retargeted.ok);
+    CHECK(retargeted.invalidation
+          == (EditorInvalidation::LogicBoard | EditorInvalidation::Toolbar));
+    CHECK(coordinator.state().logicBoardEditor.objectTypeId == std::optional<ObjectTypeId>{"Enemy"});
+    CHECK(coordinator.apply(SetLogicBoardTabIntent{LogicBoardTab::GeneratedLua}).ok);
+    CHECK(coordinator.apply(SetLogicBoardSearchIntent{"enemy"}).ok);
+
+    CHECK(coordinator.apply(SwitchCenterWorkspaceIntent{CenterWorkspaceMode::Scene}).ok);
+    CHECK(coordinator.apply(SelectEntityIntent{1}).ok);
+    CHECK(coordinator.apply(SwitchCenterWorkspaceIntent{CenterWorkspaceMode::Logic}).ok);
+    CHECK(coordinator.state().logicBoardEditor.objectTypeId == std::optional<ObjectTypeId>{"Enemy"});
+    CHECK(coordinator.state().logicBoardEditor.tab == LogicBoardTab::GeneratedLua);
+    CHECK(coordinator.state().logicBoardEditor.search == "enemy");
+    CHECK(coordinator.selection().primaryEntity == 1);
+
+    CHECK(coordinator.document().revision() == revision);
+    CHECK(!coordinator.document().isDirty());
+    CHECK(coordinator.undoSize() == undoSize);
+    CHECK(!coordinator.apply(OpenLogicBoardIntent{"Missing"}).ok);
+    CHECK(coordinator.state().logicBoardEditor.objectTypeId == std::optional<ObjectTypeId>{"Enemy"});
+}
+
 int main() {
     testCommandsAndPersistence();
     testPlayRuntimeIsolation();
     testInvalidPlayIsAtomic();
+    testWorkspaceTargetAndSwitchPolicy();
     std::cout << "logic-board-editor-test: " << passed << " passed, "
               << failed << " failed\n";
     return failed == 0 ? 0 : 1;

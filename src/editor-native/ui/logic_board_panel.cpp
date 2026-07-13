@@ -51,13 +51,52 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
 
     const LogicBoardEditorState& view = coordinator.state().logicBoardEditor;
     const bool playing = coordinator.isPlaying();
+    if (scrollObjectTypeId_ == view.objectTypeId) {
+        if (Rml::Element* scroll = document->GetElementById("logic-scroll"))
+            scrollTop_ = scroll->GetScrollTop();
+    } else {
+        scrollObjectTypeId_ = view.objectTypeId;
+        scrollTop_ = 0.f;
+    }
     std::vector<ObjectTypeId> typeIds;
     typeIds.reserve(coordinator.document().data().objectTypes.size());
     for (const auto& [id, unused] : coordinator.document().data().objectTypes)
         typeIds.push_back(id);
     std::sort(typeIds.begin(), typeIds.end());
 
-    std::string html = "<div class=\"logic-head\"><span class=\"logic-title\">Logic Board</span>";
+    const auto instanceCountFor = [&](const ObjectTypeId& objectTypeId) {
+        std::size_t count = 0;
+        for (const auto& [sceneId, scene] : coordinator.document().data().scenes)
+            for (const SceneInstanceDef& instance : scene.instances)
+                if (instance.objectTypeId == objectTypeId) ++count;
+        return count;
+    };
+
+    const ObjectTypeId selectedId = view.objectTypeId
+        && coordinator.document().hasObjectType(*view.objectTypeId)
+        ? *view.objectTypeId : (typeIds.empty() ? ObjectTypeId{} : typeIds.front());
+    const EntityDef* selectedType = selectedId.empty()
+        ? nullptr : &coordinator.document().data().objectTypes.at(selectedId);
+    const std::string selectedName = selectedType && !selectedType->name.empty()
+        ? selectedType->name : selectedId;
+    const std::size_t sharedCount = selectedId.empty() ? 0 : instanceCountFor(selectedId);
+
+    std::string html = "<div class=\"logic-head\"><div class=\"logic-heading\">"
+                       "<span class=\"logic-title\">Logic Board";
+    if (!selectedName.empty()) html += " · " + escapeRml(selectedName);
+    html += "</span><span class=\"logic-owner\">OBJECT TYPE · ";
+    if (selectedName.empty()) {
+        html += "No target";
+    } else {
+        html += "Shared by " + std::to_string(sharedCount)
+             + (sharedCount == 1 ? " instance" : " instances");
+    }
+    html += "</span></div>";
+    const auto render = [&]() {
+        root->SetInnerRML(html);
+        if (Rml::Element* scroll = document->GetElementById("logic-scroll"))
+            scroll->SetScrollTop(scrollTop_);
+    };
     if (!typeIds.empty()) {
         html += "<select class=\"logic-search\" data-action=\"select-logic-object-type\">";
         for (const ObjectTypeId& id : typeIds) {
@@ -68,23 +107,14 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         html += "</select>";
     }
     html += "</div>";
-    html += "<div class=\"logic-tabs\">"
-            "<button class=\"logic-tab";
-    if (view.tab == LogicBoardTab::Rules) html += " active";
-    html += "\" data-action=\"logic-tab-rules\">Rules</button>"
-            "<button class=\"logic-tab";
-    if (view.tab == LogicBoardTab::GeneratedLua) html += " active";
-    html += "\" data-action=\"logic-tab-lua\">Generated Lua</button></div>";
 
     if (typeIds.empty()) {
         html += "<div class=\"logic-empty\"><div class=\"logic-empty-title\">No Object Types</div>"
                 "<div class=\"logic-muted\">Create an Object Type before adding gameplay logic.</div></div>";
-        root->SetInnerRML(html);
+        render();
         return;
     }
 
-    const ObjectTypeId selectedId = view.objectTypeId && coordinator.document().hasObjectType(*view.objectTypeId)
-        ? *view.objectTypeId : typeIds.front();
     const EntityDef& objectType = coordinator.document().data().objectTypes.at(selectedId);
     if (!objectType.logicBoard) {
         html += "<div class=\"logic-empty\"><div class=\"logic-empty-title\">No Logic Board</div>"
@@ -92,7 +122,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 "<button class=\"logic-btn primary";
         if (playing) html += " disabled";
         html += "\" data-action=\"create-logic-board\">Create Logic Board</button></div>";
-        root->SetInnerRML(html);
+        render();
         return;
     }
 
@@ -100,7 +130,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     const Logic::LogicCompileResult compiled = Logic::compileBoard(selectedId, board);
 
     if (view.tab == LogicBoardTab::GeneratedLua) {
-        html += "<div class=\"logic-scroll\">";
+        html += "<div id=\"logic-scroll\" class=\"logic-scroll\">";
         for (const Logic::LogicDiagnostic& diagnostic : compiled.diagnostics) {
             html += "<div class=\"logic-diagnostic\">" + escapeRml(diagnostic.code)
                  + " · " + escapeRml(diagnostic.ruleId) + " · "
@@ -112,19 +142,14 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         else
             html += "<div class=\"logic-empty\"><div class=\"logic-muted\">No source is generated while blocking diagnostics exist.</div></div>";
         html += "</div>";
-        root->SetInnerRML(html);
+        render();
         return;
     }
 
-    html += "<div class=\"logic-tools\"><input class=\"logic-search\" type=\"text\""
-            " data-action=\"commit-logic-search\" placeholder=\"Search rules\" value=\""
-         + escapeRml(view.search) + "\"/><button class=\"logic-btn primary";
-    if (playing) html += " disabled";
-    html += "\" data-action=\"add-logic-rule\">Add Rule</button>"
-            "<button class=\"logic-btn danger";
+    html += "<div class=\"logic-tools\"><button class=\"logic-btn danger";
     if (playing) html += " disabled";
     html += "\" data-action=\"remove-logic-board\">Remove Board</button></div>"
-            "<div class=\"logic-scroll\">";
+            "<div id=\"logic-scroll\" class=\"logic-scroll\">";
 
     const std::string query = lower(view.search);
     for (std::size_t ruleIndex = 0; ruleIndex < board.rules.size(); ++ruleIndex) {
@@ -221,7 +246,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         html += "</div>";
     }
     html += "</div>";
-    root->SetInnerRML(html);
+    render();
 }
 
 } // namespace ArtCade::EditorNative

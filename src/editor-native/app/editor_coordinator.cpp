@@ -582,19 +582,18 @@ EditorOperationResult EditorCoordinator::apply(const SelectSceneIntent& intent) 
     return EditorOperationResult::success(kSceneChangeInvalidation);
 }
 
-EditorOperationResult EditorCoordinator::apply(const SetCenterWorkspaceModeIntent& intent) {
+EditorOperationResult EditorCoordinator::apply(const SwitchCenterWorkspaceIntent& intent) {
     LogicBoardEditorState& logicState = state_.logicBoardEditor;
     if (logicState.mode == intent.mode) return EditorOperationResult::success(EditorInvalidation::None);
+    // A scene gesture cannot survive after its surface has been hidden. This
+    // clears only workspace preview state; no Command, revision or dirty state.
+    cancelPendingTilemapGesture();
     logicState.mode = intent.mode;
     if (intent.mode == CenterWorkspaceMode::Logic) {
-        // Selection is only a convenience for choosing the owning Object Type;
-        // the board itself remains exclusively on ProjectDoc.objectTypes.
-        const SceneInstanceDef* selected = document_.findInstanceInScene(
-            state_.activeSceneId, state_.selection.primaryEntity);
-        if (selected && document_.hasObjectType(selected->objectTypeId)) {
-            logicState.objectTypeId = selected->objectTypeId;
-        } else if (!logicState.objectTypeId
-                   || !document_.hasObjectType(*logicState.objectTypeId)) {
+        // Preserve the explicitly opened board. A deterministic first type is
+        // only a bootstrap for entering Logic before any board was ever opened;
+        // the current scene selection is deliberately not consulted here.
+        if (!logicState.objectTypeId || !document_.hasObjectType(*logicState.objectTypeId)) {
             std::vector<ObjectTypeId> ids;
             ids.reserve(document_.data().objectTypes.size());
             for (const auto& [id, unused] : document_.data().objectTypes) ids.push_back(id);
@@ -606,18 +605,25 @@ EditorOperationResult EditorCoordinator::apply(const SetCenterWorkspaceModeInten
 
     const EditorInvalidation inv = EditorInvalidation::LogicBoard
                                  | EditorInvalidation::Viewport
-                                 | EditorInvalidation::Toolbar;
+                                 | EditorInvalidation::Toolbar
+                                 | EditorInvalidation::Layout;
     accumulate(inv);
     return EditorOperationResult::success(inv);
 }
 
-EditorOperationResult EditorCoordinator::apply(const SelectLogicObjectTypeIntent& intent) {
+EditorOperationResult EditorCoordinator::apply(const OpenLogicBoardIntent& intent) {
     if (!document_.hasObjectType(intent.objectTypeId))
         return finishIntent(EditorOperationResult::failure("Unknown Object Type"));
-    if (state_.logicBoardEditor.objectTypeId == intent.objectTypeId)
+    LogicBoardEditorState& logicState = state_.logicBoardEditor;
+    if (logicState.mode == CenterWorkspaceMode::Logic
+        && logicState.objectTypeId == intent.objectTypeId)
         return EditorOperationResult::success(EditorInvalidation::None);
-    state_.logicBoardEditor.objectTypeId = intent.objectTypeId;
-    const EditorInvalidation inv = EditorInvalidation::LogicBoard | EditorInvalidation::Toolbar;
+    const bool enteringLogic = logicState.mode != CenterWorkspaceMode::Logic;
+    cancelPendingTilemapGesture();
+    logicState.objectTypeId = intent.objectTypeId;
+    logicState.mode = CenterWorkspaceMode::Logic;
+    EditorInvalidation inv = EditorInvalidation::LogicBoard | EditorInvalidation::Toolbar;
+    if (enteringLogic) inv |= EditorInvalidation::Viewport | EditorInvalidation::Layout;
     accumulate(inv);
     return EditorOperationResult::success(inv);
 }
@@ -626,8 +632,9 @@ EditorOperationResult EditorCoordinator::apply(const SetLogicBoardTabIntent& int
     if (state_.logicBoardEditor.tab == intent.tab)
         return EditorOperationResult::success(EditorInvalidation::None);
     state_.logicBoardEditor.tab = intent.tab;
-    accumulate(EditorInvalidation::LogicBoard);
-    return EditorOperationResult::success(EditorInvalidation::LogicBoard);
+    const EditorInvalidation inv = EditorInvalidation::LogicBoard | EditorInvalidation::Toolbar;
+    accumulate(inv);
+    return EditorOperationResult::success(inv);
 }
 
 EditorOperationResult EditorCoordinator::apply(const SetLogicBoardSearchIntent& intent) {

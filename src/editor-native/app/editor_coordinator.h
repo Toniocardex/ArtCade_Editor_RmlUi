@@ -131,8 +131,8 @@ public:
     // ---- intent path (workspace/editor state) -------------------------------
     EditorOperationResult apply(const SelectEntityIntent& intent);
     EditorOperationResult apply(const SelectSceneIntent& intent);
-    EditorOperationResult apply(const SetCenterWorkspaceModeIntent& intent);
-    EditorOperationResult apply(const SelectLogicObjectTypeIntent& intent);
+    EditorOperationResult apply(const SwitchCenterWorkspaceIntent& intent);
+    EditorOperationResult apply(const OpenLogicBoardIntent& intent);
     EditorOperationResult apply(const SetLogicBoardTabIntent& intent);
     EditorOperationResult apply(const SetLogicBoardSearchIntent& intent);
     EditorOperationResult apply(const SetViewportZoomIntent& intent);

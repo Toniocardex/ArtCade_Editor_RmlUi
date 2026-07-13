@@ -194,6 +194,7 @@ bool actionRequiresPendingEditGate(const std::string& action) {
         "select-entity", "select-scene", "select-layer", "select-animation-clip",
         "open-sprite-animation", "close-sprite-animation",
         "open-tileset-editor", "close-tileset-editor",
+        "open-scene-workspace", "open-logic-workspace",
     };
     return std::find(std::begin(actions), std::end(actions), action) != std::end(actions);
 }
@@ -522,6 +523,13 @@ void EditorUi::refreshCenterWorkspace() {
     if (Rml::Element* el = document_->GetElementById("logic-board-panel")) el->SetClass("hidden", !logic);
     if (Rml::Element* el = document_->GetElementById("center-tab-scene")) el->SetClass("active", !logic);
     if (Rml::Element* el = document_->GetElementById("center-tab-logic")) el->SetClass("active", logic);
+    if (Rml::Element* el = document_->GetElementById("scene-context-tools")) el->SetClass("hidden", logic);
+    if (Rml::Element* el = document_->GetElementById("logic-context-tools")) el->SetClass("hidden", !logic);
+    // Rules are edited inline in the board. Keeping the entity Inspector visible
+    // would present a second, unrelated target (instance vs owning Object Type).
+    // Its inline width remains untouched and is restored automatically in Scene.
+    if (Rml::Element* el = document_->GetElementById("split-right")) el->SetClass("hidden", logic);
+    if (Rml::Element* el = document_->GetElementById("right-col")) el->SetClass("hidden", logic);
 }
 
 void EditorUi::refreshLayout() {
@@ -1313,6 +1321,27 @@ void EditorUi::refreshToolbar() {
         if (Rml::Element* el = document_->GetElementById(toolbarId)) el->SetClass("active", active);
         if (Rml::Element* el = document_->GetElementById(menuId))    el->SetClass("active", active);
     };
+    const LogicBoardEditorState& logicView = coordinator_.state().logicBoardEditor;
+    const EntityDef* logicType = logicView.objectTypeId
+        ? coordinator_.document().findObjectType(*logicView.objectTypeId) : nullptr;
+    const bool hasLogicBoard = logicType && logicType->logicBoard.has_value();
+    setEnabled("btn-logic-add-rule",
+               logicWorkspace && !playing && hasLogicBoard
+               && logicView.tab == LogicBoardTab::Rules);
+    setEnabled("btn-logic-rules", logicWorkspace);
+    setEnabled("btn-logic-lua", logicWorkspace);
+    setEnabled("btn-logic-validate", logicWorkspace && hasLogicBoard);
+    if (Rml::Element* el = document_->GetElementById("btn-logic-rules"))
+        el->SetClass("active", logicWorkspace && logicView.tab == LogicBoardTab::Rules);
+    if (Rml::Element* el = document_->GetElementById("btn-logic-lua"))
+        el->SetClass("active", logicWorkspace && logicView.tab == LogicBoardTab::GeneratedLua);
+    if (Rml::Element* search = document_->GetElementById("logic-toolbar-search")) {
+        if (Rml::Context* context = document_->GetContext();
+            !context || context->GetFocusElement() != search) {
+            if (auto* control = rmlui_dynamic_cast<Rml::ElementFormControl*>(search))
+                control->SetValue(logicView.search);
+        }
+    }
     setEnabled("btn-play-project", !playing && coordinator_.canPlayProject());
     setEnabled("btn-play-scene",   !playing && coordinator_.canPlayCurrentScene());
     setEnabled("btn-stop",         playing);
@@ -1982,16 +2011,27 @@ bool EditorUi::handleSpriteAnimationAction(const std::string& action, const std:
 
 bool EditorUi::handleLogicBoardAction(const std::string& action, const std::string& arg,
                                       const std::string& value) {
+    const auto prepareWorkspaceSwitch = [&]() {
+        hideContextMenus();
+        if (document_ && document_->GetContext()) {
+            if (Rml::Element* focus = document_->GetContext()->GetFocusElement()) focus->Blur();
+        }
+    };
     if (action == "open-scene-workspace") {
-        coordinator_.apply(SetCenterWorkspaceModeIntent{CenterWorkspaceMode::Scene});
+        prepareWorkspaceSwitch();
+        coordinator_.apply(SwitchCenterWorkspaceIntent{CenterWorkspaceMode::Scene});
         return true;
     }
     if (action == "open-logic-workspace") {
-        coordinator_.apply(SetCenterWorkspaceModeIntent{CenterWorkspaceMode::Logic});
+        prepareWorkspaceSwitch();
+        const SceneInstanceDef* selected = coordinator_.document().findInstanceInScene(
+            coordinator_.state().activeSceneId, coordinator_.selection().primaryEntity);
+        if (selected) coordinator_.apply(OpenLogicBoardIntent{selected->objectTypeId});
+        else coordinator_.apply(SwitchCenterWorkspaceIntent{CenterWorkspaceMode::Logic});
         return true;
     }
     if (action == "select-logic-object-type") {
-        if (!value.empty()) coordinator_.apply(SelectLogicObjectTypeIntent{value});
+        if (!value.empty()) coordinator_.apply(OpenLogicBoardIntent{value});
         return true;
     }
     if (action == "logic-tab-rules" || action == "logic-tab-lua") {
@@ -2009,6 +2049,27 @@ bool EditorUi::handleLogicBoardAction(const std::string& action, const std::stri
         return action.rfind("logic-", 0) != std::string::npos;
     const ObjectTypeId objectTypeId = *view.objectTypeId;
     const EntityDef& objectType = coordinator_.document().data().objectTypes.at(objectTypeId);
+
+    if (action == "validate-logic-board") {
+        if (!objectType.logicBoard) return true;
+        const Logic::LogicCompileResult result = Logic::compileBoard(objectTypeId, *objectType.logicBoard);
+        if (result.diagnostics.empty()) {
+            coordinator_.logInfo("Logic valid · " + objectTypeId);
+        } else {
+            for (const Logic::LogicDiagnostic& diagnostic : result.diagnostics) {
+                const std::string message = "Logic "
+                    + std::string(diagnostic.severity == Logic::DiagnosticSeverity::Error
+                                      ? "error" : "warning")
+                    + " · " + objectTypeId + " · " + diagnostic.ruleId
+                    + " · " + diagnostic.message;
+                if (diagnostic.severity == Logic::DiagnosticSeverity::Error)
+                    coordinator_.logError(message);
+                else
+                    coordinator_.logWarning(message);
+            }
+        }
+        return true;
+    }
 
     const bool authoringAction = action == "create-logic-board" || action == "remove-logic-board"
         || action == "add-logic-rule" || action == "remove-logic-rule"
@@ -2054,6 +2115,7 @@ bool EditorUi::handleLogicBoardAction(const std::string& action, const std::stri
     };
 
     if (action == "add-logic-rule") {
+        if (view.tab != LogicBoardTab::Rules) return true;
         coordinator_.execute(AddLogicRuleCommand{
             objectTypeId, Logic::makeDefaultRule(nextLogicRuleId(board)), board.rules.size()});
     } else if (action == "remove-logic-rule") {
@@ -2203,8 +2265,18 @@ bool EditorUi::handleTilesetEditorAction(const std::string& action, const std::s
 bool EditorUi::handleHierarchyAction(const std::string& action, const std::string& arg,
                                      const std::string& value, EntityId selected) {
     if (action == "select-entity") {
-        coordinator_.apply(SelectEntityIntent{
-            static_cast<EntityId>(std::strtoul(arg.c_str(), nullptr, 10))});
+        const EntityId entityId = static_cast<EntityId>(std::strtoul(arg.c_str(), nullptr, 10));
+        const bool logicWorkspace = coordinator_.state().logicBoardEditor.mode
+            == CenterWorkspaceMode::Logic;
+        const EditorOperationResult selectedResult = coordinator_.apply(SelectEntityIntent{entityId});
+        // Hierarchy navigation in Logic explicitly retargets the board once.
+        // No refresh path ever derives the target from SelectionState.
+        if (logicWorkspace && selectedResult.ok) {
+            if (const SceneInstanceDef* instance = coordinator_.document().findInstanceInScene(
+                    coordinator_.state().activeSceneId, entityId)) {
+                coordinator_.apply(OpenLogicBoardIntent{instance->objectTypeId});
+            }
+        }
     } else if (action == "select-scene") {
         coordinator_.apply(SelectSceneIntent{arg});
     } else if (action == "add-scene") {

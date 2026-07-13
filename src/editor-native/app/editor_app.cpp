@@ -593,6 +593,7 @@ int EditorApp::run(int argc, char** argv) {
     std::string shotProject;
     bool shotAnimation = false;
     bool shotTileset = false;   // open the Tileset Editor (creating from the first image if none)
+    bool shotLogic = false;     // open the Logic workspace for shell/layout smoke checks
     int shotSliceColumns = 0;   // > 0: slice the open clip into N frames for the shot
     bool shotSliceAll = false;  // slice every animation asset in turn (overwrite repro)
     std::string shotSavePath;   // non-empty: save the project here via the real path
@@ -607,6 +608,7 @@ int EditorApp::run(int argc, char** argv) {
             shotProject = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-anim") == 0) shotAnimation = true;
         else if (std::strcmp(argv[i], "--shot-tileset") == 0) shotTileset = true;
+        else if (std::strcmp(argv[i], "--shot-logic") == 0) shotLogic = true;
         else if (std::strcmp(argv[i], "--shot-slice") == 0 && i + 1 < argc)
             shotSliceColumns = std::atoi(argv[i + 1]);
         else if (std::strcmp(argv[i], "--shot-slice-all") == 0) shotSliceAll = true;
@@ -1312,6 +1314,9 @@ int EditorApp::run(int argc, char** argv) {
             }
         }
     }
+    if (!shotPath.empty() && shotLogic) {
+        ui.handleAction("open-logic-workspace", "", "");
+    }
 
     int   frame       = 0;
     int   lastRenderW = hostRenderW;
@@ -1319,6 +1324,7 @@ int EditorApp::run(int argc, char** argv) {
     float lastDpi     = hostDpi;
     int   sizeStableFrames = 0;
     bool  prevTextFocus = false;   // last frame's RmlUi text focus (see Tileset keys)
+    CenterWorkspaceMode previousWorkspaceMode = coordinator.state().logicBoardEditor.mode;
     // Tile Palette Picker-sync: the tile last scrolled into view, so a
     // repeated selection (or none) does not re-trigger ScrollIntoView.
     std::optional<TileId> lastScrolledPaletteTile;
@@ -1354,6 +1360,18 @@ int EditorApp::run(int argc, char** argv) {
         if (IsKeyPressed(KEY_F8)) host.toggleDebugger();
 
         const RmlInputResult rml = pumpRmlInput(host.context());
+        const bool logicWorkspace = coordinator.state().logicBoardEditor.mode
+            == CenterWorkspaceMode::Logic;
+        if (coordinator.state().logicBoardEditor.mode != previousWorkspaceMode) {
+            // Local presentation gestures belong to the surface that started
+            // them. Never let a hidden Scene drag/context click complete after
+            // switching to Logic (or vice versa).
+            drag = ViewportDrag{};
+            contextClick = ViewportContextClick{};
+            pendingContextSpawn.reset();
+            ui.hideContextMenus();
+            previousWorkspaceMode = coordinator.state().logicBoardEditor.mode;
+        }
 
         // Undo/redo keyboard shortcuts share the single coordinator entry points
         // with the toolbar buttons; suppressed while a text field has focus, and
@@ -1375,19 +1393,19 @@ int EditorApp::run(int argc, char** argv) {
                 // keeps its own Ctrl+C (guarded by textFocus above); with no
                 // selection this is a no-op.
                 ui.copySelectedConsoleMessage();
-            } else if (shift && IsKeyPressed(KEY_D)) {
+            } else if (!logicWorkspace && shift && IsKeyPressed(KEY_D)) {
                 addInstanceOfSelectedType(coordinator);
-            } else if (IsKeyPressed(KEY_D)) {
+            } else if (!logicWorkspace && IsKeyPressed(KEY_D)) {
                 cloneSelectedEntity(coordinator);
             }
         }
-        if (!rml.textFocus && !coordinator.isPlaying() && IsKeyPressed(KEY_F2)) {
+        if (!logicWorkspace && !rml.textFocus && !coordinator.isPlaying() && IsKeyPressed(KEY_F2)) {
             ui.beginActiveSceneLayerRename();
         }
         // Tilemap tool shortcuts only switch tools between strokes/rectangles -
         // mid-operation, only Escape (handled inside routeViewportTilemapPaint,
         // which needs the operation's context) may interrupt.
-        if (!rml.textFocus && !coordinator.isPlaying()
+        if (!logicWorkspace && !rml.textFocus && !coordinator.isPlaying()
             && !coordinator.state().tilemapEditor.pendingStroke
             && !coordinator.state().tilemapEditor.pendingRectangle) {
             if (IsKeyPressed(KEY_B)) coordinator.apply(SetActiveToolIntent{EditorTool::Brush});
@@ -1400,7 +1418,7 @@ int EditorApp::run(int argc, char** argv) {
         // (editor_input.cpp), but only takes effect there while a field has
         // focus; textFocus is false in exactly the complementary case, so the
         // two never fire on the same keypress.
-        if (!rml.textFocus && IsKeyPressed(KEY_DELETE)) {
+        if (!logicWorkspace && !rml.textFocus && IsKeyPressed(KEY_DELETE)) {
             deleteSelectedEntity(coordinator);
         }
         const ViewportRect rect = viewportRectFromDocument(host.document());
@@ -1411,8 +1429,6 @@ int EditorApp::run(int argc, char** argv) {
             coordinator.state().spriteAnimationEditor.openAssetId.has_value();
         const bool tilesetEditorOpen =
             coordinator.state().tilesetEditor.openAssetId.has_value();
-        const bool logicWorkspace = coordinator.state().logicBoardEditor.mode
-            == CenterWorkspaceMode::Logic;
         const ViewportRect animationInputRect = animationEditorOpen
             ? resolveSpriteAnimationCanvasContentRect(animationDocument)
             : ViewportRect{};
@@ -1425,9 +1441,12 @@ int EditorApp::run(int argc, char** argv) {
         if (coordinator.isPlaying()) {
             const float dt = GetFrameTime();
             coordinator.advanceRuntime(dt);               // authored motion (LinearMover)
-            // Gameplay input is neutral while a text field has focus.
+            // Simulation continues in every workspace. Gameplay input belongs
+            // specifically to the visible/focused Scene viewport, so typing or
+            // navigating in Logic always delivers a neutral snapshot.
             RuntimeInputSnapshot input;
-            if (!rml.textFocus) {
+            if (shouldForwardGameplayInput({!logicWorkspace,
+                    rect.contains(GetMouseX(), GetMouseY()), rml.textFocus})) {
                 input.moveLeft  = IsKeyDown(KEY_LEFT)  || IsKeyDown(KEY_A);
                 input.moveRight = IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D);
                 input.moveUp    = IsKeyDown(KEY_UP)    || IsKeyDown(KEY_W);
@@ -1605,14 +1624,20 @@ int EditorApp::run(int argc, char** argv) {
         BeginDrawing();
         ClearBackground(Color{15, 16, 20, 255});
         const PlaySession* playSession = coordinator.playSession();
-        const SceneId active = playSession ? playSession->sceneId()
-                                           : coordinator.state().activeSceneId;
-        SceneFrameSnapshot snapshot = playSession
-            ? collectSceneFrameSnapshot(*playSession)
-            : collectSceneFrameSnapshot(coordinator.document(), active,
-                                        coordinator.selection().primaryEntity,
-                                        coordinator.sceneView(active).hiddenLayerIds);
-        if (!playSession && drag.active) {
+        const SpriteAnimationAssetDef* animationAsset = nullptr;
+        const TilesetAsset* tilesetAsset = nullptr;
+        // Logic owns an opaque RmlUi surface. Do not collect a graphical scene
+        // snapshot, prepare textures, render overlays, or paint an asset editor
+        // behind/over it. PlaySession ticking above remains independent.
+        if (!logicWorkspace) {
+            const SceneId active = playSession ? playSession->sceneId()
+                                               : coordinator.state().activeSceneId;
+            SceneFrameSnapshot snapshot = playSession
+                ? collectSceneFrameSnapshot(*playSession)
+                : collectSceneFrameSnapshot(coordinator.document(), active,
+                                            coordinator.selection().primaryEntity,
+                                            coordinator.sceneView(active).hiddenLayerIds);
+            if (!playSession && drag.active) {
             // Local drag preview: offset the dragged entity by the live delta so
             // the move is visible before the single command lands on release.
             const std::optional<Vec2> preview = dragPreviewPosition(coordinator, rect, drag);
@@ -1627,36 +1652,35 @@ int EditorApp::run(int argc, char** argv) {
             // lingers at the old position until the move commits on release.
             for (SceneFrameCollider& col : snapshot.colliders)
                 if (col.entityId == drag.entity) { col.worldBounds.x += d.x; col.worldBounds.y += d.y; }
-        }
-        if (!playSession) {
-            applyPendingTilemapStrokePreview(snapshot, coordinator.document(),
-                                             coordinator.state().tilemapEditor);
-            applyPendingTilemapRectanglePreview(snapshot, coordinator.document(),
-                                                coordinator.state().tilemapEditor);
-        }
-        EditorSceneViewState renderView = coordinator.sceneView(active);
-        if (playSession) renderView.gridVisible = false;
-        const SpriteAnimationAssetDef* animationAsset = nullptr;
-        const TilesetAsset* tilesetAsset = nullptr;
-        // Asset editors replace the scene viewport only in Edit mode. During
-        // Play the runtime scene must always render regardless of workspace UI.
-        if (!playSession) {
-            if (const auto& open = coordinator.state().spriteAnimationEditor.openAssetId) {
-                animationAsset = coordinator.document().findSpriteAnimationAsset(*open);
-            } else if (const auto& openTileset = coordinator.state().tilesetEditor.openAssetId) {
-                tilesetAsset = coordinator.document().findTilesetAsset(*openTileset);
             }
-        }
-        if (!logicWorkspace && (playSession || (!animationAsset && !tilesetAsset))) {
-            textureCache.prepare(snapshot.sprites, snapshot.tilemaps, textureRequests);
-            const SceneGridDefinition displayGrid = viewportDisplayGrid(
-                coordinator.document(), coordinator.state(), active);
-            sceneView.render(snapshot, renderView, displayGrid, rect, textureCache,
-                             canvasFont);
             if (!playSession) {
-                drawTilemapPaintOverlay(coordinator.document(), coordinator.state().tilemapEditor,
-                                        active, coordinator.selection().primaryEntity, rect,
-                                        renderView, snapshot.worldSize);
+                applyPendingTilemapStrokePreview(snapshot, coordinator.document(),
+                                                 coordinator.state().tilemapEditor);
+                applyPendingTilemapRectanglePreview(snapshot, coordinator.document(),
+                                                    coordinator.state().tilemapEditor);
+            }
+            EditorSceneViewState renderView = coordinator.sceneView(active);
+            if (playSession) renderView.gridVisible = false;
+            // Asset editors replace the scene viewport only in Edit mode. During
+            // Play the runtime scene must always render regardless of workspace UI.
+            if (!playSession) {
+                if (const auto& open = coordinator.state().spriteAnimationEditor.openAssetId) {
+                    animationAsset = coordinator.document().findSpriteAnimationAsset(*open);
+                } else if (const auto& openTileset = coordinator.state().tilesetEditor.openAssetId) {
+                    tilesetAsset = coordinator.document().findTilesetAsset(*openTileset);
+                }
+            }
+            if (playSession || (!animationAsset && !tilesetAsset)) {
+                textureCache.prepare(snapshot.sprites, snapshot.tilemaps, textureRequests);
+                const SceneGridDefinition displayGrid = viewportDisplayGrid(
+                    coordinator.document(), coordinator.state(), active);
+                sceneView.render(snapshot, renderView, displayGrid, rect, textureCache,
+                                 canvasFont);
+                if (!playSession) {
+                    drawTilemapPaintOverlay(coordinator.document(), coordinator.state().tilemapEditor,
+                                            active, coordinator.selection().primaryEntity, rect,
+                                            renderView, snapshot.worldSize);
+                }
             }
         }
         host.render();

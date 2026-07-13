@@ -28,4 +28,16 @@ inline bool shouldViewportReceiveInput(const ViewportInputContext& ctx) {
         && !ctx.rmlPopupOpen;
 }
 
+struct GameplayInputContext {
+    bool sceneWorkspace      = true;
+    bool cursorInViewport    = false;
+    bool rmlTextFieldFocused = false;
+};
+
+// Runtime simulation may continue while another workspace is visible, but
+// gameplay controls are forwarded only from the focused Scene surface.
+inline bool shouldForwardGameplayInput(const GameplayInputContext& ctx) {
+    return ctx.sceneWorkspace && ctx.cursorInViewport && !ctx.rmlTextFieldFocused;
+}
+
 } // namespace ArtCade::EditorNative

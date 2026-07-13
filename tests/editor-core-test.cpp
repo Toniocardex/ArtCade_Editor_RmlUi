@@ -4198,6 +4198,10 @@ int main() {
         CHECK(!shouldViewportReceiveInput({true, /*rmlConsumed*/true, false, false}));
         CHECK(!shouldViewportReceiveInput({/*inRect*/false, false, false, false}));
         CHECK(!shouldViewportReceiveInput({true, false, false, /*popup*/true}));
+        CHECK(shouldForwardGameplayInput({/*scene*/true, /*inRect*/true, false}));
+        CHECK(!shouldForwardGameplayInput({/*logic*/false, true, false}));
+        CHECK(!shouldForwardGameplayInput({true, /*outside*/false, false}));
+        CHECK(!shouldForwardGameplayInput({true, true, /*textFocus*/true}));
     }
 
     // -- §24.18  Position X path: UI callback → command → document → invalidation

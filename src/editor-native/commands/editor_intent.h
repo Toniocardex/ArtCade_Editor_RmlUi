@@ -24,11 +24,14 @@ struct SelectSceneIntent {
     SceneId sceneId;
 };
 
-struct SetCenterWorkspaceModeIntent {
+struct SwitchCenterWorkspaceIntent {
     CenterWorkspaceMode mode = CenterWorkspaceMode::Scene;
 };
 
-struct SelectLogicObjectTypeIntent {
+// Explicitly opens the board owned by one Object Type. The target is resolved
+// once by the caller (for example from a clicked scene instance); it is never
+// inferred later from SelectionState by a refresh or frame loop.
+struct OpenLogicBoardIntent {
     ObjectTypeId objectTypeId;
 };
 
