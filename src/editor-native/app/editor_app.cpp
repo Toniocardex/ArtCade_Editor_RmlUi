@@ -1118,12 +1118,15 @@ int EditorApp::run(int argc, char** argv) {
         const SceneDef* scene = coordinator.document().findScene(active);
         if (!scene) return std::nullopt;
         const ViewportRect rect = viewportRectFromDocument(host.document());
-        if (!rect.valid()) {
-            return normalizeSpawnPosition(
-                Vec2{scene->worldSize.x * 0.5f, scene->worldSize.y * 0.5f},
-                scene->worldSize);
-        }
-        return defaultSpawnPosition(rect, coordinator.sceneView(active), scene->worldSize);
+        const Vec2 candidate = rect.valid()
+            ? defaultSpawnPosition(rect, coordinator.sceneView(active), scene->worldSize)
+            : normalizeSpawnPosition(
+                  Vec2{scene->worldSize.x * 0.5f, scene->worldSize.y * 0.5f},
+                  scene->worldSize);
+        // Default placement only: repeated toolbar spawns cascade instead of
+        // stacking on the view centre. Explicit placements (context-menu
+        // "here") keep the exact point the user chose.
+        return unoccupiedSpawnPosition(*scene, candidate, scene->worldSize);
     };
 
     ui.setEntityPlacementHandlers(

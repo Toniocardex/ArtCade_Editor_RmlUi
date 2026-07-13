@@ -101,6 +101,32 @@ Vec2 defaultSpawnPosition(const ViewportRect& viewport,
     return normalizeSpawnPosition(screenToWorld(camera, screenCenter), sceneSize, options);
 }
 
+Vec2 unoccupiedSpawnPosition(const SceneDef& scene, Vec2 candidate, Vec2 sceneSize,
+                             SpawnPositionOptions options) {
+    // Half a grid cell per step, the same visible-but-modest offset a clone
+    // gets (kCloneOffset): enough that labels never overlap exactly.
+    const float step = (std::isfinite(options.gridSize) && options.gridSize > 0.0f)
+        ? options.gridSize * 0.5f
+        : kCloneOffset;
+    const auto occupiedAt = [&](Vec2 point) {
+        for (const SceneInstanceDef& instance : scene.instances) {
+            if (std::fabs(instance.transform.position.x - point.x) < step * 0.5f
+                && std::fabs(instance.transform.position.y - point.y) < step * 0.5f) {
+                return true;
+            }
+        }
+        return false;
+    };
+    Vec2 out = candidate;
+    for (int i = 0; i < 8 && occupiedAt(out); ++i) {
+        const Vec2 next =
+            normalizeSpawnPosition(Vec2{out.x + step, out.y + step}, sceneSize, options);
+        if (next.x == out.x && next.y == out.y) break;   // clamped into the corner
+        out = next;
+    }
+    return out;
+}
+
 EditorOperationResult addScene(EditorCoordinator& coordinator) {
     const SceneId id = makeUniqueSceneId(coordinator.document());
     // Display name mirrors the id's ordinal: "scene-3" -> "Scene 3".

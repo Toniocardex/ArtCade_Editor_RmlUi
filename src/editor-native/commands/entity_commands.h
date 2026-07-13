@@ -12,7 +12,7 @@ namespace ArtCade::EditorNative {
 // Entity authoring commands — operate on a SceneInstanceDef in an explicit scene.
 // =============================================================================
 
-/** Place a new instance of an object type in a scene. Invalidates Hierarchy | Viewport. */
+/** Place a new instance of an object type in a scene. Invalidates Hierarchy | Inspector | Viewport. */
 class CreateEntityCommand final : public EditorCommand {
 public:
     CreateEntityCommand(SceneId sceneId, EntityId id, std::string objectTypeId,
@@ -41,7 +41,7 @@ private:
 // sentinel) and object-type-scoped components work at once. One UI gesture, one
 // undo entry. The ids are generated once by the caller and kept, so redo
 // re-applies the same ids without generating new ones. Invalidates Hierarchy |
-// Viewport.
+// Inspector | Viewport.
 class CreateEntityWithDefaultTypeCommand final : public EditorCommand {
 public:
     CreateEntityWithDefaultTypeCommand(SceneId sceneId, EntityId id,
@@ -64,7 +64,7 @@ private:
     bool        captured_ = false;   // see CreateEntityCommand::captured_
 };
 
-/** Remove one placed instance. Invalidates Hierarchy | Viewport. */
+/** Remove one placed instance. Invalidates Hierarchy | Inspector | Viewport. */
 class DeleteEntityCommand final : public EditorCommand {
 public:
     DeleteEntityCommand(SceneId sceneId, EntityId id);
@@ -83,7 +83,7 @@ private:
 
 /** Place a copy of an existing instance — same object type and per-instance
  *  overrides (sprite, layer, visibility, local variables), fresh id/name/
- *  position. Invalidates Hierarchy | Viewport. */
+ *  position. Invalidates Hierarchy | Inspector | Viewport. */
 class CloneInstanceCommand final : public EditorCommand {
 public:
     CloneInstanceCommand(SceneId sceneId, EntityId sourceId, EntityId newId,

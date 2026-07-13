@@ -13,8 +13,13 @@ constexpr EditorInvalidation kPositionInvalidation =
     EditorInvalidation::Inspector | EditorInvalidation::Viewport;
 constexpr EditorInvalidation kRenameInvalidation =
     EditorInvalidation::Hierarchy | EditorInvalidation::Inspector;
+// Inspector included: the Scene Inspector renders structural facts (the
+// Entities count, the Outside-bounds diagnostic), so an instance created or
+// removed while no entity is selected must refresh it too - otherwise the
+// shown count goes stale until the next unrelated Inspector invalidation.
 constexpr EditorInvalidation kStructureInvalidation =
-    EditorInvalidation::Hierarchy | EditorInvalidation::Viewport;
+    EditorInvalidation::Hierarchy | EditorInvalidation::Inspector
+    | EditorInvalidation::Viewport;
 } // namespace
 
 // ----------------------------------------------------------------------------

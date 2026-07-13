@@ -4287,8 +4287,8 @@ int main() {
         CHECK(r.change.kind == DomainChangeKind::EntityAdded);
         CHECK(r.change.entityId == 100);
         CHECK(c.consumeInvalidations()
-              == (EditorInvalidation::Hierarchy | EditorInvalidation::Viewport
-                  | EditorInvalidation::Toolbar));
+              == (EditorInvalidation::Hierarchy | EditorInvalidation::Inspector
+                  | EditorInvalidation::Viewport | EditorInvalidation::Toolbar));
         const SceneInstanceDef* added = c.document().findInstanceInScene(kSceneA, 100);
         CHECK(added != nullptr);
         CHECK(added->objectTypeId == "Enemy");
@@ -4547,6 +4547,66 @@ int main() {
         CHECK(clamped.y == 304.f);
     }
 
+    // -- unoccupiedSpawnPosition: default spawns cascade off occupied spots ---
+    {
+        const Vec2 sceneSize{512.f, 320.f};
+        SceneDef scene;
+        scene.id = kSceneA;
+
+        // Free spot: unchanged.
+        CHECK(unoccupiedSpawnPosition(scene, Vec2{256.f, 160.f}, sceneSize).x == 256.f);
+
+        // One instance on the candidate: one diagonal step (default 24 wu).
+        SceneInstanceDef first;
+        first.id = 1;
+        first.transform.position = {256.f, 160.f};
+        scene.instances.push_back(first);
+        const Vec2 nudged = unoccupiedSpawnPosition(scene, Vec2{256.f, 160.f}, sceneSize);
+        CHECK(nudged.x == 280.f);
+        CHECK(nudged.y == 184.f);
+
+        // The next spot occupied too: cascades a second step.
+        SceneInstanceDef second;
+        second.id = 2;
+        second.transform.position = {280.f, 184.f};
+        scene.instances.push_back(second);
+        const Vec2 twice = unoccupiedSpawnPosition(scene, Vec2{256.f, 160.f}, sceneSize);
+        CHECK(twice.x == 304.f);
+        CHECK(twice.y == 208.f);
+
+        // Pinned at the scene corner: the walk terminates and returns the
+        // clamped candidate even if it is still occupied.
+        SceneInstanceDef corner;
+        corner.id = 3;
+        corner.transform.position = {496.f, 304.f};   // == clamp target (margin 16)
+        scene.instances.push_back(corner);
+        const Vec2 pinned = unoccupiedSpawnPosition(scene, Vec2{496.f, 304.f}, sceneSize);
+        CHECK(pinned.x == 496.f);
+        CHECK(pinned.y == 304.f);
+
+        // An explicit far-away candidate is never dragged toward occupied spots.
+        const Vec2 free = unoccupiedSpawnPosition(scene, Vec2{100.f, 100.f}, sceneSize);
+        CHECK(free.x == 100.f);
+        CHECK(free.y == 100.f);
+    }
+
+    // -- Structural commands refresh the Inspector too: the Scene Inspector
+    // shows the entity count and the outside-bounds diagnostic, so create and
+    // delete must invalidate it even with no entity selected ------------------
+    {
+        EditorCoordinator c{makeDoc()};
+        const auto created = c.execute(
+            CreateEntityCommand{kSceneA, 900, "Enemy", "Enemy 900", {5.f, 6.f}});
+        CHECK(created.ok);
+        CHECK(has(created.invalidation, EditorInvalidation::Inspector));
+        CHECK(has(created.invalidation, EditorInvalidation::Hierarchy));
+        CHECK(has(created.invalidation, EditorInvalidation::Viewport));
+
+        const auto removed = c.execute(DeleteEntityCommand{kSceneA, 900});
+        CHECK(removed.ok);
+        CHECK(has(removed.invalidation, EditorInvalidation::Inspector));
+    }
+
     // -- Explicit placement is passed through the single create command path --
     {
         EditorCoordinator c{makeInheritedDoc()};
@@ -4569,11 +4629,12 @@ int main() {
         EditorCoordinator c{makeDoc()};
         c.consumeInvalidations();
         CHECK(addEntity(c).ok);
-        // CreateEntity declares Hierarchy|Viewport; selection unchanged and active
+        // CreateEntity declares Hierarchy|Inspector|Viewport (the Scene
+        // Inspector shows the entity count); selection unchanged and active
         // scene valid, so reconciliation adds nothing.
         CHECK(c.consumeInvalidations()
-              == (EditorInvalidation::Hierarchy | EditorInvalidation::Viewport
-                  | EditorInvalidation::Toolbar));
+              == (EditorInvalidation::Hierarchy | EditorInvalidation::Inspector
+                  | EditorInvalidation::Viewport | EditorInvalidation::Toolbar));
     }
 
     // -- (4) Add Entity without an active scene mutates nothing -----------------

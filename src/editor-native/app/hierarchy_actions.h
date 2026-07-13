@@ -52,6 +52,17 @@ Vec2 defaultSpawnPosition(const ViewportRect& viewport,
                           Vec2 sceneSize,
                           SpawnPositionOptions options = {});
 
+/**
+ * Nudges @p candidate diagonally (half a grid step at a time, normalized and
+ * clamped each step) while an existing instance of @p scene sits on it, so
+ * repeated DEFAULT spawns cascade instead of stacking on the view centre with
+ * overlapping labels. Bounded walk: gives up at the scene corner or after a
+ * few steps and returns the last candidate. Explicit placements (context-menu
+ * "here", drops) must NOT go through this - they mean the pointed-at spot.
+ */
+Vec2 unoccupiedSpawnPosition(const SceneDef& scene, Vec2 candidate, Vec2 sceneSize,
+                             SpawnPositionOptions options = {});
+
 /** Create a new, uniquely-id'd scene. Does not change the active scene. */
 EditorOperationResult addScene(EditorCoordinator& coordinator);
 
