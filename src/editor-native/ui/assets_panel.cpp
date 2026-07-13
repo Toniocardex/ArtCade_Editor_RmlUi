@@ -5,10 +5,13 @@
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/Context.h>
+#include <RmlUi/Core/Elements/ElementFormControl.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <string>
-#include <vector>
 
 namespace ArtCade::EditorNative {
 
@@ -28,8 +31,9 @@ std::string importMenu(bool disabled) {
              + "\" data-action=\"" + action + "\">" + label + "</div>";
     };
     return std::string("<div class=\"create-menu asset-import\">")
-         + "<button class=\"" + btnClass(disabled)
-         + "\"><span class=\"icon\">&#xeb0b;</span>Import <span class=\"icon-caret\">&#xeb5d;</span></button>"
+         + "<button class=\"asset-import-trigger " + btnClass(disabled)
+         + "\"><span class=\"asset-import-title\"><span class=\"icon\">&#xeaad;</span>Import assets <span class=\"icon-caret\">&#xeb5d;</span></span>"
+           "<span class=\"asset-import-subtitle\">Images, audio or fonts</span></button>"
            "<div class=\"create-dropdown\">"
          + entry("import-image", "Image")
          + entry("import-audio", "Audio")
@@ -40,24 +44,6 @@ std::string importMenu(bool disabled) {
 std::string groupTitle(const char* label, std::size_t count) {
     return std::string("<div class=\"asset-group-title\">") + label
          + "<span class=\"asset-count\">" + std::to_string(count) + "</span></div>";
-}
-
-// An image consumed by a derived asset (animation clip or tileset) has no row
-// of its own: the derived asset is the usable thing, the raw sheet becomes its
-// "from ..." subtitle. Same mental model the Inspector's Source dropdown
-// already applies via its imageHasDerivedAnimation rule. Re-deriving from a
-// consumed image stays possible through the derived row's menu ("New ... from
-// Source Image").
-bool imageIsConsumed(const ProjectDoc& doc, const AssetId& imageId) {
-    for (const SpriteAnimationAssetDef& asset : doc.spriteAnimationAssets) {
-        for (const SpriteAnimationClipDef& clip : asset.clips) {
-            if (clip.imageId == imageId) return true;
-        }
-    }
-    for (const TilesetAsset& tileset : doc.tilesets) {
-        if (tileset.imageAssetId == imageId) return true;
-    }
-    return false;
 }
 
 // The row's single action affordance: "⌄" opening the Assets context menu
@@ -96,6 +82,22 @@ std::string sourceSubtitle(const AssetId& imageId) {
     return "<div class=\"asset-sub\">from " + escapeRml(imageId) + "</div>";
 }
 
+std::string lower(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+bool matchesAssetFilter(const std::string& filter,
+                        std::initializer_list<std::string> searchable) {
+    if (filter.empty()) return true;
+    const std::string needle = lower(filter);
+    for (const std::string& value : searchable) {
+        if (lower(value).find(needle) != std::string::npos) return true;
+    }
+    return false;
+}
+
 } // namespace
 
 void AssetsPanel::refresh(Rml::ElementDocument* document,
@@ -106,83 +108,104 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
 
     const ProjectDoc& doc = coordinator.document().data();
     const bool playing = coordinator.isPlaying();
+    const std::string& filter = coordinator.uiState().assetFilter;
+
+    // Keep the live input outside assets-list: list refreshes may replace every
+    // row, but never the focused form control or its editing buffer.
+    if (Rml::Element* slot = document->GetElementById("assets-search-slot")) {
+        if (!slot->HasChildNodes()) {
+            slot->SetInnerRML(
+                "<span class=\"assets-search-icon\">&#xeb1c;</span>"
+                "<input id=\"assets-filter-input\" type=\"text\""
+                " class=\"assets-search-field\" data-action=\"set-asset-filter\""
+                " placeholder=\"Search assets...\"/>");
+        }
+    }
+    Rml::Element* input = document->GetElementById("assets-filter-input");
+    Rml::Context* context = document->GetContext();
+    if (input && (!context || context->GetFocusElement() != input)) {
+        input->SetAttribute("value", filter);
+        if (auto* control = rmlui_dynamic_cast<Rml::ElementFormControl*>(input))
+            control->SetValue(filter);
+    }
+
     std::string html;
 
     html += importMenu(playing);
 
-    // Empty catalog: one guidance block instead of empty group rows (audit 4.6).
-    const bool anyAsset = !doc.imageAssets.empty() || !doc.spriteAnimationAssets.empty()
-                       || !doc.audioAssets.empty() || !doc.fontAssets.empty()
-                       || !doc.tilesets.empty();
-    if (!anyAsset) {
-        html += "<div class=\"assets-empty\">No assets yet.<br/>"
-                "Import images, audio and fonts to use them in your game.</div>";
-        list->SetInnerRML(html);
-        return;
-    }
-
-    // Empty groups are omitted entirely: the Import dropdown above is the entry
-    // point for every kind, so a permanent "Audio 0" row is pure noise.
-
-    // -- Images: only sheets not yet consumed by a derived asset --------------
-    std::vector<const ImageAssetDef*> freeImages;
+    // Category counts are totals from the catalog, independent of filtering.
+    std::size_t shown = 0;
+    std::string groups;
+    groups += groupTitle("Images", doc.imageAssets.size());
     for (const ImageAssetDef& asset : doc.imageAssets) {
-        if (!imageIsConsumed(doc, asset.assetId)) freeImages.push_back(&asset);
-    }
-    if (!freeImages.empty()) {
-        html += groupTitle("Images", freeImages.size());
-        for (const ImageAssetDef* asset : freeImages) {
-            html += assetRow("&#xeb0a;", assetDisplayName(asset->name, asset->assetId),
-                             asset->assetId, nullptr, asset->assetId, "",
-                             menuAffordance("image", asset->assetId));
+        if (matchesAssetFilter(filter, {asset.name, asset.assetId, "Images",
+                                        asset.sourcePath})) {
+            groups += assetRow("&#xeb0a;", assetDisplayName(asset.name, asset.assetId),
+                               asset.assetId, nullptr, asset.assetId, "",
+                               menuAffordance("image", asset.assetId));
+            ++shown;
         }
     }
 
     // -- Animations: clip containers created from an image ---------------------
-    if (!doc.spriteAnimationAssets.empty()) {
-        html += groupTitle("Animations", doc.spriteAnimationAssets.size());
-        for (const SpriteAnimationAssetDef& asset : doc.spriteAnimationAssets) {
-            html += assetRow("&#xed46;", assetDisplayName(asset.name, asset.id),
-                             asset.id, "open-sprite-animation", asset.id, "",
-                             menuAffordance("anim", asset.id));
-            if (!asset.clips.empty()) html += sourceSubtitle(asset.clips.front().imageId);
+    groups += groupTitle("Animations", doc.spriteAnimationAssets.size());
+    for (const SpriteAnimationAssetDef& asset : doc.spriteAnimationAssets) {
+        const std::string source = asset.clips.empty() ? std::string() : asset.clips.front().imageId;
+        if (matchesAssetFilter(filter, {asset.name, asset.id, "Animations", source})) {
+            groups += assetRow("&#xed46;", assetDisplayName(asset.name, asset.id),
+                               asset.id, "open-sprite-animation", asset.id, "",
+                               menuAffordance("anim", asset.id));
+            if (!source.empty()) groups += sourceSubtitle(source);
+            ++shown;
         }
     }
 
     // -- Tilesets: sliced spritesheets created from an image --------------------
-    if (!doc.tilesets.empty()) {
-        html += groupTitle("Tilesets", doc.tilesets.size());
-        for (const TilesetAsset& asset : doc.tilesets) {
-            html += assetRow("&#xea3b;", assetDisplayName(asset.name, asset.assetId),
-                             asset.assetId, "open-tileset-editor", asset.assetId, "",
-                             menuAffordance("tileset", asset.assetId));
-            html += sourceSubtitle(asset.imageAssetId);
+    groups += groupTitle("Tilesets", doc.tilesets.size());
+    for (const TilesetAsset& asset : doc.tilesets) {
+        if (matchesAssetFilter(filter, {asset.name, asset.assetId, "Tilesets",
+                                        asset.imageAssetId})) {
+            groups += assetRow("&#xea3b;", assetDisplayName(asset.name, asset.assetId),
+                               asset.assetId, "open-tileset-editor", asset.assetId, "",
+                               menuAffordance("tileset", asset.assetId));
+            groups += sourceSubtitle(asset.imageAssetId);
+            ++shown;
         }
     }
 
     // -- Audio: name + load mode ------------------------------------------------
-    if (!doc.audioAssets.empty()) {
-        html += groupTitle("Audio", doc.audioAssets.size());
-        for (const AudioAssetDef& asset : doc.audioAssets) {
+    groups += groupTitle("Audio", doc.audioAssets.size());
+    for (const AudioAssetDef& asset : doc.audioAssets) {
+        if (matchesAssetFilter(filter, {asset.name, asset.assetId, "Audio",
+                                        asset.sourcePath})) {
             const char* mode = asset.loadMode == AudioLoadMode::Stream ? "Stream" : "Sound";
-            html += assetRow(nullptr, assetDisplayName(asset.name, asset.assetId),
-                             asset.assetId, nullptr, asset.assetId,
-                             "<span class=\"asset-meta\">" + std::string(mode) + "</span>",
-                             menuAffordance("audio", asset.assetId));
+            groups += assetRow(nullptr, assetDisplayName(asset.name, asset.assetId),
+                               asset.assetId, nullptr, asset.assetId,
+                               "<span class=\"asset-meta\">" + std::string(mode) + "</span>",
+                               menuAffordance("audio", asset.assetId));
+            ++shown;
         }
     }
 
     // -- Fonts: name + size ------------------------------------------------------
-    if (!doc.fontAssets.empty()) {
-        html += groupTitle("Fonts", doc.fontAssets.size());
-        for (const FontAssetDef& asset : doc.fontAssets) {
-            html += assetRow(nullptr, assetDisplayName(asset.name, asset.assetId),
-                             asset.assetId, nullptr, asset.assetId,
-                             "<span class=\"asset-meta\">"
-                                 + std::to_string(asset.defaultPixelSize) + "px</span>",
-                             menuAffordance("font", asset.assetId));
+    groups += groupTitle("Fonts", doc.fontAssets.size());
+    for (const FontAssetDef& asset : doc.fontAssets) {
+        if (matchesAssetFilter(filter, {asset.name, asset.assetId, "Fonts",
+                                        asset.sourcePath})) {
+            groups += assetRow(nullptr, assetDisplayName(asset.name, asset.assetId),
+                               asset.assetId, nullptr, asset.assetId,
+                               "<span class=\"asset-meta\">"
+                                   + std::to_string(asset.defaultPixelSize) + "px</span>",
+                               menuAffordance("font", asset.assetId));
+            ++shown;
         }
     }
+
+    if (!filter.empty() && shown == 0) {
+        html += "<div class=\"assets-filter-empty\">No assets match &quot;"
+             + escapeRml(filter) + "&quot;.</div>";
+    }
+    html += groups;
 
     list->SetInnerRML(html);
 }

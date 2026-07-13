@@ -40,6 +40,7 @@
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/Box.h>
+#include <RmlUi/Core/Elements/ElementFormControl.h>
 
 #include <raylib.h>
 
@@ -1149,10 +1150,46 @@ int EditorApp::run(int argc, char** argv) {
             const bool afterSingleDispatch = coordinator.uiState().consoleShowInfo;
             const bool exactlyOneCallback = probe && afterSingleDispatch != before;
 
+            static constexpr const char* requiredIds[] = {
+                "status-bar", "status-health", "status-coords", "status-context",
+                "status-project", "hierarchy-pane", "assets-pane",
+                "assets-search-slot", "assets-filter-input",
+                "inspector-section-project-toggle", "inspector-project-name",
+            };
+            bool requiredElementsPresent = host.document() != nullptr;
+            for (const char* id : requiredIds) {
+                requiredElementsPresent = requiredElementsPresent
+                    && host.document()->GetElementById(id) != nullptr;
+            }
+
+            Rml::Element* projectToggle = host.document()
+                ? host.document()->GetElementById("inspector-section-project-toggle") : nullptr;
+            if (projectToggle) projectToggle->DispatchEvent("click", Rml::Dictionary{});
+            const bool collapsedOnce = host.document()
+                && host.document()->GetElementById("inspector-project-name") == nullptr;
+            projectToggle = host.document()
+                ? host.document()->GetElementById("inspector-section-project-toggle") : nullptr;
+            if (projectToggle) projectToggle->DispatchEvent("click", Rml::Dictionary{});
+            const bool expandedAgain = host.document()
+                && host.document()->GetElementById("inspector-project-name") != nullptr;
+
+            Rml::Element* assetFilter = host.document()
+                ? host.document()->GetElementById("assets-filter-input") : nullptr;
+            auto* assetFilterControl =
+                rmlui_dynamic_cast<Rml::ElementFormControl*>(assetFilter);
+            if (assetFilterControl) assetFilterControl->SetValue("lifecycle-image");
+            if (assetFilter) assetFilter->DispatchEvent("change", Rml::Dictionary{});
+            const bool changeCallback =
+                coordinator.uiState().assetFilter == "lifecycle-image";
+
             ui.detach();
             if (probe) probe->DispatchEvent("click", Rml::Dictionary{});
             const bool noCallbackAfterDetach =
                 coordinator.uiState().consoleShowInfo == afterSingleDispatch;
+            if (assetFilterControl) assetFilterControl->SetValue("after-detach");
+            if (assetFilter) assetFilter->DispatchEvent("change", Rml::Dictionary{});
+            const bool noChangeCallbackAfterDetach =
+                coordinator.uiState().assetFilter == "lifecycle-image";
             ui.detach();
 
             EditorUi missingDocumentUi(coordinator, nullptr, nullptr, nullptr);
@@ -1160,7 +1197,9 @@ int EditorApp::run(int argc, char** argv) {
             missingDocumentUi.detach();
             missingDocumentUi.detach();
 
-            if (!exactlyOneCallback || !noCallbackAfterDetach || ui.isBound()) {
+            if (!requiredElementsPresent || !collapsedOnce || !expandedAgain
+                || !exactlyOneCallback || !changeCallback
+                || !noCallbackAfterDetach || !noChangeCallbackAfterDetach || ui.isBound()) {
                 TraceLog(LOG_ERROR, "[editor] RmlUi lifecycle smoke failed");
                 exitCode = 1;
             } else {

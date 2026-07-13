@@ -46,15 +46,11 @@ struct EditorUiState {
     std::string assetFilter;
     std::string consoleFilter;
 
-    bool consoleVisible = true;
+    bool consoleVisible = false;
     bool consoleShowInfo    = true;
     bool consoleShowWarning = true;
     bool consoleShowError   = true;
     std::unordered_set<EntityId> expandedHierarchyItems;
-
-    bool transformSectionExpanded = true;
-    bool spriteSectionExpanded    = true;
-    bool collisionSectionExpanded = false;
 
     std::optional<InspectorRevealRequest> inspectorRevealRequest;
 };

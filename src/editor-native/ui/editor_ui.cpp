@@ -134,6 +134,7 @@ bool actionRequiresPendingEditGate(const std::string& action) {
         "open-sprite-animation", "close-sprite-animation",
         "open-tileset-editor", "close-tileset-editor",
         "open-scene-workspace", "open-logic-workspace",
+        "toggle-inspector-section",
     };
     return std::find(std::begin(actions), std::end(actions), action) != std::end(actions);
 }
@@ -169,6 +170,27 @@ public:
             return;
         }
         if (action.empty()) return;
+
+        // Asset search is the only live text field: it is workspace state, not
+        // authoring data, so every RmlUi change event becomes the narrow
+        // SetAssetFilterIntent. Escape clears the same field and follows the
+        // same path. The input itself lives in a stable slot and is not rebuilt
+        // by the Assets list refresh.
+        if (action == "set-asset-filter") {
+            if (type == "keydown") {
+                const int key = event.GetParameter<int>("key_identifier", 0);
+                if (key != Rml::Input::KI_ESCAPE) return;
+                if (auto* control =
+                        rmlui_dynamic_cast<Rml::ElementFormControl*>(actionElement)) {
+                    control->SetValue("");
+                }
+                ui_.handleAction(action, arg, {});
+                event.StopPropagation();
+                return;
+            }
+            if (type == "change") ui_.handleAction(action, arg, formValue(actionElement, event));
+            return;
+        }
 
         // Hierarchy context menu triggers carry the click position; the show is
         // deferred to processFrame (see requestHierarchyContextMenu).
@@ -309,6 +331,7 @@ void EditorUi::bind() {
         doc->AddEventListener("focus", listener_.get(), true);
         doc->AddEventListener("blur", listener_.get(), true);
         doc->AddEventListener("keydown", listener_.get(), true);
+        doc->AddEventListener("change", listener_.get());
         doc->AddEventListener("drag", listener_.get());
     };
     bindDocument(document_);
@@ -333,6 +356,7 @@ void EditorUi::detach() {
             doc->RemoveEventListener("focus", listener_.get(), true);
             doc->RemoveEventListener("blur", listener_.get(), true);
             doc->RemoveEventListener("keydown", listener_.get(), true);
+            doc->RemoveEventListener("change", listener_.get());
             doc->RemoveEventListener("drag", listener_.get());
         };
         detachDocument(document_);
@@ -448,6 +472,9 @@ void EditorUi::applyInvalidations(EditorInvalidation flags) {
     }
     if (has(flags, EditorInvalidation::Toolbar))
         refreshToolbar();
+    if (has(flags, EditorInvalidation::Toolbar) || has(flags, EditorInvalidation::Project)
+        || has(flags, EditorInvalidation::LogicBoard))
+        refreshStatusBar();
     if (has(flags, EditorInvalidation::Viewport)) {
         updateZoomReadout();
         tilesetEditor_.updateZoomReadout();
@@ -767,36 +794,6 @@ void EditorUi::refreshToolbar() {
     // Entering Play freezes authoring: an open context menu must not linger.
     if (playing) hideContextMenus();
 
-    if (Rml::Element* status = document_->GetElementById("toolbar-status")) {
-        std::string text;
-        if (logicWorkspace) {
-            text = "LOGIC";
-            if (coordinator_.state().logicBoardEditor.objectTypeId)
-                text += " - " + *coordinator_.state().logicBoardEditor.objectTypeId;
-            if (playing) text += "  |  PLAYING (read-only)";
-        } else if (playing && coordinator_.playSession()) {
-            text = "PLAYING - " + coordinator_.playSession()->scene().name;
-        } else {
-            const SceneDef* scene =
-                coordinator_.document().findScene(coordinator_.state().activeSceneId);
-            if (scene) {
-                text = scene->name;
-                const std::string layerId =
-                    coordinator_.activeLayerId(coordinator_.state().activeSceneId);
-                if (!layerId.empty()) {
-                    for (const SceneLayerDef& layer : scene->layers) {
-                        if (layer.id == layerId) {
-                            text += "  |  " + layer.name;
-                            break;
-                        }
-                    }
-                }
-                text += "  |  EDIT";
-            }
-        }
-        status->SetInnerRML(escapeRml(text));
-    }
-
     // Play affordances derive straight from the authorities — never stored.
     const auto setEnabled = [&](const char* id, bool enabled) {
         if (Rml::Element* el = document_->GetElementById(id))
@@ -944,6 +941,50 @@ void EditorUi::refreshToolbar() {
     }
 }
 
+void EditorUi::refreshStatusBar() {
+    if (!document_) return;
+    const bool playing = coordinator_.isPlaying();
+    const bool logicWorkspace =
+        coordinator_.state().logicBoardEditor.mode == CenterWorkspaceMode::Logic;
+
+    std::string contextText = playing ? "Play" : "Edit";
+    if (logicWorkspace) {
+        contextText += "  |  Logic";
+        if (coordinator_.state().logicBoardEditor.objectTypeId)
+            contextText += "  |  " + *coordinator_.state().logicBoardEditor.objectTypeId;
+        if (playing) contextText += " (read-only)";
+    } else {
+        const SceneDef* scene = nullptr;
+        if (playing && coordinator_.playSession()) {
+            contextText += "  |  " + coordinator_.playSession()->scene().name;
+        } else {
+            scene = coordinator_.document().findScene(coordinator_.state().activeSceneId);
+            if (scene) contextText += "  |  " + scene->name;
+        }
+        if (!playing && scene) {
+            const std::string layerId =
+                coordinator_.activeLayerId(coordinator_.state().activeSceneId);
+            for (const SceneLayerDef& layer : scene->layers) {
+                if (layer.id == layerId) {
+                    contextText += "  |  " + layer.name;
+                    break;
+                }
+            }
+        }
+    }
+    if (Rml::Element* context = document_->GetElementById("status-context"))
+        context->SetInnerRML(escapeRml(contextText));
+
+    std::string projectName = coordinator_.document().data().projectName;
+    if (projectName.empty()) projectName = "Untitled";
+    const bool dirty = coordinator_.document().isDirty();
+    if (dirty) projectName += "  *";
+    if (Rml::Element* project = document_->GetElementById("status-project")) {
+        project->SetInnerRML(escapeRml(projectName));
+        project->SetClass("dirty", dirty);
+    }
+}
+
 bool EditorUi::copySelectedConsoleMessage() {
     const ConsoleMessage* message = coordinator_.consoleMessage(console_.selectedIndex());
     if (!message) return false;
@@ -964,7 +1005,7 @@ void EditorUi::showViewportPointerReadout(const ViewportPointerReadout& readout)
     const std::string text = readout.valid ? formatViewportPointerReadout(readout) : std::string();
     if (text == pointerReadout_) return;
     pointerReadout_ = text;
-    if (Rml::Element* el = document_->GetElementById("toolbar-coords")) {
+    if (Rml::Element* el = document_->GetElementById("status-coords")) {
         el->SetInnerRML(escapeRml(text));
     }
 }
@@ -1023,6 +1064,10 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     // identical pattern.
     if (action == "toggle-logic-dropdown") {
         if (!coordinator_.isPlaying()) logicBoardEditor_.toggleDropdown(arg);
+        return;
+    }
+    if (action == "toggle-inspector-section") {
+        inspector_.toggleSection(document_, coordinator_, arg);
         return;
     }
     if (action == "select-logic-object-type" || action == "set-logic-key") {
@@ -1446,12 +1491,25 @@ bool EditorUi::handleHierarchyAction(const std::string& action, const std::strin
 
 bool EditorUi::handleAssetsAction(const std::string& action, const std::string& arg,
                                   const std::string& value) {
-    (void)value;
-    if (action == "import-image") {
+    if (action == "set-asset-filter") {
+        coordinator_.apply(SetAssetFilterIntent{value});
+    } else if (action == "import-image") {
+        if (coordinator_.isPlaying()) {
+            coordinator_.logWarning("Stop Play before importing assets");
+            return true;
+        }
         if (importAssetRequest_) importAssetRequest_(AssetKind::Image);
     } else if (action == "import-audio") {
+        if (coordinator_.isPlaying()) {
+            coordinator_.logWarning("Stop Play before importing assets");
+            return true;
+        }
         if (importAssetRequest_) importAssetRequest_(AssetKind::Audio);
     } else if (action == "import-font") {
+        if (coordinator_.isPlaying()) {
+            coordinator_.logWarning("Stop Play before importing assets");
+            return true;
+        }
         if (importAssetRequest_) importAssetRequest_(AssetKind::Font);
     } else if (action == "remove-image-asset") {
         if (!arg.empty()) coordinator_.execute(RemoveImageAssetCommand{arg});

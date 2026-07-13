@@ -32,6 +32,13 @@ body {
     border-bottom: 1px #27272a;
 }
 
+.tool-group {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+}
+
 /* flex:1 so this group (not just .toolbar-coords inside it) claims the
    space between the static buttons and toolbar-status — otherwise the group
    shrink-wraps its content and toolbar-coords' margin-left:auto has nothing
@@ -72,6 +79,16 @@ body {
     flex-direction: column;
 }
 
+.side-pane {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 120dp;
+    overflow: hidden;
+}
+.hierarchy-pane { border-bottom: 1px #27272a; }
+.assets-pane { min-height: 150dp; }
+
 #center-workspace {
     flex: 1;
     min-width: 0;
@@ -104,6 +121,8 @@ body {
     position: relative;
     overflow: hidden;
     background-color: transparent;
+    box-sizing: border-box;
+    border: 1px #25252a;
 }
 
 #viewport.hidden { display: none; }
@@ -130,6 +149,19 @@ body {
 /* .hidden alone can't win here: #console's own display:flex is an ID rule and
    outranks a plain class by specificity, so the override needs the ID too. */
 #console.hidden { display: none; }
+
+#status-bar {
+    height: 26dp;
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    padding: 0 10dp;
+    background-color: #161619;
+    border-top: 1px #27272a;
+    color: #71717a;
+    font-size: 10dp;
+}
 
 /* Splitters — slim, light up to accent on hover/drag. */
 .vsplit {

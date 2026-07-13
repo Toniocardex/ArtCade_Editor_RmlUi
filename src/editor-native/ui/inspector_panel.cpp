@@ -16,6 +16,8 @@
 #include <cmath>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <unordered_set>
 #include <vector>
 
 namespace ArtCade::EditorNative {
@@ -106,9 +108,18 @@ std::string fieldWithUnit(const char* label, const char* action, const std::stri
 // A component section header: icon + NAME, an ownership badge, and an optional
 // remove (x). `badge`/`removeAction` empty are skipped — Identity has neither, a
 // structural section (Transform) has a badge but no remove.
-std::string header(const char* iconCp, const char* title, const char* badge,
-                   const char* badgeClass, const char* removeAction, bool playing) {
-    std::string h = "<div class=\"comp-header\"><span class=\"comp-title\">";
+std::string header(const char* sectionId, bool collapsed, const char* iconCp,
+                   const char* title, const char* badge, const char* badgeClass,
+                   const char* removeAction, bool playing) {
+    std::string h = "[[inspector-section:" + std::string(sectionId) + "]]";
+    h += "<div class=\"comp-header\"><span id=\"inspector-section-";
+    h += sectionId;
+    h += "-toggle\" class=\"comp-title comp-toggle\""
+         " data-action=\"toggle-inspector-section\" data-arg=\"";
+    h += sectionId;
+    h += "\"><span class=\"comp-caret\">";
+    h += collapsed ? "&#xeb5f;" : "&#xeb5d;";
+    h += "</span>";
     h += icon(iconCp);
     h += title;
     h += "</span>";
@@ -129,7 +140,62 @@ std::string header(const char* iconCp, const char* title, const char* badge,
         h += "</span>";
     }
     h += "</div>";
+    h += "[[inspector-body:" + std::string(sectionId) + "]]";
     return h;
+}
+
+constexpr std::string_view kSectionsEnd = "[[inspector-sections-end]]";
+
+bool knownSection(std::string_view id) {
+    static constexpr std::string_view ids[] = {
+        "project", "general", "world-bounds", "layers", "diagnostics",
+        "identity", "transform", "sprite-renderer", "sprite-animator",
+        "tilemap", "box-collider", "linear-mover", "top-down-controller",
+        "platformer-controller",
+    };
+    for (std::string_view known : ids) if (known == id) return true;
+    return false;
+}
+
+std::string finalizeSectionMarkup(const std::string& marked,
+                                  const std::unordered_set<std::string>& collapsed) {
+    constexpr std::string_view sectionPrefix = "[[inspector-section:";
+    constexpr std::string_view bodyPrefix = "[[inspector-body:";
+    constexpr std::string_view suffix = "]]";
+    std::string result;
+    std::size_t cursor = 0;
+    while (true) {
+        const std::size_t section = marked.find(sectionPrefix, cursor);
+        const std::size_t end = marked.find(kSectionsEnd, cursor);
+        if (section == std::string::npos || (end != std::string::npos && end < section)) {
+            const std::size_t stop = end == std::string::npos ? marked.size() : end;
+            result.append(marked, cursor, stop - cursor);
+            if (end != std::string::npos) cursor = end + kSectionsEnd.size();
+            else return result;
+            result.append(marked, cursor, std::string::npos);
+            return result;
+        }
+        result.append(marked, cursor, section - cursor);
+        const std::size_t sectionIdStart = section + sectionPrefix.size();
+        const std::size_t sectionIdEnd = marked.find(suffix, sectionIdStart);
+        if (sectionIdEnd == std::string::npos) return marked;
+        const std::string id = marked.substr(sectionIdStart, sectionIdEnd - sectionIdStart);
+        const std::string bodyMarker = std::string(bodyPrefix) + id + std::string(suffix);
+        const std::size_t body = marked.find(bodyMarker, sectionIdEnd + suffix.size());
+        if (body == std::string::npos) return marked;
+        result.append(marked, sectionIdEnd + suffix.size(),
+                      body - (sectionIdEnd + suffix.size()));
+        const std::size_t nextSection = marked.find(sectionPrefix, body + bodyMarker.size());
+        const std::size_t sectionsEnd = marked.find(kSectionsEnd, body + bodyMarker.size());
+        std::size_t bodyEnd = marked.size();
+        if (nextSection != std::string::npos) bodyEnd = nextSection;
+        if (sectionsEnd != std::string::npos && sectionsEnd < bodyEnd) bodyEnd = sectionsEnd;
+        if (collapsed.count(id) == 0) {
+            result.append(marked, body + bodyMarker.size(),
+                          bodyEnd - (body + bodyMarker.size()));
+        }
+        cursor = bodyEnd;
+    }
 }
 
 std::string outsideSceneWarning(SceneContainment containment, bool playing) {
@@ -192,6 +258,23 @@ void InspectorPanel::toggleDropdown(Rml::ElementDocument* document,
                                     const EditorCoordinator& coordinator,
                                     const std::string& dropdownId) {
     openDropdownId_ = (openDropdownId_ == dropdownId) ? std::string() : dropdownId;
+    refresh(document, coordinator);
+}
+
+bool InspectorPanel::isSectionCollapsed(const std::string& sectionId) const {
+    return collapsedSections_.count(sectionId) != 0;
+}
+
+void InspectorPanel::toggleSection(Rml::ElementDocument* document,
+                                   const EditorCoordinator& coordinator,
+                                   const std::string& sectionId) {
+    if (!knownSection(sectionId)) return;
+    if (isSectionCollapsed(sectionId)) collapsedSections_.erase(sectionId);
+    else collapsedSections_.insert(sectionId);
+    // These are local presentation affordances and cannot remain meaningful
+    // once their containing section disappears.
+    addMenuOpen_ = false;
+    openDropdownId_.clear();
     refresh(document, coordinator);
 }
 
@@ -364,6 +447,8 @@ void InspectorPanel::consumeInspectorReveal(Rml::ElementDocument* document,
 
     switch (request->property) {
         case InspectorProperty::TilemapCellSize:
+            if (collapsedSections_.erase("tilemap") != 0)
+                refresh(document, coordinator);
             revealTilemapCellSize(document, coordinator);
             break;
     }
@@ -397,12 +482,14 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         std::string html;
         // Folder glyph, not the plus: "+" is the add-action icon everywhere else
         // (+ Create, + Import, + Add Layer), so "+ PROJECT" read as a button.
-        html += header("&#xeaad;", "Project", "", "", "", playing);
-        html += field("Name", "commit-project-name", projectName, playing);
+        html += header("project", isSectionCollapsed("project"),
+                       "&#xeaad;", "Project", "", "", "", playing);
+        html += field("Name", "commit-project-name", projectName, playing,
+                      "inspector-project-name");
         if (!scene) {
             layerRename_.reset();
             html += "<p class=\"inspector-empty\">No scene open</p>";
-            body->SetInnerRML(html);
+            body->SetInnerRML(finalizeSectionMarkup(html, collapsedSections_));
             return;
         }
         if (playing) layerRename_.reset();
@@ -410,7 +497,8 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         const std::string btn = playing ? "panel-btn disabled" : "panel-btn";
 
         // -- GENERAL -----------------------------------------------------------
-        html += header("&#xeb34;", "General", "", "", "", playing);
+        html += header("general", isSectionCollapsed("general"),
+                       "&#xeb34;", "General", "", "", "", playing);
         html += field("Name", "commit-scene-name", scene->name, playing);
         html += "<div class=\"prop-row\"><span class=\"prop-label\">ID</span>"
                 "<span class=\"prop-readonly\">" + escapeRml(scene->id) + "</span></div>";
@@ -428,14 +516,16 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
               + std::to_string(scene->instances.size()) + "</span></div>";
 
         // -- WORLD BOUNDS (world units; resizing never moves instances) ---------
-        html += header("&#xf22f;", "World Bounds", "", "", "", playing);
+        html += header("world-bounds", isSectionCollapsed("world-bounds"),
+                       "&#xf22f;", "World Bounds", "", "", "", playing);
         html += fieldWithUnit("Width", "commit-scene-width", num(scene->worldSize.x), "wu", playing);
         html += fieldWithUnit("Height", "commit-scene-height", num(scene->worldSize.y), "wu", playing);
         // Fit View lives in the toolbar's view group (audit 7.4): a camera action
         // belongs to the Scene View, not to scene properties.
 
         // -- LAYERS (per-scene render order; top row = foreground) -------------
-        html += header("&#xee9e;", "Layers", "", "", "", playing);
+        html += header("layers", isSectionCollapsed("layers"),
+                       "&#xee9e;", "Layers", "", "", "", playing);
         const EditorSceneViewState& view = coordinator.sceneView(activeScene);
         const std::string activeLayer = coordinator.activeLayerId(activeScene);
         // Render rows reversed so the foreground layer (last in scene.layers) is on top.
@@ -515,13 +605,14 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 if (classifySceneContainment(*b, diag.worldSize) != SceneContainment::Inside)
                     ++outside;
         }
-        html += header("&#xea06;", "Diagnostics", "", "", "", playing);
+        html += header("diagnostics", isSectionCollapsed("diagnostics"),
+                       "&#xea06;", "Diagnostics", "", "", "", playing);
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Outside bounds</span>"
                 "<span class=\"prop-readonly";
         if (outside > 0) html += " warn";
         html += "\">" + std::to_string(outside) + "</span></div>";
 
-        body->SetInnerRML(html);
+        body->SetInnerRML(finalizeSectionMarkup(html, collapsedSections_));
         if (layerRename_) focusSceneLayerRenameInput(document);
         return;
     }
@@ -570,7 +661,8 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     }
 
     // -- Identity (not a component) -------------------------------------------
-    html += header("&#xeb34;", "Identity", "", "", "", playing);
+    html += header("identity", isSectionCollapsed("identity"),
+                   "&#xeb34;", "Identity", "", "", "", playing);
     html += field("Name", "commit-name", inst->instanceName, instanceDisabled);
     // Renaming this field renames the shared ObjectTypeDef (every instance of
     // this type reflects the new name), not just this instance - unlike "Name"
@@ -630,7 +722,8 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     }
 
     // -- Transform (instance-owned; structural, no remove) --------------------
-    html += header("&#xf22f;", "Transform", "INSTANCE", "", "", instanceDisabled);
+    html += header("transform", isSectionCollapsed("transform"),
+                   "&#xf22f;", "Transform", "INSTANCE", "", "", instanceDisabled);
     html += field("Position X", "commit-pos-x", num(inst->transform.position.x), instanceDisabled,
                   "inspector-pos-x");
     html += field("Position Y", "commit-pos-y", num(inst->transform.position.y), instanceDisabled,
@@ -649,7 +742,8 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                               && resolved.origin == ComponentOrigin::EntityDefinition;
     if (spriteOverride) {
         const SpriteRendererComponent& sr = *inst->spriteRenderer;
-        html += header("&#xeb0a;", "Sprite Renderer", "OVERRIDE", "override",
+        html += header("sprite-renderer", isSectionCollapsed("sprite-renderer"),
+                       "&#xeb0a;", "Sprite Renderer", "OVERRIDE", "override",
                        "remove-sprite-renderer", instanceDisabled);
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Visible</span>"
                 "<button class=\"" + instanceBtn + "\" data-action=\"toggle-sprite-visible\">";
@@ -724,7 +818,8 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         }
         if (inst->spriteAnimator.has_value()) {
             const SpriteAnimatorComponent& animator = *inst->spriteAnimator;
-            html += header("&#xeb0a;", "Sprite Animator", "INSTANCE", "", "", instanceDisabled);
+            html += header("sprite-animator", isSectionCollapsed("sprite-animator"),
+                           "&#xeb0a;", "Sprite Animator", "INSTANCE", "", "", instanceDisabled);
             html += "<div class=\"prop-row\"><span class=\"prop-label\">Initial Clip</span>"
                     "<span class=\"prop-readonly\">"
                   + escapeRml(animationClipDisplayName(coordinator, sr.animationAssetId,
@@ -739,7 +834,8 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     } else if (spriteInherited) {
         // Inherited from the object type — read-only until overridden (no remove:
         // the type sprite is not the instance's to drop).
-        html += header("&#xeb0a;", "Sprite Renderer", "INHERITED", "", "", instanceDisabled);
+        html += header("sprite-renderer", isSectionCollapsed("sprite-renderer"),
+                       "&#xeb0a;", "Sprite Renderer", "INHERITED", "", "", instanceDisabled);
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Image</span>"
                 "<span class=\"prop-readonly\">"
               + (resolved.assetId.empty() ? std::string("(none)") : escapeRml(resolved.assetId))
@@ -752,7 +848,8 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     if (inst->tilemap.has_value()) {
         const TilemapComponent& tm = *inst->tilemap;
         const TilesetAsset* tmTileset = coordinator.document().findTilesetAsset(tm.tilesetAssetId);
-        html += header("&#xf22f;", "Tilemap", "INSTANCE", "", "remove-tilemap-component", instanceDisabled);
+        html += header("tilemap", isSectionCollapsed("tilemap"),
+                       "&#xf22f;", "Tilemap", "INSTANCE", "", "remove-tilemap-component", instanceDisabled);
         const std::string tilesetLabel = tmTileset
             ? assetDisplayName(tmTileset->name, tmTileset->assetId)
             : std::string("(missing)");
@@ -879,7 +976,8 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     const BoxCollider2DComponent* collider =
         (type && type->boxCollider2D) ? &*type->boxCollider2D : nullptr;
     if (collider) {
-        html += header("&#xeca9;", "Box Collider 2D", "TYPE", "", "remove-box-collider", playing);
+        html += header("box-collider", isSectionCollapsed("box-collider"),
+                       "&#xeca9;", "Box Collider 2D", "TYPE", "", "remove-box-collider", playing);
         html += typeOwnedLockNote;
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Enabled</span>"
                 "<button class=\"" + btn + "\" data-action=\"toggle-box-enabled\">";
@@ -911,7 +1009,8 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     const LinearMoverComponent* mover =
         (type && type->linearMover) ? &*type->linearMover : nullptr;
     if (mover) {
-        html += header("&#xf22f;", "Linear Mover", "TYPE", "", "remove-linear-mover", playing);
+        html += header("linear-mover", isSectionCollapsed("linear-mover"),
+                       "&#xf22f;", "Linear Mover", "TYPE", "", "remove-linear-mover", playing);
         html += typeOwnedLockNote;
         html += field("Direction X", "commit-mover-dir-x", num(mover->directionX), playing);
         html += field("Direction Y", "commit-mover-dir-y", num(mover->directionY), playing);
@@ -922,7 +1021,8 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     const TopDownControllerComponent* controller =
         (type && type->topDownController) ? &*type->topDownController : nullptr;
     if (controller) {
-        html += header("&#xec8e;", "Top Down Controller", "TYPE", "", "remove-top-down", playing);
+        html += header("top-down-controller", isSectionCollapsed("top-down-controller"),
+                       "&#xec8e;", "Top Down Controller", "TYPE", "", "remove-top-down", playing);
         html += typeOwnedLockNote;
         html += field("Speed", "commit-topdown-speed", num(controller->maxSpeed), playing);
     }
@@ -931,12 +1031,15 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     const PlatformerControllerComponent* platformer =
         (type && type->platformerController) ? &*type->platformerController : nullptr;
     if (platformer) {
-        html += header("&#xec8e;", "Platformer Controller", "TYPE", "", "remove-platformer", playing);
+        html += header("platformer-controller", isSectionCollapsed("platformer-controller"),
+                       "&#xec8e;", "Platformer Controller", "TYPE", "", "remove-platformer", playing);
         html += typeOwnedLockNote;
         html += field("Move Speed", "commit-platformer-move", num(platformer->maxSpeed), playing);
         html += field("Jump Speed", "commit-platformer-jump", num(platformer->jumpForce), playing);
         html += field("Gravity", "commit-platformer-gravity", num(platformer->customGravity), playing);
     }
+
+    html += kSectionsEnd;
 
     // -- Add Component menu (only addable components; one movement driver) -----
     const bool hasDriver = type
@@ -984,7 +1087,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         html += "</div>";
     }
 
-    body->SetInnerRML(html);
+    body->SetInnerRML(finalizeSectionMarkup(html, collapsedSections_));
 }
 
 } // namespace ArtCade::EditorNative

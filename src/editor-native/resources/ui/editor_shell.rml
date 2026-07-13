@@ -45,38 +45,47 @@
     </div>
 
     <div id="toolbar">
-        <button id="btn-play-project" class="tool-btn" data-action="play-project"><span class="icon">&#xed46;</span>Play Project</button>
-        <button id="btn-play-scene" class="tool-btn" data-action="play-current-scene"><span class="icon">&#xed46;</span>Play Scene</button>
-        <button id="btn-stop" class="tool-btn" data-action="stop"><span class="icon">&#xed4a;</span>Stop</button>
+        <div class="tool-group playback-tools">
+            <button id="btn-play-project" class="tool-btn primary" data-action="play-project"><span class="icon">&#xed46;</span>Play Project</button>
+            <button id="btn-play-scene" class="tool-btn" data-action="play-current-scene"><span class="icon">&#xed46;</span>Play Scene</button>
+            <button id="btn-stop" class="tool-btn" data-action="stop"><span class="icon">&#xed4a;</span>Stop</button>
+        </div>
         <span class="tool-sep"></span>
-        <button id="btn-undo" class="tool-btn" data-action="undo"><span class="icon">&#xeb77;</span>Undo</button>
-        <button id="btn-redo" class="tool-btn" data-action="redo"><span class="icon">&#xeb13;</span>Redo</button>
+        <div class="tool-group history-tools">
+            <button id="btn-undo" class="tool-btn" data-action="undo"><span class="icon">&#xeb77;</span>Undo</button>
+            <button id="btn-redo" class="tool-btn" data-action="redo"><span class="icon">&#xeb13;</span>Redo</button>
+        </div>
         <span class="tool-sep"></span>
         <div id="scene-context-tools" class="contextual-tools">
-            <button id="btn-tool-select" class="tool-btn" data-action="select-tool-select" title="Select">Select</button>
-            <button id="btn-tool-pan" class="tool-btn" data-action="select-tool-pan" title="Pan">Pan</button>
+            <div class="tool-group scene-tool-tools">
+                <button id="btn-tool-select" class="tool-btn" data-action="select-tool-select" title="Select"><span class="icon">&#xf265;</span>Select</button>
+                <button id="btn-tool-pan" class="tool-btn" data-action="select-tool-pan" title="Pan"><span class="icon">&#xec2e;</span>Pan</button>
+            </div>
             <span class="tool-sep"></span>
-            <button id="btn-zoom-out" class="tool-btn tool-icon" data-action="zoom-out" title="Zoom Out"><span class="icon">&#xeb57;</span></button>
-            <span id="toolbar-zoom" class="toolbar-zoom" data-action="reset-zoom" title="Reset Zoom to 100%">100%</span>
-            <button id="btn-zoom-in" class="tool-btn tool-icon" data-action="zoom-in" title="Zoom In"><span class="icon">&#xeb56;</span></button>
-            <button id="btn-fit-view" class="tool-btn" data-action="fit-view-to-bounds" title="Fit View to Bounds">Fit</button>
+            <div class="tool-group scene-view-tools">
+                <button id="btn-zoom-out" class="tool-btn tool-icon" data-action="zoom-out" title="Zoom Out"><span class="icon">&#xeb57;</span></button>
+                <span id="toolbar-zoom" class="toolbar-zoom" data-action="reset-zoom" title="Reset Zoom to 100%">100%</span>
+                <button id="btn-zoom-in" class="tool-btn tool-icon" data-action="zoom-in" title="Zoom In"><span class="icon">&#xeb56;</span></button>
+                <button id="btn-fit-view" class="tool-btn" data-action="fit-view-to-bounds" title="Fit View to Bounds">Fit</button>
+            </div>
             <span class="tool-sep"></span>
-            <button id="btn-grid-visible" class="tool-btn" data-action="toggle-grid-visible" title="Show Grid"><span class="icon">&#xea3b;</span>Grid</button>
-            <button id="btn-grid-snap" class="tool-btn" data-action="toggle-grid-snap" title="Snap to Grid"><span class="icon">&#xeae3;</span>Snap to Grid</button>
-            <div id="grid-size-control" class="grid-size-control">
-                <button id="btn-grid-size" class="tool-btn grid-size-trigger" title="Grid Cell Size">32 <span class="icon-caret">&#xeb5d;</span></button>
-                <div class="grid-size-popover">
-                    <div id="grid-size-title" class="grid-size-title">Grid: World</div>
-                    <input id="grid-cell-size-input" type="text" class="grid-size-input" data-action="commit-grid-cell-size" value="32"/>
-                    <div class="grid-size-presets">
-                        <button class="grid-size-preset" data-action="set-grid-cell-size" data-arg="8">8</button>
-                        <button class="grid-size-preset" data-action="set-grid-cell-size" data-arg="16">16</button>
-                        <button class="grid-size-preset" data-action="set-grid-cell-size" data-arg="32">32</button>
-                        <button class="grid-size-preset" data-action="set-grid-cell-size" data-arg="64">64</button>
+            <div class="tool-group scene-grid-tools">
+                <button id="btn-grid-visible" class="tool-btn" data-action="toggle-grid-visible" title="Show Grid"><span class="icon">&#xea3b;</span>Grid</button>
+                <button id="btn-grid-snap" class="tool-btn" data-action="toggle-grid-snap" title="Snap to Grid"><span class="icon">&#xeae3;</span>Snap</button>
+                <div id="grid-size-control" class="grid-size-control">
+                    <button id="btn-grid-size" class="tool-btn grid-size-trigger" title="Grid Cell Size">32 <span class="icon-caret">&#xeb5d;</span></button>
+                    <div class="grid-size-popover">
+                        <div id="grid-size-title" class="grid-size-title">Grid: World</div>
+                        <input id="grid-cell-size-input" type="text" class="grid-size-input" data-action="commit-grid-cell-size" value="32"/>
+                        <div class="grid-size-presets">
+                            <button class="grid-size-preset" data-action="set-grid-cell-size" data-arg="8">8</button>
+                            <button class="grid-size-preset" data-action="set-grid-cell-size" data-arg="16">16</button>
+                            <button class="grid-size-preset" data-action="set-grid-cell-size" data-arg="32">32</button>
+                            <button class="grid-size-preset" data-action="set-grid-cell-size" data-arg="64">64</button>
+                        </div>
                     </div>
                 </div>
             </div>
-            <span id="toolbar-coords" class="toolbar-coords"></span>
         </div>
         <div id="logic-context-tools" class="contextual-tools hidden">
             <button id="btn-logic-add-rule" class="tool-btn" data-action="add-logic-rule">+ Rule</button>
@@ -85,28 +94,32 @@
             <button id="btn-logic-lua" class="tool-btn" data-action="logic-tab-lua">Generated Lua</button>
             <button id="btn-logic-validate" class="tool-btn" data-action="validate-logic-board">Validate</button>
         </div>
-        <span id="toolbar-status" class="toolbar-status"></span>
     </div>
 
     <div id="workspace">
         <div id="left-col" class="panel">
-            <div class="panel-header"><span class="icon">&#xee9e;</span>HIERARCHY</div>
-            <div class="tree-section">Scenes</div>
-            <div id="scene-tabs" class="scene-tabs"></div>
-            <div class="panel-actions">
-                <div class="create-menu">
-                    <button id="btn-create" class="panel-btn"><span class="icon">&#xeb0b;</span>Create <span class="icon-caret">&#xeb5d;</span></button>
-                    <div class="create-dropdown">
-                        <div id="create-scene-entry" class="menu-entry" data-action="add-scene">Create Scene</div>
-                        <div id="create-entity-entry" class="menu-entry" data-action="add-entity">Create Entity</div>
-                        <div id="create-instance-entry" class="menu-entry" data-action="add-instance">Create Instance</div>
-                        <div id="create-instance-of-type-list"></div>
+            <div id="hierarchy-pane" class="side-pane hierarchy-pane">
+                <div class="panel-header"><span class="icon">&#xee9e;</span>HIERARCHY</div>
+                <div class="tree-section">Scenes</div>
+                <div id="scene-tabs" class="scene-tabs"></div>
+                <div class="panel-actions">
+                    <div class="create-menu">
+                        <button id="btn-create" class="panel-btn"><span class="icon">&#xeb0b;</span>Create <span class="icon-caret">&#xeb5d;</span></button>
+                        <div class="create-dropdown">
+                            <div id="create-scene-entry" class="menu-entry" data-action="add-scene">Create Scene</div>
+                            <div id="create-entity-entry" class="menu-entry" data-action="add-entity">Create Entity</div>
+                            <div id="create-instance-entry" class="menu-entry" data-action="add-instance">Create Instance</div>
+                            <div id="create-instance-of-type-list"></div>
+                        </div>
                     </div>
                 </div>
+                <div id="hierarchy-list" class="tree"></div>
             </div>
-            <div id="hierarchy-list" class="tree"></div>
-            <div class="panel-header"><span class="icon">&#xeaad;</span>ASSETS</div>
-            <div id="assets-list" class="assets"></div>
+            <div id="assets-pane" class="side-pane assets-pane">
+                <div class="panel-header"><span class="icon">&#xeaad;</span>ASSETS</div>
+                <div id="assets-search-slot" class="assets-search-slot"></div>
+                <div id="assets-list" class="assets"></div>
+            </div>
         </div>
 
         <div id="split-left" class="vsplit" data-action="resize-left"></div>
@@ -150,6 +163,13 @@
             <button id="btn-console-clear" class="console-clear-btn" data-action="clear-console" title="Clear console">Clear</button>
         </div>
         <div id="console-list" class="console"></div>
+    </div>
+
+    <div id="status-bar">
+        <button id="status-health" class="status-health ready" data-action="toggle-console"><span class="status-dot"></span>Ready</button>
+        <span id="status-coords" class="status-coords"></span>
+        <span id="status-context" class="status-context"></span>
+        <span id="status-project" class="status-project"></span>
     </div>
 
     <div id="viewport-context-menu" class="context-menu hidden">

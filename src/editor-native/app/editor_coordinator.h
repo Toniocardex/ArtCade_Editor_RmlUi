@@ -156,6 +156,7 @@ public:
     EditorOperationResult apply(const PanTilesetEditorIntent& intent);
     EditorOperationResult apply(const SelectTilesetTileIntent& intent);
     EditorOperationResult apply(const SetHierarchyFilterIntent& intent);
+    EditorOperationResult apply(const SetAssetFilterIntent& intent);
     EditorOperationResult apply(const SetConsoleFilterIntent& intent);
     EditorOperationResult apply(const SetConsoleShowInfoIntent& intent);
     EditorOperationResult apply(const SetConsoleShowWarningIntent& intent);

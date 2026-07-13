@@ -516,6 +516,14 @@ EditorOperationResult EditorCoordinator::apply(const SetHierarchyFilterIntent& i
     return EditorOperationResult::success(EditorInvalidation::Hierarchy);
 }
 
+EditorOperationResult EditorCoordinator::apply(const SetAssetFilterIntent& intent) {
+    if (uiState_.assetFilter == intent.filter)
+        return EditorOperationResult::success(EditorInvalidation::None);
+    uiState_.assetFilter = intent.filter;
+    accumulate(EditorInvalidation::Assets);
+    return EditorOperationResult::success(EditorInvalidation::Assets);
+}
+
 EditorOperationResult EditorCoordinator::apply(const SetConsoleFilterIntent& intent) {
     uiState_.consoleFilter = intent.filter;
     accumulate(EditorInvalidation::Console);

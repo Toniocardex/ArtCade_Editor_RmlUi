@@ -152,6 +152,10 @@ struct SetHierarchyFilterIntent {
     std::string filter;
 };
 
+struct SetAssetFilterIntent {
+    std::string filter;
+};
+
 struct SetConsoleFilterIntent {
     std::string filter;
 };

@@ -112,6 +112,7 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
     // -- Entity tree of the active scene --------------------------------------
     const std::string filter = coordinator.uiState().hierarchyFilter;
     const EntityId selected = coordinator.selection().primaryEntity;
+    const bool playing = coordinator.isPlaying();
 
     std::string rows;
     const SceneDef* scene = doc.findScene(activeSceneId);
@@ -133,13 +134,19 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
             rows += "</div>";
         }
     }
-    if (rows.empty()) {
-        // Without a scene, "No entities" is noise (entities cannot exist yet)
-        // and competes with the viewport's Create Scene call to action.
-        rows = scene
-            ? "<div class=\"tree-empty\">No entities in this scene.<br/>"
-              "Create an entity, then place instances.</div>"
-            : "<div class=\"tree-empty\">No scenes yet.</div>";
+    if (!scene) {
+        // The viewport owns the primary Create Scene call to action.
+        rows = "<div class=\"tree-empty\">No scene open.</div>";
+    } else if (scene->instances.empty()) {
+        rows = "<div class=\"hierarchy-empty-state\">"
+               "<span class=\"hierarchy-empty-icon\">&#xef94;</span>"
+               "<span class=\"hierarchy-empty-title\">Your scene is empty</span>"
+               "<span class=\"hierarchy-empty-copy\">Create an entity to start building this scene.</span>"
+               "<button class=\"panel-btn hierarchy-empty-action";
+        if (playing) rows += " disabled";
+        rows += "\" data-action=\"add-entity\">Create Entity</button></div>";
+    } else if (rows.empty()) {
+        rows = "<div class=\"tree-empty\">No instances match the current filter.</div>";
     } else {
         // What the list contains: instances of the active scene (their object
         // type shows as the trailing tag).
@@ -154,7 +161,6 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
     // stay clickable — selection and scene navigation are workspace-only.
     // Delete / Set as Start live in the per-item context menus (open-scene-menu /
     // open-entity-menu), not as permanent buttons.
-    const bool playing        = coordinator.isPlaying();
     const bool hasActiveScene = scene != nullptr;
     const bool hasSelection   = selected != INVALID_ENTITY;
     const auto setEnabled = [&](const char* id, bool enabled) {

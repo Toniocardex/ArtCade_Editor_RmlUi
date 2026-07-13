@@ -4155,11 +4155,11 @@ int main() {
         const auto tool = c.apply(SetActiveToolIntent{EditorTool::Pan});
         CHECK(tool.invalidation == (EditorInvalidation::Inspector | EditorInvalidation::Toolbar));
         CHECK(c.state().activeTool == EditorTool::Pan);
-        CHECK(c.uiState().consoleVisible);
+        CHECK(!c.uiState().consoleVisible);
 
         const auto console = c.apply(ToggleConsoleIntent{});
         CHECK(console.invalidation == (EditorInvalidation::Layout | EditorInvalidation::Viewport));
-        CHECK(!c.uiState().consoleVisible);
+        CHECK(c.uiState().consoleVisible);
         CHECK(c.state().activeTool == EditorTool::Pan);
     }
 
@@ -4228,6 +4228,44 @@ int main() {
         CHECK(!shouldForwardGameplayInput({/*logic*/false, true, false}));
         CHECK(!shouldForwardGameplayInput({true, /*outside*/false, false}));
         CHECK(!shouldForwardGameplayInput({true, true, /*textFocus*/true}));
+    }
+
+    // -- Asset filter: live workspace state, narrow invalidation, idempotent --
+    {
+        EditorCoordinator c{makeDoc()};
+        const uint64_t revision = c.document().revision();
+        const std::size_t undo = c.undoSize();
+        c.consumeInvalidations();
+
+        const auto first = c.apply(SetAssetFilterIntent{"hero image"});
+        CHECK(first.ok);
+        CHECK(first.invalidation == EditorInvalidation::Assets);
+        CHECK(c.uiState().assetFilter == "hero image");
+        CHECK(c.consumeInvalidations() == EditorInvalidation::Assets);
+        CHECK(c.document().revision() == revision);
+        CHECK(!c.document().isDirty());
+        CHECK(c.undoSize() == undo);
+
+        const auto duplicate = c.apply(SetAssetFilterIntent{"hero image"});
+        CHECK(duplicate.ok);
+        CHECK(duplicate.invalidation == EditorInvalidation::None);
+        CHECK(c.consumeInvalidations() == EditorInvalidation::None);
+
+        CHECK(c.playProject().ok);
+        c.consumeInvalidations();
+        const auto duringPlay = c.apply(SetAssetFilterIntent{"audio"});
+        CHECK(duringPlay.ok);
+        CHECK(duringPlay.invalidation == EditorInvalidation::Assets);
+        CHECK(c.uiState().assetFilter == "audio");
+        CHECK(c.document().revision() == revision);
+        CHECK(!c.document().isDirty());
+        CHECK(c.undoSize() == undo);
+        CHECK(c.stopPlaying().ok);
+
+        CHECK(c.replaceProject(ProjectDocument{makeReplacementDoc()}).ok);
+        CHECK(c.uiState().assetFilter == "audio");
+        CHECK(!c.document().isDirty());
+        CHECK(!c.canUndo());
     }
 
     // -- Replace clears project-scoped editor state ----------------------------

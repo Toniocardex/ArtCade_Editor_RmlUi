@@ -38,7 +38,9 @@
 
 .assets {
     display: block;
+    flex: 1;
     padding: 6dp 8dp;
+    overflow-y: auto;
 }
 .assets-empty {
     display: block;
@@ -109,7 +111,59 @@
     font-weight: 600;
 }
 /* The unified Import dropdown sits above the categories. */
-.asset-import { margin: 2dp 0 6dp 0; }
+.assets .asset-import { display: block; margin: 2dp 0 8dp 0; }
+.assets .asset-import-trigger {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    height: 46dp;
+    line-height: 18dp;
+    padding: 5dp 10dp;
+    margin: 0;
+    text-align: left;
+    background-color: #1c1c1f;
+    border-color: #323236;
+}
+.asset-import .create-dropdown { top: 45dp; }
+.asset-import-title { display: block; color: #d4d4d8; font-size: 12dp; font-weight: 600; }
+.asset-import-subtitle { display: block; color: #71717a; font-size: 10dp; font-weight: 400; }
+.assets-search-slot {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 30dp;
+    padding: 6dp 8dp 0 8dp;
+}
+.assets-search-icon {
+    display: inline-block;
+    width: 20dp;
+    line-height: 24dp;
+    color: #6b6b73;
+    font-family: tabler-icons;
+    font-size: 11dp;
+}
+.assets-search-field {
+    display: block;
+    flex: 1;
+    box-sizing: border-box;
+    width: auto;
+    height: 24dp;
+    line-height: 24dp;
+    padding: 0 8dp;
+    background-color: #111113;
+    border: 1px #27272a;
+    border-radius: 3dp;
+    color: #d4d4d8;
+    font-size: 11dp;
+}
+.assets-search-field:hover { border-color: #323236; }
+.assets-search-field:focus { border-color: #3b82f6; }
+.assets-filter-empty {
+    display: block;
+    padding: 8dp 4dp 2dp 4dp;
+    color: #8a8a93;
+    font-size: 11dp;
+}
 
 /* Scene View empty state — centred guidance instead of a bare corner note.
    Sits over the transparent viewport (raylib backdrop behind). */
@@ -308,6 +362,15 @@
     letter-spacing: 1.1dp;
     text-transform: uppercase;
     color: #8a8a93;
+}
+.comp-toggle { cursor: pointer; }
+.comp-toggle:hover { color: #c4c4c8; }
+.comp-caret {
+    display: inline-block;
+    width: 15dp;
+    color: #6b6b73;
+    font-family: tabler-icons;
+    font-weight: normal;
 }
 .comp-badge {
     display: inline-block;

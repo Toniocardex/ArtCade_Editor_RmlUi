@@ -119,6 +119,13 @@
     color: #d4d4d8;
 }
 
+.tool-btn.primary {
+    background-color: #3b82f6;
+    border-color: #3b82f6;
+    color: #ffffff;
+    font-weight: 600;
+}
+
 /* Primary call-to-action: Play Project (accent). */
 #btn-play-project {
     background-color: #3b82f6;
@@ -147,16 +154,16 @@
 
 /* Pointer world position readout (Edit mode, mouse over the scene). Monospace
    so the X/Y digits don't shift width as the pointer moves. */
-.toolbar-coords {
+.status-coords {
     display: inline-block;
-    flex: 0 0 auto;
+    flex: 1;
     box-sizing: border-box;
-    width: 104dp;
-    line-height: 28dp;
-    margin-left: auto;
-    padding: 0 4dp;
+    min-width: 0;
+    line-height: 24dp;
+    margin-left: 14dp;
+    padding: 0;
     overflow: hidden;
-    text-align: right;
+    text-align: center;
     color: #8a8a93;
     font-family: JetBrains Mono;
     font-size: 11dp;
@@ -171,21 +178,53 @@
    overflow:hidden kept only as a backstop for pathologically long
    user-renamed scenes/layers/types (same graceful-clip convention as
    .asset-name/.row-name elsewhere, not a layout guarantee). */
-.toolbar-status {
+.status-health {
     display: inline-block;
-    flex: 0 0 auto;
-    box-sizing: border-box;
-    width: 260dp;
-    line-height: 28dp;
-    padding: 0 4dp;
+    height: 22dp;
+    line-height: 22dp;
+    padding: 0 5dp;
+    background-color: transparent;
+    border: 0;
+    color: #8a8a93;
+    font-size: 10dp;
+}
+.status-health:hover { color: #d4d4d8; }
+.status-health.warning { color: #d8b44a; }
+.status-health.error { color: #e5706b; }
+.status-dot {
+    display: inline-block;
+    width: 6dp;
+    height: 6dp;
+    margin-right: 6dp;
+    border-radius: 3dp;
+    background-color: #4f9b68;
+}
+.status-health.warning .status-dot { background-color: #d8b44a; }
+.status-health.error .status-dot { background-color: #e5706b; }
+.status-context {
+    display: inline-block;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 420dp;
+    line-height: 24dp;
+    margin-left: 14dp;
     overflow: hidden;
     text-align: right;
-    color: #52525b;
-    font-size: 11dp;
-    font-weight: 500;
-    letter-spacing: 0.4dp;
     white-space: nowrap;
+    color: #71717a;
 }
+.status-project {
+    display: inline-block;
+    flex: 0 0 auto;
+    max-width: 260dp;
+    line-height: 24dp;
+    margin-left: 14dp;
+    overflow: hidden;
+    text-align: right;
+    white-space: nowrap;
+    color: #8a8a93;
+}
+.status-project.dirty { color: #c4c4c8; }
 
 /* Clickable zoom readout: shows the active scene zoom %, click resets to 100%. */
 .toolbar-zoom {
@@ -667,6 +706,7 @@
     display: block;
     flex: 1;
     padding: 4dp 0;
+    overflow-y: auto;
 }
 .tree-row {
     display: flex;
@@ -707,6 +747,33 @@
     padding: 10dp;
     color: #6b7280;
 }
+
+.hierarchy-empty-state {
+    display: block;
+    padding: 26dp 18dp 18dp 18dp;
+    text-align: center;
+}
+.hierarchy-empty-icon {
+    display: block;
+    margin-bottom: 10dp;
+    color: #52525b;
+    font-family: tabler-icons;
+    font-size: 28dp;
+}
+.hierarchy-empty-title {
+    display: block;
+    margin-bottom: 5dp;
+    color: #c4c4c8;
+    font-size: 13dp;
+    font-weight: 600;
+}
+.hierarchy-empty-copy {
+    display: block;
+    margin-bottom: 13dp;
+    color: #71717a;
+    font-size: 11dp;
+}
+.hierarchy-empty-action { margin: 0; }
 
 /* -- Text inputs — flat, accent border on focus (no glow) ------------------ */
 .prop-input {

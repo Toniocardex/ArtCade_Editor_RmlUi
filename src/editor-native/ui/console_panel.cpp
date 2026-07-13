@@ -54,7 +54,6 @@ void ConsolePanel::updateCopyButton(Rml::ElementDocument* document) const {
 void ConsolePanel::updateCounts(Rml::ElementDocument* document,
                                 const EditorCoordinator& coordinator) const {
     Rml::Element* counts = document->GetElementById("console-counts");
-    if (!counts) return;
     std::size_t errors = 0;
     std::size_t warnings = 0;
     for (const ConsoleMessage& message : coordinator.consoleLog()) {
@@ -66,8 +65,24 @@ void ConsolePanel::updateCounts(Rml::ElementDocument* document,
         if (n == 0) return text;
         return "<span class=\"" + std::string(cls) + "\">" + text + "</span>";
     };
-    counts->SetInnerRML(piece(errors, "error", "count-err") + " \xc2\xb7 "
-                        + piece(warnings, "warning", "count-warn"));
+    if (counts) {
+        counts->SetInnerRML(piece(errors, "error", "count-err") + " \xc2\xb7 "
+                            + piece(warnings, "warning", "count-warn"));
+    }
+    if (Rml::Element* health = document->GetElementById("status-health")) {
+        health->SetClass("ready", errors == 0 && warnings == 0);
+        health->SetClass("warning", errors == 0 && warnings != 0);
+        health->SetClass("error", errors != 0);
+        std::string label = "<span class=\"status-dot\"></span>";
+        if (errors != 0) {
+            label += std::to_string(errors) + (errors == 1 ? " error" : " errors");
+        } else if (warnings != 0) {
+            label += std::to_string(warnings) + (warnings == 1 ? " warning" : " warnings");
+        } else {
+            label += "Ready";
+        }
+        health->SetInnerRML(label);
+    }
 }
 
 void ConsolePanel::updateToolbar(Rml::ElementDocument* document,

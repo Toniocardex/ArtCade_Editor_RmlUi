@@ -146,7 +146,7 @@ public:
     // Viewport drag preview for the selected entity transform. Presentation only:
     // the model still changes once, on mouse release, through SetEntityPositionCommand.
     void showEntityPositionPreview(EntityId entity, Vec2 position);
-    // Pointer world/cell readout in the toolbar (Edit mode, mouse over the
+    // Pointer world/cell readout in the status bar (Edit mode, mouse over the
     // scene). Presentation-only per-frame update: change-guarded, no
     // invalidation, never touches authoring state.
     void showViewportPointerReadout(const ViewportPointerReadout& readout);
@@ -181,6 +181,7 @@ private:
 
     void applyInvalidations(EditorInvalidation flags);
     void refreshToolbar();
+    void refreshStatusBar();
     void refreshCenterWorkspace();
     void updateZoomReadout();   // toolbar zoom %, refreshed on Viewport invalidation
     void commitGridCellSize(const std::string& text);

@@ -4,6 +4,7 @@
 
 #include <optional>
 #include <string>
+#include <unordered_set>
 
 namespace Rml { class ElementDocument; }
 
@@ -28,6 +29,13 @@ public:
     void toggleDropdown(Rml::ElementDocument* document, const EditorCoordinator& coordinator,
                         const std::string& dropdownId);
     void closeDropdowns() { openDropdownId_.clear(); }
+
+    // Session-local presentation state. The section id is accepted only from
+    // the fixed Inspector catalog; toggling never mutates editor or project
+    // state and therefore has no Command/Undo/dirty effect.
+    void toggleSection(Rml::ElementDocument* document,
+                       const EditorCoordinator& coordinator,
+                       const std::string& sectionId);
 
     void beginSceneLayerRename(Rml::ElementDocument* document,
                                const EditorCoordinator& coordinator,
@@ -61,9 +69,15 @@ private:
     void focusSceneLayerRenameInput(Rml::ElementDocument* document);
     void revealTilemapCellSize(Rml::ElementDocument* document,
                                const EditorCoordinator& coordinator);
+    bool isSectionCollapsed(const std::string& sectionId) const;
 
     bool     addMenuOpen_ = false;
     std::string openDropdownId_;             // open value dropdown ("" = none)
+    std::unordered_set<std::string> collapsedSections_{
+        "diagnostics", "sprite-renderer", "sprite-animator", "tilemap",
+        "box-collider", "linear-mover", "top-down-controller",
+        "platformer-controller",
+    };
     EntityId lastEntity_ = INVALID_ENTITY;   // detect a selection change to reset the menu
     std::optional<SceneLayerRenameUiState> layerRename_;
 };

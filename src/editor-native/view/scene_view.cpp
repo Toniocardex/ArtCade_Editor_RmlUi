@@ -322,6 +322,9 @@ void SceneView::render(const SceneFrameSnapshot& frame,
     // World size readout on the frame's bottom-right corner: the bounds in the
     // Inspector become visible in the workspace itself.
     {
+        const Vector2 origin = GetWorldToScreen2D(Vector2{0.f, 0.f}, cam);
+        drawCanvasText(canvasFont, "(0, 0)", origin.x + 6.f, origin.y + 6.f, 12.f,
+                       Color{130, 130, 140, 170});
         const Vector2 corner = GetWorldToScreen2D(Vector2{world.x, world.y}, cam);
         const std::string dims =
             std::to_string(static_cast<int>(std::lround(world.x))) + " x "
