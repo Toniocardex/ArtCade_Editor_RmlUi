@@ -39,6 +39,7 @@ add_library(artcade-editor-core STATIC
     editor-native/commands/tilemap_commands.cpp
     editor-native/commands/sprite_animation_commands.cpp
     editor-native/commands/sprite_animator_commands.cpp
+    editor-native/commands/logic_board_commands.cpp
     editor-native/commands/entity_commands.cpp
     editor-native/commands/scene_commands.cpp
     editor-native/commands/scene_layer_commands.cpp
@@ -58,7 +59,11 @@ target_include_directories(artcade-editor-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${ARTCADE_RUNTIME_DIR}/src
 )
-target_link_libraries(artcade-editor-core PUBLIC artcade-core)
+target_link_libraries(artcade-editor-core PUBLIC
+    artcade-core
+    artcade-logic-core
+    artcade-logic-runtime
+)
 
 # ----------------------------------------------------------------------------
 # Native RmlUi editor executable
@@ -131,6 +136,7 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/ui/editor_fonts.cpp
     editor-native/ui/hierarchy_panel.cpp
     editor-native/ui/inspector_panel.cpp
+    editor-native/ui/logic_board_panel.cpp
     editor-native/ui/console_panel.cpp
     editor-native/ui/assets_panel.cpp
 )

@@ -7,6 +7,7 @@
 #include "editor-native/ui/console_panel.h"
 #include "editor-native/ui/hierarchy_panel.h"
 #include "editor-native/ui/inspector_panel.h"
+#include "editor-native/ui/logic_board_panel.h"
 
 #include <cstddef>
 #include <functional>
@@ -175,6 +176,8 @@ private:
                                      const std::string& value);
     bool handleTilesetEditorAction(const std::string& action, const std::string& arg,
                                    const std::string& value);
+    bool handleLogicBoardAction(const std::string& action, const std::string& arg,
+                                const std::string& value);
     bool handleHierarchyAction(const std::string& action, const std::string& arg,
                                const std::string& value, EntityId selected);
     bool handleInspectorAction(const std::string& action, const std::string& arg,
@@ -188,6 +191,7 @@ private:
     // steal focus from the Name/FPS inputs, so this never touches innerRML.
     void updateSpriteAnimationPlayhead();
     void refreshToolbar();
+    void refreshCenterWorkspace();
     void updateZoomReadout();   // toolbar zoom %, refreshed on Viewport invalidation
     // Tileset Editor zoom % (100% = fit). Written into a stable element by id
     // instead of living in the built markup: wheel zoom fires per tick, and a
@@ -214,6 +218,7 @@ private:
     InspectorPanel                      inspector_;
     ConsolePanel                        console_;
     AssetsPanel                         assets_;
+    LogicBoardPanel                     logicBoard_;
     std::unique_ptr<Rml::EventListener> listener_;
     ProjectFileRequest                  newProjectRequest_;
     ProjectFileRequest                  openProjectRequest_;

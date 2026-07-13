@@ -148,6 +148,7 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const PlaySession& session) {
     // its own structural order, never this one.
     for (std::size_t index : scene.renderOrder) {
         const RuntimeEntity& entity = scene.entities[index];
+        if (!entity.visible) continue;
         const SceneFrameRect bounds = transformBounds(entity.transform);
         const bool hasSprite =
             entity.sprite.has_value() && !entity.sprite->assetId.empty();

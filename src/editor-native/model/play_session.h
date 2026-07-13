@@ -1,8 +1,10 @@
 #pragma once
 
 #include "core/types.h"
+#include "logic-runtime.h"
 
 #include <optional>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -80,8 +82,12 @@ struct RuntimeTilemap {
 
 struct RuntimeEntity {
     EntityId id = INVALID_ENTITY;
+    ObjectTypeId objectTypeId;
     std::string name;
     Transform transform;
+    // Runtime-only root visibility. Logic Board mutates this independently of
+    // SpriteRenderer presence; Stop drops the entire runtime copy.
+    bool visible = true;
     Vec2 velocity{};   // world units/second, resolved from authoring at materialize
     Vec3 fillColor{0.47f, 0.49f, 0.52f};
     std::optional<RuntimeSpriteComponent> sprite;
@@ -109,6 +115,7 @@ struct KinematicMoveResult {
 };
 
 struct StaticRuntimeCollider {
+    EntityId owner = INVALID_ENTITY;
     Aabb bounds;
     BoxColliderMode mode = BoxColliderMode::Solid;
 };
@@ -128,6 +135,8 @@ struct RuntimeInputSnapshot {
     // Edge-triggered jump (the application computes it with IsKeyPressed, so the
     // session never sees Raylib). Consumed by the PlatformerController.
     bool jumpPressed = false;
+    // Edge-triggered Logic Board keys in deterministic registry order.
+    std::vector<LogicKey> pressedLogicKeys;
 };
 
 struct RuntimeScene {
@@ -171,6 +180,12 @@ struct PlayAssetCatalogSnapshot {
 // Play, then draw/tick read this session and never the authoring document.
 class PlaySession {
 public:
+    ~PlaySession();
+    PlaySession(PlaySession&& other) noexcept;
+    PlaySession& operator=(PlaySession&& other) noexcept;
+    PlaySession(const PlaySession&) = delete;
+    PlaySession& operator=(const PlaySession&) = delete;
+
     static std::optional<PlaySession> startProject(const ProjectDocument& document,
                                                    std::string* error = nullptr);
 
@@ -197,6 +212,9 @@ public:
     void update(const RuntimeInputSnapshot& input, float dt);
 
 private:
+    struct LogicHostAdapter;
+
+    PlaySession() = default;
     static std::optional<PlaySession> materialize(const ProjectDocument& document,
                                                   const SceneId& sceneId,
                                                   std::string* error);
@@ -214,6 +232,8 @@ private:
     // has exactly one movement writer.
     void updateTopDown(RuntimeEntity& entity, const RuntimeInputSnapshot& input, float dt);
     void updatePlatformer(RuntimeEntity& entity, const RuntimeInputSnapshot& input, float dt);
+    RuntimeEntity* findEntityMutable(EntityId id);
+    void refreshStaticCollider(EntityId owner);
 
     RuntimeScene scene_;
     PlayAssetCatalogSnapshot assets_;
@@ -222,6 +242,10 @@ private:
     // colliders on non-movers (mover-vs-mover is out of scope). Trigger is
     // intentionally absent from resolution.
     std::vector<StaticRuntimeCollider> staticColliders_;
+    // Heap-stable host/runtime: moving PlaySession into the coordinator never
+    // invalidates the reference retained by LogicRuntime.
+    std::unique_ptr<LogicHostAdapter> logicHost_;
+    std::unique_ptr<Logic::LogicRuntime> logicRuntime_;
 };
 
 } // namespace ArtCade::EditorNative

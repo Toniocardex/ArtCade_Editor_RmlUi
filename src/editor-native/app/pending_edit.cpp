@@ -28,6 +28,7 @@ bool isNumericCommit(const std::string& action) {
         "commit-tileset-tile-width", "commit-tileset-tile-height",
         "commit-tileset-margin-x", "commit-tileset-margin-y",
         "commit-tileset-spacing-x", "commit-tileset-spacing-y",
+        "commit-logic-position-x", "commit-logic-position-y",
     };
     return std::find(std::begin(actions), std::end(actions), action) != std::end(actions);
 }

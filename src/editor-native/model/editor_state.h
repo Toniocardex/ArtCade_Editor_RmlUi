@@ -82,6 +82,16 @@ struct TilesetEditorState {
     std::optional<std::string> selectedTileId;
 };
 
+enum class CenterWorkspaceMode { Scene, Logic };
+enum class LogicBoardTab { Rules, GeneratedLua };
+
+struct LogicBoardEditorState {
+    CenterWorkspaceMode mode = CenterWorkspaceMode::Scene;
+    std::optional<ObjectTypeId> objectTypeId;
+    LogicBoardTab tab = LogicBoardTab::Rules;
+    std::string search;
+};
+
 // The sheet the Sprite Animation Editor shows for an asset: the selected clip's
 // own image when the selection names a clip of this asset, else the default
 // clip's, else the first clip's, else none (fresh asset with no clips yet).
@@ -203,6 +213,7 @@ struct EditorState {
     SpriteAnimationEditorState spriteAnimationEditor;
     TilesetEditorState tilesetEditor;
     TilemapEditorState tilemapEditor;
+    LogicBoardEditorState logicBoardEditor;
 };
 
 inline float clampZoom(float v) {

@@ -220,6 +220,18 @@ private:
     friend class RemoveTilesetAssetCommand;
     friend class RenameTilesetCommand;
     friend class ChangeTilesetSlicingCommand;
+    friend class CreateLogicBoardCommand;
+    friend class RemoveLogicBoardCommand;
+    friend class AddLogicRuleCommand;
+    friend class RemoveLogicRuleCommand;
+    friend class MoveLogicRuleCommand;
+    friend class SetLogicRuleEnabledCommand;
+    friend class ReplaceLogicTriggerCommand;
+    friend class AddLogicActionCommand;
+    friend class RemoveLogicActionCommand;
+    friend class MoveLogicActionCommand;
+    friend class ChangeLogicActionTypeCommand;
+    friend class SetLogicPropertyCommand;
 
     // ---- Patch (authoring mutations; called by commands) --------------------
     bool setProjectName(std::string name);
@@ -312,6 +324,8 @@ private:
     bool addPlatformerController(const std::string& objectTypeId, PlatformerControllerComponent component);
     bool removePlatformerController(const std::string& objectTypeId);
     bool setPlatformerValue(const std::string& objectTypeId, int field, float value);
+    bool replaceLogicBoard(const std::string& objectTypeId,
+                           std::optional<LogicBoardDef> board);
     // Image asset catalog. The application copies the file on disk; the document
     // only records AssetId + portable relative sourcePath. Add rejects a
     // duplicate AssetId. Removal does not touch the file on disk.

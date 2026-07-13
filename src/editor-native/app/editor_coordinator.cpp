@@ -38,7 +38,7 @@ constexpr EditorInvalidation kProjectReplaceInvalidation =
 constexpr EditorInvalidation kPlayToggleInvalidation =
     EditorInvalidation::Toolbar | EditorInvalidation::Viewport
     | EditorInvalidation::Inspector | EditorInvalidation::Hierarchy
-    | EditorInvalidation::Assets;
+    | EditorInvalidation::Assets | EditorInvalidation::LogicBoard;
 
 SceneId normalizedSceneId(const ProjectDocument& document) {
     if (!document.startSceneId().empty() && document.hasScene(document.startSceneId())) {
@@ -313,6 +313,17 @@ EditorInvalidation EditorCoordinator::reconcileWorkspace() {
         }
     }
 
+    if (state_.logicBoardEditor.objectTypeId
+        && !document_.hasObjectType(*state_.logicBoardEditor.objectTypeId)) {
+        std::vector<ObjectTypeId> ids;
+        ids.reserve(document_.data().objectTypes.size());
+        for (const auto& [id, unused] : document_.data().objectTypes) ids.push_back(id);
+        std::sort(ids.begin(), ids.end());
+        state_.logicBoardEditor.objectTypeId = ids.empty()
+            ? std::optional<ObjectTypeId>{} : std::optional<ObjectTypeId>{ids.front()};
+        extra |= EditorInvalidation::LogicBoard;
+    }
+
     // Last: with the selection/scene/layer state above now fully valid, bring
     // the tool/gesture/tile-selection context back in line with it - covers
     // every Command that could change what the selected instance's tilemap
@@ -405,6 +416,7 @@ EditorOperationResult EditorCoordinator::replaceProject(ProjectDocument replacem
     state_.sceneViews.clear();
     state_.spriteAnimationEditor = SpriteAnimationEditorState{};
     state_.tilemapEditor = TilemapEditorState{};
+    state_.logicBoardEditor = LogicBoardEditorState{};
     if (!state_.activeSceneId.empty()) {
         state_.sceneViews.try_emplace(state_.activeSceneId);
     }
@@ -568,6 +580,62 @@ EditorOperationResult EditorCoordinator::apply(const SelectSceneIntent& intent) 
     reconcileTilemapEditingContext();
     accumulate(kSceneChangeInvalidation);
     return EditorOperationResult::success(kSceneChangeInvalidation);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetCenterWorkspaceModeIntent& intent) {
+    LogicBoardEditorState& logicState = state_.logicBoardEditor;
+    if (logicState.mode == intent.mode) return EditorOperationResult::success(EditorInvalidation::None);
+    logicState.mode = intent.mode;
+    if (intent.mode == CenterWorkspaceMode::Logic) {
+        // Selection is only a convenience for choosing the owning Object Type;
+        // the board itself remains exclusively on ProjectDoc.objectTypes.
+        const SceneInstanceDef* selected = document_.findInstanceInScene(
+            state_.activeSceneId, state_.selection.primaryEntity);
+        if (selected && document_.hasObjectType(selected->objectTypeId)) {
+            logicState.objectTypeId = selected->objectTypeId;
+        } else if (!logicState.objectTypeId
+                   || !document_.hasObjectType(*logicState.objectTypeId)) {
+            std::vector<ObjectTypeId> ids;
+            ids.reserve(document_.data().objectTypes.size());
+            for (const auto& [id, unused] : document_.data().objectTypes) ids.push_back(id);
+            std::sort(ids.begin(), ids.end());
+            logicState.objectTypeId = ids.empty() ? std::optional<ObjectTypeId>{}
+                                                  : std::optional<ObjectTypeId>{ids.front()};
+        }
+    }
+
+    const EditorInvalidation inv = EditorInvalidation::LogicBoard
+                                 | EditorInvalidation::Viewport
+                                 | EditorInvalidation::Toolbar;
+    accumulate(inv);
+    return EditorOperationResult::success(inv);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SelectLogicObjectTypeIntent& intent) {
+    if (!document_.hasObjectType(intent.objectTypeId))
+        return finishIntent(EditorOperationResult::failure("Unknown Object Type"));
+    if (state_.logicBoardEditor.objectTypeId == intent.objectTypeId)
+        return EditorOperationResult::success(EditorInvalidation::None);
+    state_.logicBoardEditor.objectTypeId = intent.objectTypeId;
+    const EditorInvalidation inv = EditorInvalidation::LogicBoard | EditorInvalidation::Toolbar;
+    accumulate(inv);
+    return EditorOperationResult::success(inv);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetLogicBoardTabIntent& intent) {
+    if (state_.logicBoardEditor.tab == intent.tab)
+        return EditorOperationResult::success(EditorInvalidation::None);
+    state_.logicBoardEditor.tab = intent.tab;
+    accumulate(EditorInvalidation::LogicBoard);
+    return EditorOperationResult::success(EditorInvalidation::LogicBoard);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetLogicBoardSearchIntent& intent) {
+    if (state_.logicBoardEditor.search == intent.search)
+        return EditorOperationResult::success(EditorInvalidation::None);
+    state_.logicBoardEditor.search = intent.search;
+    accumulate(EditorInvalidation::LogicBoard);
+    return EditorOperationResult::success(EditorInvalidation::LogicBoard);
 }
 
 EditorOperationResult EditorCoordinator::apply(const SetViewportZoomIntent& intent) {

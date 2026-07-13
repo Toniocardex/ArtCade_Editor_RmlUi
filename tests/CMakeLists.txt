@@ -11,3 +11,7 @@ artcade_test(editor_core_test
 if(MSVC)
     target_link_options(editor_core_test PRIVATE /STACK:8388608)
 endif()
+
+artcade_test(logic_board_editor_test
+    logic-board-editor-test.cpp
+    artcade-editor-core)

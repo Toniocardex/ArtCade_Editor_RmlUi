@@ -4,12 +4,34 @@
 #include "editor-native/model/project_document.h"
 #include "editor-native/model/sprite_render_view.h"
 #include "editor-native/model/tilemap_render_view.h"
+#include "logic-core.h"
 
 #include <algorithm>
 #include <cmath>
 #include <utility>
 
 namespace ArtCade::EditorNative {
+
+struct PlaySession::LogicHostAdapter final : Logic::ILogicRuntimeHost {
+    explicit LogicHostAdapter(PlaySession* owner) : owner(owner) {}
+
+    bool setVisible(EntityId id, bool value) override {
+        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
+        if (!entity) return false;
+        entity->visible = value;
+        return true;
+    }
+
+    bool setPosition(EntityId id, Vec2 value) override {
+        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
+        if (!entity || !std::isfinite(value.x) || !std::isfinite(value.y)) return false;
+        entity->transform.position = value;
+        owner->refreshStaticCollider(id);
+        return true;
+    }
+
+    PlaySession* owner = nullptr;
+};
 
 namespace {
 
@@ -161,9 +183,49 @@ Aabb runtimeColliderBounds(const RuntimeEntity& entity) {
     return Aabb{bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height};
 }
 
+PlaySession::~PlaySession() = default;
+
+PlaySession::PlaySession(PlaySession&& other) noexcept
+    : scene_(std::move(other.scene_)),
+      assets_(std::move(other.assets_)),
+      spriteAnimationAssets_(std::move(other.spriteAnimationAssets_)),
+      staticColliders_(std::move(other.staticColliders_)),
+      logicHost_(std::move(other.logicHost_)),
+      logicRuntime_(std::move(other.logicRuntime_)) {
+    if (logicHost_) logicHost_->owner = this;
+}
+
+PlaySession& PlaySession::operator=(PlaySession&& other) noexcept {
+    if (this == &other) return *this;
+    logicRuntime_.reset();
+    logicHost_.reset();
+    scene_ = std::move(other.scene_);
+    assets_ = std::move(other.assets_);
+    spriteAnimationAssets_ = std::move(other.spriteAnimationAssets_);
+    staticColliders_ = std::move(other.staticColliders_);
+    logicHost_ = std::move(other.logicHost_);
+    logicRuntime_ = std::move(other.logicRuntime_);
+    if (logicHost_) logicHost_->owner = this;
+    return *this;
+}
+
 std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& document,
                                                     const SceneId& sceneId,
                                                     std::string* error) {
+    // Compile every board before creating any runtime entity. A blocking
+    // diagnostic rejects Play atomically and leaves authoring untouched.
+    const Logic::LogicCompileResult logic = Logic::compileProjectLogic(document.data());
+    if (!logic.ok()) {
+        if (error) {
+            *error = "Cannot start Play: Logic Board validation failed";
+            if (!logic.diagnostics.empty()) {
+                *error += " [" + logic.diagnostics.front().code + "] "
+                       + logic.diagnostics.front().message;
+            }
+        }
+        return std::nullopt;
+    }
+
     const SceneDef* scene = document.findScene(sceneId);
     if (!scene) {
         if (error) *error = "Cannot start Play: scene does not exist";
@@ -182,8 +244,12 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
     for (const SceneInstanceDef& instance : scene->instances) {
         RuntimeEntity entity;
         entity.id = instance.id;
+        entity.objectTypeId = instance.objectTypeId;
         entity.name = instance.instanceName;
         entity.transform = instance.transform;
+        const auto objectTypeIt = document.data().objectTypes.find(instance.objectTypeId);
+        entity.visible = instance.visible
+            && (objectTypeIt == document.data().objectTypes.end() || objectTypeIt->second.visible);
         if (const Vec3* fill = fillFor(document, instance.objectTypeId)) {
             entity.fillColor = *fill;
         }
@@ -216,7 +282,7 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
         const bool isMover = (mover != nullptr) || (controller != nullptr) || (platformer != nullptr);
         if (!isMover && isStaticObstacle(entity.collider)) {
             session.staticColliders_.push_back(
-                StaticRuntimeCollider{runtimeColliderBounds(entity), entity.collider->mode});
+                StaticRuntimeCollider{entity.id, runtimeColliderBounds(entity), entity.collider->mode});
         }
 
         const SpriteRenderView sprite = resolveSpriteRenderer(document, sceneId, instance.id);
@@ -342,6 +408,26 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
         if (it != indexByEntity.end()) session.scene().renderOrder.push_back(it->second);
     }
 
+    if (!logic.programs.empty()) {
+        session.logicHost_ = std::make_unique<LogicHostAdapter>(&session);
+        session.logicRuntime_ = std::make_unique<Logic::LogicRuntime>(*session.logicHost_);
+        std::string logicError;
+        if (!session.logicRuntime_->loadPrograms(logic.programs, &logicError)) {
+            if (error) *error = "Cannot start Play: " + logicError;
+            return std::nullopt;
+        }
+        for (const RuntimeEntity& entity : session.scene_.entities) {
+            const auto typeIt = document.data().objectTypes.find(entity.objectTypeId);
+            if (typeIt == document.data().objectTypes.end() || !typeIt->second.logicBoard) continue;
+            if (!session.logicRuntime_->install(entity.objectTypeId, entity.id, &logicError)) {
+                if (error) *error = "Cannot start Play: " + logicError;
+                return std::nullopt;
+            }
+        }
+        session.logicRuntime_->beginFrame();
+        session.logicRuntime_->dispatchStart();
+    }
+
     return session;
 }
 
@@ -361,6 +447,21 @@ const RuntimeEntity* PlaySession::findEntity(EntityId id) const {
         if (entity.id == id) return &entity;
     }
     return nullptr;
+}
+
+RuntimeEntity* PlaySession::findEntityMutable(EntityId id) {
+    for (RuntimeEntity& entity : scene_.entities) {
+        if (entity.id == id) return &entity;
+    }
+    return nullptr;
+}
+
+void PlaySession::refreshStaticCollider(EntityId owner) {
+    RuntimeEntity* entity = findEntityMutable(owner);
+    if (!entity || !entity->collider) return;
+    for (StaticRuntimeCollider& collider : staticColliders_) {
+        if (collider.owner == owner) collider.bounds = runtimeColliderBounds(*entity);
+    }
 }
 
 KinematicMoveResult PlaySession::moveKinematicEntity(RuntimeEntity& entity, Vec2 desiredDelta) {
@@ -491,6 +592,10 @@ void PlaySession::updatePlatformer(RuntimeEntity& entity, const RuntimeInputSnap
 }
 
 void PlaySession::update(const RuntimeInputSnapshot& input, float dt) {
+    if (logicRuntime_) {
+        logicRuntime_->beginFrame();
+        for (LogicKey key : input.pressedLogicKeys) logicRuntime_->dispatchKeyPressed(key);
+    }
     if (!std::isfinite(dt) || dt <= 0.f) return;
     // One movement writer per entity (enforced at authoring): dispatch by driver.
     for (RuntimeEntity& entity : scene_.entities) {

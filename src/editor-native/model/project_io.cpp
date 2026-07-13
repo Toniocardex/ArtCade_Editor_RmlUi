@@ -1,4 +1,5 @@
 #include "editor-native/model/project_io.h"
+#include "logic-core.h"
 #include "editor-native/model/numeric_validation.h"
 #include "editor-native/model/path_confinement.h"
 
@@ -22,7 +23,7 @@ namespace {
 
 // v2: sprite animation source moved from asset-level imageId to per-clip imageId
 // (each clip owns its sheet), plus asset defaultClipId.
-constexpr int kCurrentSchemaVersion = 2;
+constexpr int kCurrentSchemaVersion = 3;
 
 class JsonReadError final : public std::runtime_error {
 public:
@@ -576,6 +577,9 @@ nlohmann::json objectTypeToJson(const std::string& id, const EntityDef& def) {
             {"gravity", def.platformerController->customGravity},
         };
     }
+    if (def.logicBoard.has_value()) {
+        json["logicBoard"] = Logic::logicBoardToJson(*def.logicBoard);
+    }
     return json;
 }
 
@@ -712,6 +716,18 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                 component.jumpForce = readFloat(p, "jumpSpeed", component.jumpForce);
                 component.customGravity = readFloat(p, "gravity", component.customGravity);
                 def.platformerController = component;
+            }
+            if (item.contains("logicBoard")) {
+                LogicBoardDef board;
+                const Logic::LogicJsonResult parsed =
+                    Logic::logicBoardFromJson(item["logicBoard"], board);
+                if (!parsed.ok) return DeserializeResult::failure(parsed.error);
+                const auto diagnostics = Logic::validateBoard(id, board);
+                if (!diagnostics.empty()) {
+                    return DeserializeResult::failure(
+                        diagnostics.front().code + ": " + diagnostics.front().message);
+                }
+                def.logicBoard = std::move(board);
             }
             doc.objectTypes.emplace(id, std::move(def));
         }
@@ -992,11 +1008,25 @@ DeserializeResult ProjectMigration::migrate(ProjectDocument document) {
     if (version < 0 || version > kCurrentSchemaVersion) {
         return DeserializeResult::failure("Unsupported project schema version");
     }
+    if (version < kCurrentSchemaVersion) {
+        ProjectDoc migrated = document.data();
+        migrated.formatVersion = kCurrentSchemaVersion;
+        return DeserializeResult::success(ProjectDocument{std::move(migrated)});
+    }
     return DeserializeResult::success(std::move(document));
 }
 
 DeserializeResult ProjectValidator::validate(ProjectDocument document) {
     const ProjectDoc& data = document.data();
+
+    for (const auto& [objectTypeId, type] : data.objectTypes) {
+        if (!type.logicBoard) continue;
+        const auto diagnostics = Logic::validateBoard(objectTypeId, *type.logicBoard);
+        if (!diagnostics.empty()) {
+            return DeserializeResult::failure(
+                diagnostics.front().code + ": " + diagnostics.front().message);
+        }
+    }
 
     if (!NumericValidation::isFinite(data.targetFPS) || data.targetFPS <= 0.f) {
         return DeserializeResult::failure("Project targetFPS must be positive");

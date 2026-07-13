@@ -5,6 +5,7 @@
     <link type="text/rcss" href="layout.rcss"/>
     <link type="text/rcss" href="panels.rcss"/>
     <link type="text/rcss" href="controls.rcss"/>
+    <link type="text/rcss" href="logic_board.rcss"/>
 </head>
 <body>
     <div id="menubar">
@@ -101,13 +102,22 @@
 
         <div id="split-left" class="vsplit" data-action="resize-left"></div>
 
-        <div id="viewport">
-            <div id="viewport-empty" class="viewport-empty hidden">
-                <div class="viewport-empty-box">
-                    <div class="viewport-empty-title">No scene open</div>
-                    <div class="viewport-empty-sub">Create a scene to start building your game.</div>
-                    <button class="viewport-empty-btn" data-action="add-scene"><span class="icon">&#xeb0b;</span>Create Scene</button>
+        <div id="center-workspace">
+            <div id="center-modebar">
+                <button id="center-tab-scene" class="center-mode-tab active" data-action="open-scene-workspace">Scene</button>
+                <button id="center-tab-logic" class="center-mode-tab" data-action="open-logic-workspace">Logic</button>
+            </div>
+            <div id="center-content">
+                <div id="viewport">
+                    <div id="viewport-empty" class="viewport-empty hidden">
+                        <div class="viewport-empty-box">
+                            <div class="viewport-empty-title">No scene open</div>
+                            <div class="viewport-empty-sub">Create a scene to start building your game.</div>
+                            <button class="viewport-empty-btn" data-action="add-scene"><span class="icon">&#xeb0b;</span>Create Scene</button>
+                        </div>
+                    </div>
                 </div>
+                <div id="logic-board-panel" class="logic-board-panel hidden"></div>
             </div>
         </div>
 

@@ -24,6 +24,22 @@ struct SelectSceneIntent {
     SceneId sceneId;
 };
 
+struct SetCenterWorkspaceModeIntent {
+    CenterWorkspaceMode mode = CenterWorkspaceMode::Scene;
+};
+
+struct SelectLogicObjectTypeIntent {
+    ObjectTypeId objectTypeId;
+};
+
+struct SetLogicBoardTabIntent {
+    LogicBoardTab tab = LogicBoardTab::Rules;
+};
+
+struct SetLogicBoardSearchIntent {
+    std::string search;
+};
+
 struct SetViewportZoomIntent {
     SceneId sceneId;
     float   zoom = 1.0f;

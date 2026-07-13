@@ -6,6 +6,7 @@
 #include "editor-native/app/asset_import.h"
 #include "editor-native/app/inspector_commit.h"
 #include "editor-native/commands/entity_commands.h"
+#include "editor-native/commands/logic_board_commands.h"
 #include "editor-native/commands/scene_commands.h"
 #include "editor-native/commands/scene_layer_commands.h"
 #include "editor-native/commands/image_asset_commands.h"
@@ -18,6 +19,7 @@
 #include "editor-native/model/tileset_slicing.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view_camera.h"
+#include "logic-core.h"
 
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
@@ -303,7 +305,7 @@ public:
                 return;
             }
         }
-        if (!isCommit && type != "click" && type != "dblclick") return;
+        if (!isCommit && type != "click" && type != "dblclick" && type != "change") return;
 
         if (type == "click" && action == "select-layer" && isLayerDoubleClick(arg)) {
             action = "begin-layer-rename";
@@ -358,6 +360,7 @@ void EditorUi::bind() {
         doc->AddEventListener("focus", listener_.get(), true);
         doc->AddEventListener("blur", listener_.get(), true);
         doc->AddEventListener("keydown", listener_.get(), true);
+        doc->AddEventListener("change", listener_.get(), true);
         doc->AddEventListener("drag", listener_.get());
     };
     bindDocument(document_);
@@ -368,7 +371,8 @@ void EditorUi::bind() {
     coordinator_.consumeInvalidations();
     applyInvalidations(EditorInvalidation::Hierarchy | EditorInvalidation::Inspector
                        | EditorInvalidation::Console  | EditorInvalidation::Toolbar
-                       | EditorInvalidation::Assets   | EditorInvalidation::Layout);
+                       | EditorInvalidation::Assets   | EditorInvalidation::Layout
+                       | EditorInvalidation::LogicBoard);
     updateZoomReadout();   // initial paint (zoom % is Viewport-driven, not in the set)
 }
 
@@ -381,6 +385,7 @@ void EditorUi::detach() {
             doc->RemoveEventListener("focus", listener_.get(), true);
             doc->RemoveEventListener("blur", listener_.get(), true);
             doc->RemoveEventListener("keydown", listener_.get(), true);
+            doc->RemoveEventListener("change", listener_.get(), true);
             doc->RemoveEventListener("drag", listener_.get());
         };
         detachDocument(document_);
@@ -490,6 +495,8 @@ void EditorUi::applyInvalidations(EditorInvalidation flags) {
         console_.refresh(document_, coordinator_);
     if (has(flags, EditorInvalidation::Assets) || has(flags, EditorInvalidation::Project))
         assets_.refresh(document_, coordinator_);
+    if (has(flags, EditorInvalidation::LogicBoard) || has(flags, EditorInvalidation::Project))
+        logicBoard_.refresh(document_, coordinator_);
     if (has(flags, EditorInvalidation::Viewport) || has(flags, EditorInvalidation::Assets)
         || has(flags, EditorInvalidation::Project)) {
         refreshSpriteAnimationEditor();
@@ -503,6 +510,18 @@ void EditorUi::applyInvalidations(EditorInvalidation flags) {
     }
     if (has(flags, EditorInvalidation::Layout))
         refreshLayout();
+    if (has(flags, EditorInvalidation::LogicBoard) || has(flags, EditorInvalidation::Viewport)
+        || has(flags, EditorInvalidation::Project))
+        refreshCenterWorkspace();
+}
+
+void EditorUi::refreshCenterWorkspace() {
+    if (!document_) return;
+    const bool logic = coordinator_.state().logicBoardEditor.mode == CenterWorkspaceMode::Logic;
+    if (Rml::Element* el = document_->GetElementById("viewport")) el->SetClass("hidden", logic);
+    if (Rml::Element* el = document_->GetElementById("logic-board-panel")) el->SetClass("hidden", !logic);
+    if (Rml::Element* el = document_->GetElementById("center-tab-scene")) el->SetClass("active", !logic);
+    if (Rml::Element* el = document_->GetElementById("center-tab-logic")) el->SetClass("active", logic);
 }
 
 void EditorUi::refreshLayout() {
@@ -1243,12 +1262,19 @@ bool EditorUi::isContextMenuHit(int physicalX, int physicalY) const {
 void EditorUi::refreshToolbar() {
     if (!document_) return;
     const bool playing = coordinator_.isPlaying();
+    const bool logicWorkspace =
+        coordinator_.state().logicBoardEditor.mode == CenterWorkspaceMode::Logic;
     // Entering Play freezes authoring: an open context menu must not linger.
     if (playing) hideContextMenus();
 
     if (Rml::Element* status = document_->GetElementById("toolbar-status")) {
         std::string text;
-        if (playing && coordinator_.playSession()) {
+        if (logicWorkspace) {
+            text = "LOGIC";
+            if (coordinator_.state().logicBoardEditor.objectTypeId)
+                text += " - " + *coordinator_.state().logicBoardEditor.objectTypeId;
+            if (playing) text += "  |  PLAYING (read-only)";
+        } else if (playing && coordinator_.playSession()) {
             text = "PLAYING - " + coordinator_.playSession()->scene().name;
         } else {
             const SceneDef* scene =
@@ -1298,7 +1324,7 @@ void EditorUi::refreshToolbar() {
     // own Inspector section - both read and write the same EditorState
     // ::activeTool, no second local state.
     {
-        const bool toolActionable = !playing
+        const bool toolActionable = !playing && !logicWorkspace
             && coordinator_.document().findScene(coordinator_.state().activeSceneId) != nullptr;
         const EditorTool activeTool = coordinator_.state().activeTool;
         setEnabled("btn-tool-select", toolActionable);
@@ -1327,21 +1353,21 @@ void EditorUi::refreshToolbar() {
     // with no scene there is nothing to frame or draw a grid over, so a click
     // would be a no-op the coordinator now also rejects (defence in depth,
     // not just a greyed-out button).
-    const bool gridActionable = !playing && hasScene;
+    const bool gridActionable = !playing && !logicWorkspace && hasScene;
     setEnabledBoth("btn-fit-view",     "menu-fit-view",     gridActionable);
     setEnabledBoth("btn-grid-visible", "menu-grid-visible", gridActionable);
     // Zoom, unlike Grid/Snap/Fit, tracks the PlaySession's scene while
     // playing (see the zoom-in/out and reset-zoom handlers) — Play always has
     // a real scene, so it stays available then. Only truly nothing-to-zoom
     // (no scene, not playing) disables it.
-    const bool canZoom = playing || hasScene;
+    const bool canZoom = !logicWorkspace && (playing || hasScene);
     setEnabledBoth("btn-zoom-in",  "menu-zoom-in",   canZoom);
     setEnabledBoth("btn-zoom-out", "menu-zoom-out",  canZoom);
     setEnabledBoth("toolbar-zoom", "menu-reset-zoom", canZoom);
 
     // Central Scene View empty state: shown only when no scene exists to edit.
     if (Rml::Element* empty = document_->GetElementById("viewport-empty")) {
-        empty->SetClass("hidden", hasScene || playing);
+        empty->SetClass("hidden", hasScene || playing || logicWorkspace);
     }
 
     const EditorSceneViewState& view = coordinator_.sceneView(currentViewSceneId());
@@ -1478,6 +1504,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     if (handleToolbarAction(action, arg, value)) return;
     if (handleSpriteAnimationAction(action, arg, value)) return;
     if (handleTilesetEditorAction(action, arg, value)) return;
+    if (handleLogicBoardAction(action, arg, value)) return;
     if (handleHierarchyAction(action, arg, value, selected)) return;
     if (handleInspectorAction(action, arg, value, selected)) return;
 }
@@ -1947,6 +1974,155 @@ bool EditorUi::handleSpriteAnimationAction(const std::string& action, const std:
     } else if (action == "remove-animation-clip") {
         const std::vector<std::string> parts = splitPipe(arg);
         if (parts.size() == 2) coordinator_.execute(RemoveAnimationClipCommand{parts[0], parts[1]});
+    } else {
+        return false;
+    }
+    return true;
+}
+
+bool EditorUi::handleLogicBoardAction(const std::string& action, const std::string& arg,
+                                      const std::string& value) {
+    if (action == "open-scene-workspace") {
+        coordinator_.apply(SetCenterWorkspaceModeIntent{CenterWorkspaceMode::Scene});
+        return true;
+    }
+    if (action == "open-logic-workspace") {
+        coordinator_.apply(SetCenterWorkspaceModeIntent{CenterWorkspaceMode::Logic});
+        return true;
+    }
+    if (action == "select-logic-object-type") {
+        if (!value.empty()) coordinator_.apply(SelectLogicObjectTypeIntent{value});
+        return true;
+    }
+    if (action == "logic-tab-rules" || action == "logic-tab-lua") {
+        coordinator_.apply(SetLogicBoardTabIntent{
+            action == "logic-tab-lua" ? LogicBoardTab::GeneratedLua : LogicBoardTab::Rules});
+        return true;
+    }
+    if (action == "commit-logic-search") {
+        coordinator_.apply(SetLogicBoardSearchIntent{value});
+        return true;
+    }
+
+    const auto& view = coordinator_.state().logicBoardEditor;
+    if (!view.objectTypeId || !coordinator_.document().hasObjectType(*view.objectTypeId))
+        return action.rfind("logic-", 0) != std::string::npos;
+    const ObjectTypeId objectTypeId = *view.objectTypeId;
+    const EntityDef& objectType = coordinator_.document().data().objectTypes.at(objectTypeId);
+
+    const bool authoringAction = action == "create-logic-board" || action == "remove-logic-board"
+        || action == "add-logic-rule" || action == "remove-logic-rule"
+        || action == "move-logic-rule-up" || action == "move-logic-rule-down"
+        || action == "toggle-logic-rule" || action == "change-logic-trigger"
+        || action == "set-logic-key" || action == "add-logic-action"
+        || action == "remove-logic-action" || action == "move-logic-action-up"
+        || action == "move-logic-action-down" || action == "change-logic-action"
+        || action == "toggle-logic-visible" || action == "commit-logic-position-x"
+        || action == "commit-logic-position-y";
+    if (coordinator_.isPlaying() && authoringAction) return true;
+
+    if (action == "create-logic-board") {
+        coordinator_.execute(CreateLogicBoardCommand{objectTypeId});
+        return true;
+    }
+    if (action == "remove-logic-board") {
+        coordinator_.execute(RemoveLogicBoardCommand{objectTypeId});
+        return true;
+    }
+    if (!objectType.logicBoard) return authoringAction;
+    const LogicBoardDef& board = *objectType.logicBoard;
+    const auto ruleById = [&](const LogicRuleId& id) -> const LogicRuleDef* {
+        for (const LogicRuleDef& rule : board.rules) if (rule.id == id) return &rule;
+        return nullptr;
+    };
+    const auto ruleIndex = [&](const LogicRuleId& id) -> std::optional<std::size_t> {
+        for (std::size_t i = 0; i < board.rules.size(); ++i)
+            if (board.rules[i].id == id) return i;
+        return std::nullopt;
+    };
+    const auto parseActionArg = [&](const std::string& encoded,
+                                    LogicRuleId& ruleId,
+                                    std::size_t& index) -> bool {
+        const std::vector<std::string> parts = splitPipe(encoded);
+        if (parts.size() != 2 || parts[1].empty()) return false;
+        char* end = nullptr;
+        const unsigned long parsed = std::strtoul(parts[1].c_str(), &end, 10);
+        if (!end || *end != '\0') return false;
+        ruleId = parts[0];
+        index = static_cast<std::size_t>(parsed);
+        return true;
+    };
+
+    if (action == "add-logic-rule") {
+        coordinator_.execute(AddLogicRuleCommand{
+            objectTypeId, Logic::makeDefaultRule(nextLogicRuleId(board)), board.rules.size()});
+    } else if (action == "remove-logic-rule") {
+        coordinator_.execute(RemoveLogicRuleCommand{objectTypeId, arg});
+    } else if (action == "move-logic-rule-up" || action == "move-logic-rule-down") {
+        if (const auto index = ruleIndex(arg)) {
+            const std::size_t destination = action == "move-logic-rule-up"
+                ? (*index == 0 ? 0 : *index - 1)
+                : std::min(*index + 1, board.rules.size() - 1);
+            coordinator_.execute(MoveLogicRuleCommand{objectTypeId, arg, destination});
+        }
+    } else if (action == "toggle-logic-rule") {
+        if (const LogicRuleDef* rule = ruleById(arg))
+            coordinator_.execute(SetLogicRuleEnabledCommand{objectTypeId, arg, !rule->enabled});
+    } else if (action == "change-logic-trigger") {
+        LogicBlockDef trigger = Logic::makeDefaultTrigger();
+        if (value == Logic::kKeyPressed) {
+            trigger.typeId = Logic::kKeyPressed;
+            trigger.properties = {{"key", LogicKey::Space}};
+        }
+        coordinator_.execute(ReplaceLogicTriggerCommand{objectTypeId, arg, std::move(trigger)});
+    } else if (action == "set-logic-key") {
+        if (const auto key = Logic::logicKeyFromName(value)) {
+            coordinator_.execute(SetLogicPropertyCommand{
+                objectTypeId, arg, LogicPropertyTarget::Trigger, 0, "key", *key});
+        }
+    } else if (action == "add-logic-action") {
+        if (const LogicRuleDef* rule = ruleById(arg)) {
+            coordinator_.execute(AddLogicActionCommand{
+                objectTypeId, arg, Logic::makeDefaultAction(), rule->actions.size()});
+        }
+    } else if (action == "remove-logic-action" || action == "move-logic-action-up"
+               || action == "move-logic-action-down" || action == "change-logic-action"
+               || action == "toggle-logic-visible" || action == "commit-logic-position-x"
+               || action == "commit-logic-position-y") {
+        LogicRuleId ruleId;
+        std::size_t index = 0;
+        if (!parseActionArg(arg, ruleId, index)) return true;
+        const LogicRuleDef* rule = ruleById(ruleId);
+        if (!rule || index >= rule->actions.size()) return true;
+        if (action == "remove-logic-action") {
+            coordinator_.execute(RemoveLogicActionCommand{objectTypeId, ruleId, index});
+        } else if (action == "move-logic-action-up" || action == "move-logic-action-down") {
+            const std::size_t destination = action == "move-logic-action-up"
+                ? (index == 0 ? 0 : index - 1)
+                : std::min(index + 1, rule->actions.size() - 1);
+            coordinator_.execute(MoveLogicActionCommand{objectTypeId, ruleId, index, destination});
+        } else if (action == "change-logic-action") {
+            coordinator_.execute(ChangeLogicActionTypeCommand{objectTypeId, ruleId, index, value});
+        } else if (action == "toggle-logic-visible") {
+            bool visible = true;
+            if (const LogicPropertyDef* p = Logic::findProperty(rule->actions[index], "visible"))
+                if (const auto* current = std::get_if<bool>(&p->value)) visible = *current;
+            coordinator_.execute(SetLogicPropertyCommand{
+                objectTypeId, ruleId, LogicPropertyTarget::Action, index, "visible", !visible});
+        } else {
+            const std::optional<float> parsed = parseNumberField(value);
+            if (!parsed) {
+                coordinator_.logError("Logic position must be a finite number");
+                return true;
+            }
+            Vec2 position{};
+            if (const LogicPropertyDef* p = Logic::findProperty(rule->actions[index], "position"))
+                if (const auto* current = std::get_if<Vec2>(&p->value)) position = *current;
+            if (action == "commit-logic-position-x") position.x = *parsed;
+            else position.y = *parsed;
+            coordinator_.execute(SetLogicPropertyCommand{
+                objectTypeId, ruleId, LogicPropertyTarget::Action, index, "position", position});
+        }
     } else {
         return false;
     }

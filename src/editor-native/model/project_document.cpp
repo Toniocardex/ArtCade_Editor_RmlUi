@@ -61,6 +61,15 @@ bool ProjectDocument::hasObjectType(const std::string& id) const {
     return doc_.objectTypes.find(id) != doc_.objectTypes.end();
 }
 
+bool ProjectDocument::replaceLogicBoard(const std::string& objectTypeId,
+                                        std::optional<LogicBoardDef> board) {
+    const auto it = doc_.objectTypes.find(objectTypeId);
+    if (it == doc_.objectTypes.end()) return false;
+    it->second.logicBoard = std::move(board);
+    markDirty();
+    return true;
+}
+
 const EntityDef* ProjectDocument::findObjectType(const std::string& id) const {
     const auto it = doc_.objectTypes.find(id);
     return it == doc_.objectTypes.end() ? nullptr : &it->second;

@@ -21,6 +21,7 @@ enum class DomainChangeKind {
     ComponentRemoved,
     ComponentChanged,
     AssetChanged,
+    LogicBoardChanged,
 };
 
 enum class ComponentKind {
@@ -152,6 +153,12 @@ struct DomainChange {
         DomainChange change;
         change.kind = DomainChangeKind::AssetChanged;
         change.assetId = std::move(asset);
+        return change;
+    }
+    static DomainChange logicBoardChanged(std::string objectType) {
+        DomainChange change;
+        change.kind = DomainChangeKind::LogicBoardChanged;
+        change.objectTypeId = std::move(objectType);
         return change;
     }
 };

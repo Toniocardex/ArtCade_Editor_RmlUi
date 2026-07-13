@@ -76,6 +76,31 @@ namespace ArtCade::EditorNative {
 
 namespace {
 
+void collectLogicKeyPresses(RuntimeInputSnapshot& input) {
+    static constexpr std::pair<LogicKey, int> kKeys[] = {
+        {LogicKey::A, KEY_A}, {LogicKey::B, KEY_B}, {LogicKey::C, KEY_C},
+        {LogicKey::D, KEY_D}, {LogicKey::E, KEY_E}, {LogicKey::F, KEY_F},
+        {LogicKey::G, KEY_G}, {LogicKey::H, KEY_H}, {LogicKey::I, KEY_I},
+        {LogicKey::J, KEY_J}, {LogicKey::K, KEY_K}, {LogicKey::L, KEY_L},
+        {LogicKey::M, KEY_M}, {LogicKey::N, KEY_N}, {LogicKey::O, KEY_O},
+        {LogicKey::P, KEY_P}, {LogicKey::Q, KEY_Q}, {LogicKey::R, KEY_R},
+        {LogicKey::S, KEY_S}, {LogicKey::T, KEY_T}, {LogicKey::U, KEY_U},
+        {LogicKey::V, KEY_V}, {LogicKey::W, KEY_W}, {LogicKey::X, KEY_X},
+        {LogicKey::Y, KEY_Y}, {LogicKey::Z, KEY_Z},
+        {LogicKey::Num0, KEY_ZERO}, {LogicKey::Num1, KEY_ONE},
+        {LogicKey::Num2, KEY_TWO}, {LogicKey::Num3, KEY_THREE},
+        {LogicKey::Num4, KEY_FOUR}, {LogicKey::Num5, KEY_FIVE},
+        {LogicKey::Num6, KEY_SIX}, {LogicKey::Num7, KEY_SEVEN},
+        {LogicKey::Num8, KEY_EIGHT}, {LogicKey::Num9, KEY_NINE},
+        {LogicKey::ArrowLeft, KEY_LEFT}, {LogicKey::ArrowRight, KEY_RIGHT},
+        {LogicKey::ArrowUp, KEY_UP}, {LogicKey::ArrowDown, KEY_DOWN},
+        {LogicKey::Space, KEY_SPACE}, {LogicKey::Enter, KEY_ENTER},
+    };
+    for (const auto& [logicKey, raylibKey] : kKeys) {
+        if (IsKeyPressed(raylibKey)) input.pressedLogicKeys.push_back(logicKey);
+    }
+}
+
 // HiDPI bridge: RmlUi runs in physical framebuffer pixels (GetRenderWidth),
 // while raylib's drawing and mouse stay in logical pixels (GetScreenWidth) —
 // raylib applies the DPI scale itself via screenScale / SetMouseScale. The
@@ -1386,13 +1411,15 @@ int EditorApp::run(int argc, char** argv) {
             coordinator.state().spriteAnimationEditor.openAssetId.has_value();
         const bool tilesetEditorOpen =
             coordinator.state().tilesetEditor.openAssetId.has_value();
+        const bool logicWorkspace = coordinator.state().logicBoardEditor.mode
+            == CenterWorkspaceMode::Logic;
         const ViewportRect animationInputRect = animationEditorOpen
             ? resolveSpriteAnimationCanvasContentRect(animationDocument)
             : ViewportRect{};
         const ViewportRect tilesetInputRect = tilesetEditorOpen
             ? resolveTilesetEditorCanvasContentRect(tilesetDocument)
             : ViewportRect{};
-        if (!animationEditorOpen && !tilesetEditorOpen) {
+        if (!animationEditorOpen && !tilesetEditorOpen && !logicWorkspace) {
             routeViewportInput(coordinator, rect, rml, contextMenuHit);
         }
         if (coordinator.isPlaying()) {
@@ -1408,9 +1435,10 @@ int EditorApp::run(int argc, char** argv) {
                 // Edge-triggered jump for the PlatformerController (Space / W / Up).
                 input.jumpPressed = IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_W)
                                  || IsKeyPressed(KEY_UP);
+                collectLogicKeyPresses(input);
             }
             coordinator.updateRuntime(input, dt);         // input-driven (TopDownController)
-        } else if (!animationEditorOpen && !tilesetEditorOpen) {
+        } else if (!animationEditorOpen && !tilesetEditorOpen && !logicWorkspace) {
             // First time this scene is active in Edit mode: frame it once. The
             // flag lives in the scene's view state, so it shares the sceneViews
             // lifecycle (cleared/pruned with the scene). Mark only after a real
@@ -1431,6 +1459,7 @@ int EditorApp::run(int argc, char** argv) {
         {
             ViewportPointerReadout pointerReadout;
             if (!coordinator.isPlaying() && !animationEditorOpen && !tilesetEditorOpen
+                && !logicWorkspace
                 && rect.contains(GetMouseX(), GetMouseY())) {
                 const SceneId& active = coordinator.state().activeSceneId;
                 if (const SceneDef* scene = coordinator.document().findScene(active)) {
@@ -1618,7 +1647,7 @@ int EditorApp::run(int argc, char** argv) {
                 tilesetAsset = coordinator.document().findTilesetAsset(*openTileset);
             }
         }
-        if (playSession || (!animationAsset && !tilesetAsset)) {
+        if (!logicWorkspace && (playSession || (!animationAsset && !tilesetAsset))) {
             textureCache.prepare(snapshot.sprites, snapshot.tilemaps, textureRequests);
             const SceneGridDefinition displayGrid = viewportDisplayGrid(
                 coordinator.document(), coordinator.state(), active);
