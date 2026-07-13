@@ -62,10 +62,10 @@
         <button id="btn-grid-visible" class="tool-btn" data-action="toggle-grid-visible" title="Show Grid"><span class="icon">&#xea3b;</span>Grid</button>
         <button id="btn-grid-snap" class="tool-btn" data-action="toggle-grid-snap" title="Snap to Grid"><span class="icon">&#xeae3;</span>Snap to Grid</button>
         <div id="grid-size-control" class="grid-size-control">
-            <button id="btn-grid-size" class="tool-btn grid-size-trigger" title="Grid Cell Size">48 <span class="icon-caret">&#xeb5d;</span></button>
+            <button id="btn-grid-size" class="tool-btn grid-size-trigger" title="Grid Cell Size">32 <span class="icon-caret">&#xeb5d;</span></button>
             <div class="grid-size-popover">
                 <div id="grid-size-title" class="grid-size-title">Grid: World</div>
-                <input id="grid-cell-size-input" type="text" class="grid-size-input" data-action="commit-grid-cell-size" value="48"/>
+                <input id="grid-cell-size-input" type="text" class="grid-size-input" data-action="commit-grid-cell-size" value="32"/>
                 <div class="grid-size-presets">
                     <button class="grid-size-preset" data-action="set-grid-cell-size" data-arg="8">8</button>
                     <button class="grid-size-preset" data-action="set-grid-cell-size" data-arg="16">16</button>

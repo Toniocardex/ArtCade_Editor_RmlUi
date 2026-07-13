@@ -19,7 +19,7 @@ constexpr float kZoomMax = 8.0f;
 } // namespace SceneViewLimits
 
 namespace SceneGridDefaults {
-constexpr float kCellSize = 48.0f;
+constexpr float kCellSize = 32.0f;
 } // namespace SceneGridDefaults
 
 // Sheet zoom multiplies the fit-to-canvas base scale, so 1.0 = "fit view".

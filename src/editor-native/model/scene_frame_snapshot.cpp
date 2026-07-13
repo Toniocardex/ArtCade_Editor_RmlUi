@@ -13,7 +13,9 @@ namespace ArtCade::EditorNative {
 
 namespace {
 
-constexpr float kDefaultSpriteExtent = 48.f;
+// One default grid cell (SceneGridDefaults::kCellSize): a sprite-less
+// entity's placeholder box fills exactly one cell at the default grid.
+constexpr float kDefaultSpriteExtent = 32.f;
 
 const Vec3* fillFor(const ProjectDocument& document, const std::string& typeId) {
     const auto& types = document.data().objectTypes;

@@ -4232,15 +4232,15 @@ int main() {
         CHECK(c.undoSize() == undoBefore + 1);
         const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, kHero);
         CHECK(inst != nullptr);
-        CHECK(inst->transform.position.x == 488.f);
-        CHECK(inst->transform.position.y == 24.f);
+        CHECK(inst->transform.position.x == 496.f);   // 512 - half the 32 wu placeholder
+        CHECK(inst->transform.position.y == 16.f);
 
         CHECK(c.undo().ok);
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 562.f);
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.y == -35.f);
         CHECK(c.redo().ok);
-        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 488.f);
-        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.y == 24.f);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 496.f);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.y == 16.f);
     }
 
     // -- Bring Into Scene no-ops when already inside; Play still blocks edits --
@@ -4556,23 +4556,24 @@ int main() {
         // Free spot: unchanged.
         CHECK(unoccupiedSpawnPosition(scene, Vec2{256.f, 160.f}, sceneSize).x == 256.f);
 
-        // One instance on the candidate: one diagonal step (default 24 wu).
+        // One instance on the candidate: one diagonal step (half the default
+        // 32 wu grid cell = 16 wu).
         SceneInstanceDef first;
         first.id = 1;
         first.transform.position = {256.f, 160.f};
         scene.instances.push_back(first);
         const Vec2 nudged = unoccupiedSpawnPosition(scene, Vec2{256.f, 160.f}, sceneSize);
-        CHECK(nudged.x == 280.f);
-        CHECK(nudged.y == 184.f);
+        CHECK(nudged.x == 272.f);
+        CHECK(nudged.y == 176.f);
 
         // The next spot occupied too: cascades a second step.
         SceneInstanceDef second;
         second.id = 2;
-        second.transform.position = {280.f, 184.f};
+        second.transform.position = {272.f, 176.f};
         scene.instances.push_back(second);
         const Vec2 twice = unoccupiedSpawnPosition(scene, Vec2{256.f, 160.f}, sceneSize);
-        CHECK(twice.x == 304.f);
-        CHECK(twice.y == 208.f);
+        CHECK(twice.x == 288.f);
+        CHECK(twice.y == 192.f);
 
         // Pinned at the scene corner: the walk terminates and returns the
         // clamped candidate even if it is still occupied.
@@ -5284,7 +5285,7 @@ int main() {
         CHECK(playFrame.hasScene);
         CHECK(playFrame.sprites.size() == 1);
         CHECK(playFrame.sprites[0].assetId == "img-hero");
-        CHECK(playFrame.sprites[0].destination.x == -14.f); // x=10, width=48
+        CHECK(playFrame.sprites[0].destination.x == -6.f); // x=10, width=32
     }
 
     // -- A materialized PlaySession is independent from later authoring edits --
@@ -5300,12 +5301,12 @@ int main() {
             collectSceneFrameSnapshot(c.document(), kSceneA, INVALID_ENTITY);
         CHECK(editFrame.sprites.size() == 1);
         CHECK(editFrame.sprites[0].assetId == "img-alt");
-        CHECK(editFrame.sprites[0].destination.x == 26.f); // x=50, width=48
+        CHECK(editFrame.sprites[0].destination.x == 34.f); // x=50, width=32
 
         const SceneFrameSnapshot playFrame = collectSceneFrameSnapshot(*session);
         CHECK(playFrame.sprites.size() == 1);
         CHECK(playFrame.sprites[0].assetId == "img-hero");
-        CHECK(playFrame.sprites[0].destination.x == -14.f); // still x=10
+        CHECK(playFrame.sprites[0].destination.x == -6.f); // still x=10
 
         session->entities()[0].transform.position = {500.f, 600.f};
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 50.f);
@@ -7230,17 +7231,17 @@ int main() {
         const uint64_t rev = c.document().revision();
         CHECK(c.sceneView(kSceneA).gridVisible);
         CHECK(!c.sceneView(kSceneA).gridSnapEnabled);
-        CHECK(c.sceneView(kSceneA).gridCellSize == 48.0f);
+        CHECK(c.sceneView(kSceneA).gridCellSize == 32.0f);
 
         CHECK(c.apply(SetSceneGridVisibilityIntent{kSceneA, false}).ok);
         CHECK(c.apply(SetSceneGridSnapEnabledIntent{kSceneA, true}).ok);
-        CHECK(c.apply(SetSceneGridCellSizeIntent{kSceneA, 32.0f}).ok);
+        CHECK(c.apply(SetSceneGridCellSizeIntent{kSceneA, 48.0f}).ok);
         CHECK(!c.sceneView(kSceneA).gridVisible);
         CHECK(c.sceneView(kSceneA).gridSnapEnabled);
-        CHECK(c.sceneView(kSceneA).gridCellSize == 32.0f);
+        CHECK(c.sceneView(kSceneA).gridCellSize == 48.0f);
         CHECK(c.sceneView(kSceneB).gridVisible);
         CHECK(!c.sceneView(kSceneB).gridSnapEnabled);
-        CHECK(c.sceneView(kSceneB).gridCellSize == 48.0f);
+        CHECK(c.sceneView(kSceneB).gridCellSize == 32.0f);
         CHECK(!c.document().isDirty());
         CHECK(c.document().revision() == rev);
         CHECK(c.undoSize() == 0);
@@ -7257,13 +7258,13 @@ int main() {
         CHECK(loadProjectFromFile(loaded, path).ok);
         CHECK(loaded.sceneView(kSceneA).gridVisible);
         CHECK(!loaded.sceneView(kSceneA).gridSnapEnabled);
-        CHECK(loaded.sceneView(kSceneA).gridCellSize == 48.0f);
+        CHECK(loaded.sceneView(kSceneA).gridCellSize == 32.0f);
 
         CHECK(c.replaceProject(ProjectDocument{makeReplacementDoc()}).ok);
         CHECK(c.state().sceneViews.count(kSceneA) == 0);
         CHECK(c.sceneView(kSceneA).gridVisible);
         CHECK(!c.sceneView(kSceneA).gridSnapEnabled);
-        CHECK(c.sceneView(kSceneA).gridCellSize == 48.0f);
+        CHECK(c.sceneView(kSceneA).gridCellSize == 32.0f);
     }
 
     // -- Grid cell size rejects invalid values and no-op changes stay quiet ---
@@ -7278,14 +7279,14 @@ int main() {
             kSceneA, std::numeric_limits<float>::quiet_NaN()}).ok);
         CHECK(!c.apply(SetSceneGridCellSizeIntent{
             kSceneA, std::numeric_limits<float>::infinity()}).ok);
-        CHECK(c.sceneView(kSceneA).gridCellSize == 48.0f);
+        CHECK(c.sceneView(kSceneA).gridCellSize == 32.0f);
         // Each rejected intent is still a real, user-visible failure (never
         // silent) - it logs a Console warning, which is itself an invalidation.
         CHECK(c.pendingInvalidations() == EditorInvalidation::Console);
         c.consumeInvalidations();
 
         const EditorOperationResult same =
-            c.apply(SetSceneGridCellSizeIntent{kSceneA, 48.0f});
+            c.apply(SetSceneGridCellSizeIntent{kSceneA, 32.0f});
         CHECK(same.ok);
         CHECK(same.invalidation == EditorInvalidation::None);
         CHECK(c.pendingInvalidations() == EditorInvalidation::None);
@@ -7298,16 +7299,16 @@ int main() {
     {
         const SceneGridDefinition grid = worldAuthoringGrid(EditorSceneViewState{});
         CHECK(grid.kind == SceneGridKind::World);
-        CHECK(grid.cellSize.x == 48.0f);
-        CHECK(grid.cellSize.y == 48.0f);
-        CHECK(snapWorldPositionToGrid(Vec2{31.f, 73.f}, grid).x == 48.f);
-        CHECK(snapWorldPositionToGrid(Vec2{31.f, 73.f}, grid).y == 96.f);
+        CHECK(grid.cellSize.x == 32.0f);
+        CHECK(grid.cellSize.y == 32.0f);
+        CHECK(snapWorldPositionToGrid(Vec2{31.f, 73.f}, grid).x == 32.f);
+        CHECK(snapWorldPositionToGrid(Vec2{31.f, 73.f}, grid).y == 64.f);
         CHECK(snapWorldPositionToGrid(Vec2{-15.f, -26.f}, grid).x == 0.f);
-        CHECK(snapWorldPositionToGrid(Vec2{-25.f, -26.f}, grid).x == -48.f);
-        CHECK(snapWorldPositionToGrid(Vec2{-25.f, -26.f}, grid).y == -48.f);
+        CHECK(snapWorldPositionToGrid(Vec2{-25.f, -26.f}, grid).x == -32.f);
+        CHECK(snapWorldPositionToGrid(Vec2{-25.f, -26.f}, grid).y == -32.f);
         CHECK(snapWorldPositionToGrid(Vec2{96.f, 144.f}, grid).x == 96.f);
-        CHECK(snapWorldPositionToGrid(Vec2{24.f, -24.f}, grid).x == 48.f);
-        CHECK(snapWorldPositionToGrid(Vec2{24.f, -24.f}, grid).y == -48.f);
+        CHECK(snapWorldPositionToGrid(Vec2{16.f, -16.f}, grid).x == 32.f);
+        CHECK(snapWorldPositionToGrid(Vec2{16.f, -16.f}, grid).y == -32.f);
 
         const SceneGridDefinition shifted{
             SceneGridKind::World,

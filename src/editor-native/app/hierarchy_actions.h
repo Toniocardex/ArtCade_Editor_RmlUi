@@ -38,7 +38,7 @@ SceneId makeUniqueSceneId(const ProjectDocument& document);
 
 struct SpawnPositionOptions {
     bool  snapToGrid = false;
-    float gridSize = 48.0f;
+    float gridSize = SceneGridDefaults::kCellSize;   // one authority, not a second 32
     float edgeMargin = 16.0f;
 };
 
