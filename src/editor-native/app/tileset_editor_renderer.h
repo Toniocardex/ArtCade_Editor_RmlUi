@@ -28,4 +28,16 @@ void renderTilesetEditorCanvas(
     TextureCache& textureCache,
     const std::unordered_map<AssetId, TextureRequest>& requests);
 
+// Paints one tile's crop into the settings panel's Selected Tile slot (RML
+// lays the box out; raylib fills it after host.render(), the same pattern as
+// the tile palette / timeline thumbnails). The caller resolves the selected
+// id to a TileDefinition first - committed tiles when the id matches, else
+// the live pending grid - because selection ids come from the pending grid.
+void renderTilesetSelectedTileThumb(
+    const AssetId& imageAssetId,
+    const TileDefinition& tile,
+    const ViewportRect& thumbRect,
+    TextureCache& textureCache,
+    const std::unordered_map<AssetId, TextureRequest>& requests);
+
 } // namespace ArtCade::EditorNative

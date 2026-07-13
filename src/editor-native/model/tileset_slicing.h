@@ -34,9 +34,19 @@ std::vector<TileDefinition> tilesForSlicing(int imageWidth, int imageHeight,
 // TilesetAsset already had: a new tile whose rect exactly matches an old
 // tile's rect keeps that old tile's id (so metadata a later slice attaches
 // to a tile survives a reslice); a genuinely new rect gets a fresh id that
-// doesn't collide with any id being kept; an old tile with no matching rect
+// collides with NO old id, kept or removed - recycling a removed id would
+// make painted cells that still reference it silently show the new rect
+// instead of being detected as orphaned; an old tile with no matching rect
 // simply doesn't appear in the result (implicitly removed).
 std::vector<TileDefinition> reconcileTiles(const std::vector<TileDefinition>& oldTiles,
                                            const std::vector<TileDefinition>& newTiles);
+
+// Memberwise equality, shared by ChangeTilesetSlicingCommand's no-op guard
+// and the Tileset Editor close guard's dirty check - one definition of
+// "unchanged", not one per caller. Not operator== on the vendored runtime
+// structs: the editor does not modify vendor/artcade-runtime types.
+bool sameTilesetSlicing(const TilesetSlicing& a, const TilesetSlicing& b);
+bool sameTileDefinitions(const std::vector<TileDefinition>& a,
+                         const std::vector<TileDefinition>& b);
 
 } // namespace ArtCade::EditorNative

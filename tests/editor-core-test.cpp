@@ -826,6 +826,37 @@ static void runTilesetTests() {
         CHECK(result[1].id != "tile-1");
     }
 
+    // -- reconcileTiles: a removed tile's id is never recycled by a new rect -
+    // a painted cell still referencing it must become an orphan (detected and
+    // cleared by the re-slice cascade), never silently show the new content --
+    {
+        std::vector<TileDefinition> oldTiles;
+        oldTiles.push_back(TileDefinition{"tile-1", 0, 0, 32, 32});
+
+        std::vector<TileDefinition> newTiles;
+        newTiles.push_back(TileDefinition{"n", 0, 0, 64, 64});   // no rect match
+
+        const std::vector<TileDefinition> result = reconcileTiles(oldTiles, newTiles);
+        CHECK(result.size() == 1);
+        CHECK(result[0].id != "tile-1");
+    }
+
+    // -- reconcileTiles: a fresh rect listed before a kept rect must not take
+    // the id the kept rect is about to reuse ------------------------------------
+    {
+        std::vector<TileDefinition> oldTiles;
+        oldTiles.push_back(TileDefinition{"tile-1", 32, 0, 32, 32});
+
+        std::vector<TileDefinition> newTiles;
+        newTiles.push_back(TileDefinition{"a", 0, 0, 32, 32});    // fresh, listed first
+        newTiles.push_back(TileDefinition{"b", 32, 0, 32, 32});   // keeps "tile-1"
+
+        const std::vector<TileDefinition> result = reconcileTiles(oldTiles, newTiles);
+        CHECK(result.size() == 2);
+        CHECK(result[1].id == "tile-1");
+        CHECK(result[0].id != result[1].id);
+    }
+
     // -- AddTilesetAssetCommand: success, then duplicate/unknown-image/invalid-
     // slicing all fail without mutation, then undo/redo -------------------------
     {
@@ -915,6 +946,69 @@ static void runTilesetTests() {
         CHECK(c.undo().ok);
         CHECK(c.document().findTilesetAsset("tiles-a")->tiles.empty());   // restored to Add's empty tiles
         CHECK(c.document().findTilesetAsset("tiles-a")->slicing.tileWidth == 32);
+    }
+
+    // -- ChangeTilesetSlicingCommand: identical slicing + tiles is a no-op -
+    // no revision, no undo entry (AC-MUT-001) ----------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        TilesetSlicing slicing;
+        slicing.tileWidth = 32;
+        slicing.tileHeight = 32;
+        const std::vector<TileDefinition> tiles = tilesForSlicing(64, 64, slicing);
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-a", "Dungeon", "img-hero",
+                                               slicing, tiles}).ok);
+        const std::size_t before = c.undoSize();
+        CHECK(c.execute(ChangeTilesetSlicingCommand{"tiles-a", slicing, tiles}).ok);
+        CHECK(c.undoSize() == before);
+    }
+
+    // -- AddTilesetAssetCommand: tiles pre-sliced at creation land on the
+    // asset and survive undo/redo (create-from-image's auto-slice path) --------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        const TilesetSlicing slicing;   // default 32x32
+        const std::vector<TileDefinition> tiles = tilesForSlicing(64, 64, slicing);
+        CHECK(tiles.size() == 4);
+        CHECK(c.execute(AddTilesetAssetCommand{"tiles-b", "Autosliced", "img-hero",
+                                               slicing, tiles}).ok);
+        CHECK(c.document().findTilesetAsset("tiles-b")->tiles.size() == 4);
+        CHECK(c.undo().ok);
+        CHECK(!c.document().hasTilesetAsset("tiles-b"));
+        CHECK(c.redo().ok);
+        CHECK(c.document().findTilesetAsset("tiles-b")->tiles.size() == 4);
+        CHECK(c.document().findTilesetAsset("tiles-b")->tiles[0].id == "tile-1");
+    }
+
+    // -- uniqueTilesetAssetId: "<image>.tileset" first, then numbered ----------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        CHECK(uniqueTilesetAssetId(c.document(), "img-hero") == "img-hero.tileset");
+        CHECK(c.execute(AddTilesetAssetCommand{"img-hero.tileset", "T", "img-hero",
+                                               TilesetSlicing{}}).ok);
+        CHECK(uniqueTilesetAssetId(c.document(), "img-hero") == "img-hero-2.tileset");
+    }
+
+    // -- sameTilesetSlicing / sameTileDefinitions: the one "unchanged"
+    // definition shared by the no-op guard and the close guard's dirty check ---
+    {
+        TilesetSlicing a;
+        TilesetSlicing b;
+        CHECK(sameTilesetSlicing(a, b));
+        b.spacingY = 1;
+        CHECK(!sameTilesetSlicing(a, b));
+
+        std::vector<TileDefinition> ta = {TileDefinition{"t", 0, 0, 32, 32}};
+        std::vector<TileDefinition> tb = ta;
+        CHECK(sameTileDefinitions(ta, tb));
+        tb[0].id = "u";
+        CHECK(!sameTileDefinitions(ta, tb));
+        tb = ta;
+        tb[0].width = 16;
+        CHECK(!sameTileDefinitions(ta, tb));
+        tb = ta;
+        tb.push_back(TileDefinition{"v", 32, 0, 32, 32});
+        CHECK(!sameTileDefinitions(ta, tb));
     }
 
     // -- Save/reload round-trips a tileset, including a populated tiles array --
@@ -2147,6 +2241,125 @@ static void runTilemapPaintingTests() {
         // Select as well, not just the override.
         CHECK(c.effectiveTilemapTool() == EditorTool::Select);
         CHECK(c.state().activeTool == EditorTool::Select);
+    }
+}
+
+// Re-slice cascade: ChangeTilesetSlicingCommand clears painted cells whose
+// tile id disappears, atomically and undoably, so the document never holds a
+// cell referencing a missing tile id (AC-DOM-001 explicit-cascade policy).
+static void runTilesetResliceCascadeTests() {
+    // -- computeTilesetResliceImpact: counts only the orphans - surviving
+    // painted ids and unrelated tilesets contribute nothing --------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);   // "tiles-1" sliced tile-1..4, tilemap on kHero
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{0, 0}, std::nullopt,
+            TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        changes.push_back(TilemapCellChange{{1, 0}, std::nullopt,
+            TilemapCellValue{"tile-4", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
+
+        std::vector<TileDefinition> keepOne;   // hypothetical: keeps tile-1, drops tile-4
+        keepOne.push_back(TileDefinition{"tile-1", 0, 0, 32, 32});
+        const TilesetResliceImpact partial =
+            computeTilesetResliceImpact(c.document(), "tiles-1", keepOne);
+        CHECK(partial.removedReferencedTiles == 1);
+        CHECK(partial.orphanedCells == 1);
+        CHECK(partial.affectedTilemaps == 1);
+
+        const TilesetResliceImpact unrelated =
+            computeTilesetResliceImpact(c.document(), "no-such-tileset", keepOne);
+        CHECK(unrelated.removedReferencedTiles == 0);
+        CHECK(unrelated.orphanedCells == 0);
+        CHECK(unrelated.affectedTilemaps == 0);
+    }
+
+    // -- Cascade: a 64x64 re-slice orphans every painted cell; apply clears
+    // them (chunk pruned, document still valid), undo restores cells, tiles
+    // and slicing exactly, redo clears again ------------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{0, 0}, std::nullopt,
+            TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        changes.push_back(TilemapCellChange{{1, 0}, std::nullopt,
+            TilemapCellValue{"tile-4", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
+
+        TilesetSlicing big;
+        big.tileWidth = 64;
+        big.tileHeight = 64;
+        const std::vector<TileDefinition> fresh = tilesForSlicing(64, 64, big);
+        CHECK(fresh.size() == 1);
+        const std::vector<TileDefinition> reconciled =
+            reconcileTiles(c.document().findTilesetAsset("tiles-1")->tiles, fresh);
+        CHECK(reconciled.size() == 1);
+        CHECK(reconciled[0].id != "tile-1");   // removed ids are never recycled
+
+        const TilesetResliceImpact impact =
+            computeTilesetResliceImpact(c.document(), "tiles-1", reconciled);
+        CHECK(impact.removedReferencedTiles == 2);
+        CHECK(impact.orphanedCells == 2);
+        CHECK(impact.affectedTilemaps == 1);
+
+        CHECK(c.execute(ChangeTilesetSlicingCommand{"tiles-1", big, reconciled}).ok);
+        const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(inst->tilemap->chunks.empty());   // both cells cleared -> chunk pruned
+        CHECK(!validateTilemapComponent(c.document(), *inst->tilemap).has_value());
+
+        CHECK(c.undo().ok);
+        inst = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(readTilemapCell(*inst->tilemap, {0, 0}).has_value());
+        CHECK(readTilemapCell(*inst->tilemap, {0, 0})->tileId == "tile-1");
+        CHECK(readTilemapCell(*inst->tilemap, {1, 0})->tileId == "tile-4");
+        CHECK(c.document().findTilesetAsset("tiles-1")->tiles.size() == 4);
+        CHECK(c.document().findTilesetAsset("tiles-1")->slicing.tileWidth == 32);
+        CHECK(!validateTilemapComponent(c.document(), *inst->tilemap).has_value());
+
+        CHECK(c.redo().ok);
+        inst = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(inst->tilemap->chunks.empty());
+        CHECK(c.document().findTilesetAsset("tiles-1")->slicing.tileWidth == 64);
+    }
+
+    // -- Cascade clears only the orphaned cells: a painted cell whose rect
+    // (and so id) survives the re-slice keeps its content ----------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{0, 0}, std::nullopt,
+            TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        changes.push_back(TilemapCellChange{{1, 0}, std::nullopt,
+            TilemapCellValue{"tile-2", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
+
+        // spacingX=32 over the 64x64 sheet keeps one 32x32 column: rects
+        // (0,0) and (0,32) survive as tile-1/tile-3; tile-2 and tile-4 go.
+        TilesetSlicing spaced;
+        spaced.tileWidth = 32;
+        spaced.tileHeight = 32;
+        spaced.spacingX = 32;
+        const std::vector<TileDefinition> fresh = tilesForSlicing(64, 64, spaced);
+        CHECK(fresh.size() == 2);
+        const std::vector<TileDefinition> reconciled =
+            reconcileTiles(c.document().findTilesetAsset("tiles-1")->tiles, fresh);
+        CHECK(reconciled[0].id == "tile-1");
+        CHECK(reconciled[1].id == "tile-3");
+
+        const TilesetResliceImpact impact =
+            computeTilesetResliceImpact(c.document(), "tiles-1", reconciled);
+        CHECK(impact.removedReferencedTiles == 1);   // only tile-2 is painted
+        CHECK(impact.orphanedCells == 1);
+
+        CHECK(c.execute(ChangeTilesetSlicingCommand{"tiles-1", spaced, reconciled}).ok);
+        const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(inst->tilemap->chunks.size() == 1);   // survivor keeps its chunk alive
+        CHECK(readTilemapCell(*inst->tilemap, {0, 0})->tileId == "tile-1");
+        CHECK(!readTilemapCell(*inst->tilemap, {1, 0}).has_value());
+        CHECK(!validateTilemapComponent(c.document(), *inst->tilemap).has_value());
     }
 }
 
@@ -9190,6 +9403,7 @@ int main() {
     runTilesetTests();
     runTilemapComponentTests();
     runTilemapPaintingTests();
+    runTilesetResliceCascadeTests();
     runTilemapRegionTests();
     runTilemapPlaySessionTests();
 

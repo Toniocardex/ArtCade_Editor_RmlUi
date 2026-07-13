@@ -1,8 +1,11 @@
 #include "editor-native/commands/tileset_commands.h"
 
 #include "editor-native/model/project_document.h"
+#include "editor-native/model/tilemap_cell_access.h"
+#include "editor-native/model/tileset_slicing.h"
 
 #include <string>
+#include <unordered_set>
 #include <utility>
 
 namespace ArtCade::EditorNative {
@@ -22,10 +25,21 @@ bool validSlicing(const TilesetSlicing& slicing) {
 }
 } // namespace
 
+AssetId uniqueTilesetAssetId(const ProjectDocument& document, const AssetId& imageAssetId) {
+    std::string base = imageAssetId.empty() ? "tileset" : imageAssetId;
+    std::string id = base + ".tileset";
+    int n = 2;
+    while (document.hasTilesetAsset(id)) {
+        id = base + "-" + std::to_string(n++) + ".tileset";
+    }
+    return id;
+}
+
 AddTilesetAssetCommand::AddTilesetAssetCommand(AssetId assetId, std::string name,
-                                               AssetId imageAssetId, TilesetSlicing slicing)
+                                               AssetId imageAssetId, TilesetSlicing slicing,
+                                               std::vector<TileDefinition> tiles)
     : assetId_(std::move(assetId)), name_(std::move(name)),
-      imageAssetId_(std::move(imageAssetId)), slicing_(slicing) {}
+      imageAssetId_(std::move(imageAssetId)), slicing_(slicing), tiles_(std::move(tiles)) {}
 
 EditorOperationResult AddTilesetAssetCommand::apply(ProjectDocument& document) {
     if (assetId_.empty() || imageAssetId_.empty()) {
@@ -45,6 +59,7 @@ EditorOperationResult AddTilesetAssetCommand::apply(ProjectDocument& document) {
     asset.name         = name_;
     asset.imageAssetId = imageAssetId_;
     asset.slicing      = slicing_;
+    asset.tiles        = tiles_;
     if (!document.addTilesetAsset(asset)) {
         return EditorOperationResult::failure("Failed to add tileset asset");
     }
@@ -141,13 +156,65 @@ EditorOperationResult ChangeTilesetSlicingCommand::apply(ProjectDocument& docume
     if (!validSlicing(newSlicing_)) {
         return EditorOperationResult::failure("Invalid tileset slicing");
     }
+    if (sameTilesetSlicing(asset->slicing, newSlicing_)
+        && sameTileDefinitions(asset->tiles, newTiles_)) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+
+    // Cascade: build the cleared copy of every painted tilemap that would be
+    // orphaned, entirely before the first document mutation - each copy only
+    // references surviving ids by construction, so the apply below cannot
+    // leave a cell pointing at a missing tile id. Recomputed on every apply
+    // (redo runs against the same pre-change state undo restored); only the
+    // pre-clear captures are guarded by captured_.
+    std::unordered_set<std::string> newIds;
+    for (const TileDefinition& tile : newTiles_) newIds.insert(tile.id);
+    struct PendingClear {
+        SceneId          sceneId;
+        EntityId         entityId = 0;
+        TilemapComponent after;
+    };
+    std::vector<PendingClear> pendingClears;
+    std::vector<ClearedTilemap> captures;
+    for (const auto& [sceneId, scene] : document.data().scenes) {
+        for (const SceneInstanceDef& instance : scene.instances) {
+            if (!instance.tilemap || instance.tilemap->tilesetAssetId != assetId_) {
+                continue;
+            }
+            TilemapComponent cleared = *instance.tilemap;
+            bool changed = false;
+            for (TilemapChunk& chunk : cleared.chunks) {
+                for (TilemapCell& cell : chunk.cells) {
+                    if (cell.has_value() && newIds.count(cell->tileId) == 0) {
+                        cell.reset();
+                        changed = true;
+                    }
+                }
+            }
+            if (!changed) continue;
+            pruneEmptyChunks(cleared);
+            captures.push_back(ClearedTilemap{sceneId, instance.id, *instance.tilemap});
+            pendingClears.push_back(PendingClear{sceneId, instance.id, std::move(cleared)});
+        }
+    }
+
     if (!captured_) {
-        oldSlicing_ = asset->slicing;
-        oldTiles_   = asset->tiles;
-        captured_   = true;
+        oldSlicing_      = asset->slicing;
+        oldTiles_        = asset->tiles;
+        clearedTilemaps_ = std::move(captures);
+        captured_        = true;
     }
     if (!document.setTilesetSlicing(assetId_, newSlicing_, newTiles_)) {
         return EditorOperationResult::failure("Failed to change tileset slicing");
+    }
+    for (const PendingClear& clear : pendingClears) {
+        if (!document.setTilemapComponent(clear.sceneId, clear.entityId, clear.after)) {
+            // Unreachable single-threaded: the instance was found above in
+            // this same apply. Surface it loudly rather than continue with a
+            // half-applied cascade.
+            return EditorOperationResult::failure(
+                "Tileset slicing cascade lost a tilemap instance mid-apply");
+        }
     }
     return EditorOperationResult::success(kRemoveInvalidation, DomainChange::assetChanged(assetId_));
 }
@@ -155,6 +222,11 @@ EditorOperationResult ChangeTilesetSlicingCommand::apply(ProjectDocument& docume
 EditorOperationResult ChangeTilesetSlicingCommand::undo(ProjectDocument& document) {
     if (!captured_ || !document.setTilesetSlicing(assetId_, oldSlicing_, oldTiles_)) {
         return EditorOperationResult::failure("Cannot undo tileset slicing change");
+    }
+    for (const ClearedTilemap& cleared : clearedTilemaps_) {
+        if (!document.setTilemapComponent(cleared.sceneId, cleared.entityId, cleared.before)) {
+            return EditorOperationResult::failure("Cannot undo tileset slicing cascade");
+        }
     }
     return EditorOperationResult::success(kRemoveInvalidation, DomainChange::assetChanged(assetId_));
 }

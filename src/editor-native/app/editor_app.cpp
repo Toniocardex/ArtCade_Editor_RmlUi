@@ -27,6 +27,7 @@
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_animation_slicing.h"
 #include "editor-native/model/tilemap_stroke_preview.h"
+#include "editor-native/model/tilemap_validation.h"
 #include "editor-native/model/tileset_slicing.h"
 #include "editor-native/ui/editor_ui.h"
 #include "editor-native/view/scene_grid.h"
@@ -49,6 +50,7 @@
 #include <string>
 #include <system_error>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -565,6 +567,7 @@ int EditorApp::run(int argc, char** argv) {
     std::string shotPath;
     std::string shotProject;
     bool shotAnimation = false;
+    bool shotTileset = false;   // open the Tileset Editor (creating from the first image if none)
     int shotSliceColumns = 0;   // > 0: slice the open clip into N frames for the shot
     bool shotSliceAll = false;  // slice every animation asset in turn (overwrite repro)
     std::string shotSavePath;   // non-empty: save the project here via the real path
@@ -577,6 +580,7 @@ int EditorApp::run(int argc, char** argv) {
         else if (std::strcmp(argv[i], "--shot-project") == 0 && i + 1 < argc)
             shotProject = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-anim") == 0) shotAnimation = true;
+        else if (std::strcmp(argv[i], "--shot-tileset") == 0) shotTileset = true;
         else if (std::strcmp(argv[i], "--shot-slice") == 0 && i + 1 < argc)
             shotSliceColumns = std::atoi(argv[i + 1]);
         else if (std::strcmp(argv[i], "--shot-slice-all") == 0) shotSliceAll = true;
@@ -931,29 +935,39 @@ int EditorApp::run(int argc, char** argv) {
         }
     };
     ui.setAnimationSliceHandler(sliceAnimationHandler);
-    const std::function<void()> applyTilesetSlicingHandler = [&]() {
+    // Looks up the loaded source texture for a tileset's image (preparing it
+    // through the cache if needed); shared by apply and create-from-image.
+    const auto loadedTilesetSource = [&](const AssetId& imageAssetId) -> const TextureResource* {
+        const std::filesystem::path assetRoot =
+            currentProjectPath.empty() ? resourceRoot : currentProjectPath.parent_path();
+        SceneFrameSprite requestSprite;
+        requestSprite.assetId = imageAssetId;
+        requestSprite.visible = true;
+        const auto requests = textureRequestsFor(coordinator.document().data(), assetRoot);
+        textureCache.prepare({requestSprite}, requests);
+        const TextureResource* resource = textureCache.find(imageAssetId);
+        return (resource && resource->loaded) ? resource : nullptr;
+    };
+    // The one apply flow for the pending slicing, shared by the Apply button
+    // and the close guard's "Apply" answer. Returns whether the pending
+    // config is now committed (true also when there was nothing to change);
+    // false covers every abort: no editor, missing image, unfittable tile
+    // size, impact dialog cancelled, command failure.
+    const std::function<bool()> tryApplyPendingTilesetSlicing = [&]() -> bool {
         const TilesetEditorState& state = coordinator.state().tilesetEditor;
         if (!state.openAssetId) {
             coordinator.logWarning("Open a tileset before applying slicing");
-            return;
+            return false;
         }
         const TilesetAsset* asset = coordinator.document().findTilesetAsset(*state.openAssetId);
         if (!asset) {
             coordinator.logError("Cannot slice: tileset asset is missing");
-            return;
+            return false;
         }
-
-        const std::filesystem::path assetRoot =
-            currentProjectPath.empty() ? resourceRoot : currentProjectPath.parent_path();
-        SceneFrameSprite requestSprite;
-        requestSprite.assetId = asset->imageAssetId;
-        requestSprite.visible = true;
-        const auto requests = textureRequestsFor(coordinator.document().data(), assetRoot);
-        textureCache.prepare({requestSprite}, requests);
-        const TextureResource* resource = textureCache.find(asset->imageAssetId);
-        if (!resource || !resource->loaded) {
+        const TextureResource* resource = loadedTilesetSource(asset->imageAssetId);
+        if (!resource) {
             coordinator.logError("Cannot slice: source image is not loaded");
-            return;
+            return false;
         }
 
         // Pixel-size-first: the tiles come straight from the pending config and
@@ -962,20 +976,108 @@ int EditorApp::run(int argc, char** argv) {
             resource->texture.width, resource->texture.height, state.pendingSlicing);
         if (freshTiles.empty()) {
             coordinator.logError("Cannot slice: tile size does not fit the sheet");
-            return;
+            return false;
         }
         // Reconcile against the asset's current tiles so a tile whose rect didn't
         // move keeps its stable id (metadata a later slice attaches survives).
         const std::vector<TileDefinition> reconciled = reconcileTiles(asset->tiles, freshTiles);
+        if (sameTilesetSlicing(asset->slicing, state.pendingSlicing)
+            && sameTileDefinitions(asset->tiles, reconciled)) {
+            return true;   // already committed - nothing to apply
+        }
+
+        // Painted cells whose tile id disappears are cleared by the command's
+        // cascade; that is destructive enough to warrant an explicit decision
+        // first. The command re-derives the orphans itself - these counts only
+        // feed the dialog and the log line.
+        const TilesetResliceImpact impact = computeTilesetResliceImpact(
+            coordinator.document(), *state.openAssetId, reconciled);
+        if (impact.orphanedCells > 0
+            && !confirmTilesetResliceImpact(impact.removedReferencedTiles,
+                                            impact.orphanedCells, impact.affectedTilemaps)) {
+            coordinator.logInfo("Slicing cancelled: " + asset->name + " keeps its "
+                                + std::to_string(impact.orphanedCells) + " painted cell(s)");
+            return false;
+        }
+
+        std::unordered_set<std::string> oldIds;
+        for (const TileDefinition& tile : asset->tiles) oldIds.insert(tile.id);
+        int kept = 0;
+        for (const TileDefinition& tile : reconciled) {
+            if (oldIds.count(tile.id) != 0) ++kept;
+        }
+        const int added   = static_cast<int>(reconciled.size()) - kept;
+        const int removed = static_cast<int>(oldIds.size()) - kept;
 
         const EditorOperationResult result = coordinator.execute(
             ChangeTilesetSlicingCommand{*state.openAssetId, state.pendingSlicing, reconciled});
-        if (result.ok) {
-            coordinator.logInfo("Sliced " + asset->name + " into "
-                                + std::to_string(reconciled.size()) + " tiles");
+        if (!result.ok) return false;
+        std::string summary = "Sliced " + asset->name + " into "
+            + std::to_string(reconciled.size()) + " tiles (" + std::to_string(kept)
+            + " kept, " + std::to_string(added) + " new, " + std::to_string(removed)
+            + " removed";
+        if (impact.orphanedCells > 0) {
+            summary += "; cleared " + std::to_string(impact.orphanedCells)
+                + " painted cell(s) in " + std::to_string(impact.affectedTilemaps)
+                + " tilemap(s)";
         }
+        coordinator.logInfo(summary + ")");
+        return true;
     };
-    ui.setTilesetApplySlicingHandler(applyTilesetSlicingHandler);
+    ui.setTilesetApplySlicingHandler([&]() { tryApplyPendingTilesetSlicing(); });
+    // Close guard: an unapplied pending slicing is a pending edit - it must
+    // be resolved (Apply / Discard / Cancel), never dropped silently. Same
+    // pure decision as the project-level unsaved guard.
+    ui.setTilesetCloseHandler([&]() {
+        const TilesetEditorState& state = coordinator.state().tilesetEditor;
+        if (!state.openAssetId) return;
+        const TilesetAsset* asset = coordinator.document().findTilesetAsset(*state.openAssetId);
+        const bool dirty = asset && !sameTilesetSlicing(asset->slicing, state.pendingSlicing);
+        const UnsavedChoice choice =
+            dirty ? confirmTilesetUnappliedChanges() : UnsavedChoice::Discard;
+        const bool applied =
+            (dirty && choice == UnsavedChoice::Save) ? tryApplyPendingTilesetSlicing() : false;
+        if (resolveUnsavedGuard(dirty, choice, applied) == GuardOutcome::Proceed) {
+            coordinator.apply(CloseTilesetEditorIntent{});
+        }
+    });
+    // Pixel-size projection for the editor's inline slicing feedback; read-only,
+    // the cache stays the only owner of the loaded texture.
+    ui.setTilesetImageSizeProvider(
+        [&](const AssetId& imageAssetId) -> std::optional<std::pair<int, int>> {
+            const TextureResource* resource = loadedTilesetSource(imageAssetId);
+            if (!resource) return std::nullopt;
+            return std::make_pair(resource->texture.width, resource->texture.height);
+        });
+    // Create-from-image slices the default grid immediately (one atomic
+    // command, one undo step) so a fresh tileset is usable without a first
+    // Apply; an unloadable or too-small image still creates the asset, with
+    // the editor open on its explicit empty state.
+    ui.setCreateTilesetFromImageHandler([&](const AssetId& imageAssetId) {
+        if (coordinator.isPlaying() || !coordinator.document().hasImageAsset(imageAssetId)) {
+            return;
+        }
+        const std::string id = uniqueTilesetAssetId(coordinator.document(), imageAssetId);
+        const TilesetSlicing defaultSlicing;   // 32x32, no margin/spacing
+        std::vector<TileDefinition> tiles;
+        if (const TextureResource* resource = loadedTilesetSource(imageAssetId)) {
+            tiles = tilesForSlicing(
+                resource->texture.width, resource->texture.height, defaultSlicing);
+        }
+        if (!coordinator.execute(
+                AddTilesetAssetCommand{id, id, imageAssetId, defaultSlicing, tiles}).ok) {
+            return;
+        }
+        coordinator.apply(OpenTilesetEditorIntent{id});
+        if (tiles.empty()) {
+            coordinator.logWarning("Created " + id
+                + " without tiles: source image is not loaded or smaller than one 32x32 tile"
+                " - adjust the slicing and Apply");
+        } else {
+            coordinator.logInfo("Created " + id + " with "
+                + std::to_string(tiles.size()) + " tiles (32x32 default)");
+        }
+    });
     const auto viewportDefaultSpawn = [&]() -> std::optional<Vec2> {
         const SceneId& active = coordinator.state().activeSceneId;
         const SceneDef* scene = coordinator.document().findScene(active);
@@ -1048,6 +1150,27 @@ int EditorApp::run(int argc, char** argv) {
                     }
                 }
             }
+            // Tileset Editor smoke: open the first tileset, or create one from
+            // the first image through the real context-menu action (which
+            // auto-slices and opens the editor itself), then select a tile so
+            // the Selected Tile panel renders too.
+            if (shotTileset) {
+                const auto& tilesets = coordinator.document().data().tilesets;
+                if (!tilesets.empty()) {
+                    coordinator.apply(OpenTilesetEditorIntent{tilesets.front().assetId});
+                } else if (!coordinator.document().data().imageAssets.empty()) {
+                    ui.handleAction("create-tileset-from-image",
+                                    coordinator.document().data().imageAssets.front().assetId,
+                                    "");
+                }
+                if (const auto& openTs = coordinator.state().tilesetEditor.openAssetId) {
+                    const TilesetAsset* ts = coordinator.document().findTilesetAsset(*openTs);
+                    if (ts && !ts->tiles.empty()) {
+                        const std::size_t pick = ts->tiles.size() > 1 ? 1 : 0;
+                        coordinator.apply(SelectTilesetTileIntent{ts->tiles[pick].id});
+                    }
+                }
+            }
             // Inspector smoke test: select the Nth instance of the active
             // scene (--shot-entity N), optionally with one of its value
             // dropdowns open (--shot-dropdown layer|sprite-source|tilemap-
@@ -1096,6 +1219,7 @@ int EditorApp::run(int argc, char** argv) {
     int   lastRenderW = GetRenderWidth();
     int   lastRenderH = GetRenderHeight();
     float lastDpi     = dpi > 0.f ? dpi : 1.f;
+    int   sizeStableFrames = 0;
     // Tile Palette Picker-sync: the tile last scrolled into view, so a
     // repeated selection (or none) does not re-trigger ScrollIntoView.
     std::optional<TileId> lastScrolledPaletteTile;
@@ -1120,9 +1244,13 @@ int EditorApp::run(int argc, char** argv) {
         if (renderW != lastRenderW || renderH != lastRenderH || curDpi != lastDpi) {
             host.resize(renderW, renderH, curDpi);
             syncAnimationDocumentViewport(animationDocument);
+            syncAnimationDocumentViewport(tilesetDocument);   // same full-window overlay
             lastRenderW = renderW;
             lastRenderH = renderH;
             lastDpi     = curDpi;
+            sizeStableFrames = 0;   // shot mode waits out maximize/DPI resizes
+        } else {
+            ++sizeStableFrames;
         }
         if (IsKeyPressed(KEY_F8)) host.toggleDebugger();
 
@@ -1425,6 +1553,36 @@ int EditorApp::run(int argc, char** argv) {
             renderTilesetEditorCanvas(
                 *tilesetAsset, coordinator.state().tilesetEditor,
                 tilesetRenderRect, textureCache, textureRequests);
+            // Selected Tile thumbnail: resolve the id the same way the panel's
+            // text does (committed tiles first, else the live pending grid).
+            const TilesetEditorState& tilesetState = coordinator.state().tilesetEditor;
+            if (tilesetState.selectedTileId) {
+                std::optional<TileDefinition> selectedTile;
+                for (const TileDefinition& t : tilesetAsset->tiles) {
+                    if (t.id == *tilesetState.selectedTileId) { selectedTile = t; break; }
+                }
+                if (!selectedTile) {
+                    const TextureResource* res =
+                        textureCache.find(tilesetAsset->imageAssetId);
+                    if (res && res->loaded) {
+                        for (const TileDefinition& t : tilesForSlicing(
+                                 res->texture.width, res->texture.height,
+                                 tilesetState.pendingSlicing)) {
+                            if (t.id == *tilesetState.selectedTileId) {
+                                selectedTile = t;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (selectedTile) {
+                    renderTilesetSelectedTileThumb(
+                        tilesetAsset->imageAssetId, *selectedTile,
+                        elementContentRectFromDocument(tilesetDocument,
+                                                       "tileset-selected-thumb"),
+                        textureCache, textureRequests);
+                }
+            }
         }
         if (tilePaletteTileset) {
             renderTilePalette(
@@ -1467,7 +1625,12 @@ int EditorApp::run(int argc, char** argv) {
             }
             break;
         }
-        if (!shotPath.empty() && frame == 12) {
+        // Capture only once the framebuffer size has settled: the maximize
+        // animation and the initial DPI rescale land within the first frames,
+        // and a resize processed between the draw and the capture leaves the
+        // frame's content bottom-left anchored in a larger framebuffer
+        // (black bands top/right).
+        if (!shotPath.empty() && frame >= 12 && sizeStableFrames >= 45) {
             TakeScreenshot(shotPath.c_str());
             break;
         }

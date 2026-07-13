@@ -95,6 +95,23 @@ public:
     // dimensions (TextureCache), which only the application knows; computes
     // tilesForSlicing + reconcileTiles and executes ChangeTilesetSlicingCommand.
     void setTilesetApplySlicingHandler(WorkspaceRequest applyTilesetSlicing);
+    // Close the Tileset Editor. The application owns the guard (pending
+    // slicing dirty -> native Apply/Discard/Cancel prompt) because only it
+    // can run the apply flow; unset falls back to closing unconditionally.
+    void setTilesetCloseHandler(WorkspaceRequest closeTileset);
+    // Create a tileset from an image asset. The application slices the
+    // default grid at creation (it has the image's pixel dimensions via
+    // TextureCache); unset falls back to creating with no tiles.
+    using CreateTilesetRequest = std::function<void(const AssetId&)>;
+    void setCreateTilesetFromImageHandler(CreateTilesetRequest createTileset);
+    // Read-only projection of an image asset's pixel size (TextureCache is
+    // application-owned). Feeds the Tileset Editor's inline slicing feedback
+    // ("4 x 3 = 12 tiles, covers the whole sheet"); the core still revalidates
+    // on Apply - this is presentation only, never a second authority. nullopt
+    // = not loaded; the UI shows a neutral placeholder.
+    using ImageSizeProvider =
+        std::function<std::optional<std::pair<int, int>>(const AssetId&)>;
+    void setTilesetImageSizeProvider(ImageSizeProvider imageSize);
 
     using EntityPlacementRequest = std::function<void()>;
     void setEntityPlacementHandlers(EntityPlacementRequest addEntity,
@@ -172,6 +189,10 @@ private:
     void updateSpriteAnimationPlayhead();
     void refreshToolbar();
     void updateZoomReadout();   // toolbar zoom %, refreshed on Viewport invalidation
+    // Tileset Editor zoom % (100% = fit). Written into a stable element by id
+    // instead of living in the built markup: wheel zoom fires per tick, and a
+    // full innerRML rebuild would steal focus from the slicing inputs.
+    void updateTilesetZoomReadout();
     void commitGridCellSize(const std::string& text);
     void showPendingHierarchyMenu();   // consumes the deferred menu request
     void showPendingAssetMenu();       // same, for the Assets row menu
@@ -207,6 +228,9 @@ private:
     WorkspaceRequest                    fitViewRequest_;
     WorkspaceRequest                    sliceAnimationRequest_;
     WorkspaceRequest                    applyTilesetSlicingRequest_;
+    WorkspaceRequest                    closeTilesetEditorRequest_;
+    CreateTilesetRequest                createTilesetFromImageRequest_;
+    ImageSizeProvider                   tilesetImageSizeProvider_;
     bool                                viewportContextMenuVisible_ = false;
     bool                                hierarchyContextMenuVisible_ = false;
     // Deferred hierarchy menu request (applied on the next processFrame).

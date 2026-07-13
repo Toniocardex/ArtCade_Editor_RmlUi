@@ -4,6 +4,7 @@
 
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace ArtCade::EditorNative {
 
@@ -22,5 +23,20 @@ constexpr int kMaxTilemapChunkSize = 256;
 // not be duplicated at any of those call sites.
 std::optional<std::string> validateTilemapComponent(
     const ProjectDocument& document, const TilemapComponent& component);
+
+// What a re-slice of `tilesetAssetId` to `newTiles` would do to the painted
+// tilemaps that reference it: which currently-referenced tile ids disappear,
+// and how many painted cells / tilemap components that orphans. Read-only
+// projection - drives the confirm dialog shown before Apply and the
+// post-apply log line; ChangeTilesetSlicingCommand independently re-derives
+// the orphaned cells it clears (the UI's counts are never the authority).
+struct TilesetResliceImpact {
+    int removedReferencedTiles = 0;   // distinct removed ids painted somewhere
+    int orphanedCells = 0;            // painted cells whose tile id disappears
+    int affectedTilemaps = 0;         // tilemap components with >= 1 such cell
+};
+TilesetResliceImpact computeTilesetResliceImpact(
+    const ProjectDocument& document, const AssetId& tilesetAssetId,
+    const std::vector<TileDefinition>& newTiles);
 
 } // namespace ArtCade::EditorNative

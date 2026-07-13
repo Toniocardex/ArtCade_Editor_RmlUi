@@ -58,7 +58,30 @@ body {
     font-size: 13dp;
     font-weight: 600;
 }
-.tileset-editor-title .panel-btn { margin: 0 0 6dp auto; }
+.tileset-editor-title .panel-btn { margin: 0 0 6dp 10dp; }
+.tileset-editor-source {
+    display: inline-block;
+    margin-left: 10dp;
+    color: #71717a;
+    font-size: 11dp;
+}
+/* Dirty cue: neutral chip shows the committed tile count; the amber variant
+   flags a pending slicing not yet applied (same fact the close guard acts on). */
+.tileset-status-chip {
+    display: inline-block;
+    margin: 0 0 6dp auto;
+    padding: 2dp 9dp;
+    color: #a1a1aa;
+    font-size: 10dp;
+    background-color: #1a1a1e;
+    border: 1px #2e2e34;
+    border-radius: 9dp;
+}
+.tileset-status-chip.warn {
+    color: #e0b25a;
+    background-color: #2a2113;
+    border-color: #4a3a1a;
+}
 
 /* -- Main row: canvas | settings ---------------------------------------------- */
 .tileset-editor-main {
@@ -92,6 +115,39 @@ body {
     margin-right: 10dp;
     padding: 10dp;
 }
+/* -- Zoom toolbar above the canvas (buttons drive the same zoom/pan intents
+      as the wheel; the readout element is filled by id, outside the markup
+      rebuild, so wheel ticks never steal input focus) ---------------------- */
+.tileset-canvas-toolbar {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 8dp;
+}
+.tileset-canvas-toolbar .tileset-panel-title {
+    flex: 1;
+    margin-bottom: 0;
+}
+.tileset-zoom-btn {
+    width: 24dp;
+    height: 22dp;
+    line-height: 20dp;
+    padding: 0;
+    text-align: center;
+}
+.tileset-zoom-readout {
+    display: inline-block;
+    width: 44dp;
+    color: #d4d4d8;
+    font-size: 11dp;
+    text-align: center;
+}
+.tileset-zoom-fit {
+    height: 22dp;
+    line-height: 20dp;
+    padding: 0 8dp;
+    margin-left: 6dp;
+}
 #tileset-canvas {
     display: block;
     flex: 1;
@@ -100,12 +156,17 @@ body {
     border: 1px #222226;
     border-radius: 3dp;
 }
-.tileset-canvas-footer {
-    display: block;
+.tileset-canvas-status {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
     margin-top: 8dp;
     color: #71717a;
     font-size: 11dp;
 }
+.tileset-canvas-status span { display: inline-block; margin-right: 12dp; }
+.tileset-status-strong { color: #a1a1aa; }
+.tileset-status-hint { margin-left: auto; margin-right: 0; }
 
 /* -- Settings column: slicing form + Apply/Cancel ----------------------------- */
 .tileset-settings {
@@ -114,7 +175,7 @@ body {
     width: 260dp;
     padding: 10dp 12dp;
 }
-.tileset-settings .prop-label { width: 80dp; }
+.tileset-settings .prop-label { width: 64dp; }
 .tileset-slice-row {
     display: flex;
     flex-direction: row;
@@ -126,7 +187,20 @@ body {
     flex: 1;
     height: 24dp;
     line-height: 24dp;
+    margin-left: 4dp;
 }
+/* Live coverage line under the form: the same computeTilesetSlicing math the
+   renderer draws, answered next to the fields that caused it. */
+.tileset-slice-feedback {
+    display: block;
+    margin-top: 4dp;
+    color: #71717a;
+    font-size: 11dp;
+    line-height: 15dp;
+}
+.tileset-slice-feedback.ok   { color: #86c596; }
+.tileset-slice-feedback.warn { color: #e0b25a; }
+.tileset-slice-feedback.err  { color: #e06a86; }
 .tileset-settings-actions {
     display: flex;
     flex-direction: row;
@@ -136,16 +210,47 @@ body {
     flex: 1;
     text-align: center;
 }
+.tileset-settings-actions #tileset-apply-btn { margin-right: 6dp; }
 .tileset-settings-actions .primary {
     color: #f8fbff;
     background-color: #1e4f8f;
     border-color: #3b82f6;
-    margin-right: 6dp;
 }
 .tileset-settings-actions .primary:hover { background-color: #2563b8; }
+
+/* -- Selected tile: thumbnail slot (raylib paints the tile's crop into it
+      after host.render(), the timeline-thumbnail pattern) + id/rect readout - */
+.tileset-selected-title { margin-top: 16dp; }
+.tileset-selected-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+.tileset-selected-thumb {
+    display: block;
+    width: 48dp;
+    height: 48dp;
+    background-color: #0b0b0d;
+    border: 1px #222226;
+    border-radius: 3dp;
+}
+.tileset-selected-info {
+    display: inline-block;
+    margin-left: 10dp;
+    color: #8a8a93;
+    font-size: 11dp;
+    line-height: 16dp;
+}
+.tileset-selected-empty {
+    display: block;
+    color: #71717a;
+    font-size: 11dp;
+    line-height: 15dp;
+}
 .tileset-settings-diagnostic {
     display: block;
-    margin-top: 12dp;
+    margin-top: auto;
+    padding-top: 12dp;
     color: #71717a;
     font-size: 11dp;
     line-height: 15dp;

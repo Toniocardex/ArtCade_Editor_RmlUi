@@ -61,7 +61,12 @@ std::vector<TileDefinition> tilesForSlicing(int imageWidth, int imageHeight,
 
 std::vector<TileDefinition> reconcileTiles(const std::vector<TileDefinition>& oldTiles,
                                            const std::vector<TileDefinition>& newTiles) {
+    // Every old id is reserved, kept or not: a fresh rect must never claim a
+    // kept id (two tiles sharing one id) nor recycle a removed id (painted
+    // cells still referencing it would silently show the new rect's content
+    // instead of being detected as orphaned and cleared).
     std::unordered_set<std::string> usedIds;
+    for (const TileDefinition& old : oldTiles) usedIds.insert(old.id);
     std::vector<TileDefinition> result;
     result.reserve(newTiles.size());
     for (const TileDefinition& fresh : newTiles) {
@@ -81,11 +86,26 @@ std::vector<TileDefinition> reconcileTiles(const std::vector<TileDefinition>& ol
                 candidate = "tile-" + std::to_string(n++);
             } while (usedIds.count(candidate) != 0);
             tile.id = candidate;
+            usedIds.insert(tile.id);
         }
-        usedIds.insert(tile.id);
         result.push_back(std::move(tile));
     }
     return result;
+}
+
+bool sameTilesetSlicing(const TilesetSlicing& a, const TilesetSlicing& b) {
+    return a.tileWidth == b.tileWidth && a.tileHeight == b.tileHeight
+        && a.marginX == b.marginX && a.marginY == b.marginY
+        && a.spacingX == b.spacingX && a.spacingY == b.spacingY;
+}
+
+bool sameTileDefinitions(const std::vector<TileDefinition>& a,
+                         const std::vector<TileDefinition>& b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (a[i].id != b[i].id || !sameRect(a[i], b[i])) return false;
+    }
+    return true;
 }
 
 } // namespace ArtCade::EditorNative

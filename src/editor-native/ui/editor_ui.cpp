@@ -15,6 +15,7 @@
 #include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/project_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
+#include "editor-native/model/tileset_slicing.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view_camera.h"
 
@@ -167,16 +168,6 @@ std::string uniqueClipName(const SpriteAnimationAssetDef& asset) {
         }
         if (!exists) return name;
     }
-}
-
-std::string uniqueTilesetAssetId(const ProjectDocument& document, const AssetId& imageId) {
-    std::string base = imageId.empty() ? "tileset" : imageId;
-    std::string id = base + ".tileset";
-    int n = 2;
-    while (document.hasTilesetAsset(id)) {
-        id = base + "-" + std::to_string(n++) + ".tileset";
-    }
-    return id;
 }
 
 std::vector<std::string> splitPipe(const std::string& value) {
@@ -418,6 +409,9 @@ void EditorUi::detach() {
     fitViewRequest_ = {};
     sliceAnimationRequest_ = {};
     applyTilesetSlicingRequest_ = {};
+    closeTilesetEditorRequest_ = {};
+    createTilesetFromImageRequest_ = {};
+    tilesetImageSizeProvider_ = {};
 
     // These are non-owning and become invalid as soon as the host unloads its
     // documents. Null them even when bind never succeeded (missing document).
@@ -503,8 +497,10 @@ void EditorUi::applyInvalidations(EditorInvalidation flags) {
     }
     if (has(flags, EditorInvalidation::Toolbar))
         refreshToolbar();
-    if (has(flags, EditorInvalidation::Viewport))
+    if (has(flags, EditorInvalidation::Viewport)) {
         updateZoomReadout();
+        updateTilesetZoomReadout();
+    }
     if (has(flags, EditorInvalidation::Layout))
         refreshLayout();
 }
@@ -765,40 +761,153 @@ void EditorUi::refreshTilesetEditor() {
     tilesetDocument_->Show();
     tilesetDocument_->PullToFront();
     const TilesetSlicing& s = state.pendingSlicing;
-    const auto sliceField = [](const char* label, const char* action, int value) {
+    const bool dirty = !sameTilesetSlicing(asset->slicing, s);
+    const std::optional<std::pair<int, int>> imageSize = tilesetImageSizeProvider_
+        ? tilesetImageSizeProvider_(asset->imageAssetId)
+        : std::nullopt;
+
+    // One labelled X/Y (or W/H) pair per row - halves the form height and
+    // matches how the values are actually thought about.
+    const auto slicePair = [](const char* label,
+                              const char* actionA, int valueA,
+                              const char* actionB, int valueB) {
         return std::string("<div class=\"tileset-slice-row\"><span class=\"prop-label\">") + label
-             + "</span><input type=\"text\" class=\"prop-input\" data-action=\"" + action
-             + "\" value=\"" + std::to_string(value) + "\"/></div>";
+             + "</span><input type=\"text\" class=\"prop-input\" data-action=\"" + actionA
+             + "\" value=\"" + std::to_string(valueA)
+             + "\"/><input type=\"text\" class=\"prop-input\" data-action=\"" + actionB
+             + "\" value=\"" + std::to_string(valueB) + "\"/></div>";
     };
+
     std::string html;
     html += "<div class=\"tileset-editor-shell\">";
+
+    // -- Header: eyebrow, editable name, source info, dirty chip, Close -------
     html += "<div class=\"tileset-editor-title\">"
             "<span class=\"tileset-editor-eyebrow\">Tileset Editor</span>"
             "<input type=\"text\" class=\"tileset-editor-name\" data-action=\"commit-tileset-name\""
             " data-arg=\"" + escapeRml(asset->assetId) + "\" value=\"" + escapeRml(asset->name) + "\"/>"
-            "<button id=\"tileset-close-btn\" class=\"panel-btn\""
+            "<span class=\"tileset-editor-source\">" + escapeRml(asset->imageAssetId);
+    if (imageSize) {
+        html += "&nbsp;&nbsp;&#183;&nbsp;&nbsp;" + std::to_string(imageSize->first) + " &#215; "
+              + std::to_string(imageSize->second) + " px";
+    }
+    html += "</span>";
+    if (dirty) {
+        html += "<span class=\"tileset-status-chip warn\">Unapplied changes</span>";
+    } else {
+        html += "<span class=\"tileset-status-chip\">"
+              + std::to_string(asset->tiles.size()) + " tiles</span>";
+    }
+    html += "<button id=\"tileset-close-btn\" class=\"panel-btn\""
             " data-action=\"close-tileset-editor\">Close</button></div>";
+
     html += "<div class=\"tileset-editor-main\">";
 
-    html += "<div class=\"tileset-canvas-col\"><div class=\"tileset-panel-title\">Source Image</div>"
-            "<div id=\"tileset-canvas\"></div>"
-            "<div class=\"tileset-canvas-footer\">Wheel to zoom"
+    // -- Canvas column: zoom toolbar, canvas, status bar -----------------------
+    html += "<div class=\"tileset-canvas-col\">"
+            "<div class=\"tileset-canvas-toolbar\">"
+            "<span class=\"tileset-panel-title\">Source Image</span>"
+            "<button class=\"panel-btn tileset-zoom-btn\" data-action=\"tileset-zoom-out\""
+            " title=\"Zoom out\">&#8722;</button>"
+            "<span id=\"tileset-zoom-readout\" class=\"tileset-zoom-readout\"></span>"
+            "<button class=\"panel-btn tileset-zoom-btn\" data-action=\"tileset-zoom-in\""
+            " title=\"Zoom in\">+</button>"
+            "<button class=\"panel-btn tileset-zoom-fit\" data-action=\"tileset-zoom-fit\""
+            " title=\"Reset zoom and pan\">Fit</button>"
+            "</div>"
+            "<div id=\"tileset-canvas\"></div>";
+    html += "<div class=\"tileset-canvas-status\">";
+    if (imageSize) {
+        const TilesetSliceResult grid =
+            computeTilesetSlicing(imageSize->first, imageSize->second, s);
+        if (grid.tileCount > 0) {
+            html += "<span class=\"tileset-status-strong\">" + std::to_string(grid.columns)
+                  + " &#215; " + std::to_string(grid.rows) + " tiles</span><span>"
+                  + std::to_string(s.tileWidth) + " &#215; " + std::to_string(s.tileHeight)
+                  + " px tile</span>";
+        }
+    }
+    html += "<span class=\"tileset-status-hint\">Wheel to zoom"
             "&nbsp;&nbsp;&#183;&nbsp;&nbsp;Middle mouse or Space + drag to pan"
-            "&nbsp;&nbsp;&#183;&nbsp;&nbsp;Click a tile to select it</div></div>";
+            "&nbsp;&nbsp;&#183;&nbsp;&nbsp;Click a tile to select it</span></div></div>";
 
+    // -- Settings column: slicing form, live feedback, actions, selected tile --
     html += "<div class=\"tileset-settings\"><div class=\"tileset-panel-title\">Slicing</div>";
-    html += sliceField("Tile Width", "commit-tileset-tile-width", s.tileWidth);
-    html += sliceField("Tile Height", "commit-tileset-tile-height", s.tileHeight);
-    html += sliceField("Margin X", "commit-tileset-margin-x", s.marginX);
-    html += sliceField("Margin Y", "commit-tileset-margin-y", s.marginY);
-    html += sliceField("Spacing X", "commit-tileset-spacing-x", s.spacingX);
-    html += sliceField("Spacing Y", "commit-tileset-spacing-y", s.spacingY);
+    html += slicePair("Tile Size",
+                      "commit-tileset-tile-width", s.tileWidth,
+                      "commit-tileset-tile-height", s.tileHeight);
+    html += slicePair("Margin",
+                      "commit-tileset-margin-x", s.marginX,
+                      "commit-tileset-margin-y", s.marginY);
+    html += slicePair("Spacing",
+                      "commit-tileset-spacing-x", s.spacingX,
+                      "commit-tileset-spacing-y", s.spacingY);
+
+    // Live coverage feedback from the same pure slicing math the renderer and
+    // the Apply flow use; the core still revalidates on Apply (UI validation
+    // is experience only, never the guard).
+    if (imageSize) {
+        const TilesetSliceResult grid =
+            computeTilesetSlicing(imageSize->first, imageSize->second, s);
+        if (grid.tileCount <= 0) {
+            html += "<span class=\"tileset-slice-feedback err\">"
+                    "Tile size does not fit the sheet &#8212; lower it</span>";
+        } else if (grid.remainderX > 0 || grid.remainderY > 0) {
+            html += "<span class=\"tileset-slice-feedback warn\">"
+                  + std::to_string(grid.columns) + " &#215; " + std::to_string(grid.rows) + " = "
+                  + std::to_string(grid.tileCount) + " tiles &#8212; leaves ";
+            if (grid.remainderX > 0) {
+                html += std::to_string(grid.remainderX) + " px right";
+                if (grid.remainderY > 0) html += ", ";
+            }
+            if (grid.remainderY > 0) html += std::to_string(grid.remainderY) + " px bottom";
+            html += " uncovered</span>";
+        } else {
+            html += "<span class=\"tileset-slice-feedback ok\">"
+                  + std::to_string(grid.columns) + " &#215; " + std::to_string(grid.rows) + " = "
+                  + std::to_string(grid.tileCount) + " tiles &#8212; covers the whole sheet</span>";
+        }
+    } else {
+        html += "<span class=\"tileset-slice-feedback\">Source image not loaded</span>";
+    }
+
     html += "<div class=\"tileset-settings-actions\">"
-            "<button id=\"tileset-apply-btn\" class=\"panel-btn primary\""
-            " data-action=\"apply-tileset-slicing\""
+            "<button id=\"tileset-apply-btn\" class=\"panel-btn";
+    if (dirty) html += " primary";
+    html += "\" data-action=\"apply-tileset-slicing\""
             " title=\"Commit this slicing to the tileset\">Apply</button>"
-            "<button id=\"tileset-cancel-btn\" class=\"panel-btn\" data-action=\"close-tileset-editor\""
-            " title=\"Discard changes\">Cancel</button></div>";
+            "<button id=\"tileset-reset-btn\" class=\"panel-btn\""
+            " data-action=\"reset-tileset-slicing\""
+            " title=\"Back to the committed slicing\">Reset</button></div>";
+
+    html += "<div class=\"tileset-panel-title tileset-selected-title\">Selected Tile</div>";
+    // Selection ids come from the pending grid (canvas click); resolve against
+    // the committed tiles first, then the live pending grid, so the panel
+    // always shows exactly what the canvas highlighted.
+    std::optional<TileDefinition> selectedTile;
+    if (state.selectedTileId) {
+        for (const TileDefinition& tile : asset->tiles) {
+            if (tile.id == *state.selectedTileId) { selectedTile = tile; break; }
+        }
+        if (!selectedTile && imageSize) {
+            for (const TileDefinition& tile :
+                 tilesForSlicing(imageSize->first, imageSize->second, s)) {
+                if (tile.id == *state.selectedTileId) { selectedTile = tile; break; }
+            }
+        }
+    }
+    const TileDefinition* selected = selectedTile ? &*selectedTile : nullptr;
+    if (selected) {
+        html += "<div class=\"tileset-selected-row\">"
+                "<div id=\"tileset-selected-thumb\" class=\"tileset-selected-thumb\"></div>"
+                "<span class=\"tileset-selected-info\">" + escapeRml(selected->id)
+              + "<br/>x " + std::to_string(selected->x) + " &#183; y " + std::to_string(selected->y)
+              + " &#183; " + std::to_string(selected->width) + " &#215; "
+              + std::to_string(selected->height) + " px</span></div>";
+    } else {
+        html += "<span class=\"tileset-selected-empty\">Click a tile in the sheet to select it</span>";
+    }
+
     html += "<span class=\"tileset-settings-diagnostic\">Source: " + escapeRml(asset->imageAssetId)
           + "<br/>" + std::to_string(asset->tiles.size()) + " tile(s) committed</span>";
     html += "</div>";      // .tileset-settings
@@ -807,6 +916,17 @@ void EditorUi::refreshTilesetEditor() {
     if (html != tilesetEditorMarkup_) {
         tilesetEditorMarkup_ = html;
         panel->SetInnerRML(html);
+        updateTilesetZoomReadout();   // the readout span was just recreated empty
+    }
+}
+
+void EditorUi::updateTilesetZoomReadout() {
+    if (!tilesetDocument_) return;
+    const TilesetEditorState& state = coordinator_.state().tilesetEditor;
+    if (!state.openAssetId) return;
+    if (Rml::Element* el = tilesetDocument_->GetElementById("tileset-zoom-readout")) {
+        const int pct = static_cast<int>(state.zoom * 100.f + 0.5f);
+        el->SetInnerRML(std::to_string(pct) + "%");
     }
 }
 
@@ -873,6 +993,18 @@ void EditorUi::setAnimationSliceHandler(WorkspaceRequest sliceAnimation) {
 
 void EditorUi::setTilesetApplySlicingHandler(WorkspaceRequest applyTilesetSlicing) {
     applyTilesetSlicingRequest_ = std::move(applyTilesetSlicing);
+}
+
+void EditorUi::setTilesetCloseHandler(WorkspaceRequest closeTileset) {
+    closeTilesetEditorRequest_ = std::move(closeTileset);
+}
+
+void EditorUi::setCreateTilesetFromImageHandler(CreateTilesetRequest createTileset) {
+    createTilesetFromImageRequest_ = std::move(createTileset);
+}
+
+void EditorUi::setTilesetImageSizeProvider(ImageSizeProvider imageSize) {
+    tilesetImageSizeProvider_ = std::move(imageSize);
 }
 
 void EditorUi::setEntityPlacementHandlers(EntityPlacementRequest addEntity,
@@ -1800,11 +1932,15 @@ bool EditorUi::handleTilesetEditorAction(const std::string& action, const std::s
                                          const std::string& value) {
     if (action == "create-tileset-from-image") {
         if (!coordinator_.isPlaying() && coordinator_.document().hasImageAsset(arg)) {
-            const std::string id = uniqueTilesetAssetId(coordinator_.document(), arg);
-            const TilesetSlicing defaultSlicing;   // 32x32, no margin/spacing
-            if (coordinator_.execute(
-                    AddTilesetAssetCommand{id, id, arg, defaultSlicing}).ok) {
-                coordinator_.apply(OpenTilesetEditorIntent{id});
+            if (createTilesetFromImageRequest_) {
+                createTilesetFromImageRequest_(arg);
+            } else {
+                const std::string id = uniqueTilesetAssetId(coordinator_.document(), arg);
+                const TilesetSlicing defaultSlicing;   // 32x32, no margin/spacing
+                if (coordinator_.execute(
+                        AddTilesetAssetCommand{id, id, arg, defaultSlicing}).ok) {
+                    coordinator_.apply(OpenTilesetEditorIntent{id});
+                }
             }
         }
     } else if (action == "open-tileset-editor") {
@@ -1812,11 +1948,12 @@ bool EditorUi::handleTilesetEditorAction(const std::string& action, const std::s
     } else if (action == "remove-tileset") {
         if (!arg.empty()) coordinator_.execute(RemoveTilesetAssetCommand{arg});
     } else if (action == "close-tileset-editor") {
-        // Also serves as Cancel: nothing was ever committed to the document
-        // while the editor was open, so discarding the pending state IS the
-        // cancel - one action string for both, per the single-entry-point
-        // paletto (mirrors close-sprite-animation's own single close path).
-        coordinator_.apply(CloseTilesetEditorIntent{});
+        // Also serves as Cancel - one action string for both, per the
+        // single-entry-point paletto (mirrors close-sprite-animation's own
+        // single close path). The application handler owns the unapplied-
+        // changes guard; without one, closing discards the pending state.
+        if (closeTilesetEditorRequest_) closeTilesetEditorRequest_();
+        else coordinator_.apply(CloseTilesetEditorIntent{});
     } else if (action == "commit-tileset-name") {
         if (!arg.empty() && !value.empty()) {
             coordinator_.execute(RenameTilesetCommand{arg, value});
@@ -1840,6 +1977,20 @@ bool EditorUi::handleTilesetEditorAction(const std::string& action, const std::s
         }
     } else if (action == "apply-tileset-slicing") {
         if (applyTilesetSlicingRequest_) applyTilesetSlicingRequest_();
+    } else if (action == "reset-tileset-slicing") {
+        const TilesetEditorState& state = coordinator_.state().tilesetEditor;
+        const TilesetAsset* asset = state.openAssetId
+            ? coordinator_.document().findTilesetAsset(*state.openAssetId) : nullptr;
+        if (asset) coordinator_.apply(SetPendingTilesetSlicingIntent{asset->slicing});
+    } else if (action == "tileset-zoom-in" || action == "tileset-zoom-out") {
+        const float factor = (action == "tileset-zoom-in") ? 1.25f : 0.8f;
+        coordinator_.apply(SetTilesetEditorZoomIntent{
+            coordinator_.state().tilesetEditor.zoom * factor});
+    } else if (action == "tileset-zoom-fit") {
+        // Back to the default framing: fit scale, centred (zoom 1, pan 0).
+        const Vec2 pan = coordinator_.state().tilesetEditor.pan;
+        coordinator_.apply(SetTilesetEditorZoomIntent{1.f});
+        coordinator_.apply(PanTilesetEditorIntent{{-pan.x, -pan.y}});
     } else {
         return false;
     }

@@ -54,18 +54,8 @@ void drawTilesetGrid(const TilesetEditorState& editorState, const TextureResourc
             DrawRectangleLinesEx(cell, 1.f, Color{212, 212, 216, 110});
         }
     }
-
-    // HUD: grid shape, tile size and effective zoom, bottom-left of the canvas.
-    const TilesetSliceResult slice = computeTilesetSlicing(
-        resource.texture.width, resource.texture.height, editorState.pendingSlicing);
-    const int zoomPct = static_cast<int>(
-        sheetDest.width / static_cast<float>(resource.texture.width) * 100.f + 0.5f);
-    const std::string hud = std::to_string(slice.columns) + " x " + std::to_string(slice.rows)
-        + " tiles   " + std::to_string(editorState.pendingSlicing.tileWidth) + " x "
-        + std::to_string(editorState.pendingSlicing.tileHeight) + " px tile   "
-        + std::to_string(zoomPct) + "%";
-    DrawText(hud.c_str(), canvasRect.x + 12,
-             canvasRect.y + canvasRect.height - 24, 14, Color{161, 161, 170, 230});
+    // Grid shape / tile size / zoom live in the RML toolbar and status bar
+    // now - no raylib HUD text over the canvas.
 }
 
 } // namespace
@@ -93,6 +83,50 @@ Rectangle tilesetSheetDestination(const TextureResource& resource,
         destW,
         destH,
     };
+}
+
+void renderTilesetSelectedTileThumb(
+    const AssetId& imageAssetId,
+    const TileDefinition& tileDef,
+    const ViewportRect& thumbRect,
+    TextureCache& textureCache,
+    const std::unordered_map<AssetId, TextureRequest>& requests) {
+    if (!thumbRect.valid()) return;
+    const TileDefinition* tile = &tileDef;
+    if (tile->width <= 0 || tile->height <= 0) return;
+
+    SceneFrameSprite requestSprite;
+    requestSprite.assetId = imageAssetId;
+    requestSprite.visible = true;
+    textureCache.prepare({requestSprite}, requests);
+    const TextureResource* resource = textureCache.find(imageAssetId);
+    if (!resource || !resource->loaded) return;
+
+    const Rectangle slot{
+        static_cast<float>(thumbRect.x), static_cast<float>(thumbRect.y),
+        static_cast<float>(thumbRect.width), static_cast<float>(thumbRect.height)};
+    BeginScissorMode(thumbRect.x, thumbRect.y, thumbRect.width, thumbRect.height);
+    drawTransparencyChecker(slot, slot);
+    // Pixel-friendly: integer upscale when the tile fits its slot, plain fit
+    // otherwise (the tile palette / timeline thumbnails' rule).
+    float scale = std::min(slot.width / static_cast<float>(tile->width),
+                           slot.height / static_cast<float>(tile->height));
+    if (scale > 1.f) scale = std::floor(scale);
+    if (scale > 0.f) {
+        const float destW = static_cast<float>(tile->width) * scale;
+        const float destH = static_cast<float>(tile->height) * scale;
+        const Rectangle dest{
+            slot.x + (slot.width - destW) * 0.5f,
+            slot.y + (slot.height - destH) * 0.5f,
+            destW, destH,
+        };
+        const Rectangle source{
+            static_cast<float>(tile->x), static_cast<float>(tile->y),
+            static_cast<float>(tile->width), static_cast<float>(tile->height),
+        };
+        DrawTexturePro(resource->texture, source, dest, Vector2{0.f, 0.f}, 0.f, WHITE);
+    }
+    EndScissorMode();
 }
 
 void renderTilesetEditorCanvas(

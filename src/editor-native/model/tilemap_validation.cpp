@@ -48,4 +48,37 @@ std::optional<std::string> validateTilemapComponent(
     return std::nullopt;
 }
 
+TilesetResliceImpact computeTilesetResliceImpact(
+    const ProjectDocument& document, const AssetId& tilesetAssetId,
+    const std::vector<TileDefinition>& newTiles) {
+    TilesetResliceImpact impact;
+
+    std::unordered_set<std::string> newIds;
+    for (const TileDefinition& tile : newTiles) newIds.insert(tile.id);
+
+    std::unordered_set<std::string> orphanedIds;
+    for (const auto& [sceneId, scene] : document.data().scenes) {
+        for (const SceneInstanceDef& instance : scene.instances) {
+            if (!instance.tilemap || instance.tilemap->tilesetAssetId != tilesetAssetId) {
+                continue;
+            }
+            int cellsHere = 0;
+            for (const TilemapChunk& chunk : instance.tilemap->chunks) {
+                for (const TilemapCell& cell : chunk.cells) {
+                    if (cell.has_value() && newIds.count(cell->tileId) == 0) {
+                        ++cellsHere;
+                        orphanedIds.insert(cell->tileId);
+                    }
+                }
+            }
+            if (cellsHere > 0) {
+                impact.orphanedCells += cellsHere;
+                ++impact.affectedTilemaps;
+            }
+        }
+    }
+    impact.removedReferencedTiles = static_cast<int>(orphanedIds.size());
+    return impact;
+}
+
 } // namespace ArtCade::EditorNative
