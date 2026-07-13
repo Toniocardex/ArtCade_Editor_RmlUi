@@ -32,8 +32,14 @@ body {
     border-bottom: 1px #27272a;
 }
 
+/* flex:1 so this group (not just .toolbar-coords inside it) claims the
+   space between the static buttons and toolbar-status — otherwise the group
+   shrink-wraps its content and toolbar-coords' margin-left:auto has nothing
+   to push against, leaving toolbar-status stranded right after the buttons
+   instead of pinned to the toolbar's far edge. */
 .contextual-tools {
     display: flex;
+    flex: 1;
     flex-direction: row;
     align-items: center;
     min-width: 0;

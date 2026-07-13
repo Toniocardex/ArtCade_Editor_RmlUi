@@ -165,11 +165,17 @@
     white-space: nowrap;
 }
 
+/* 120dp used to clip even the plain default case ("Scene 1  |  Layer 1  |
+   EDIT" already overflows it before a user ever renames anything); 260dp
+   covers every default-name combination, including "LOGIC - <type>", with
+   overflow:hidden kept only as a backstop for pathologically long
+   user-renamed scenes/layers/types (same graceful-clip convention as
+   .asset-name/.row-name elsewhere, not a layout guarantee). */
 .toolbar-status {
     display: inline-block;
     flex: 0 0 auto;
     box-sizing: border-box;
-    width: 120dp;
+    width: 260dp;
     line-height: 28dp;
     padding: 0 4dp;
     overflow: hidden;

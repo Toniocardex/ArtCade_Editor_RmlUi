@@ -48,19 +48,24 @@
 .logic-tools { display: flex; flex-direction: row; align-items: center; padding: 8dp 14dp; }
 .logic-search { width: 220dp; margin-right: 8dp; }
 .logic-scroll { flex: 1; overflow-y: auto; padding: 0 14dp 18dp 14dp; }
-.logic-empty { margin: 28dp auto; width: 430dp; padding: 28dp; text-align: center; background-color: #17181c; border: 1px #30313a; }
+/* RmlUi has no user-agent stylesheet: an element with no explicit `display`
+   defaults to inline, not block. Every one of these wraps sibling instances
+   of itself (rule list, EVENT/ACTION blocks, diagnostics) or block content
+   (the empty-state card) — left inline they'd run onto one line / flow
+   horizontally instead of stacking, exactly like .logic-empty-title did. */
+.logic-empty { display: block; margin: 28dp auto; width: 430dp; padding: 28dp; text-align: center; background-color: #17181c; border: 1px #30313a; }
 .logic-empty-title { display: block; font-size: 18dp; color: #f4f4f5; margin-bottom: 8dp; }
 .logic-muted { display: block; color: #858791; margin-bottom: 14dp; }
-.logic-rule { margin: 8dp 0; background-color: #18191e; border: 1px #30323a; }
+.logic-rule { display: block; margin: 8dp 0; background-color: #18191e; border: 1px #30323a; }
 .logic-rule.off { opacity: 0.62; }
 .logic-rule-head { display: flex; flex-direction: row; align-items: center; padding: 8dp 10dp; background-color: #1d1e24; }
 .logic-rule-id { flex: 1; color: #f4f4f5; }
-.logic-block { margin: 8dp 10dp; padding: 9dp; background-color: #121318; border-left: 3px #3b82f6; }
+.logic-block { display: block; margin: 8dp 10dp; padding: 9dp; background-color: #121318; border-left: 3px #3b82f6; }
 .logic-block.action { border-left-color: #22c55e; }
 .logic-block-label { color: #9ca3af; margin-right: 8dp; }
 .logic-inline { display: flex; flex-direction: row; align-items: center; margin-top: 7dp; }
 .logic-inline input { width: 110dp; margin-right: 6dp; }
 .logic-action-row { display: flex; flex-direction: row; align-items: center; }
 .logic-action-main { flex: 1; }
-.logic-diagnostic { margin: 5dp 10dp; padding: 7dp; color: #fecaca; background-color: #3a171a; }
-.logic-code { padding: 12dp; color: #d1fae5; background-color: #0b0c0f; white-space: pre; font-family: monospace; }
+.logic-diagnostic { display: block; margin: 5dp 10dp; padding: 7dp; color: #fecaca; background-color: #3a171a; }
+.logic-code { display: block; padding: 12dp; color: #d1fae5; background-color: #0b0c0f; white-space: pre; font-family: monospace; }
