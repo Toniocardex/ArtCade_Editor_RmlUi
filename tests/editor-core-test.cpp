@@ -4676,7 +4676,9 @@ int main() {
         CHECK(inst != nullptr);
         CHECK(inst->objectTypeId == typeId);                // (2) references the real type
         CHECK(c.document().hasObjectType(inst->objectTypeId));
-        CHECK(c.document().findObjectType(typeId)->name == "Entity");  // visual name preserved
+        // Visual name mirrors the first instance ("Entity <entityId>") so
+        // auto-created types are tellable apart in the Create menu catalog.
+        CHECK(c.document().findObjectType(typeId)->name == "Entity 1");
 
         // (3) object-type-scoped component commands work immediately (the type
         //     resolves). BoxCollider is not a movement driver, so it coexists with

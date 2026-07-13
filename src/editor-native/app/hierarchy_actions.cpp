@@ -170,8 +170,13 @@ EditorOperationResult addEntityAt(EditorCoordinator& coordinator, Vec2 spawnPosi
     const EntityId id = nextAvailableEntityId(coordinator.document(), sceneId);
     const std::string instanceName = "Entity " + std::to_string(id);
     const std::string objectTypeId = makeUniqueObjectTypeId(coordinator.document());
+    // The new type's display name mirrors its first instance ("Entity 3"),
+    // not a shared "Entity" default: with every auto-created type named
+    // identically, the Create menu's type catalog rendered as N
+    // indistinguishable rows. Rename stays available (RenameObjectType), and
+    // duplicate display names remain legal - the id disambiguates.
     return coordinator.execute(CreateEntityWithDefaultTypeCommand{
-        sceneId, id, objectTypeId, /*objectTypeName*/ "Entity", instanceName,
+        sceneId, id, objectTypeId, /*objectTypeName*/ instanceName, instanceName,
         spawnPosition, /*layerId*/ coordinator.activeLayerId(sceneId)});
 }
 
