@@ -143,7 +143,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     if (!typeIds.empty()) {
         const bool typeOpen = openDropdownId_ == "object-type" && !playing;
         html += dropdownTriggerMarkup(selectedName, "toggle-logic-dropdown", "object-type",
-                                      typeOpen, playing);
+                                      typeOpen, playing, "logic-type-trigger");
         if (typeOpen) {
             html += "<div class=\"drop-list\">";
             for (const ObjectTypeId& id : typeIds) {
@@ -225,13 +225,13 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         if (playing) html += " disabled";
         html += "\" data-action=\"remove-logic-rule\" data-arg=\"" + escapeRml(rule.id)
              + "\" title=\"Delete rule\">" + iconMarkup("&#xeb41;") + "</button>";
-        html += "</div><div class=\"logic-block\"><div><span class=\"logic-block-label\">EVENT</span>"
+        html += "</div><div class=\"logic-block\"><span class=\"mode-label\">EVENT</span>"
                 "<div class=\"mode-options\">";
         html += modeOption("On Start", Logic::kOnStart, rule.trigger.typeId == Logic::kOnStart,
                           "change-logic-trigger", rule.id, playing);
         html += modeOption("Key Pressed", Logic::kKeyPressed, rule.trigger.typeId == Logic::kKeyPressed,
                           "change-logic-trigger", rule.id, playing);
-        html += "</div></div>";
+        html += "</div>";
         if (rule.trigger.typeId == Logic::kKeyPressed) {
             LogicKey selectedKey = LogicKey::Space;
             if (const LogicPropertyDef* p = property(rule.trigger, "key"))
@@ -258,7 +258,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             const LogicBlockDef& action = rule.actions[actionIndex];
             const std::string arg = actionArg(rule.id, actionIndex);
             html += "<div class=\"logic-block action\"><div class=\"logic-action-row\"><div class=\"logic-action-main\">"
-                    "<span class=\"logic-block-label\">ACTION</span><div class=\"mode-options\">";
+                    "<span class=\"mode-label\">ACTION</span><div class=\"mode-options\">";
             html += modeOption("Set Visible", Logic::kSetVisible, action.typeId == Logic::kSetVisible,
                               "change-logic-action", arg, playing);
             html += modeOption("Set Position", Logic::kSetPosition, action.typeId == Logic::kSetPosition,
@@ -298,7 +298,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             }
             html += "</div>";
         }
-        html += "<button class=\"logic-btn";
+        html += "<button class=\"logic-btn logic-add-action";
         if (playing || rule.actions.size() >= Logic::kMaxActionsPerRule) html += " disabled";
         html += "\" data-action=\"add-logic-action\" data-arg=\"" + escapeRml(rule.id)
              + "\">+ Add Action</button>";

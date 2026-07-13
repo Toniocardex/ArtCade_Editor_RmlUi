@@ -27,6 +27,10 @@
     border-bottom: 1px #27272a;
 }
 .logic-heading { flex: 1; display: flex; flex-direction: column; }
+/* .drop-trigger's shared `flex: 1` is right for an Inspector prop-row (one
+   fixed label, one control) but stretches this single-word picker across
+   whatever space .logic-heading doesn't claim — cap it to a sane width. */
+.logic-type-trigger { flex: 0 0 240dp; }
 .logic-title { font-size: 17dp; color: #f4f4f5; margin-right: 14dp; }
 .logic-owner { margin-top: 3dp; color: #8a8a93; font-size: 10dp; letter-spacing: 0.5dp; }
 /* Same outline-button tokens as .panel-btn (not that class itself, so the
@@ -47,6 +51,10 @@
 .logic-btn.danger { color: #e5706b; }
 .logic-btn.danger:hover { background-color: #2a1f20; border-color: #7f3b38; color: #f0918c; }
 .logic-btn.disabled, .logic-icon-btn.disabled { opacity: 0.42; }
+/* Bare child of .logic-rule (no container padding of its own to inherit),
+   unlike every other .logic-btn use — needs its own inset to match the
+   10dp margins .logic-rule-head/.logic-block already sit at. */
+.logic-add-action { margin: 2dp 10dp 10dp 10dp; }
 .logic-tools { display: flex; flex-direction: row; align-items: center; padding: 8dp 14dp; }
 .logic-search { width: 220dp; margin-right: 8dp; }
 .logic-scroll { flex: 1; overflow-y: auto; padding: 0 14dp 18dp 14dp; }
@@ -58,7 +66,10 @@
 .logic-empty { display: block; margin: 28dp auto; width: 430dp; padding: 28dp; text-align: center; background-color: #1c1c1f; border: 1px #27272a; }
 .logic-empty-title { display: block; font-size: 18dp; color: #f4f4f5; margin-bottom: 8dp; }
 .logic-muted { display: block; color: #8a8a93; margin-bottom: 14dp; }
-.logic-rule { display: block; margin: 8dp 0; background-color: #1c1c1f; border: 1px #27272a; }
+/* Capped so a rule card reads as a card on wide windows instead of stretching
+   edge-to-edge with its (much narrower) button-row content stranded on the
+   left and the rest bare background. */
+.logic-rule { display: block; margin: 8dp 0; padding-bottom: 10dp; max-width: 720dp; background-color: #1c1c1f; border: 1px #27272a; }
 .logic-rule.off { opacity: 0.62; }
 /* Separator is a hairline border, not a background shade — same convention
    as .comp-header, so the head reads as "a section of this card", not a
