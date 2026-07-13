@@ -133,6 +133,11 @@ EditorOperationResult CreateEntityWithDefaultTypeCommand::apply(ProjectDocument&
     EntityDef type;
     type.className = objectTypeId_;   // the catalog key (mirrors load: className == id)
     type.name     = objectTypeName_;
+    // Placeholder fill for a type with no artwork yet: neutral zinc instead of
+    // the struct's white - white placeholders disappear on light scene
+    // backgrounds and blind on the new dark default. Authoring data: the
+    // Inspector can recolor it, and types from saved files keep their own.
+    type.sprite.fillColor = Vec3{0.42f, 0.45f, 0.52f};
     SceneInstanceDef instance;
     instance.id                 = id_;
     instance.objectTypeId       = objectTypeId_;

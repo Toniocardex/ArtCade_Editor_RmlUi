@@ -122,6 +122,7 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/app/tile_palette_renderer.cpp
     editor-native/app/file_dialog.cpp
     editor-native/app/confirm_dialog.cpp
+    editor-native/view/canvas_font.cpp
     editor-native/view/texture_cache.cpp
     editor-native/view/scene_view.cpp
     editor-native/view/tilemap_paint_overlay.cpp

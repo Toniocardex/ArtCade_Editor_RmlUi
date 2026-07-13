@@ -630,6 +630,15 @@ int EditorApp::run(int argc, char** argv) {
     SetExitKey(KEY_NULL);
     SetTargetFPS(60);
 
+    // Canvas text font (entity labels, scene chip, canvas messages): the same
+    // Inter face the RmlUi chrome uses. Owned here; unloaded before CloseWindow.
+    CanvasFont canvasFont = loadCanvasFont(resourceRoot);
+    if (!canvasFont.loaded) {
+        TraceLog(LOG_WARNING,
+                 "[editor] Inter-Medium.ttf not loaded - canvas text falls back to "
+                 "raylib's built-in font");
+    }
+
     // RmlUi context + viewport are sized in physical framebuffer pixels; the dp
     // ratio scales `dp` lengths in the RCSS so the UI keeps its intended size.
     float dpi = GetWindowScaleDPI().x;
@@ -1587,7 +1596,8 @@ int EditorApp::run(int argc, char** argv) {
             textureCache.prepare(snapshot.sprites, snapshot.tilemaps, textureRequests);
             const SceneGridDefinition displayGrid = viewportDisplayGrid(
                 coordinator.document(), coordinator.state(), active);
-            sceneView.render(snapshot, renderView, displayGrid, rect, textureCache);
+            sceneView.render(snapshot, renderView, displayGrid, rect, textureCache,
+                             canvasFont);
             if (!playSession) {
                 drawTilemapPaintOverlay(coordinator.document(), coordinator.state().tilemapEditor,
                                         active, coordinator.selection().primaryEntity, rect,
@@ -1598,10 +1608,10 @@ int EditorApp::run(int argc, char** argv) {
         if (animationAsset) {
             renderSpriteAnimationPreview(
                 *animationAsset, coordinator.state().spriteAnimationEditor,
-                animationRenderRect, textureCache, textureRequests);
+                animationRenderRect, textureCache, textureRequests, canvasFont);
             renderSpriteAnimationClipPreview(
                 *animationAsset, coordinator.state().spriteAnimationEditor,
-                animationPreviewRect, textureCache, textureRequests);
+                animationPreviewRect, textureCache, textureRequests, canvasFont);
             if (timelineClip) {
                 renderSpriteAnimationTimelineThumbnails(
                     *animationAsset, *timelineClip, timelineThumbRects,
@@ -1611,7 +1621,7 @@ int EditorApp::run(int argc, char** argv) {
         if (tilesetAsset) {
             renderTilesetEditorCanvas(
                 *tilesetAsset, coordinator.state().tilesetEditor,
-                tilesetRenderRect, textureCache, textureRequests);
+                tilesetRenderRect, textureCache, textureRequests, canvasFont);
             // Selected Tile thumbnail: resolve the id the same way the panel's
             // text does (committed tiles first, else the live pending grid).
             const TilesetEditorState& tilesetState = coordinator.state().tilesetEditor;
@@ -1716,6 +1726,7 @@ int EditorApp::run(int argc, char** argv) {
     }
 
     textureCache.clear();
+    unloadCanvasFont(canvasFont);   // GPU atlas: released before CloseWindow
     ui.detach();
     uiOwner.reset(); // Destroy UI/controllers before host documents and context.
     host.shutdown();

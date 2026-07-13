@@ -2,6 +2,7 @@
 
 #include "core/types.h"
 #include "editor-native/model/editor_state.h"
+#include "editor-native/view/canvas_font.h"
 #include "editor-native/view/scene_view.h"
 #include "editor-native/view/texture_cache.h"
 
@@ -24,7 +25,8 @@ void renderSpriteAnimationPreview(
     const SpriteAnimationEditorState& editorState,
     const ViewportRect& canvasRect,
     TextureCache& textureCache,
-    const std::unordered_map<AssetId, TextureRequest>& requests);
+    const std::unordered_map<AssetId, TextureRequest>& requests,
+    const CanvasFont& canvasFont);
 
 // Clip preview canvas: draws the workspace playhead's current frame at a
 // pixel-friendly integer scale. Read-only over document + workspace state.
@@ -33,7 +35,8 @@ void renderSpriteAnimationClipPreview(
     const SpriteAnimationEditorState& editorState,
     const ViewportRect& previewRect,
     TextureCache& textureCache,
-    const std::unordered_map<AssetId, TextureRequest>& requests);
+    const std::unordered_map<AssetId, TextureRequest>& requests,
+    const CanvasFont& canvasFont);
 
 // Timeline thumbnails: draws each clip frame's texture region into the matching
 // per-chip thumb rect. thumbRects is parallel to clip.frames (index i -> frame

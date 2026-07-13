@@ -2,6 +2,7 @@
 
 #include "core/types.h"
 #include "editor-native/model/editor_state.h"
+#include "editor-native/view/canvas_font.h"
 #include "editor-native/view/scene_view.h"
 #include "editor-native/view/texture_cache.h"
 
@@ -26,7 +27,8 @@ void renderTilesetEditorCanvas(
     const TilesetEditorState& editorState,
     const ViewportRect& canvasRect,
     TextureCache& textureCache,
-    const std::unordered_map<AssetId, TextureRequest>& requests);
+    const std::unordered_map<AssetId, TextureRequest>& requests,
+    const CanvasFont& canvasFont);
 
 // Paints one tile's crop into the settings panel's Selected Tile slot (RML
 // lays the box out; raylib fills it after host.render(), the same pattern as

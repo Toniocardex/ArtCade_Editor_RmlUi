@@ -160,6 +160,11 @@ bool ProjectDocument::createScene(const SceneId& id, const std::string& name) {
     SceneDef scene;
     scene.id = id;
     scene.name = name;
+    // New scenes start on a dark neutral (#1e1e24) instead of the struct's
+    // white: white blinds against the dark editor chrome and washes the grid
+    // out. Authoring data as always - the Inspector can change it, and files
+    // saved without the field keep deserializing to the struct default.
+    scene.backgroundColor = Vec4{0.118f, 0.118f, 0.141f, 1.f};
     // Every scene always has a real first layer (the persistent fallback).
     scene.layers.push_back(SceneLayerDef{"layer-1", "Layer 1", false});
     scene.defaultLayerId = "layer-1";

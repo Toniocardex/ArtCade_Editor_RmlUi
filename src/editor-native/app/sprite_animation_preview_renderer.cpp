@@ -39,7 +39,8 @@ void drawAnimationSheetGrid(const SpriteAnimationAssetDef& asset,
                             const SpriteAnimationEditorState& editorState,
                             const TextureResource& resource,
                             const Rectangle& sheetDest,
-                            const ViewportRect& canvasRect) {
+                            const ViewportRect& canvasRect,
+                            const CanvasFont& canvasFont) {
     // Cell size is derived from the frame count and the sheet dimensions.
     const std::optional<SpriteAnimationSliceGrid> derived =
         spriteAnimationGridFromCellCounts(
@@ -52,8 +53,9 @@ void drawAnimationSheetGrid(const SpriteAnimationAssetDef& asset,
             + std::to_string(editorState.sliceRows) + " frames do not fit the "
             + std::to_string(resource.texture.width) + "x"
             + std::to_string(resource.texture.height) + " sheet - lower the counts";
-        DrawText(hint.c_str(), canvasRect.x + 18, canvasRect.y + 18, 16,
-                 Color{230, 176, 90, 230});
+        drawCanvasText(canvasFont, hint, static_cast<float>(canvasRect.x) + 18.f,
+                       static_cast<float>(canvasRect.y) + 18.f, 16.f,
+                       Color{230, 176, 90, 230});
         return;
     }
     const SpriteAnimationSliceGrid grid = *derived;
@@ -61,13 +63,17 @@ void drawAnimationSheetGrid(const SpriteAnimationAssetDef& asset,
         spriteAnimationSliceCellCount(resource.texture.width, resource.texture.height, grid);
     if (cells <= 0) return;
     if (!clip && !asset.clips.empty()) {
-        DrawText("Select a clip, then click cells to add its frames",
-                 canvasRect.x + 18, canvasRect.y + 18, 16, Color{161, 161, 170, 220});
+        drawCanvasText(canvasFont, "Select a clip, then click cells to add its frames",
+                       static_cast<float>(canvasRect.x) + 18.f,
+                       static_cast<float>(canvasRect.y) + 18.f, 16.f,
+                       Color{161, 161, 170, 220});
     } else if (clip && clip->frames.empty()) {
         // Empty selected clip: tell the user how to fill THIS clip by hand, which
         // is how several animations (states) share one sheet - one clip each.
-        DrawText("Click the cells for this clip - each clip is one animation",
-                 canvasRect.x + 18, canvasRect.y + 18, 16, Color{130, 170, 240, 230});
+        drawCanvasText(canvasFont, "Click the cells for this clip - each clip is one animation",
+                       static_cast<float>(canvasRect.x) + 18.f,
+                       static_cast<float>(canvasRect.y) + 18.f, 16.f,
+                       Color{130, 170, 240, 230});
     }
 
     const int mouseX = GetMouseX();
@@ -103,15 +109,14 @@ void drawAnimationSheetGrid(const SpriteAnimationAssetDef& asset,
         }
         if (selected) {
             const std::string label = std::to_string(order + 1);
-            const int textW = MeasureText(label.c_str(), 12);
+            const float textW = measureCanvasText(canvasFont, label, 12.f);
             DrawRectangle(static_cast<int>(cell.x) + 3, static_cast<int>(cell.y) + 3,
-                          textW + 8, 16, Color{59, 130, 246, 255});
-            DrawText(label.c_str(), static_cast<int>(cell.x) + 7,
-                     static_cast<int>(cell.y) + 5, 12, Color{255, 255, 255, 255});
+                          static_cast<int>(textW) + 8, 16, Color{59, 130, 246, 255});
+            drawCanvasText(canvasFont, label, cell.x + 7.f, cell.y + 5.f, 12.f,
+                           Color{255, 255, 255, 255});
         } else {
-            DrawText(std::to_string(i + 1).c_str(),
-                     static_cast<int>(cell.x + 5.f), static_cast<int>(cell.y + 5.f),
-                     12, hovered ? Color{212, 212, 216, 240} : Color{82, 82, 91, 210});
+            drawCanvasText(canvasFont, std::to_string(i + 1), cell.x + 5.f, cell.y + 5.f,
+                           12.f, hovered ? Color{212, 212, 216, 240} : Color{82, 82, 91, 210});
         }
     }
 
@@ -122,8 +127,9 @@ void drawAnimationSheetGrid(const SpriteAnimationAssetDef& asset,
         + std::to_string(editorState.sliceRows) + " frames   "
         + std::to_string(grid.frameWidth) + " x " + std::to_string(grid.frameHeight)
         + " px cell   " + std::to_string(zoomPct) + "%";
-    DrawText(hud.c_str(), canvasRect.x + 12,
-             canvasRect.y + canvasRect.height - 24, 14, Color{161, 161, 170, 230});
+    drawCanvasText(canvasFont, hud, static_cast<float>(canvasRect.x) + 12.f,
+                   static_cast<float>(canvasRect.y + canvasRect.height) - 24.f, 14.f,
+                   Color{161, 161, 170, 230});
 }
 
 } // namespace
@@ -161,7 +167,8 @@ void renderSpriteAnimationPreview(
     const SpriteAnimationEditorState& editorState,
     const ViewportRect& canvasRect,
     TextureCache& textureCache,
-    const std::unordered_map<AssetId, TextureRequest>& requests) {
+    const std::unordered_map<AssetId, TextureRequest>& requests,
+    const CanvasFont& canvasFont) {
     if (!canvasRect.valid()) return;
     BeginScissorMode(canvasRect.x, canvasRect.y, canvasRect.width, canvasRect.height);
     const AssetId sheetId = editorSheetImageId(asset, editorState.selectedClipId);
@@ -182,12 +189,14 @@ void renderSpriteAnimationPreview(
             static_cast<float>(canvasRect.width), static_cast<float>(canvasRect.height)};
         drawTransparencyChecker(dest, canvasClip);
         DrawTexturePro(resource->texture, source, dest, Vector2{0.f, 0.f}, 0.f, WHITE);
-        drawAnimationSheetGrid(asset, editorState, *resource, dest, canvasRect);
+        drawAnimationSheetGrid(asset, editorState, *resource, dest, canvasRect, canvasFont);
         // Image bounds: a brighter 2px frame, distinct from the 1px cell lines.
         DrawRectangleLinesEx(dest, 2.f, Color{120, 120, 130, 235});
     } else {
-        DrawText("Missing sprite sheet", canvasRect.x + 18, canvasRect.y + 18, 18,
-                 Color{230, 90, 120, 230});
+        drawCanvasText(canvasFont, "Missing sprite sheet",
+                       static_cast<float>(canvasRect.x) + 18.f,
+                       static_cast<float>(canvasRect.y) + 18.f, 18.f,
+                       Color{230, 90, 120, 230});
     }
     EndScissorMode();
 }
@@ -197,7 +206,8 @@ void renderSpriteAnimationClipPreview(
     const SpriteAnimationEditorState& editorState,
     const ViewportRect& previewRect,
     TextureCache& textureCache,
-    const std::unordered_map<AssetId, TextureRequest>& requests) {
+    const std::unordered_map<AssetId, TextureRequest>& requests,
+    const CanvasFont& canvasFont) {
     if (!previewRect.valid()) return;
     BeginScissorMode(previewRect.x, previewRect.y, previewRect.width, previewRect.height);
     const Rectangle previewArea{
@@ -206,8 +216,9 @@ void renderSpriteAnimationClipPreview(
     drawTransparencyChecker(previewArea, previewArea);
     const SpriteAnimationClipDef* clip = findAnimationClip(asset, editorState.selectedClipId);
     if (!clip || clip->frames.empty()) {
-        DrawText("No frames", previewRect.x + 12, previewRect.y + 12, 14,
-                 Color{82, 82, 91, 210});
+        drawCanvasText(canvasFont, "No frames", static_cast<float>(previewRect.x) + 12.f,
+                       static_cast<float>(previewRect.y) + 12.f, 14.f,
+                       Color{82, 82, 91, 210});
         EndScissorMode();
         return;
     }
@@ -217,8 +228,10 @@ void renderSpriteAnimationClipPreview(
     textureCache.prepare({requestSprite}, requests);
     const TextureResource* resource = textureCache.find(clip->imageId);
     if (!resource || !resource->loaded) {
-        DrawText("Missing sprite sheet", previewRect.x + 12, previewRect.y + 12, 14,
-                 Color{230, 90, 120, 230});
+        drawCanvasText(canvasFont, "Missing sprite sheet",
+                       static_cast<float>(previewRect.x) + 12.f,
+                       static_cast<float>(previewRect.y) + 12.f, 14.f,
+                       Color{230, 90, 120, 230});
         EndScissorMode();
         return;
     }
@@ -246,8 +259,9 @@ void renderSpriteAnimationClipPreview(
     }
     const std::string readout =
         std::to_string(index + 1) + " / " + std::to_string(clip->frames.size());
-    DrawText(readout.c_str(), previewRect.x + 8,
-             previewRect.y + previewRect.height - 20, 14, Color{161, 161, 170, 220});
+    drawCanvasText(canvasFont, readout, static_cast<float>(previewRect.x) + 8.f,
+                   static_cast<float>(previewRect.y + previewRect.height) - 20.f, 14.f,
+                   Color{161, 161, 170, 220});
     EndScissorMode();
 }
 

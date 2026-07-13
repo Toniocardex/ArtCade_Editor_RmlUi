@@ -4270,6 +4270,11 @@ int main() {
 
         CHECK(c.execute(CreateSceneCommand{"scene-c", "Scene C"}).ok);
         CHECK(c.document().hasScene("scene-c"));
+        // New scenes default to the dark neutral background; the vendored
+        // struct default (white) is only for files saved without the field.
+        CHECK(c.document().findScene("scene-c")->backgroundColor.r == 0.118f);
+        CHECK(c.document().findScene("scene-c")->backgroundColor.b == 0.141f);
+        CHECK(SceneDef{}.backgroundColor.r == 1.f);
         CHECK(!c.execute(CreateSceneCommand{"scene-a", "dup"}).ok); // duplicate rejected
 
         CHECK(c.execute(SetSceneBackgroundCommand{kSceneA, {1.f, 0.f, 0.f, 1.f}}).ok);
@@ -4680,6 +4685,10 @@ int main() {
         // Visual name mirrors the first instance ("Entity <entityId>") so
         // auto-created types are tellable apart in the Create menu catalog.
         CHECK(c.document().findObjectType(typeId)->name == "Entity 1");
+        // Placeholder fill defaults to neutral zinc, never the struct's white
+        // (invisible on light scenes, blinding on the dark default).
+        CHECK(c.document().findObjectType(typeId)->sprite.fillColor.x == 0.42f);
+        CHECK(c.document().findObjectType(typeId)->sprite.fillColor.z == 0.52f);
 
         // (3) object-type-scoped component commands work immediately (the type
         //     resolves). BoxCollider is not a movement driver, so it coexists with

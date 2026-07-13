@@ -2,6 +2,7 @@
 
 #include "editor-native/model/editor_state.h"
 #include "editor-native/model/scene_frame_snapshot.h"
+#include "editor-native/view/canvas_font.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view_camera.h"
 
@@ -18,7 +19,8 @@ public:
                 const EditorSceneViewState& view,
                 const SceneGridDefinition& displayGrid,
                 const ViewportRect& rect,
-                const TextureCache& textures) const;
+                const TextureCache& textures,
+                const CanvasFont& canvasFont) const;
 };
 
 } // namespace ArtCade::EditorNative

@@ -107,7 +107,8 @@ void SceneView::render(const SceneFrameSnapshot& frame,
                        const EditorSceneViewState& view,
                        const SceneGridDefinition& displayGrid,
                        const ViewportRect& rect,
-                       const TextureCache& textures) const {
+                       const TextureCache& textures,
+                       const CanvasFont& canvasFont) const {
     if (!rect.valid()) return;
 
     BeginScissorMode(rect.x, rect.y, rect.width, rect.height);
@@ -310,12 +311,12 @@ void SceneView::render(const SceneFrameSnapshot& frame,
                     entity.bounds.y + entity.bounds.height}, cam);
         if (bottomRight.x - top.x < 18.f) continue;   // too small on screen to label
         // Dark chip behind the name so it reads on any world background colour.
-        const int nameW = MeasureText(entity.name.c_str(), 12);
+        const float nameW = measureCanvasText(canvasFont, entity.name, 12.f);
         DrawRectangleRounded(
-            Rectangle{top.x - 4.f, top.y - 20.f, static_cast<float>(nameW) + 10.f, 17.f},
+            Rectangle{top.x - 4.f, top.y - 20.f, nameW + 10.f, 17.f},
             0.35f, 4, Color{17, 17, 19, 200});
-        DrawText(entity.name.c_str(), static_cast<int>(top.x) + 1,
-                 static_cast<int>(top.y) - 17, 12, Color{212, 212, 216, 240});
+        drawCanvasText(canvasFont, entity.name, top.x + 1.f, top.y - 17.f, 12.f,
+                       Color{212, 212, 216, 240});
     }
 
     // World size readout on the frame's bottom-right corner: the bounds in the
@@ -325,18 +326,19 @@ void SceneView::render(const SceneFrameSnapshot& frame,
         const std::string dims =
             std::to_string(static_cast<int>(std::lround(world.x))) + " x "
             + std::to_string(static_cast<int>(std::lround(world.y))) + " wu";
-        const int dimsW = MeasureText(dims.c_str(), 12);
-        DrawText(dims.c_str(), static_cast<int>(corner.x) - dimsW,
-                 static_cast<int>(corner.y) + 6, 12, Color{130, 130, 140, 230});
+        const float dimsW = measureCanvasText(canvasFont, dims, 12.f);
+        drawCanvasText(canvasFont, dims, corner.x - dimsW, corner.y + 6.f, 12.f,
+                       Color{130, 130, 140, 230});
     }
 
-    const char* label = frame.sceneName.c_str();
-    const int fontSize = 14;
-    const float textW = static_cast<float>(MeasureText(label, fontSize));
+    const std::string& label = frame.sceneName;
+    const float fontSize = 14.f;
+    const float textW = measureCanvasText(canvasFont, label, fontSize);
     const Rectangle chip{static_cast<float>(rect.x) + 10.f, static_cast<float>(rect.y) + 8.f,
                          textW + 22.f, 25.f};
     DrawRectangleRounded(chip, 0.35f, 6, Color{17, 17, 19, 215});
-    DrawText(label, rect.x + 21, rect.y + 13, fontSize, Color{96, 148, 240, 255});
+    drawCanvasText(canvasFont, label, static_cast<float>(rect.x) + 21.f,
+                   static_cast<float>(rect.y) + 13.f, fontSize, Color{96, 148, 240, 255});
 
     EndScissorMode();
 }

@@ -24,12 +24,15 @@ Rectangle destinationForTile(const TileDefinition& tile, const TextureResource& 
 }
 
 void drawTilesetGrid(const TilesetEditorState& editorState, const TextureResource& resource,
-                     const Rectangle& sheetDest, const ViewportRect& canvasRect) {
+                     const Rectangle& sheetDest, const ViewportRect& canvasRect,
+                     const CanvasFont& canvasFont) {
     const std::vector<TileDefinition> tiles = tilesForSlicing(
         resource.texture.width, resource.texture.height, editorState.pendingSlicing);
     if (tiles.empty()) {
-        DrawText("Tile size does not fit this sheet - lower it",
-                 canvasRect.x + 18, canvasRect.y + 18, 16, Color{230, 176, 90, 230});
+        drawCanvasText(canvasFont, "Tile size does not fit this sheet - lower it",
+                       static_cast<float>(canvasRect.x) + 18.f,
+                       static_cast<float>(canvasRect.y) + 18.f, 16.f,
+                       Color{230, 176, 90, 230});
         return;
     }
 
@@ -134,7 +137,8 @@ void renderTilesetEditorCanvas(
     const TilesetEditorState& editorState,
     const ViewportRect& canvasRect,
     TextureCache& textureCache,
-    const std::unordered_map<AssetId, TextureRequest>& requests) {
+    const std::unordered_map<AssetId, TextureRequest>& requests,
+    const CanvasFont& canvasFont) {
     if (!canvasRect.valid()) return;
     BeginScissorMode(canvasRect.x, canvasRect.y, canvasRect.width, canvasRect.height);
     SceneFrameSprite requestSprite;
@@ -154,11 +158,13 @@ void renderTilesetEditorCanvas(
             static_cast<float>(canvasRect.width), static_cast<float>(canvasRect.height)};
         drawTransparencyChecker(dest, canvasClip);
         DrawTexturePro(resource->texture, source, dest, Vector2{0.f, 0.f}, 0.f, WHITE);
-        drawTilesetGrid(editorState, *resource, dest, canvasRect);
+        drawTilesetGrid(editorState, *resource, dest, canvasRect, canvasFont);
         DrawRectangleLinesEx(dest, 2.f, Color{120, 120, 130, 235});
     } else {
-        DrawText("Missing source image", canvasRect.x + 18, canvasRect.y + 18, 18,
-                 Color{230, 90, 120, 230});
+        drawCanvasText(canvasFont, "Missing source image",
+                       static_cast<float>(canvasRect.x) + 18.f,
+                       static_cast<float>(canvasRect.y) + 18.f, 18.f,
+                       Color{230, 90, 120, 230});
     }
     EndScissorMode();
 }
