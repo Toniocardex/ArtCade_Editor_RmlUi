@@ -14,7 +14,7 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    background-color: #101114;
+    background-color: #18181b;
     color: #d4d4d8;
 }
 .logic-board-panel.hidden { display: none; }
@@ -23,28 +23,30 @@
     flex-direction: row;
     align-items: center;
     padding: 10dp 14dp;
-    background-color: #161619;
-    border-bottom: 1px #292a30;
+    background-color: #18181b;
+    border-bottom: 1px #27272a;
 }
 .logic-heading { flex: 1; display: flex; flex-direction: column; }
 .logic-title { font-size: 17dp; color: #f4f4f5; margin-right: 14dp; }
-.logic-owner { margin-top: 3dp; color: #858791; font-size: 10dp; letter-spacing: 0.5dp; }
-.logic-picker { display: flex; flex-direction: row; align-items: center; }
-.logic-type-btn, .logic-tab, .logic-btn, .logic-icon-btn {
+.logic-owner { margin-top: 3dp; color: #8a8a93; font-size: 10dp; letter-spacing: 0.5dp; }
+/* Same outline-button tokens as .panel-btn (not that class itself, so the
+   widget-conversion pass can retire the ones it makes obsolete without
+   touching the shared class other panels depend on). */
+.logic-btn, .logic-icon-btn {
     margin-right: 5dp;
     padding: 5dp 9dp;
-    background-color: #202126;
-    border: 1px #343640;
-    color: #b8bac3;
+    background-color: transparent;
+    border: 1px #323236;
+    color: #c4c4c8;
 }
-.logic-type-btn:hover, .logic-tab:hover, .logic-btn:hover, .logic-icon-btn:hover {
-    background-color: #292b32; color: #ffffff;
+.logic-btn:hover, .logic-icon-btn:hover {
+    border-color: #3b82f6; color: #3b82f6;
 }
-.logic-type-btn.active, .logic-tab.active { border-color: #3b82f6; color: #dbeafe; }
-.logic-btn.primary { background-color: #2563eb; border-color: #3b82f6; color: #ffffff; }
-.logic-btn.danger { color: #fca5a5; }
+.logic-btn.primary { background-color: #3b82f6; border-color: #3b82f6; color: #ffffff; }
+.logic-btn.primary:hover { background-color: #2f74e6; border-color: #2f74e6; color: #ffffff; }
+.logic-btn.danger { color: #e5706b; }
+.logic-btn.danger:hover { background-color: #2a1f20; border-color: #7f3b38; color: #f0918c; }
 .logic-btn.disabled, .logic-icon-btn.disabled { opacity: 0.42; }
-.logic-tabs { display: flex; flex-direction: row; padding: 8dp 14dp 0 14dp; }
 .logic-tools { display: flex; flex-direction: row; align-items: center; padding: 8dp 14dp; }
 .logic-search { width: 220dp; margin-right: 8dp; }
 .logic-scroll { flex: 1; overflow-y: auto; padding: 0 14dp 18dp 14dp; }
@@ -53,19 +55,32 @@
    of itself (rule list, EVENT/ACTION blocks, diagnostics) or block content
    (the empty-state card) — left inline they'd run onto one line / flow
    horizontally instead of stacking, exactly like .logic-empty-title did. */
-.logic-empty { display: block; margin: 28dp auto; width: 430dp; padding: 28dp; text-align: center; background-color: #17181c; border: 1px #30313a; }
+.logic-empty { display: block; margin: 28dp auto; width: 430dp; padding: 28dp; text-align: center; background-color: #1c1c1f; border: 1px #27272a; }
 .logic-empty-title { display: block; font-size: 18dp; color: #f4f4f5; margin-bottom: 8dp; }
-.logic-muted { display: block; color: #858791; margin-bottom: 14dp; }
-.logic-rule { display: block; margin: 8dp 0; background-color: #18191e; border: 1px #30323a; }
+.logic-muted { display: block; color: #8a8a93; margin-bottom: 14dp; }
+.logic-rule { display: block; margin: 8dp 0; background-color: #1c1c1f; border: 1px #27272a; }
 .logic-rule.off { opacity: 0.62; }
-.logic-rule-head { display: flex; flex-direction: row; align-items: center; padding: 8dp 10dp; background-color: #1d1e24; }
+/* Separator is a hairline border, not a background shade — same convention
+   as .comp-header, so the head reads as "a section of this card", not a
+   different surface glued on top of it. */
+.logic-rule-head {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 8dp 10dp;
+    background-color: #1c1c1f;
+    border-bottom: 1px #27272a;
+}
 .logic-rule-id { flex: 1; color: #f4f4f5; }
-.logic-block { display: block; margin: 8dp 10dp; padding: 9dp; background-color: #121318; border-left: 3px #3b82f6; }
-.logic-block.action { border-left-color: #22c55e; }
+.logic-block { display: block; margin: 8dp 10dp; padding: 9dp; background-color: #1c1c1f; border-left: 3px #3b82f6; }
+/* A lighter shade of the same accent, not a second hue — EVENT vs ACTION is
+   already communicated by the block labels (see .comp-badge.override for
+   the same "variant, not category" precedent). */
+.logic-block.action { border-left-color: #7aa2e8; }
 .logic-block-label { color: #9ca3af; margin-right: 8dp; }
 .logic-inline { display: flex; flex-direction: row; align-items: center; margin-top: 7dp; }
 .logic-inline input { width: 110dp; margin-right: 6dp; }
 .logic-action-row { display: flex; flex-direction: row; align-items: center; }
 .logic-action-main { flex: 1; }
-.logic-diagnostic { display: block; margin: 5dp 10dp; padding: 7dp; color: #fecaca; background-color: #3a171a; }
-.logic-code { display: block; padding: 12dp; color: #d1fae5; background-color: #0b0c0f; white-space: pre; font-family: monospace; }
+.logic-diagnostic { display: block; margin: 5dp 10dp; padding: 7dp; color: #e5706b; background-color: #2a1f20; }
+.logic-code { display: block; padding: 12dp; color: #d4d4d8; background-color: #111113; white-space: pre; font-family: "JetBrains Mono"; }
