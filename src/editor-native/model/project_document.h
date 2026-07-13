@@ -195,6 +195,7 @@ private:
     friend class SetSpriteRendererAssetCommand;
     friend class SetSpriteRendererAnimationCommand;
     friend class SetSpriteRendererVisibleCommand;
+    friend class CreateSpriteAnimationAssetCommand;
     friend class AddSpriteAnimationAssetCommand;
     friend class RemoveSpriteAnimationAssetCommand;
     friend class AddAnimationClipCommand;

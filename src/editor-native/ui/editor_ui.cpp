@@ -6,7 +6,6 @@
 #include "editor-native/app/asset_import.h"
 #include "editor-native/app/inspector_commit.h"
 #include "editor-native/commands/entity_commands.h"
-#include "editor-native/commands/logic_board_commands.h"
 #include "editor-native/commands/scene_commands.h"
 #include "editor-native/commands/scene_layer_commands.h"
 #include "editor-native/commands/image_asset_commands.h"
@@ -19,7 +18,6 @@
 #include "editor-native/model/tileset_slicing.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view_camera.h"
-#include "logic-core.h"
 
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
@@ -40,7 +38,6 @@
 #include <string>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 namespace ArtCade::EditorNative {
 
@@ -127,64 +124,6 @@ bool sceneLayerNameExists(const SceneDef& scene, const std::string& name) {
         if (lower(layer.name) == target) return true;
     }
     return false;
-}
-
-const SpriteAnimationClipDef* selectedAnimationClip(const SpriteAnimationAssetDef& asset,
-                                                    const SpriteAnimationEditorState& state) {
-    if (!state.selectedClipId) return nullptr;
-    for (const SpriteAnimationClipDef& clip : asset.clips) {
-        if (clip.id == *state.selectedClipId) return &clip;
-    }
-    return nullptr;
-}
-
-std::string uniqueAnimationAssetId(const ProjectDocument& document, const AssetId& imageId) {
-    std::string base = imageId.empty() ? "animation" : imageId;
-    std::string id = base + ".anim";
-    int n = 2;
-    while (document.hasSpriteAnimationAsset(id)) {
-        id = base + "-" + std::to_string(n++) + ".anim";
-    }
-    return id;
-}
-
-std::string uniqueClipId(const SpriteAnimationAssetDef& asset) {
-    int n = 1;
-    while (true) {
-        const std::string id = "clip-" + std::to_string(n++);
-        bool exists = false;
-        for (const SpriteAnimationClipDef& clip : asset.clips) {
-            if (clip.id == id) { exists = true; break; }
-        }
-        if (!exists) return id;
-    }
-}
-
-std::string uniqueClipName(const SpriteAnimationAssetDef& asset) {
-    int n = 1;
-    while (true) {
-        const std::string name = "Clip " + std::to_string(n++);
-        bool exists = false;
-        for (const SpriteAnimationClipDef& clip : asset.clips) {
-            if (clip.name == name) { exists = true; break; }
-        }
-        if (!exists) return name;
-    }
-}
-
-std::vector<std::string> splitPipe(const std::string& value) {
-    std::vector<std::string> parts;
-    std::size_t start = 0;
-    while (start <= value.size()) {
-        const std::size_t pos = value.find('|', start);
-        if (pos == std::string::npos) {
-            parts.push_back(value.substr(start));
-            break;
-        }
-        parts.push_back(value.substr(start, pos - start));
-        start = pos + 1;
-    }
-    return parts;
 }
 
 bool actionRequiresPendingEditGate(const std::string& action) {
@@ -350,7 +289,10 @@ EditorUi::EditorUi(EditorCoordinator& coordinator, Rml::ElementDocument* documen
     : coordinator_(coordinator),
       document_(document),
       animationDocument_(animationDocument),
-      tilesetDocument_(tilesetDocument) {}
+      tilesetDocument_(tilesetDocument),
+      spriteAnimationEditor_(coordinator, animationDocument),
+      tilesetEditor_(coordinator, tilesetDocument),
+      logicBoardEditor_(coordinator, document) {}
 
 EditorUi::~EditorUi() { detach(); }
 
@@ -411,17 +353,14 @@ void EditorUi::detach() {
     saveProjectRequest_ = {};
     saveProjectAsRequest_ = {};
     importAssetRequest_ = {};
-    importImageForAnimationRequest_ = {};
     addEntityRequest_ = {};
     addInstanceRequest_ = {};
     createEntityHereRequest_ = {};
     createInstanceHereRequest_ = {};
     fitViewRequest_ = {};
-    sliceAnimationRequest_ = {};
-    applyTilesetSlicingRequest_ = {};
-    closeTilesetEditorRequest_ = {};
-    createTilesetFromImageRequest_ = {};
-    tilesetImageSizeProvider_ = {};
+    spriteAnimationEditor_.detach();
+    tilesetEditor_.detach();
+    logicBoardEditor_.detach();
 
     // These are non-owning and become invalid as soon as the host unloads its
     // documents. Null them even when bind never succeeded (missing document).
@@ -440,7 +379,7 @@ void EditorUi::processFrame() {
     // The preview playhead advances without invalidation (workspace tick), so
     // the timeline highlight and Play/Pause affordance follow it live here,
     // class-only — never via a markup rebuild that would steal input focus.
-    updateSpriteAnimationPlayhead();
+    spriteAnimationEditor_.updatePlayhead();
 }
 
 PendingEditResult EditorUi::resolvePendingEdits() {
@@ -501,17 +440,17 @@ void EditorUi::applyInvalidations(EditorInvalidation flags) {
     if (has(flags, EditorInvalidation::Assets) || has(flags, EditorInvalidation::Project))
         assets_.refresh(document_, coordinator_);
     if (has(flags, EditorInvalidation::LogicBoard) || has(flags, EditorInvalidation::Project))
-        logicBoard_.refresh(document_, coordinator_);
+        logicBoardEditor_.refresh();
     if (has(flags, EditorInvalidation::Viewport) || has(flags, EditorInvalidation::Assets)
         || has(flags, EditorInvalidation::Project)) {
-        refreshSpriteAnimationEditor();
-        refreshTilesetEditor();
+        spriteAnimationEditor_.refresh();
+        tilesetEditor_.refresh();
     }
     if (has(flags, EditorInvalidation::Toolbar))
         refreshToolbar();
     if (has(flags, EditorInvalidation::Viewport)) {
         updateZoomReadout();
-        updateTilesetZoomReadout();
+        tilesetEditor_.updateZoomReadout();
     }
     if (has(flags, EditorInvalidation::Layout))
         refreshLayout();
@@ -545,464 +484,13 @@ void EditorUi::refreshLayout() {
         splitter->SetClass("hidden", !consoleVisible);
 }
 
-void EditorUi::refreshSpriteAnimationEditor() {
-    if (!animationDocument_) return;
-    Rml::Element* panel = animationDocument_->GetElementById("animation-editor");
-    if (!panel) return;
-    const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
-    if (!state.openAssetId) {
-        animationDocument_->Hide();
-        spriteAnimationTimelineCount_ = 0;
-        if (!spriteAnimationEditorMarkup_.empty()) {
-            spriteAnimationEditorMarkup_.clear();
-            panel->SetInnerRML("");
-        }
-        return;
-    }
-    const SpriteAnimationAssetDef* asset =
-        coordinator_.document().findSpriteAnimationAsset(*state.openAssetId);
-    if (!asset) {
-        animationDocument_->Hide();
-        spriteAnimationTimelineCount_ = 0;
-        if (!spriteAnimationEditorMarkup_.empty()) {
-            spriteAnimationEditorMarkup_.clear();
-            panel->SetInnerRML("");
-        }
-        return;
-    }
 
-    animationDocument_->Show();
-    animationDocument_->PullToFront();
-    const SpriteAnimationClipDef* selected = selectedAnimationClip(*asset, state);
-    // The clip's frames are the sequence, shown 1:1 in the timeline.
-    const std::size_t displayedFrameCount = selected ? selected->frames.size() : 0;
-    std::string html;
-    html += "<div class=\"anim-editor-shell\">";
-    html += "<div class=\"anim-editor-title\">"
-            "<span class=\"anim-editor-eyebrow\">Sprite Animation Editor</span>"
-            "<span class=\"anim-editor-name\">" + escapeRml(asset->name) + "</span>"
-            "<button class=\"panel-btn\" data-action=\"close-sprite-animation\">Close</button></div>";
-    html += "<div class=\"anim-editor-main\">";
 
-    // -- Left column: Animations (asset switcher) over Clips ------------------
-    // The editor edits one animation asset at a time; this list shows every
-    // animation in the project so a new one (Import Sheet) is clearly an add, not
-    // a replace, and all of them stay reachable after a reload. Each row reuses
-    // the same open-sprite-animation entry point as the Assets panel.
-    html += "<div class=\"anim-clips\"><div class=\"anim-panel-title\">Animations</div>"
-            "<div class=\"anim-asset-list\">";
-    for (const SpriteAnimationAssetDef& a : coordinator_.document().data().spriteAnimationAssets) {
-        std::string cls = "anim-asset";
-        if (a.id == asset->id) cls += " selected";
-        html += "<div class=\"" + cls + "\" data-action=\"open-sprite-animation\" data-arg=\""
-              + escapeRml(a.id) + "\">"
-                "<span class=\"anim-asset-name\">" + escapeRml(a.name) + "</span>"
-                "<span class=\"anim-clip-count\">" + std::to_string(a.clips.size())
-              + "</span>"
-                // Same remove-sprite-animation entry point the Assets panel's trash
-                // icon uses; nested inside a row with its own data-action, but the
-                // listener resolves the nearest ancestor's data-action first, so a
-                // click here never also triggers open-sprite-animation.
-                "<button class=\"anim-asset-remove\" data-action=\"remove-sprite-animation\""
-                " data-arg=\"" + escapeRml(a.id) + "\" title=\"Delete this animation\">"
-                "<span class=\"icon\">&#xeb41;</span></button>"
-                "</div>";
-    }
-    html += "</div><button class=\"anim-import-sheet\" data-action=\"import-animation-sheet\""
-            " title=\"Import an image and start a new animation on it\">"
-            "<span class=\"icon\">&#xea7a;</span>Import Sheet</button>";
 
-    html += "<div class=\"anim-panel-title anim-section-gap\">Clips</div>"
-            "<div class=\"anim-clip-list\">";
-    for (const SpriteAnimationClipDef& clip : asset->clips) {
-        std::string cls = "anim-clip";
-        if (state.selectedClipId && *state.selectedClipId == clip.id) cls += " selected";
-        html += "<div class=\"" + cls + "\" data-action=\"select-animation-clip\" data-arg=\""
-              + escapeRml(asset->id + "|" + clip.id) + "\">"
-                "<span class=\"anim-clip-name\">" + escapeRml(clip.name) + "</span>"
-                "<span class=\"anim-clip-count\">" + std::to_string(clip.frames.size())
-              + "</span></div>";
-    }
-    if (asset->clips.empty()) html += "<div class=\"assets-empty\">No clips yet</div>";
-    html += "</div><button class=\"anim-add-clip\" data-action=\"add-animation-clip\""
-            " data-arg=\"" + escapeRml(asset->id)
-          + "\" title=\"Add another clip on this same sheet\">"
-            "<span class=\"icon\">&#xeb0b;</span>Add Clip</button></div>";
 
-    // -- Sheet column -----------------------------------------------------------
-    html += "<div class=\"anim-sheet\"><div class=\"anim-sheet-head\">"
-            "<div class=\"anim-panel-title\">Sprite Sheet</div>"
-            "<span class=\"anim-sheet-meta\">"
-          + escapeRml(editorSheetImageId(*asset, state.selectedClipId))
-          + "</span>"
-            "<button class=\"panel-btn sheet-view-reset\" data-action=\"reset-sheet-view\""
-            " title=\"Reset zoom and pan\">Reset View</button></div>"
-            "<div class=\"anim-slice-controls\">"
-            "<div class=\"anim-tool-group\"><span class=\"anim-tool-label\">Frames</span>"
-            "<span class=\"anim-tool-field\">Cols</span><input type=\"text\" class=\"prop-input compact\""
-            " data-action=\"commit-animation-columns\" value=\""
-          + std::to_string(state.sliceColumns)
-          + "\"/>"
-            "<span class=\"anim-tool-field\">Rows</span><input type=\"text\" class=\"prop-input compact\""
-            " data-action=\"commit-animation-rows\" value=\""
-          + std::to_string(state.sliceRows)
-          + "\"/></div>"
-            "<div class=\"anim-tool-group\"><span class=\"anim-tool-label\">Gaps</span>"
-            "<span class=\"anim-tool-field\">Margin</span><input type=\"text\" class=\"prop-input compact\""
-            " data-action=\"commit-animation-margin\" value=\""
-          + std::to_string(state.sliceMargin)
-          + "\"/>"
-            "<span class=\"anim-tool-field\">Spacing</span><input type=\"text\" class=\"prop-input compact\""
-            " data-action=\"commit-animation-spacing\" value=\""
-          + std::to_string(state.sliceSpacing)
-          + "\"/></div>"
-            "<button class=\"panel-btn primary slice-action\" data-action=\"slice-animation-grid\""
-            " title=\"Divide the sheet into Cols x Rows frames, in reading order\">"
-            "Slice into Frames</button>"
-            "</div>";
-    if (asset->clips.empty()) {
-        // Empty state sits where the user is looking (above the sheet), with
-        // the primary action inline; the sidebar Add Clip stays as secondary
-        // entry. Both converge on the same add-animation-clip action. In-flow
-        // on purpose: raylib paints the sheet after RmlUi, so an overlay inside
-        // the canvas rect would be drawn over.
-        html += "<div class=\"anim-canvas-empty\">"
-                "<div class=\"anim-canvas-empty-text\">"
-                "<div class=\"anim-canvas-empty-title\">Ready to slice</div>"
-                "<div class=\"anim-canvas-empty-hint\">Set how many frames the sheet holds"
-                " and click Slice into Frames - the clip is created for you.</div></div>"
-                "<button class=\"anim-canvas-empty-cta\" data-action=\"slice-animation-grid\""
-                " title=\"Create a clip and fill it from the grid in one step\">"
-                "Slice into Frames</button></div>";
-    }
-    html += "<div id=\"animation-sprite-canvas\" class=\"anim-sprite-canvas\"></div>"
-            "<div class=\"anim-sheet-footer\">Click a cell to add or remove it"
-            "&nbsp;&nbsp;&#183;&nbsp;&nbsp;Wheel to zoom"
-            "&nbsp;&nbsp;&#183;&nbsp;&nbsp;Middle mouse or Space + drag to pan</div></div>";
 
-    // -- Clip settings column ----------------------------------------------------
-    html += "<div class=\"anim-settings\"><div class=\"anim-panel-title\">Clip Settings</div>";
-    if (selected) {
-        html += "<div class=\"prop-row\"><span class=\"prop-label\">Name</span>"
-                "<input type=\"text\" class=\"prop-input\" data-action=\"commit-animation-clip-name\""
-                " data-arg=\"" + escapeRml(asset->id + "|" + selected->id) + "\" value=\""
-              + escapeRml(selected->name) + "\"/></div>";
-        html += "<div class=\"prop-row\"><span class=\"prop-label\">FPS</span>"
-                "<input type=\"text\" class=\"prop-input\" data-action=\"commit-animation-clip-fps\""
-                " data-arg=\"" + escapeRml(asset->id + "|" + selected->id) + "\" value=\""
-              + compactNumber(selected->framesPerSecond) + "\"/></div>";
-        html += "<div class=\"mode-block\"><span class=\"mode-label\">Playback</span>"
-                "<div class=\"mode-options\">";
-        const auto option = [&](AnimationPlaybackMode mode, const char* label, const char* arg) {
-            html += "<button class=\"panel-btn mode-option";
-            if (selected->playbackMode == mode) html += " active";
-            html += "\" data-action=\"set-animation-playback\" data-arg=\""
-                  + escapeRml(asset->id + "|" + selected->id + "|" + arg)
-                  + "\">" + label + "</button>";
-        };
-        option(AnimationPlaybackMode::Loop, "Loop", "loop");
-        option(AnimationPlaybackMode::Once, "Once", "once");
-        html += "</div></div>";
-        html += "<div class=\"prop-row\"><span class=\"prop-label\">Frames</span>"
-                "<span class=\"prop-readonly\">" + std::to_string(displayedFrameCount)
-              + "</span></div>";
-        // Static markup on purpose: play state is reflected through the "active"
-        // class in updateSpriteAnimationPlayhead(), so a Once clip finishing
-        // mid-typing never triggers a SetInnerRML rebuild (focus steal).
-        html += "<div class=\"anim-panel-title anim-preview-title\">Preview</div>"
-                "<div id=\"animation-preview-canvas\" class=\"anim-preview-canvas\"></div>"
-                "<div class=\"anim-transport\">"
-                "<button class=\"panel-btn\" data-action=\"step-animation-preview\""
-                " data-arg=\"-1\" title=\"Previous frame\"><span class=\"icon\">&#xed48;</span></button>"
-                "<button id=\"anim-preview-toggle\" class=\"panel-btn anim-preview-toggle\""
-                " data-action=\"toggle-animation-preview\" title=\"Play / Pause\">"
-                "<span class=\"icon preview-when-stopped\">&#xed46;</span>"
-                "<span class=\"icon preview-when-playing\">&#xed45;</span></button>"
-                "<button class=\"panel-btn\" data-action=\"step-animation-preview\""
-                " data-arg=\"1\" title=\"Next frame\"><span class=\"icon\">&#xed49;</span></button>"
-                "</div>";
-        html += "<div class=\"anim-settings-spacer\"></div>"
-                "<button class=\"anim-remove-clip\" data-action=\"remove-animation-clip\" data-arg=\""
-              + escapeRml(asset->id + "|" + selected->id)
-              + "\"><span class=\"icon\">&#xeb41;</span>Remove Clip</button>";
-    } else {
-        html += "<div class=\"assets-empty\">Select or add a clip</div>";
-    }
-    html += "</div></div>";
 
-    // -- Timeline strip -----------------------------------------------------------
-    html += "<div class=\"anim-timeline\"><div class=\"anim-timeline-head\">"
-            "<div class=\"anim-panel-title\">Timeline</div>";
-    if (selected && displayedFrameCount > 0) {
-        html += "<span class=\"anim-timeline-readout\">"
-              + std::to_string(displayedFrameCount) + " frames &#183; "
-              + compactNumber(selected->framesPerSecond) + " fps</span>"
-                "<button class=\"panel-btn\" data-action=\"clear-animation-frames\" data-arg=\""
-              + escapeRml(asset->id + "|" + selected->id)
-              + "\" title=\"Remove every frame from the clip\">Clear</button>";
-    }
-    html += "</div><div class=\"anim-timeline-track\">";
-    if (selected && displayedFrameCount > 0) {
-        for (std::size_t i = 0; i < displayedFrameCount; ++i) {
-            const std::string index = std::to_string(i);
-            // Head strip carries the order + remove (RmlUi, clickable); the thumb
-            // sub-div below is the rect raylib paints the frame image into, so the
-            // controls are never covered by the raylib overlay.
-            html += "<div id=\"anim-frame-chip-" + index + "\" class=\"anim-frame\""
-                    " data-action=\"set-animation-preview-frame\" data-arg=\"" + index
-                  + "\" title=\"Show this frame in the preview\">"
-                    "<div class=\"anim-frame-head\">"
-                    "<span class=\"anim-frame-order\">" + std::to_string(i + 1) + "</span>"
-                    "<span class=\"anim-frame-remove\" data-action=\"remove-animation-frame\""
-                    " data-arg=\"" + index + "\" title=\"Remove this frame\">&#xd7;</span>"
-                    "</div>"
-                    "<div id=\"anim-frame-thumb-" + index + "\" class=\"anim-frame-thumb\"></div>"
-                    "</div>";
-        }
-    } else {
-        html += "<span class=\"assets-empty\">No frames - set Cols x Rows and click"
-                " Slice into Frames, or click cells on the sheet</span>";
-    }
-    html += "</div></div></div>";
-    if (html != spriteAnimationEditorMarkup_) {
-        spriteAnimationEditorMarkup_ = html;
-        panel->SetInnerRML(html);
-    }
-    // Playhead highlight + play state live outside the generated markup; they are
-    // applied per frame in updateSpriteAnimationPlayhead() via classes only.
-    spriteAnimationTimelineCount_ = displayedFrameCount;
-}
 
-void EditorUi::refreshTilesetEditor() {
-    if (!tilesetDocument_) return;
-    Rml::Element* panel = tilesetDocument_->GetElementById("tileset-editor");
-    if (!panel) return;
-    const TilesetEditorState& state = coordinator_.state().tilesetEditor;
-    const TilesetAsset* asset =
-        state.openAssetId ? coordinator_.document().findTilesetAsset(*state.openAssetId) : nullptr;
-    if (!asset) {
-        tilesetDocument_->Hide();
-        if (!tilesetEditorMarkup_.empty()) {
-            tilesetEditorMarkup_.clear();
-            panel->SetInnerRML("");
-        }
-        return;
-    }
-
-    tilesetDocument_->Show();
-    tilesetDocument_->PullToFront();
-    const TilesetSlicing& s = state.pendingSlicing;
-    const bool dirty = !sameTilesetSlicing(asset->slicing, s);
-    const std::optional<std::pair<int, int>> imageSize = tilesetImageSizeProvider_
-        ? tilesetImageSizeProvider_(asset->imageAssetId)
-        : std::nullopt;
-
-    // One labelled X/Y (or W/H) pair per row - halves the form height and
-    // matches how the values are actually thought about.
-    const auto slicePair = [](const char* label,
-                              const char* actionA, int valueA,
-                              const char* actionB, int valueB) {
-        return std::string("<div class=\"tileset-slice-row\"><span class=\"prop-label\">") + label
-             + "</span><input type=\"text\" class=\"prop-input\" data-action=\"" + actionA
-             + "\" value=\"" + std::to_string(valueA)
-             + "\"/><input type=\"text\" class=\"prop-input\" data-action=\"" + actionB
-             + "\" value=\"" + std::to_string(valueB) + "\"/></div>";
-    };
-
-    std::string html;
-    html += "<div class=\"tileset-editor-shell\">";
-
-    // -- Header: eyebrow, editable name, source info, dirty chip, Close -------
-    html += "<div class=\"tileset-editor-title\">"
-            "<span class=\"tileset-editor-eyebrow\">Tileset Editor</span>"
-            "<input type=\"text\" class=\"tileset-editor-name\" data-action=\"commit-tileset-name\""
-            " data-arg=\"" + escapeRml(asset->assetId) + "\" value=\"" + escapeRml(asset->name) + "\"/>"
-            "<span class=\"tileset-editor-source\">" + escapeRml(asset->imageAssetId);
-    if (imageSize) {
-        html += "&nbsp;&nbsp;&#183;&nbsp;&nbsp;" + std::to_string(imageSize->first) + " &#215; "
-              + std::to_string(imageSize->second) + " px";
-    }
-    html += "</span>";
-    if (dirty) {
-        html += "<span class=\"tileset-status-chip warn\">Unapplied changes</span>";
-    } else {
-        html += "<span class=\"tileset-status-chip\">"
-              + std::to_string(asset->tiles.size()) + " tiles</span>";
-    }
-    html += "<button id=\"tileset-close-btn\" class=\"panel-btn\""
-            " data-action=\"close-tileset-editor\">Close</button></div>";
-
-    html += "<div class=\"tileset-editor-main\">";
-
-    // -- Canvas column: zoom toolbar, canvas, status bar -----------------------
-    html += "<div class=\"tileset-canvas-col\">"
-            "<div class=\"tileset-canvas-toolbar\">"
-            "<span class=\"tileset-panel-title\">Source Image</span>"
-            "<button class=\"panel-btn tileset-zoom-btn\" data-action=\"tileset-zoom-out\""
-            " title=\"Zoom out\">&#8722;</button>"
-            "<span id=\"tileset-zoom-readout\" class=\"tileset-zoom-readout\"></span>"
-            "<button class=\"panel-btn tileset-zoom-btn\" data-action=\"tileset-zoom-in\""
-            " title=\"Zoom in\">+</button>"
-            "<button class=\"panel-btn tileset-zoom-fit\" data-action=\"tileset-zoom-fit\""
-            " title=\"Reset zoom and pan\">Fit</button>"
-            "</div>"
-            "<div id=\"tileset-canvas\"></div>";
-    html += "<div class=\"tileset-canvas-status\">";
-    if (imageSize) {
-        const TilesetSliceResult grid =
-            computeTilesetSlicing(imageSize->first, imageSize->second, s);
-        if (grid.tileCount > 0) {
-            html += "<span class=\"tileset-status-strong\">" + std::to_string(grid.columns)
-                  + " &#215; " + std::to_string(grid.rows) + " tiles</span><span>"
-                  + std::to_string(s.tileWidth) + " &#215; " + std::to_string(s.tileHeight)
-                  + " px tile</span>";
-        }
-    }
-    html += "<span class=\"tileset-status-hint\">Wheel to zoom"
-            "&nbsp;&nbsp;&#183;&nbsp;&nbsp;Middle mouse or Space + drag to pan"
-            "&nbsp;&nbsp;&#183;&nbsp;&nbsp;Click a tile to select it</span></div></div>";
-
-    // -- Settings column: slicing form, live feedback, actions, selected tile --
-    html += "<div class=\"tileset-settings\"><div class=\"tileset-panel-title\">Slicing</div>";
-    html += slicePair("Tile Size",
-                      "commit-tileset-tile-width", s.tileWidth,
-                      "commit-tileset-tile-height", s.tileHeight);
-    html += slicePair("Margin",
-                      "commit-tileset-margin-x", s.marginX,
-                      "commit-tileset-margin-y", s.marginY);
-    html += slicePair("Spacing",
-                      "commit-tileset-spacing-x", s.spacingX,
-                      "commit-tileset-spacing-y", s.spacingY);
-
-    // Live coverage feedback from the same pure slicing math the renderer and
-    // the Apply flow use; the core still revalidates on Apply (UI validation
-    // is experience only, never the guard).
-    if (imageSize) {
-        const TilesetSliceResult grid =
-            computeTilesetSlicing(imageSize->first, imageSize->second, s);
-        if (grid.tileCount <= 0) {
-            html += "<span class=\"tileset-slice-feedback err\">"
-                    "Tile size does not fit the sheet &#8212; lower it</span>";
-        } else if (grid.remainderX > 0 || grid.remainderY > 0) {
-            html += "<span class=\"tileset-slice-feedback warn\">"
-                  + std::to_string(grid.columns) + " &#215; " + std::to_string(grid.rows) + " = "
-                  + std::to_string(grid.tileCount) + " tiles &#8212; leaves ";
-            if (grid.remainderX > 0) {
-                html += std::to_string(grid.remainderX) + " px right";
-                if (grid.remainderY > 0) html += ", ";
-            }
-            if (grid.remainderY > 0) html += std::to_string(grid.remainderY) + " px bottom";
-            html += " uncovered</span>";
-        } else {
-            html += "<span class=\"tileset-slice-feedback ok\">"
-                  + std::to_string(grid.columns) + " &#215; " + std::to_string(grid.rows) + " = "
-                  + std::to_string(grid.tileCount) + " tiles &#8212; covers the whole sheet</span>";
-        }
-    } else {
-        html += "<span class=\"tileset-slice-feedback\">Source image not loaded</span>";
-    }
-
-    html += "<div class=\"tileset-settings-actions\">"
-            "<button id=\"tileset-apply-btn\" class=\"panel-btn";
-    if (dirty) html += " primary";
-    html += "\" data-action=\"apply-tileset-slicing\""
-            " title=\"Commit this slicing to the tileset\">Apply</button>"
-            "<button id=\"tileset-reset-btn\" class=\"panel-btn\""
-            " data-action=\"reset-tileset-slicing\""
-            " title=\"Back to the committed slicing\">Reset</button></div>";
-
-    html += "<div class=\"tileset-panel-title tileset-selected-title\">Selected Tile</div>";
-    // Selection ids come from the pending grid (canvas click); resolve against
-    // the committed tiles first, then the live pending grid, so the panel
-    // always shows exactly what the canvas highlighted.
-    std::optional<TileDefinition> selectedTile;
-    if (state.selectedTileId) {
-        for (const TileDefinition& tile : asset->tiles) {
-            if (tile.id == *state.selectedTileId) { selectedTile = tile; break; }
-        }
-        if (!selectedTile && imageSize) {
-            for (const TileDefinition& tile :
-                 tilesForSlicing(imageSize->first, imageSize->second, s)) {
-                if (tile.id == *state.selectedTileId) { selectedTile = tile; break; }
-            }
-        }
-    }
-    const TileDefinition* selected = selectedTile ? &*selectedTile : nullptr;
-    if (selected) {
-        html += "<div class=\"tileset-selected-row\">"
-                "<div id=\"tileset-selected-thumb\" class=\"tileset-selected-thumb\"></div>"
-                "<span class=\"tileset-selected-info\">" + escapeRml(selected->id)
-              + "<br/>x " + std::to_string(selected->x) + " &#183; y " + std::to_string(selected->y)
-              + " &#183; " + std::to_string(selected->width) + " &#215; "
-              + std::to_string(selected->height) + " px</span></div>";
-    } else {
-        html += "<span class=\"tileset-selected-empty\">Click a tile in the sheet to select it</span>";
-    }
-
-    // Committed tiles as a visual grid (the Inspector palette's thumb-slot
-    // pattern: transparent divs raylib paints the crops into). Capped so a
-    // huge atlas cannot flood the layout with elements; the canvas remains
-    // the full view.
-    if (!asset->tiles.empty()) {
-        constexpr std::size_t kMaxTileThumbs = 512;
-        const std::size_t shown = std::min(asset->tiles.size(), kMaxTileThumbs);
-        html += "<div class=\"tileset-panel-title tileset-tiles-title\">Tiles ("
-              + std::to_string(asset->tiles.size()) + ")</div>";
-        html += "<div id=\"tileset-tiles-grid\" class=\"tileset-tiles-grid\">";
-        for (std::size_t i = 0; i < shown; ++i) {
-            const TileDefinition& tile = asset->tiles[i];
-            html += "<div id=\"tileset-grid-thumb-" + std::to_string(i)
-                  + "\" class=\"tile-thumb\" data-action=\"select-tileset-tile\""
-                    " data-arg=\"" + escapeRml(tile.id) + "\""
-                    " title=\"Tile " + std::to_string(i + 1) + " - ID: " + escapeRml(tile.id)
-                  + "\"></div>";
-        }
-        if (shown < asset->tiles.size()) {
-            html += "<span class=\"tileset-tiles-more\">+"
-                  + std::to_string(asset->tiles.size() - shown) + " more tiles</span>";
-        }
-        html += "</div>";
-    }
-
-    html += "<span class=\"tileset-settings-diagnostic\">Source: " + escapeRml(asset->imageAssetId)
-          + "<br/>" + std::to_string(asset->tiles.size()) + " tile(s) committed</span>";
-    html += "</div>";      // .tileset-settings
-    html += "</div></div>"; // .tileset-editor-main, .tileset-editor-shell
-
-    if (html != tilesetEditorMarkup_) {
-        tilesetEditorMarkup_ = html;
-        panel->SetInnerRML(html);
-        updateTilesetZoomReadout();   // the readout span was just recreated empty
-    }
-}
-
-void EditorUi::updateTilesetZoomReadout() {
-    if (!tilesetDocument_) return;
-    const TilesetEditorState& state = coordinator_.state().tilesetEditor;
-    if (!state.openAssetId) return;
-    if (Rml::Element* el = tilesetDocument_->GetElementById("tileset-zoom-readout")) {
-        const int pct = static_cast<int>(state.zoom * 100.f + 0.5f);
-        el->SetInnerRML(std::to_string(pct) + "%");
-    }
-}
-
-void EditorUi::updateSpriteAnimationPlayhead() {
-    if (!animationDocument_) return;
-    const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
-    if (!state.openAssetId) return;
-    if (Rml::Element* toggle = animationDocument_->GetElementById("anim-preview-toggle")) {
-        toggle->SetClass("active", state.previewPlaying);
-    }
-    if (spriteAnimationTimelineCount_ == 0) return;
-    const std::size_t current =
-        std::min(state.previewFrameIndex, spriteAnimationTimelineCount_ - 1);
-    for (std::size_t i = 0; i < spriteAnimationTimelineCount_; ++i) {
-        if (Rml::Element* chip = animationDocument_->GetElementById(
-                "anim-frame-chip-" + std::to_string(i))) {
-            chip->SetClass("current", i == current);
-        }
-    }
-}
 
 SceneId EditorUi::currentViewSceneId() const {
     return (coordinator_.isPlaying() && coordinator_.playSession())
@@ -1036,7 +524,7 @@ void EditorUi::setImportHandler(ImportAssetRequest importAsset) {
 }
 
 void EditorUi::setImportImageForAnimationHandler(ImportImageRequest importImage) {
-    importImageForAnimationRequest_ = std::move(importImage);
+    spriteAnimationEditor_.setImportImageRequest(std::move(importImage));
 }
 
 void EditorUi::setFitViewHandler(WorkspaceRequest fitView) {
@@ -1044,23 +532,23 @@ void EditorUi::setFitViewHandler(WorkspaceRequest fitView) {
 }
 
 void EditorUi::setAnimationSliceHandler(WorkspaceRequest sliceAnimation) {
-    sliceAnimationRequest_ = std::move(sliceAnimation);
+    spriteAnimationEditor_.setSliceRequest(std::move(sliceAnimation));
 }
 
 void EditorUi::setTilesetApplySlicingHandler(WorkspaceRequest applyTilesetSlicing) {
-    applyTilesetSlicingRequest_ = std::move(applyTilesetSlicing);
+    tilesetEditor_.setApplySlicingRequest(std::move(applyTilesetSlicing));
 }
 
 void EditorUi::setTilesetCloseHandler(WorkspaceRequest closeTileset) {
-    closeTilesetEditorRequest_ = std::move(closeTileset);
+    tilesetEditor_.setCloseRequest(std::move(closeTileset));
 }
 
 void EditorUi::setCreateTilesetFromImageHandler(CreateTilesetRequest createTileset) {
-    createTilesetFromImageRequest_ = std::move(createTileset);
+    tilesetEditor_.setCreateFromImageRequest(std::move(createTileset));
 }
 
 void EditorUi::setTilesetImageSizeProvider(ImageSizeProvider imageSize) {
-    tilesetImageSizeProvider_ = std::move(imageSize);
+    tilesetEditor_.setImageSizeProvider(std::move(imageSize));
 }
 
 void EditorUi::setEntityPlacementHandlers(EntityPlacementRequest addEntity,
@@ -1534,20 +1022,25 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     // Logic Board value dropdowns (Object Type / per-rule Key) follow the
     // identical pattern.
     if (action == "toggle-logic-dropdown") {
-        if (!coordinator_.isPlaying()) logicBoard_.toggleDropdown(document_, coordinator_, arg);
+        if (!coordinator_.isPlaying()) logicBoardEditor_.toggleDropdown(arg);
         return;
     }
     if (action == "select-logic-object-type" || action == "set-logic-key") {
-        logicBoard_.closeDropdown();   // then fall through to execute the pick
+        logicBoardEditor_.closeDropdown();   // then fall through to execute the pick
     }
 
     if (handleProjectFileAction(action, arg, value)) return;
     if (handleConsoleAction(action, arg, value)) return;
     if (handleAssetsAction(action, arg, value)) return;
     if (handleToolbarAction(action, arg, value)) return;
-    if (handleSpriteAnimationAction(action, arg, value)) return;
-    if (handleTilesetEditorAction(action, arg, value)) return;
-    if (handleLogicBoardAction(action, arg, value)) return;
+    if (spriteAnimationEditor_.handleAction(action, arg, value)) return;
+    if (tilesetEditor_.handleAction(action, arg, value)) return;
+    if (logicBoardEditor_.handleAction(action, arg, value, [this]() {
+            hideContextMenus();
+            if (document_ && document_->GetContext()) {
+                if (Rml::Element* focus = document_->GetContext()->GetFocusElement()) focus->Blur();
+            }
+        })) return;
     if (handleHierarchyAction(action, arg, value, selected)) return;
     if (handleInspectorAction(action, arg, value, selected)) return;
 }
@@ -1843,438 +1336,7 @@ bool EditorUi::handleToolbarAction(const std::string& action, const std::string&
     return true;
 }
 
-bool EditorUi::handleSpriteAnimationAction(const std::string& action, const std::string& arg,
-                                           const std::string& value) {
-    if (action == "create-sprite-animation") {
-        if (!coordinator_.isPlaying() && coordinator_.document().hasImageAsset(arg)) {
-            const std::string id = uniqueAnimationAssetId(coordinator_.document(), arg);
-            const std::string name = id;
-            if (coordinator_.execute(AddSpriteAnimationAssetCommand{id, name}).ok) {
-                // The asset is only a container: its first clip carries the sheet.
-                if (const SpriteAnimationAssetDef* asset =
-                        coordinator_.document().findSpriteAnimationAsset(id)) {
-                    coordinator_.execute(AddAnimationClipCommand{
-                        id, uniqueClipId(*asset), uniqueClipName(*asset), arg});
-                }
-                coordinator_.apply(OpenSpriteAnimationEditorIntent{id});
-            }
-        }
-    } else if (action == "open-sprite-animation") {
-        if (!coordinator_.isPlaying()) coordinator_.apply(OpenSpriteAnimationEditorIntent{arg});
-    } else if (action == "close-sprite-animation") {
-        coordinator_.apply(CloseSpriteAnimationEditorIntent{});
-    } else if (action == "remove-sprite-animation") {
-        if (!arg.empty()) coordinator_.execute(RemoveSpriteAnimationAssetCommand{arg});
-    } else if (action == "select-animation-clip") {
-        const std::vector<std::string> parts = splitPipe(arg);
-        if (parts.size() == 2) coordinator_.apply(SelectAnimationClipIntent{parts[0], parts[1]});
-    } else if (action == "add-animation-clip") {
-        const SpriteAnimationAssetDef* asset =
-            coordinator_.document().findSpriteAnimationAsset(arg);
-        if (asset) {
-            // The new clip inherits the sheet currently shown in the editor.
-            const std::string clipId = uniqueClipId(*asset);
-            if (coordinator_.execute(AddAnimationClipCommand{
-                    arg, clipId, uniqueClipName(*asset),
-                    editorSheetImageId(*asset,
-                        coordinator_.state().spriteAnimationEditor.selectedClipId)}).ok) {
-                coordinator_.apply(SelectAnimationClipIntent{arg, clipId});
-            }
-        }
-    } else if (action == "import-animation-sheet") {
-        // Import a sprite sheet without leaving the editor: the same importAsset
-        // pipeline the Assets panel uses returns the image id, then we start a new
-        // animation on it via the same path as create-sprite-animation and open
-        // it. A new asset with a first clip carrying the imported sheet.
-        if (coordinator_.isPlaying() || !importImageForAnimationRequest_) return true;
-        const std::optional<AssetId> imageId = importImageForAnimationRequest_();
-        if (!imageId || !coordinator_.document().hasImageAsset(*imageId)) return true;
-        const std::string id = uniqueAnimationAssetId(coordinator_.document(), *imageId);
-        if (coordinator_.execute(AddSpriteAnimationAssetCommand{id, id}).ok) {
-            if (const SpriteAnimationAssetDef* asset =
-                    coordinator_.document().findSpriteAnimationAsset(id)) {
-                coordinator_.execute(AddAnimationClipCommand{
-                    id, uniqueClipId(*asset), uniqueClipName(*asset), *imageId});
-            }
-            coordinator_.apply(OpenSpriteAnimationEditorIntent{id});
-        }
-    } else if (action == "commit-animation-clip-name") {
-        const std::vector<std::string> parts = splitPipe(arg);
-        if (parts.size() != 2) {
-            coordinator_.logError("Invalid animation clip reference");
-        } else if (value.empty()) {
-            coordinator_.logError("Clip name cannot be empty");
-        } else {
-            coordinator_.execute(RenameAnimationClipCommand{parts[0], parts[1], value});
-        }
-    } else if (action == "commit-animation-clip-fps") {
-        const std::vector<std::string> parts = splitPipe(arg);
-        const std::optional<float> parsed = parseNumberField(value);
-        if (parts.size() != 2) {
-            coordinator_.logError("Invalid animation clip reference");
-        } else if (!parsed.has_value()) {
-            coordinator_.logError("FPS is not a number");
-        } else {
-            coordinator_.execute(SetAnimationClipFrameRateCommand{parts[0], parts[1], *parsed});
-        }
-    } else if (action == "commit-animation-columns"
-               || action == "commit-animation-rows"
-               || action == "commit-animation-margin"
-               || action == "commit-animation-spacing") {
-        const std::optional<float> parsed = parseNumberField(value);
-        if (!parsed.has_value()) {
-            coordinator_.logError("Slice grid value is not a number");
-        } else {
-            const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
-            SetAnimationSliceGridIntent intent{
-                state.sliceColumns,
-                state.sliceRows,
-                state.sliceMargin,
-                state.sliceSpacing,
-            };
-            const int rounded = static_cast<int>(std::round(*parsed));
-            if (action == "commit-animation-columns") intent.columns = rounded;
-            else if (action == "commit-animation-rows") intent.rows = rounded;
-            else if (action == "commit-animation-margin") intent.margin = rounded;
-            else intent.spacing = rounded;
-            coordinator_.apply(intent);
-        }
-    } else if (action == "slice-animation-grid") {
-        // Slice always targets the OPEN animation. Create + select a fresh clip
-        // when the open asset has no clip matching the current selection - either
-        // no clip yet (fresh Import Sheet) or a selection left over from another
-        // animation. This makes the selected clip and the open asset always agree,
-        // so a slice can never land on a different animation. Re-slicing a clip
-        // that does belong to the open asset is unchanged (fills it in place).
-        const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
-        if (state.openAssetId) {
-            const SpriteAnimationAssetDef* asset =
-                coordinator_.document().findSpriteAnimationAsset(*state.openAssetId);
-            if (asset) {
-                const bool selectionBelongsToOpenAsset =
-                    state.selectedClipId
-                    && std::any_of(asset->clips.begin(), asset->clips.end(),
-                                   [&](const SpriteAnimationClipDef& clip) {
-                                       return clip.id == *state.selectedClipId;
-                                   });
-                if (!selectionBelongsToOpenAsset) {
-                    const std::string clipId = uniqueClipId(*asset);
-                    if (coordinator_.execute(AddAnimationClipCommand{
-                            *state.openAssetId, clipId, uniqueClipName(*asset),
-                            editorSheetImageId(*asset, state.selectedClipId)}).ok) {
-                        coordinator_.apply(SelectAnimationClipIntent{*state.openAssetId, clipId});
-                    }
-                }
-            }
-        }
-        if (sliceAnimationRequest_) sliceAnimationRequest_();
-    } else if (action == "toggle-animation-preview") {
-        coordinator_.apply(SetAnimationPreviewPlayingIntent{
-            !coordinator_.state().spriteAnimationEditor.previewPlaying});
-    } else if (action == "step-animation-preview") {
-        coordinator_.apply(StepAnimationPreviewIntent{arg == "-1" ? -1 : 1});
-    } else if (action == "set-animation-preview-frame") {
-        const std::optional<float> parsed = parseNumberField(arg);
-        if (parsed.has_value() && *parsed >= 0.f) {
-            coordinator_.apply(SetAnimationPreviewFrameIntent{
-                static_cast<std::size_t>(*parsed)});
-        }
-    } else if (action == "clear-animation-frames") {
-        const std::vector<std::string> parts = splitPipe(arg);
-        if (parts.size() == 2) {
-            coordinator_.execute(SetAnimationClipFramesCommand{parts[0], parts[1], {}});
-        }
-    } else if (action == "remove-animation-frame") {
-        // Removes the i-th timeline chip, which maps 1:1 to the clip's frames.
-        const std::optional<float> parsed = parseNumberField(arg);
-        const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
-        if (parsed.has_value() && *parsed >= 0.f && state.openAssetId) {
-            const SpriteAnimationAssetDef* asset =
-                coordinator_.document().findSpriteAnimationAsset(*state.openAssetId);
-            const SpriteAnimationClipDef* clip =
-                asset ? selectedAnimationClip(*asset, state) : nullptr;
-            if (clip) {
-                std::vector<SpriteAnimationFrameDef> frames = clip->frames;
-                const std::size_t index = static_cast<std::size_t>(*parsed);
-                if (index < frames.size()) {
-                    frames.erase(frames.begin() + static_cast<std::ptrdiff_t>(index));
-                    coordinator_.execute(SetAnimationClipFramesCommand{
-                        asset->id, clip->id, std::move(frames)});
-                }
-            }
-        }
-    } else if (action == "reset-sheet-view") {
-        const Vec2 pan = coordinator_.state().spriteAnimationEditor.sheetPan;
-        coordinator_.apply(SetSpriteSheetZoomIntent{1.f});
-        coordinator_.apply(PanSpriteSheetIntent{{-pan.x, -pan.y}});
-    } else if (action == "set-animation-playback") {
-        const std::vector<std::string> parts = splitPipe(arg);
-        if (parts.size() == 3) {
-            const AnimationPlaybackMode mode =
-                parts[2] == "once" ? AnimationPlaybackMode::Once : AnimationPlaybackMode::Loop;
-            coordinator_.execute(SetAnimationClipPlaybackModeCommand{parts[0], parts[1], mode});
-        }
-    } else if (action == "remove-animation-clip") {
-        const std::vector<std::string> parts = splitPipe(arg);
-        if (parts.size() == 2) coordinator_.execute(RemoveAnimationClipCommand{parts[0], parts[1]});
-    } else {
-        return false;
-    }
-    return true;
-}
 
-bool EditorUi::handleLogicBoardAction(const std::string& action, const std::string& arg,
-                                      const std::string& value) {
-    const auto prepareWorkspaceSwitch = [&]() {
-        hideContextMenus();
-        if (document_ && document_->GetContext()) {
-            if (Rml::Element* focus = document_->GetContext()->GetFocusElement()) focus->Blur();
-        }
-    };
-    if (action == "open-scene-workspace") {
-        prepareWorkspaceSwitch();
-        coordinator_.apply(SwitchCenterWorkspaceIntent{CenterWorkspaceMode::Scene});
-        return true;
-    }
-    if (action == "open-logic-workspace") {
-        prepareWorkspaceSwitch();
-        const SceneInstanceDef* selected = coordinator_.document().findInstanceInScene(
-            coordinator_.state().activeSceneId, coordinator_.selection().primaryEntity);
-        if (selected) coordinator_.apply(OpenLogicBoardIntent{selected->objectTypeId});
-        else coordinator_.apply(SwitchCenterWorkspaceIntent{CenterWorkspaceMode::Logic});
-        return true;
-    }
-    if (action == "select-logic-object-type") {
-        if (!value.empty()) coordinator_.apply(OpenLogicBoardIntent{value});
-        return true;
-    }
-    if (action == "logic-tab-rules" || action == "logic-tab-lua") {
-        coordinator_.apply(SetLogicBoardTabIntent{
-            action == "logic-tab-lua" ? LogicBoardTab::GeneratedLua : LogicBoardTab::Rules});
-        return true;
-    }
-    if (action == "commit-logic-search") {
-        coordinator_.apply(SetLogicBoardSearchIntent{value});
-        return true;
-    }
-
-    const auto& view = coordinator_.state().logicBoardEditor;
-    if (!view.objectTypeId || !coordinator_.document().hasObjectType(*view.objectTypeId))
-        return action.rfind("logic-", 0) != std::string::npos;
-    const ObjectTypeId objectTypeId = *view.objectTypeId;
-    const EntityDef& objectType = coordinator_.document().data().objectTypes.at(objectTypeId);
-
-    if (action == "validate-logic-board") {
-        if (!objectType.logicBoard) return true;
-        const Logic::LogicCompileResult result = Logic::compileBoard(objectTypeId, *objectType.logicBoard);
-        if (result.diagnostics.empty()) {
-            coordinator_.logInfo("Logic valid · " + objectTypeId);
-        } else {
-            for (const Logic::LogicDiagnostic& diagnostic : result.diagnostics) {
-                const std::string message = "Logic "
-                    + std::string(diagnostic.severity == Logic::DiagnosticSeverity::Error
-                                      ? "error" : "warning")
-                    + " · " + objectTypeId + " · " + diagnostic.ruleId
-                    + " · " + diagnostic.message;
-                if (diagnostic.severity == Logic::DiagnosticSeverity::Error)
-                    coordinator_.logError(message);
-                else
-                    coordinator_.logWarning(message);
-            }
-        }
-        return true;
-    }
-
-    const bool authoringAction = action == "create-logic-board" || action == "remove-logic-board"
-        || action == "add-logic-rule" || action == "remove-logic-rule"
-        || action == "move-logic-rule-up" || action == "move-logic-rule-down"
-        || action == "toggle-logic-rule" || action == "change-logic-trigger"
-        || action == "set-logic-key" || action == "add-logic-action"
-        || action == "remove-logic-action" || action == "move-logic-action-up"
-        || action == "move-logic-action-down" || action == "change-logic-action"
-        || action == "toggle-logic-visible" || action == "commit-logic-position-x"
-        || action == "commit-logic-position-y";
-    if (coordinator_.isPlaying() && authoringAction) return true;
-
-    if (action == "create-logic-board") {
-        coordinator_.execute(CreateLogicBoardCommand{objectTypeId});
-        return true;
-    }
-    if (action == "remove-logic-board") {
-        coordinator_.execute(RemoveLogicBoardCommand{objectTypeId});
-        return true;
-    }
-    if (!objectType.logicBoard) return authoringAction;
-    const LogicBoardDef& board = *objectType.logicBoard;
-    const auto ruleById = [&](const LogicRuleId& id) -> const LogicRuleDef* {
-        for (const LogicRuleDef& rule : board.rules) if (rule.id == id) return &rule;
-        return nullptr;
-    };
-    const auto ruleIndex = [&](const LogicRuleId& id) -> std::optional<std::size_t> {
-        for (std::size_t i = 0; i < board.rules.size(); ++i)
-            if (board.rules[i].id == id) return i;
-        return std::nullopt;
-    };
-    const auto parseActionArg = [&](const std::string& encoded,
-                                    LogicRuleId& ruleId,
-                                    std::size_t& index) -> bool {
-        const std::vector<std::string> parts = splitPipe(encoded);
-        if (parts.size() != 2 || parts[1].empty()) return false;
-        char* end = nullptr;
-        const unsigned long parsed = std::strtoul(parts[1].c_str(), &end, 10);
-        if (!end || *end != '\0') return false;
-        ruleId = parts[0];
-        index = static_cast<std::size_t>(parsed);
-        return true;
-    };
-
-    if (action == "add-logic-rule") {
-        if (view.tab != LogicBoardTab::Rules) return true;
-        coordinator_.execute(AddLogicRuleCommand{
-            objectTypeId, Logic::makeDefaultRule(nextLogicRuleId(board)), board.rules.size()});
-    } else if (action == "remove-logic-rule") {
-        coordinator_.execute(RemoveLogicRuleCommand{objectTypeId, arg});
-    } else if (action == "move-logic-rule-up" || action == "move-logic-rule-down") {
-        if (const auto index = ruleIndex(arg)) {
-            const std::size_t destination = action == "move-logic-rule-up"
-                ? (*index == 0 ? 0 : *index - 1)
-                : std::min(*index + 1, board.rules.size() - 1);
-            coordinator_.execute(MoveLogicRuleCommand{objectTypeId, arg, destination});
-        }
-    } else if (action == "toggle-logic-rule") {
-        if (const LogicRuleDef* rule = ruleById(arg))
-            coordinator_.execute(SetLogicRuleEnabledCommand{objectTypeId, arg, !rule->enabled});
-    } else if (action == "change-logic-trigger") {
-        LogicBlockDef trigger = Logic::makeDefaultTrigger();
-        if (value == Logic::kKeyPressed) {
-            trigger.typeId = Logic::kKeyPressed;
-            trigger.properties = {{"key", LogicKey::Space}};
-        }
-        coordinator_.execute(ReplaceLogicTriggerCommand{objectTypeId, arg, std::move(trigger)});
-    } else if (action == "set-logic-key") {
-        if (const auto key = Logic::logicKeyFromName(value)) {
-            coordinator_.execute(SetLogicPropertyCommand{
-                objectTypeId, arg, LogicPropertyTarget::Trigger, 0, "key", *key});
-        }
-    } else if (action == "add-logic-action") {
-        if (const LogicRuleDef* rule = ruleById(arg)) {
-            coordinator_.execute(AddLogicActionCommand{
-                objectTypeId, arg, Logic::makeDefaultAction(), rule->actions.size()});
-        }
-    } else if (action == "remove-logic-action" || action == "move-logic-action-up"
-               || action == "move-logic-action-down" || action == "change-logic-action"
-               || action == "toggle-logic-visible" || action == "commit-logic-position-x"
-               || action == "commit-logic-position-y") {
-        LogicRuleId ruleId;
-        std::size_t index = 0;
-        if (!parseActionArg(arg, ruleId, index)) return true;
-        const LogicRuleDef* rule = ruleById(ruleId);
-        if (!rule || index >= rule->actions.size()) return true;
-        if (action == "remove-logic-action") {
-            coordinator_.execute(RemoveLogicActionCommand{objectTypeId, ruleId, index});
-        } else if (action == "move-logic-action-up" || action == "move-logic-action-down") {
-            const std::size_t destination = action == "move-logic-action-up"
-                ? (index == 0 ? 0 : index - 1)
-                : std::min(index + 1, rule->actions.size() - 1);
-            coordinator_.execute(MoveLogicActionCommand{objectTypeId, ruleId, index, destination});
-        } else if (action == "change-logic-action") {
-            coordinator_.execute(ChangeLogicActionTypeCommand{objectTypeId, ruleId, index, value});
-        } else if (action == "toggle-logic-visible") {
-            bool visible = true;
-            if (const LogicPropertyDef* p = Logic::findProperty(rule->actions[index], "visible"))
-                if (const auto* current = std::get_if<bool>(&p->value)) visible = *current;
-            coordinator_.execute(SetLogicPropertyCommand{
-                objectTypeId, ruleId, LogicPropertyTarget::Action, index, "visible", !visible});
-        } else {
-            const std::optional<float> parsed = parseNumberField(value);
-            if (!parsed) {
-                coordinator_.logError("Logic position must be a finite number");
-                return true;
-            }
-            Vec2 position{};
-            if (const LogicPropertyDef* p = Logic::findProperty(rule->actions[index], "position"))
-                if (const auto* current = std::get_if<Vec2>(&p->value)) position = *current;
-            if (action == "commit-logic-position-x") position.x = *parsed;
-            else position.y = *parsed;
-            coordinator_.execute(SetLogicPropertyCommand{
-                objectTypeId, ruleId, LogicPropertyTarget::Action, index, "position", position});
-        }
-    } else {
-        return false;
-    }
-    return true;
-}
-
-bool EditorUi::handleTilesetEditorAction(const std::string& action, const std::string& arg,
-                                         const std::string& value) {
-    if (action == "create-tileset-from-image") {
-        if (!coordinator_.isPlaying() && coordinator_.document().hasImageAsset(arg)) {
-            if (createTilesetFromImageRequest_) {
-                createTilesetFromImageRequest_(arg);
-            } else {
-                const std::string id = uniqueTilesetAssetId(coordinator_.document(), arg);
-                const TilesetSlicing defaultSlicing;   // 32x32, no margin/spacing
-                if (coordinator_.execute(
-                        AddTilesetAssetCommand{id, id, arg, defaultSlicing}).ok) {
-                    coordinator_.apply(OpenTilesetEditorIntent{id});
-                }
-            }
-        }
-    } else if (action == "open-tileset-editor") {
-        if (!coordinator_.isPlaying()) coordinator_.apply(OpenTilesetEditorIntent{arg});
-    } else if (action == "remove-tileset") {
-        if (!arg.empty()) coordinator_.execute(RemoveTilesetAssetCommand{arg});
-    } else if (action == "close-tileset-editor") {
-        // Also serves as Cancel - one action string for both, per the
-        // single-entry-point paletto (mirrors close-sprite-animation's own
-        // single close path). The application handler owns the unapplied-
-        // changes guard; without one, closing discards the pending state.
-        if (closeTilesetEditorRequest_) closeTilesetEditorRequest_();
-        else coordinator_.apply(CloseTilesetEditorIntent{});
-    } else if (action == "commit-tileset-name") {
-        if (!arg.empty() && !value.empty()) {
-            coordinator_.execute(RenameTilesetCommand{arg, value});
-        }
-    } else if (action == "commit-tileset-tile-width" || action == "commit-tileset-tile-height"
-               || action == "commit-tileset-margin-x" || action == "commit-tileset-margin-y"
-               || action == "commit-tileset-spacing-x" || action == "commit-tileset-spacing-y") {
-        const std::optional<float> parsed = parseNumberField(value);
-        if (!parsed.has_value()) {
-            coordinator_.logError("Tileset slicing value is not a number");
-        } else {
-            TilesetSlicing slicing = coordinator_.state().tilesetEditor.pendingSlicing;
-            const int rounded = static_cast<int>(std::round(*parsed));
-            if (action == "commit-tileset-tile-width") slicing.tileWidth = rounded;
-            else if (action == "commit-tileset-tile-height") slicing.tileHeight = rounded;
-            else if (action == "commit-tileset-margin-x") slicing.marginX = rounded;
-            else if (action == "commit-tileset-margin-y") slicing.marginY = rounded;
-            else if (action == "commit-tileset-spacing-x") slicing.spacingX = rounded;
-            else slicing.spacingY = rounded;
-            coordinator_.apply(SetPendingTilesetSlicingIntent{slicing});
-        }
-    } else if (action == "apply-tileset-slicing") {
-        if (applyTilesetSlicingRequest_) applyTilesetSlicingRequest_();
-    } else if (action == "select-tileset-tile") {
-        if (!arg.empty()) coordinator_.apply(SelectTilesetTileIntent{arg});
-    } else if (action == "reset-tileset-slicing") {
-        const TilesetEditorState& state = coordinator_.state().tilesetEditor;
-        const TilesetAsset* asset = state.openAssetId
-            ? coordinator_.document().findTilesetAsset(*state.openAssetId) : nullptr;
-        if (asset) coordinator_.apply(SetPendingTilesetSlicingIntent{asset->slicing});
-    } else if (action == "tileset-zoom-in" || action == "tileset-zoom-out") {
-        const float factor = (action == "tileset-zoom-in") ? 1.25f : 0.8f;
-        coordinator_.apply(SetTilesetEditorZoomIntent{
-            coordinator_.state().tilesetEditor.zoom * factor});
-    } else if (action == "tileset-zoom-fit") {
-        // Back to the default framing: fit scale, centred (zoom 1, pan 0).
-        const Vec2 pan = coordinator_.state().tilesetEditor.pan;
-        coordinator_.apply(SetTilesetEditorZoomIntent{1.f});
-        coordinator_.apply(PanTilesetEditorIntent{{-pan.x, -pan.y}});
-    } else {
-        return false;
-    }
-    return true;
-}
 
 bool EditorUi::handleHierarchyAction(const std::string& action, const std::string& arg,
                                      const std::string& value, EntityId selected) {

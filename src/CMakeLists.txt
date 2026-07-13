@@ -45,6 +45,9 @@ add_library(artcade-editor-core STATIC
     editor-native/commands/scene_layer_commands.cpp
     editor-native/commands/sprite_commands.cpp
     editor-native/app/editor_coordinator.cpp
+    editor-native/app/editor_coordinator_workspace.cpp
+    editor-native/app/editor_coordinator_tilemap.cpp
+    editor-native/app/editor_coordinator_ui.cpp
     editor-native/app/asset_import.cpp
     editor-native/app/hierarchy_actions.cpp
     editor-native/app/inspector_actions.cpp
@@ -115,6 +118,8 @@ FetchContent_MakeAvailable(rmlui)
 set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/app/main.cpp
     editor-native/app/editor_app.cpp
+    editor-native/app/project_session_controller.cpp
+    editor-native/app/scene_view_interaction.cpp
     ${rmlui_SOURCE_DIR}/Backends/RmlUi_Renderer_GL3.cpp
     editor-native/app/rml_system.cpp
     editor-native/app/rml_host.cpp
@@ -129,11 +134,15 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/app/confirm_dialog.cpp
     editor-native/view/canvas_font.cpp
     editor-native/view/texture_cache.cpp
+    editor-native/view/texture_request_catalog.cpp
     editor-native/view/scene_view.cpp
     editor-native/view/tilemap_paint_overlay.cpp
     editor-native/app/tilemap_paint_input.cpp
     editor-native/ui/ui_markup.cpp
     editor-native/ui/editor_ui.cpp
+    editor-native/ui/logic_board_editor_controller.cpp
+    editor-native/ui/sprite_animation_editor_controller.cpp
+    editor-native/ui/tileset_editor_controller.cpp
     editor-native/ui/editor_fonts.cpp
     editor-native/ui/hierarchy_panel.cpp
     editor-native/ui/inspector_panel.cpp

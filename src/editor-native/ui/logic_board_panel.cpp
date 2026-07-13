@@ -40,8 +40,8 @@ std::string actionArg(const LogicRuleId& ruleId, std::size_t index) {
 // list on click (re-picking itself is a no-op); every other entry dispatches
 // `pickAction` with the value carried in data-value (never data-arg, which
 // stays the addressing key for the actions that need one — see the
-// data-value contract note below `handleLogicBoardAction`'s dispatch in
-// editor_ui.cpp). `pickArg`, when non-empty, is the addressing key riding
+// data-value contract enforced by LogicBoardEditorController). `pickArg`, when
+// non-empty, is the addressing key riding
 // alongside (e.g. the rule a Key picker belongs to).
 std::string dropEntry(const std::string& label, const std::string& value, bool isCurrent,
                       const std::string& closeDropdownId, const char* pickAction,

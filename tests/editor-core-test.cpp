@@ -350,6 +350,32 @@ static void runSpriteAnimationTests() {
         CHECK(asset && asset->clips[0].playbackMode == AnimationPlaybackMode::Once);
     }
 
+    // -- Create asset + initial clip is one atomic, undoable operation --------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        const std::size_t historyBefore = c.undoSize();
+        CHECK(c.execute(CreateSpriteAnimationAssetCommand{
+            "hero.anim", "Hero", "clip-1", "Clip 1", "img-hero"}).ok);
+        const SpriteAnimationAssetDef* created =
+            c.document().findSpriteAnimationAsset("hero.anim");
+        CHECK(created != nullptr);
+        CHECK(created && created->clips.size() == 1);
+        CHECK(created && created->defaultClipId == "clip-1");
+        CHECK(c.undoSize() == historyBefore + 1);
+        CHECK(c.undo().ok);
+        CHECK(!c.document().hasSpriteAnimationAsset("hero.anim"));
+        CHECK(c.redo().ok);
+        CHECK(c.document().hasSpriteAnimationAsset("hero.anim"));
+
+        const uint64_t revision = c.document().revision();
+        const std::size_t history = c.undoSize();
+        CHECK(!c.execute(CreateSpriteAnimationAssetCommand{
+            "broken.anim", "Broken", "clip-1", "Clip 1", "missing-image"}).ok);
+        CHECK(!c.document().hasSpriteAnimationAsset("broken.anim"));
+        CHECK(c.document().revision() == revision);
+        CHECK(c.undoSize() == history);
+    }
+
     // -- Sprite sheet slicing: frame size + margin + spacing -----------------
     {
         const SpriteAnimationSliceGrid grid{16, 24, 2, 1};
@@ -4202,6 +4228,24 @@ int main() {
         CHECK(!shouldForwardGameplayInput({/*logic*/false, true, false}));
         CHECK(!shouldForwardGameplayInput({true, /*outside*/false, false}));
         CHECK(!shouldForwardGameplayInput({true, true, /*textFocus*/true}));
+    }
+
+    // -- Replace clears project-scoped editor state ----------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        c.apply(SetActiveToolIntent{EditorTool::Brush});
+        c.apply(RevealInspectorPropertyIntent{kHero, InspectorProperty::TilemapCellSize});
+        CHECK(c.apply(OpenTilesetEditorIntent{"tiles-1"}).ok);
+        CHECK(c.state().activeTool == EditorTool::Brush);
+        CHECK(c.state().tilesetEditor.openAssetId.has_value());
+        CHECK(c.uiState().inspectorRevealRequest.has_value());
+
+        CHECK(c.replaceProject(ProjectDocument{makeReplacementDoc()}).ok);
+        CHECK(c.state().activeTool == EditorTool::Select);
+        CHECK(!c.state().tilesetEditor.openAssetId.has_value());
+        CHECK(!c.takeInspectorRevealRequest().has_value());
     }
 
     // -- §24.18  Position X path: UI callback → command → document → invalidation

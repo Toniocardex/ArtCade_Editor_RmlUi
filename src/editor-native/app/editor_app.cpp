@@ -9,7 +9,9 @@
 #include "editor-native/app/input_routing.h"
 #include "editor-native/app/new_project_transaction.h"
 #include "editor-native/app/project_file.h"
+#include "editor-native/app/project_session_controller.h"
 #include "editor-native/app/rml_host.h"
+#include "editor-native/app/scene_view_interaction.h"
 #include "editor-native/app/sprite_animation_canvas_input.h"
 #include "editor-native/app/sprite_animation_preview_renderer.h"
 #include "editor-native/app/tile_palette_renderer.h"
@@ -23,7 +25,6 @@
 #include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
 #include "editor-native/model/play_session.h"
-#include "editor-native/model/path_confinement.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_animation_slicing.h"
 #include "editor-native/model/tilemap_stroke_preview.h"
@@ -33,6 +34,7 @@
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view.h"
 #include "editor-native/view/texture_cache.h"
+#include "editor-native/view/texture_request_catalog.h"
 #include "editor-native/view/tilemap_paint_overlay.h"
 
 #include <RmlUi/Core/Element.h>
@@ -49,7 +51,6 @@
 #include <optional>
 #include <string>
 #include <system_error>
-#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -105,338 +106,6 @@ void collectLogicKeyPresses(RuntimeInputSnapshot& input) {
 // while raylib's drawing and mouse stay in logical pixels (GetScreenWidth) —
 // raylib applies the DPI scale itself via screenScale / SetMouseScale. The
 // factor is 1.0 on a 100% display, so this is a no-op there.
-float uiPixelScaleX() {
-    const int sw = GetScreenWidth();
-    return sw > 0 ? static_cast<float>(GetRenderWidth()) / static_cast<float>(sw) : 1.f;
-}
-float uiPixelScaleY() {
-    const int sh = GetScreenHeight();
-    return sh > 0 ? static_cast<float>(GetRenderHeight()) / static_cast<float>(sh) : 1.f;
-}
-
-// The viewport element is laid out in RmlUi's physical-pixel space; the raylib
-// scene renderer and pick/drag hit-testing both work in logical pixels, so the
-// rect is converted physical -> logical here once at the boundary.
-ViewportRect viewportRectFromDocument(Rml::ElementDocument* document) {
-    ViewportRect rect;
-    if (!document) return rect;
-    const float sx = uiPixelScaleX();
-    const float sy = uiPixelScaleY();
-    if (Rml::Element* vp = document->GetElementById("viewport")) {
-        const Rml::Vector2f off = vp->GetAbsoluteOffset();
-        rect.x = static_cast<int>(off.x / sx);
-        rect.y = static_cast<int>(off.y / sy);
-        rect.width  = static_cast<int>(vp->GetClientWidth()  / sx);
-        rect.height = static_cast<int>(vp->GetClientHeight() / sy);
-    }
-    return rect;
-}
-
-ViewportRect elementContentRectFromDocument(Rml::ElementDocument* document, const char* id) {
-    ViewportRect rect;
-    if (!document || !id) return rect;
-    const float sx = uiPixelScaleX();
-    const float sy = uiPixelScaleY();
-    if (Rml::Element* el = document->GetElementById(id)) {
-        const Rml::Vector2f off = el->GetAbsoluteOffset(Rml::BoxArea::Content);
-        const Rml::Vector2f size = el->GetBox().GetSize(Rml::BoxArea::Content);
-        rect.x = static_cast<int>(off.x / sx);
-        rect.y = static_cast<int>(off.y / sy);
-        rect.width  = static_cast<int>(size.x / sx);
-        rect.height = static_cast<int>(size.y / sy);
-    }
-    return rect;
-}
-
-ViewportRect resolveSpriteAnimationCanvasContentRect(Rml::ElementDocument* document) {
-    return elementContentRectFromDocument(document, "animation-sprite-canvas");
-}
-
-ViewportRect resolveSpriteAnimationPreviewContentRect(Rml::ElementDocument* document) {
-    return elementContentRectFromDocument(document, "animation-preview-canvas");
-}
-
-ViewportRect resolveTilesetEditorCanvasContentRect(Rml::ElementDocument* document) {
-    return elementContentRectFromDocument(document, "tileset-canvas");
-}
-
-void syncAnimationDocumentViewport(Rml::ElementDocument* document) {
-    if (!document) return;
-    document->SetProperty("position", "absolute");
-    document->SetProperty("left", "0px");
-    document->SetProperty("top", "0px");
-    document->SetProperty("width", std::to_string(GetRenderWidth()) + "px");
-    document->SetProperty("height", std::to_string(GetRenderHeight()) + "px");
-    document->SetProperty("background-color", "#0e0e10");
-}
-
-void routeViewportInput(EditorCoordinator& coordinator, const ViewportRect& rect,
-                        const RmlInputResult& rml, bool contextMenuHit) {
-    // Inside the viewport region we are not over a panel; a focused text field
-    // still blocks the viewport (prompt §19 / §24.16).
-    const ViewportInputContext ctx{
-        rect.contains(GetMouseX(), GetMouseY()),
-        /*rmlConsumedEvent*/ contextMenuHit,
-        rml.textFocus,
-        /*rmlPopupOpen*/ false,
-    };
-    if (!shouldViewportReceiveInput(ctx)) return;
-
-    const PlaySession* playSession = coordinator.playSession();
-    const SceneId active = playSession ? playSession->sceneId()
-                                       : coordinator.state().activeSceneId;
-    const Vec2 worldSize = playSession
-        ? playSession->scene().worldSize
-        : (coordinator.document().findScene(active)
-               ? coordinator.document().findScene(active)->worldSize
-               : Vec2{});
-
-    // Zoom under the cursor: keep the world point beneath the mouse fixed (more
-    // precise than centre-zoom for level design). All workspace, single camera.
-    const float wheel = GetMouseWheelMove();
-    if (wheel != 0.0f) {
-        const Vec2 mouse{static_cast<float>(GetMouseX()), static_cast<float>(GetMouseY())};
-        const EditorSceneViewState before = coordinator.sceneView(active);
-        const Vec2 worldBefore =
-            screenToWorld(makeSceneViewCamera(rect, before, worldSize), mouse);
-        coordinator.apply(SetViewportZoomIntent{active, before.zoom * (1.0f + wheel * 0.1f)});
-        const EditorSceneViewState after = coordinator.sceneView(active);
-        const Vec2 worldAfter =
-            screenToWorld(makeSceneViewCamera(rect, after, worldSize), mouse);
-        coordinator.apply(PanViewportIntent{
-            active, {worldBefore.x - worldAfter.x, worldBefore.y - worldAfter.y}});
-    }
-
-    // Pan: middle-mouse, or Space + left-mouse. The right button is left free for
-    // the context menu / Create Here.
-    const bool spacePan = IsKeyDown(KEY_SPACE) && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
-    if (IsMouseButtonDown(MOUSE_BUTTON_MIDDLE) || spacePan) {
-        const float zoom = coordinator.sceneView(active).zoom;
-        const Vector2 d = GetMouseDelta();
-        coordinator.apply(PanViewportIntent{active, {-d.x / zoom, -d.y / zoom}});
-    }
-}
-
-// Transient viewport drag state — local presentation only (prompt §3: "valori
-// temporanei durante un drag"). It never enters ProjectDocument; the single
-// SetEntityPositionCommand is issued once, on release.
-struct ViewportDrag {
-    bool     active = false;
-    EntityId entity = INVALID_ENTITY;
-    Vec2     startMouseWorld{};
-    Vec2     startEntityPos{};
-};
-
-struct ViewportContextClick {
-    bool    tracking = false;
-    Vector2 start{};
-};
-
-bool sceneSurfaceContains(const ViewportRect& rect, const SceneViewCamera& camera,
-                          Vec2 worldSize, Vec2 screen) {
-    const auto project = [&](Vec2 world) {
-        return Vec2{
-            (world.x - camera.target.x) * camera.zoom + camera.offset.x,
-            (world.y - camera.target.y) * camera.zoom + camera.offset.y,
-        };
-    };
-    const Vec2 a = project(Vec2{0.0f, 0.0f});
-    const Vec2 b = project(worldSize);
-    const float left = std::max(static_cast<float>(rect.x), std::min(a.x, b.x));
-    const float right = std::min(static_cast<float>(rect.x + rect.width), std::max(a.x, b.x));
-    const float top = std::max(static_cast<float>(rect.y), std::min(a.y, b.y));
-    const float bottom = std::min(static_cast<float>(rect.y + rect.height), std::max(a.y, b.y));
-    return screen.x >= left && screen.x < right && screen.y >= top && screen.y < bottom;
-}
-
-Vec2 applySceneGridSnap(const EditorCoordinator& coordinator, const SceneId& sceneId,
-                        Vec2 worldPosition) {
-    if (!coordinator.sceneView(sceneId).gridSnapEnabled) return worldPosition;
-    return snapWorldPositionToGrid(
-        worldPosition, worldAuthoringGrid(coordinator.sceneView(sceneId)));
-}
-
-std::optional<Vec2> dragPreviewPosition(const EditorCoordinator& coordinator,
-                                        const ViewportRect& rect,
-                                        const ViewportDrag& drag) {
-    if (!drag.active) return std::nullopt;
-    const SceneId active = coordinator.state().activeSceneId;
-    const SceneDef* scene = coordinator.document().findScene(active);
-    if (!scene) return std::nullopt;
-
-    const SceneViewCamera cam =
-        makeSceneViewCamera(rect, coordinator.sceneView(active), scene->worldSize);
-    const Vec2 cur = screenToWorld(cam, Vec2{static_cast<float>(GetMouseX()),
-                                             static_cast<float>(GetMouseY())});
-    const Vec2 d{cur.x - drag.startMouseWorld.x, cur.y - drag.startMouseWorld.y};
-    return applySceneGridSnap(
-        coordinator, active, Vec2{drag.startEntityPos.x + d.x, drag.startEntityPos.y + d.y});
-}
-
-// Escape is a keyboard-wide gesture, not scoped to whichever panel/viewport
-// currently has mouse focus, so it is arbitrated once per frame here rather
-// than inside any single input-routing module. Exactly one level fires per
-// press: (1) cancel a pending tilemap gesture - tilemap_paint_input.cpp keeps
-// only its own focus-loss trigger for the same shared primitive, never
-// Escape-key polling itself; (2) if nothing was pending and a tilemap tool is
-// active, fall back to Select; (3) if the tool was already Select and an
-// entity is selected, clear the selection (the scene's own Inspector, then
-// visible again, is the existing fallback - no new code needed for that
-// part). None of the three levels touches ProjectDocument/dirty/undo.
-void routeGlobalEscape(EditorCoordinator& coordinator) {
-    if (coordinator.cancelPendingTilemapGesture()) return;
-    if (isTilemapTool(coordinator.state().activeTool)) {
-        coordinator.apply(SetActiveToolIntent{EditorTool::Select});
-        return;
-    }
-    if (coordinator.selection().hasEntity()) {
-        coordinator.apply(SelectEntityIntent{INVALID_ENTITY});
-    }
-}
-
-// Edit-mode pick + drag: press hit-tests and selects; release commits one move.
-// Motion between press and release is shown as a local preview by the draw path,
-// not as a stream of commands.
-void routeViewportPickDrag(EditorCoordinator& coordinator, const ViewportRect& rect,
-                           const RmlInputResult& rml, ViewportDrag& drag,
-                           bool contextMenuHit) {
-    // A paint tool owns viewport clicks while active - entity pick/drag must
-    // not also claim them.
-    if (coordinator.state().activeTool != EditorTool::Select) return;
-    const SceneId active = coordinator.state().activeSceneId;
-    // Hidden layers are not pickable: the snapshot the picker reads excludes them.
-    const SceneFrameSnapshot frame = collectSceneFrameSnapshot(
-        coordinator.document(), active, coordinator.selection().primaryEntity,
-        coordinator.sceneView(active).hiddenLayerIds);
-    const SceneViewCamera cam =
-        makeSceneViewCamera(rect, coordinator.sceneView(active), frame.worldSize);
-    const Vec2 mouse{static_cast<float>(GetMouseX()), static_cast<float>(GetMouseY())};
-
-    // Space + left-drag is a pan gesture, not a pick (handled by routeViewportInput).
-    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !IsKeyDown(KEY_SPACE)) {
-        const ViewportInputContext ctx{rect.contains(GetMouseX(), GetMouseY()),
-                                       /*rmlConsumedEvent*/ contextMenuHit, rml.textFocus,
-                                       /*rmlPopupOpen*/ false};
-        if (shouldViewportReceiveInput(ctx)) {
-            const Vec2 world = screenToWorld(cam, mouse);
-            EntityId picked = pickEntityAt(frame, world);
-            // A locked layer's instances, and any instance outside the active
-            // layer, are not pickable by clicking the Scene View - both stay
-            // selectable from the Hierarchy instead (which also switches the
-            // active layer to match, see SelectEntityIntent), treated the same
-            // as picking nothing so a click on one clears the selection rather
-            // than starting a drag or silently switching the active layer out
-            // from under the user.
-            if (picked != INVALID_ENTITY) {
-                const SceneInstanceDef* pickedInst =
-                    coordinator.document().findInstanceInScene(active, picked);
-                const bool onOtherLayer = pickedInst
-                    && coordinator.document().effectiveLayerId(active, *pickedInst)
-                           != coordinator.activeLayerId(active);
-                if (!pickedInst
-                    || coordinator.document().isInstanceLayerLocked(active, *pickedInst)
-                    || onOtherLayer) {
-                    picked = INVALID_ENTITY;
-                }
-            }
-            coordinator.apply(SelectEntityIntent{picked});   // INVALID clears selection
-            if (picked != INVALID_ENTITY) {
-                if (const SceneInstanceDef* inst =
-                        coordinator.document().findInstanceInScene(active, picked)) {
-                    drag = ViewportDrag{true, picked, world, inst->transform.position};
-                }
-            }
-        }
-    }
-
-    if (drag.active && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
-        if (const std::optional<Vec2> preview = dragPreviewPosition(coordinator, rect, drag)) {
-            if (preview->x != drag.startEntityPos.x || preview->y != drag.startEntityPos.y) {
-                coordinator.execute(SetEntityPositionCommand{active, drag.entity, *preview});
-            }
-        }
-        drag = ViewportDrag{};
-    }
-}
-
-void routeViewportContextMenu(EditorCoordinator& coordinator, EditorUi& ui,
-                              const ViewportRect& rect, const RmlInputResult& rml,
-                              ViewportContextClick& click,
-                              std::optional<Vec2>& pendingSpawnPosition,
-                              bool contextMenuHit) {
-    if (coordinator.isPlaying()) {
-        click = ViewportContextClick{};
-        pendingSpawnPosition.reset();
-        ui.hideContextMenus();
-        return;
-    }
-    // A paint tool owns the viewport's right-click too (Eraser's right-click
-    // shortcut in routeViewportTilemapPaint) - the entity-creation menu is a
-    // Select-tool concept and must not fight it for the same gesture, mirroring
-    // routeViewportPickDrag's own "a paint tool owns viewport clicks" guard.
-    if (coordinator.state().activeTool != EditorTool::Select) {
-        click = ViewportContextClick{};
-        pendingSpawnPosition.reset();
-        ui.hideContextMenus();
-        return;
-    }
-
-    if ((IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE))
-        && !contextMenuHit) {
-        ui.hideContextMenus();
-    }
-
-    if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
-        ui.hideContextMenus();
-        pendingSpawnPosition.reset();
-        const ViewportInputContext ctx{rect.contains(GetMouseX(), GetMouseY()),
-                                       /*rmlConsumedEvent*/ contextMenuHit, rml.textFocus,
-                                       /*rmlPopupOpen*/ false};
-        if (shouldViewportReceiveInput(ctx)) {
-            click = ViewportContextClick{true, GetMousePosition()};
-        }
-    }
-
-    if (!click.tracking || !IsMouseButtonReleased(MOUSE_BUTTON_RIGHT)) return;
-
-    const Vector2 end = GetMousePosition();
-    const Vector2 delta{end.x - click.start.x, end.y - click.start.y};
-    click = ViewportContextClick{};
-    constexpr float kClickThresholdPx = 4.0f;
-    if (delta.x * delta.x + delta.y * delta.y > kClickThresholdPx * kClickThresholdPx) {
-        return;
-    }
-
-    const ViewportInputContext ctx{rect.contains(GetMouseX(), GetMouseY()),
-                                   /*rmlConsumedEvent*/ contextMenuHit, rml.textFocus,
-                                   /*rmlPopupOpen*/ false};
-    if (!shouldViewportReceiveInput(ctx)) return;
-
-    const SceneId& active = coordinator.state().activeSceneId;
-    const SceneDef* scene = coordinator.document().findScene(active);
-    if (!scene) return;
-
-    const SceneViewCamera camera = makeSceneViewCamera(rect, coordinator.sceneView(active),
-                                                       scene->worldSize);
-    const Vec2 mouse{static_cast<float>(GetMouseX()), static_cast<float>(GetMouseY())};
-    if (!sceneSurfaceContains(rect, camera, scene->worldSize, mouse)) return;
-
-    SpawnPositionOptions options;
-    options.edgeMargin = 0.0f;   // "Here" should mean the clicked world position.
-    const Vec2 rawSpawn = screenToWorld(camera, mouse);
-    pendingSpawnPosition = normalizeSpawnPosition(
-        applySceneGridSnap(coordinator, active, rawSpawn), scene->worldSize, options);
-    bool canCreateInstance = false;
-    if (const SceneInstanceDef* selected = coordinator.document().findInstanceInScene(
-            active, coordinator.selection().primaryEntity)) {
-        canCreateInstance = coordinator.document().findObjectType(selected->objectTypeId) != nullptr;
-    }
-    ui.showViewportContextMenu(
-        static_cast<int>(mouse.x * uiPixelScaleX()),
-        static_cast<int>(mouse.y * uiPixelScaleY()),
-        canCreateInstance);
-}
-
 std::filesystem::path editorResourceRoot() {
     return std::filesystem::path(GetApplicationDirectory()) / "resources";
 }
@@ -450,135 +119,6 @@ void applyWindowIcon(const std::filesystem::path& resourceRoot) {
     }
     SetWindowIcon(icon);
     UnloadImage(icon);
-}
-
-std::filesystem::path resolveImageAssetPath(const std::filesystem::path& resourceRoot,
-                                            const std::string& sourcePath) {
-    if (sourcePath.empty()) return {};
-    const PathConfinementResult resolved = resolvePathInsideRoot(
-        resourceRoot, std::filesystem::u8path(sourcePath));
-    return resolved.ok ? resolved.value : std::filesystem::path{};
-}
-
-std::unordered_map<AssetId, TextureRequest> textureRequestsFor(
-    const ProjectDoc& doc, const std::filesystem::path& resourceRoot) {
-    std::unordered_map<AssetId, TextureRequest> out;
-    for (const ImageAssetDef& asset : doc.imageAssets) {
-        out.emplace(asset.assetId, TextureRequest{
-            asset.assetId,
-            resolveImageAssetPath(resourceRoot, asset.sourcePath),
-        });
-    }
-    return out;
-}
-
-std::unordered_map<AssetId, TextureRequest> textureRequestsFor(
-    const PlayAssetCatalogSnapshot& catalog, const std::filesystem::path& resourceRoot) {
-    std::unordered_map<AssetId, TextureRequest> out;
-    for (const auto& [assetId, asset] : catalog.imageAssets) {
-        out.emplace(assetId, TextureRequest{
-            assetId,
-            resolveImageAssetPath(resourceRoot, asset.sourcePath),
-        });
-    }
-    return out;
-}
-
-std::filesystem::path normalizeProjectSavePath(std::filesystem::path destination) {
-    if (destination.extension().empty()) {
-        destination.replace_extension(".artcade-project");
-    }
-    const std::filesystem::path fileName = destination.filename();
-    const std::string stem = destination.stem().string();
-    if (stem.empty() || destination.parent_path().filename() == stem) {
-        return destination;
-    }
-    return destination.parent_path() / stem / fileName;
-}
-
-std::filesystem::path suggestedProjectSavePath(const ProjectDoc& doc) {
-    std::string stem = doc.projectName.empty() ? std::string("Untitled") : doc.projectName;
-    for (char& c : stem) {
-        switch (c) {
-            case '<': case '>': case ':': case '"': case '/': case '\\':
-            case '|': case '?': case '*':
-                c = '_';
-                break;
-            default:
-                break;
-        }
-    }
-    if (stem.empty()) stem = "Untitled";
-    return std::filesystem::path(stem + ".artcade-project");
-}
-
-bool copyAssetsForSaveAs(const std::filesystem::path& previousRoot,
-                         const std::filesystem::path& nextRoot,
-                         std::string& error) {
-    if (previousRoot.empty() || previousRoot == nextRoot) return true;
-
-    const PathConfinementResult sourceResult =
-        resolvePathInsideRoot(previousRoot, "assets");
-    if (!sourceResult.ok) {
-        error = "Could not resolve existing assets folder: " + sourceResult.error;
-        return false;
-    }
-    const std::filesystem::path& source = sourceResult.value;
-    std::error_code ec;
-    if (!std::filesystem::exists(source, ec)) return true;
-    if (ec) {
-        error = "Could not inspect existing assets folder: " + ec.message();
-        return false;
-    }
-
-    // Validate every source entry before recursive copy. The iterator does not
-    // opt into following directory symlinks; resolving each lexical relative
-    // path additionally rejects Windows junctions/reparse points that lead out
-    // of previousRoot before std::filesystem::copy can traverse them.
-    std::filesystem::recursive_directory_iterator it{
-        source, std::filesystem::directory_options::none, ec};
-    const std::filesystem::recursive_directory_iterator end;
-    if (ec) {
-        error = "Could not inspect existing assets tree: " + ec.message();
-        return false;
-    }
-    for (; it != end;) {
-        const std::filesystem::path relative = it->path().lexically_relative(previousRoot);
-        const PathConfinementResult entry = resolvePathInsideRoot(previousRoot, relative);
-        if (!entry.ok) {
-            error = "Assets tree contains an unsafe path: " + entry.error;
-            return false;
-        }
-        it.increment(ec);
-        if (ec) {
-            error = "Could not inspect existing assets tree: " + ec.message();
-            return false;
-        }
-    }
-
-    std::filesystem::create_directories(nextRoot, ec);
-    if (ec) {
-        error = "Could not create project folder: " + ec.message();
-        return false;
-    }
-
-    const PathConfinementResult destinationResult =
-        resolvePathInsideRoot(nextRoot, "assets");
-    if (!destinationResult.ok) {
-        error = "Could not resolve destination assets folder: " + destinationResult.error;
-        return false;
-    }
-    const std::filesystem::path& destination = destinationResult.value;
-    std::filesystem::copy(source, destination,
-                          std::filesystem::copy_options::recursive
-                        | std::filesystem::copy_options::skip_symlinks
-                        | std::filesystem::copy_options::overwrite_existing,
-                          ec);
-    if (ec) {
-        error = "Could not copy assets folder: " + ec.message();
-        return false;
-    }
-    return true;
 }
 
 } // namespace
@@ -700,7 +240,7 @@ int EditorApp::run(int argc, char** argv) {
         CloseWindow();
         return 1;
     }
-    syncAnimationDocumentViewport(animationDocument);
+    syncEditorOverlayViewport(animationDocument);
     animationDocument->Hide();
 
     Rml::ElementDocument* tilesetDocument =
@@ -711,7 +251,7 @@ int EditorApp::run(int argc, char** argv) {
         CloseWindow();
         return 1;
     }
-    syncAnimationDocumentViewport(tilesetDocument);   // same absolute full-window sync, generic
+    syncEditorOverlayViewport(tilesetDocument);   // same absolute full-window sync, generic
     tilesetDocument->Hide();
 
     // Canvas text font (entity labels, scene chip, canvas messages): the same
@@ -734,179 +274,13 @@ int EditorApp::run(int argc, char** argv) {
     coordinator.logInfo("ArtCade Studio ready.");
     SceneView sceneView;
     TextureCache textureCache;
+    TextureRequestCatalog textureRequestCatalog;
     ViewportDrag drag;
     ViewportContextClick contextClick;
     std::optional<Vec2> pendingContextSpawn;
 
-    // Project I/O is owned by the application: it holds the texture cache it must
-    // clear when the document is replaced, and the platform file pickers. The UI
-    // only requests these operations; it never touches files or the renderer.
-    std::filesystem::path currentProjectPath;
-    // The window title reflects the current project: its file name, or "Untitled"
-    // before the first Save As, plus a bullet while there are unsaved changes -
-    // the only always-visible dirty cue (the unsaved guard otherwise fires only
-    // on close). Dirty derives from the document's revision baseline; the title
-    // re-renders on path changes (New, Open, Save) and, change-guarded, from the
-    // frame loop when the dirty flag flips (an O(1) revision compare, same
-    // pattern as the pointer readout - not document polling).
-    bool titleShowsDirty = false;
-    const auto refreshWindowTitle = [&]() {
-        const std::string name = currentProjectPath.empty()
-            ? std::string("Untitled")
-            : currentProjectPath.stem().string();
-        titleShowsDirty = coordinator.document().isDirty();
-        SetWindowTitle(("ArtCade Studio - " + name
-                        + (titleShowsDirty ? " \xe2\x80\xa2" : "")).c_str());
-    };
-    const auto saveTo = [&](const std::filesystem::path& path) -> bool {
-        const std::filesystem::path destination = normalizeProjectSavePath(path);
-        std::error_code ec;
-        std::filesystem::create_directories(destination.parent_path(), ec);
-        if (ec) {
-            coordinator.logError("Save failed: could not create project folder: "
-                                 + ec.message());
-            return false;
-        }
-
-        const std::filesystem::path previousRoot =
-            currentProjectPath.empty() ? std::filesystem::path{} : currentProjectPath.parent_path();
-        std::string copyError;
-        if (!copyAssetsForSaveAs(previousRoot, destination.parent_path(), copyError)) {
-            coordinator.logError("Save failed: " + copyError);
-            return false;
-        }
-
-        const ProjectSaveResult result = saveProjectToFile(coordinator, destination);
-        if (!result.ok) {
-            coordinator.logError("Save failed: " + result.error.message);
-            return false;
-        }
-        currentProjectPath = destination;
-        refreshWindowTitle();
-        coordinator.logInfo("Saved " + destination.string());
-        return true;
-    };
-    // Save to the current path, or prompt for one. False when cancelled or failed.
-    const auto saveCurrent = [&]() -> bool {
-        if (currentProjectPath.empty()) {
-            const auto picked = saveProjectFileDialog(
-                suggestedProjectSavePath(coordinator.document().data()));
-            return picked ? saveTo(*picked) : false;
-        }
-        return saveTo(currentProjectPath);
-    };
-    // Unsaved-changes guard for destructive actions. Returns true to proceed.
-    const auto guardPasses = [&]() -> bool {
-        // A focused field is authoritative even before its normal blur. Resolve
-        // it first so the dirty decision can never observe stale document state.
-        if (!ui.resolvePendingEdits().resolved()) return false;
-        if (!coordinator.document().isDirty()) return true;
-        const UnsavedChoice choice = confirmUnsavedChanges();
-        const bool saveOk = (choice == UnsavedChoice::Save) ? saveCurrent() : false;
-        return resolveUnsavedGuard(true, choice, saveOk) == GuardOutcome::Proceed;
-    };
-    ui.setProjectFileHandlers(
-        [&]() {  // New: a project is born saved - pick its destination up front,
-                 // so assets always have a folder to live in (no Untitled limbo).
-            if (coordinator.isPlaying()) {
-                coordinator.logWarning("Stop Play before creating a new project");
-                return;  // no hidden auto-stop
-            }
-            if (!guardPasses()) return;     // dirty + Cancel / failed Save: abort
-            const auto picked = saveProjectFileDialog(
-                suggestedProjectSavePath(coordinator.document().data()));
-            const std::optional<std::filesystem::path> destination = picked
-                ? std::optional<std::filesystem::path>{normalizeProjectSavePath(*picked)}
-                : std::nullopt;
-            ProjectDoc fresh;
-            if (destination) fresh.projectName = destination->stem().string();
-            const NewProjectResult created = createNewProjectTransaction(
-                coordinator, ProjectDocument{std::move(fresh)}, destination);
-            if (created.cancelled) return;   // current project/path/cache stay exact
-            if (!created.ok) {
-                coordinator.logError("New project failed: " + created.error.message);
-                return;
-            }
-            textureCache.clear(); // only after committed ProjectReplaced
-            currentProjectPath = created.destination;
-            refreshWindowTitle();
-            coordinator.logInfo("New project");
-        },
-        [&]() {  // Open
-            if (coordinator.isPlaying()) {
-                coordinator.logWarning("Stop Play before opening another project");
-                return;
-            }
-            if (!guardPasses()) return;     // dirty + Cancel / failed Save: abort
-            const std::optional<std::filesystem::path> picked = openProjectFileDialog();
-            if (!picked) return;  // cancelled
-            const ProjectLoadResult result = loadProjectFromFile(coordinator, *picked);
-            if (!result.ok) {
-                coordinator.logError("Open failed: " + result.error.message);
-                return;
-            }
-            textureCache.clear();  // explicit app path consuming ProjectReplaced
-            currentProjectPath = *picked;
-            refreshWindowTitle();
-            coordinator.logInfo("Opened " + picked->filename().string());
-        },
-        [&]() {  // Save (Save As when no current path)
-            saveCurrent();
-        },
-        [&]() {  // Save As
-            const std::filesystem::path suggested = currentProjectPath.empty()
-                ? suggestedProjectSavePath(coordinator.document().data())
-                : currentProjectPath;
-            if (const auto picked = saveProjectFileDialog(suggested))
-                saveTo(*picked);
-        });
-
-    // Import is one canonical pipeline (asset_import): pick the file for the kind,
-    // save the project if needed, then converge on importAsset. Returns the new
-    // asset id so callers can chain (e.g. create an animation from the image).
-    // Every import UI source flows through this one lambda - no duplicate path.
-    const auto importAssetOfKind = [&](AssetKind kind) -> std::optional<AssetId> {
-        std::optional<std::filesystem::path> picked;
-        switch (kind) {
-            case AssetKind::Image: picked = openImageFileDialog(); break;
-            case AssetKind::Audio: picked = openAudioFileDialog(); break;
-            case AssetKind::Font:  picked = openFontFileDialog();  break;
-        }
-        if (!picked) return std::nullopt;  // cancelled
-        bool savedForImport = false;
-        // Projects are born saved (New picks a destination up front), so this
-        // only triggers for the startup Untitled document: assets are copied
-        // next to the .artcade, so ask for the project folder and continue.
-        if (currentProjectPath.empty()) {
-            coordinator.logInfo(
-                "Assets live inside the project folder - choose where to save the project");
-            if (!saveCurrent()) {
-                coordinator.logWarning("Import cancelled: the project was not saved");
-                return std::nullopt;
-            }
-            savedForImport = true;
-        }
-        ImportAssetRequest request;
-        request.kind = kind;
-        request.sourcePath = *picked;
-        const ImportAssetResult result =
-            importAsset(coordinator, currentProjectPath.parent_path(), request);
-        if (!result.ok) {
-            coordinator.logError(result.error);
-            return std::nullopt;
-        }
-        coordinator.logInfo("Imported " + result.assetId);
-        if (savedForImport && !saveCurrent()) {
-            coordinator.logWarning("Imported asset is not saved in the project file yet");
-        }
-        return result.assetId;
-    };
-    ui.setImportHandler([&](AssetKind kind) { importAssetOfKind(kind); });
-    // Import an image for the Sprite Animation Editor: reuses the exact same
-    // pipeline above, then hands the image id back so the editor can start a new
-    // animation on it without the user leaving for the Assets panel.
-    ui.setImportImageForAnimationHandler(
-        [&]() { return importAssetOfKind(AssetKind::Image); });
+    ProjectSessionController projectSession{coordinator, ui, textureCache};
+    projectSession.bindUi();
 
     // Fit View / auto-fit: frame the active scene, centred, with a small padding.
     // Workspace-only (recenter pan to 0 + zoom-to-fit via intents); the viewport
@@ -954,11 +328,12 @@ int EditorApp::run(int argc, char** argv) {
         }
 
         const std::filesystem::path assetRoot =
-            currentProjectPath.empty() ? resourceRoot : currentProjectPath.parent_path();
+            projectSession.assetRoot(resourceRoot);
         SceneFrameSprite requestSprite;
         requestSprite.assetId = clip->imageId;
         requestSprite.visible = true;
-        const auto requests = textureRequestsFor(coordinator.document().data(), assetRoot);
+        const auto& requests = textureRequestCatalog.forDocument(
+            coordinator.document(), assetRoot);
         textureCache.prepare({requestSprite}, requests);
         const TextureResource* resource = textureCache.find(clip->imageId);
         if (!resource || !resource->loaded) {
@@ -1001,11 +376,12 @@ int EditorApp::run(int argc, char** argv) {
     // through the cache if needed); shared by apply and create-from-image.
     const auto loadedTilesetSource = [&](const AssetId& imageAssetId) -> const TextureResource* {
         const std::filesystem::path assetRoot =
-            currentProjectPath.empty() ? resourceRoot : currentProjectPath.parent_path();
+            projectSession.assetRoot(resourceRoot);
         SceneFrameSprite requestSprite;
         requestSprite.assetId = imageAssetId;
         requestSprite.visible = true;
-        const auto requests = textureRequestsFor(coordinator.document().data(), assetRoot);
+        const auto& requests = textureRequestCatalog.forDocument(
+            coordinator.document(), assetRoot);
         textureCache.prepare({requestSprite}, requests);
         const TextureResource* resource = textureCache.find(imageAssetId);
         return (resource && resource->loaded) ? resource : nullptr;
@@ -1215,7 +591,7 @@ int EditorApp::run(int argc, char** argv) {
             }
         });
 
-    refreshWindowTitle();   // empty start project -> "Untitled"
+    projectSession.refreshWindowTitle();   // empty start project -> "Untitled"
 
     // Screenshot-mode project bootstrap: same canonical load path as File >
     // Open, minus the dialogs (there is no interaction to guard against).
@@ -1226,8 +602,7 @@ int EditorApp::run(int argc, char** argv) {
             coordinator.logError("Open failed: " + result.error.message);
         } else {
             textureCache.clear();
-            currentProjectPath = projectPath;
-            refreshWindowTitle();
+            projectSession.setCurrentProjectPath(projectPath);
             if (shotAnimation) {
                 const auto& animations = coordinator.document().data().spriteAnimationAssets;
                 if (!animations.empty()) {
@@ -1307,7 +682,7 @@ int EditorApp::run(int argc, char** argv) {
             // Exercise the real save path (asset copy + atomic write) so the
             // written .artcade can be inspected for the animation persistence.
             if (!shotSavePath.empty()) {
-                if (saveTo(std::filesystem::path{shotSavePath}))
+                if (projectSession.saveTo(std::filesystem::path{shotSavePath}))
                     coordinator.logInfo("shot-save wrote " + shotSavePath);
                 else
                     coordinator.logError("shot-save failed");
@@ -1333,7 +708,7 @@ int EditorApp::run(int argc, char** argv) {
         // guard passes. On Cancel we clear GLFW's close flag and keep running.
         // Screenshot mode skips the guard (no window interaction).
         if (WindowShouldClose()) {
-            if (shotPath.empty() && !guardPasses()) {
+            if (shotPath.empty() && !projectSession.resolveUnsavedChanges()) {
                 glfwSetWindowShouldClose(glfwGetCurrentContext(), 0);
             } else {
                 break;
@@ -1348,8 +723,8 @@ int EditorApp::run(int argc, char** argv) {
         const float curDpi  = GetWindowScaleDPI().x > 0.f ? GetWindowScaleDPI().x : 1.f;
         if (renderW != lastRenderW || renderH != lastRenderH || curDpi != lastDpi) {
             host.resize(renderW, renderH, curDpi);
-            syncAnimationDocumentViewport(animationDocument);
-            syncAnimationDocumentViewport(tilesetDocument);   // same full-window overlay
+            syncEditorOverlayViewport(animationDocument);
+            syncEditorOverlayViewport(tilesetDocument);   // same full-window overlay
             lastRenderW = renderW;
             lastRenderH = renderH;
             lastDpi     = curDpi;
@@ -1496,10 +871,10 @@ int EditorApp::run(int argc, char** argv) {
         // Sprite source paths are relative to the loaded project; with no project
         // open yet (a new/Untitled project) they fall back to the executable resources.
         const std::filesystem::path assetRoot =
-            currentProjectPath.empty() ? resourceRoot : currentProjectPath.parent_path();
-        const auto textureRequests = coordinator.playSession()
-            ? textureRequestsFor(coordinator.playSession()->assets(), assetRoot)
-            : textureRequestsFor(coordinator.document().data(), assetRoot);
+            projectSession.assetRoot(resourceRoot);
+        const auto& textureRequests = coordinator.playSession()
+            ? textureRequestCatalog.forPlay(coordinator.playSession()->assets(), assetRoot)
+            : textureRequestCatalog.forDocument(coordinator.document(), assetRoot);
         if (!coordinator.isPlaying() && animationEditorOpen) {
             routeSpriteAnimationCanvasInput(
                 coordinator, animationInputRect, rml, textureCache, textureRequests);
@@ -1533,7 +908,7 @@ int EditorApp::run(int argc, char** argv) {
         ui.processFrame();
         // Title dirty-cue: follows undo/redo/save as well as edits, so it can't
         // hang off any single action path. Change-guarded O(1) check per frame.
-        if (coordinator.document().isDirty() != titleShowsDirty) refreshWindowTitle();
+        projectSession.refreshWindowTitleIfNeeded();
         if (!coordinator.isPlaying() && !animationEditorOpen && !tilesetEditorOpen) {
             if (const std::optional<Vec2> preview = dragPreviewPosition(coordinator, rect, drag)) {
                 ui.showEntityPositionPreview(drag.entity, *preview);

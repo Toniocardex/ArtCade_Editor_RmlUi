@@ -38,6 +38,9 @@ add_library(artcade-editor-core STATIC
     commands/scene_layer_commands.cpp
     commands/sprite_commands.cpp
     app/editor_coordinator.cpp
+    app/editor_coordinator_workspace.cpp
+    app/editor_coordinator_tilemap.cpp
+    app/editor_coordinator_ui.cpp
     app/asset_import.cpp
     app/hierarchy_actions.cpp
     app/inspector_actions.cpp
@@ -111,6 +114,8 @@ if(ARTCADE_BUILD_NATIVE_EDITOR)
     set(ARTCADE_EDITOR_NATIVE_SOURCES
         app/main.cpp
         app/editor_app.cpp
+        app/project_session_controller.cpp
+        app/scene_view_interaction.cpp
         ${rmlui_SOURCE_DIR}/Backends/RmlUi_Renderer_GL3.cpp
         app/rml_system.cpp
         app/rml_host.cpp
@@ -120,8 +125,12 @@ if(ARTCADE_BUILD_NATIVE_EDITOR)
         app/file_dialog.cpp
         app/confirm_dialog.cpp
         view/texture_cache.cpp
+        view/texture_request_catalog.cpp
         view/scene_view.cpp
         ui/editor_ui.cpp
+        ui/logic_board_editor_controller.cpp
+        ui/sprite_animation_editor_controller.cpp
+        ui/tileset_editor_controller.cpp
         ui/editor_fonts.cpp
         ui/hierarchy_panel.cpp
         ui/inspector_panel.cpp

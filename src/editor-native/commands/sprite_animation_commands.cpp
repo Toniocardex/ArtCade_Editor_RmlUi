@@ -40,6 +40,50 @@ bool clipReferenced(const ProjectDocument& document, const AssetId& assetId,
 
 } // namespace
 
+CreateSpriteAnimationAssetCommand::CreateSpriteAnimationAssetCommand(
+    AssetId assetId, std::string name, std::string clipId,
+    std::string clipName, AssetId imageId)
+    : assetId_(std::move(assetId)), name_(std::move(name)),
+      clipId_(std::move(clipId)), clipName_(std::move(clipName)),
+      imageId_(std::move(imageId)) {}
+
+EditorOperationResult CreateSpriteAnimationAssetCommand::apply(ProjectDocument& document) {
+    if (assetId_.empty() || name_.empty() || clipId_.empty() || clipName_.empty()) {
+        return EditorOperationResult::failure("Sprite animation asset is incomplete");
+    }
+    if (!document.hasImageAsset(imageId_)) {
+        return EditorOperationResult::failure("Sprite animation source image is missing");
+    }
+    if (document.hasSpriteAnimationAsset(assetId_)) {
+        return EditorOperationResult::failure("Sprite animation asset already exists");
+    }
+
+    SpriteAnimationClipDef clip;
+    clip.id = clipId_;
+    clip.name = clipName_;
+    clip.imageId = imageId_;
+
+    SpriteAnimationAssetDef asset;
+    asset.id = assetId_;
+    asset.name = name_;
+    asset.defaultClipId = clipId_;
+    asset.clips.push_back(std::move(clip));
+
+    ProjectDoc staged = document.data();
+    staged.spriteAnimationAssets.push_back(std::move(asset));
+    document.commitStagedCommand(std::move(staged));
+    return EditorOperationResult::success(
+        kAssetInvalidation, DomainChange::assetChanged(assetId_));
+}
+
+EditorOperationResult CreateSpriteAnimationAssetCommand::undo(ProjectDocument& document) {
+    if (!document.removeSpriteAnimationAsset(assetId_)) {
+        return EditorOperationResult::failure("Cannot undo sprite animation asset creation");
+    }
+    return EditorOperationResult::success(
+        kAssetInvalidation, DomainChange::assetChanged(assetId_));
+}
+
 AddSpriteAnimationAssetCommand::AddSpriteAnimationAssetCommand(
     AssetId assetId, std::string name)
     : assetId_(std::move(assetId)), name_(std::move(name)) {}

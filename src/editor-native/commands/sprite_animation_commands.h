@@ -10,6 +10,25 @@
 
 namespace ArtCade::EditorNative {
 
+// Creates an animation asset together with its initial sheet-backed clip as
+// one atomic authoring operation and one Undo step.
+class CreateSpriteAnimationAssetCommand final : public EditorCommand {
+public:
+    CreateSpriteAnimationAssetCommand(AssetId assetId, std::string name,
+                                      std::string clipId, std::string clipName,
+                                      AssetId imageId);
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "CreateSpriteAnimationAsset"; }
+
+private:
+    AssetId assetId_;
+    std::string name_;
+    std::string clipId_;
+    std::string clipName_;
+    AssetId imageId_;
+};
+
 // An animation asset is an empty character container; clips (each with their own
 // sheet) are added afterwards via AddAnimationClipCommand.
 class AddSpriteAnimationAssetCommand final : public EditorCommand {

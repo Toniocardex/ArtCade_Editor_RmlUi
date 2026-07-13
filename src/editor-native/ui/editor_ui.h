@@ -7,7 +7,9 @@
 #include "editor-native/ui/console_panel.h"
 #include "editor-native/ui/hierarchy_panel.h"
 #include "editor-native/ui/inspector_panel.h"
-#include "editor-native/ui/logic_board_panel.h"
+#include "editor-native/ui/logic_board_editor_controller.h"
+#include "editor-native/ui/sprite_animation_editor_controller.h"
+#include "editor-native/ui/tileset_editor_controller.h"
 
 #include <cstddef>
 #include <functional>
@@ -172,31 +174,15 @@ private:
                             const std::string& value);
     bool handleToolbarAction(const std::string& action, const std::string& arg,
                              const std::string& value);
-    bool handleSpriteAnimationAction(const std::string& action, const std::string& arg,
-                                     const std::string& value);
-    bool handleTilesetEditorAction(const std::string& action, const std::string& arg,
-                                   const std::string& value);
-    bool handleLogicBoardAction(const std::string& action, const std::string& arg,
-                                const std::string& value);
     bool handleHierarchyAction(const std::string& action, const std::string& arg,
                                const std::string& value, EntityId selected);
     bool handleInspectorAction(const std::string& action, const std::string& arg,
                                const std::string& value, EntityId selected);
 
     void applyInvalidations(EditorInvalidation flags);
-    void refreshSpriteAnimationEditor();
-    void refreshTilesetEditor();
-    // Per-frame, class-only sync of the preview transport and timeline playhead.
-    // The playhead advances without invalidation, and a markup rebuild would
-    // steal focus from the Name/FPS inputs, so this never touches innerRML.
-    void updateSpriteAnimationPlayhead();
     void refreshToolbar();
     void refreshCenterWorkspace();
     void updateZoomReadout();   // toolbar zoom %, refreshed on Viewport invalidation
-    // Tileset Editor zoom % (100% = fit). Written into a stable element by id
-    // instead of living in the built markup: wheel zoom fires per tick, and a
-    // full innerRML rebuild would steal focus from the slicing inputs.
-    void updateTilesetZoomReadout();
     void commitGridCellSize(const std::string& text);
     void showPendingHierarchyMenu();   // consumes the deferred menu request
     void showPendingAssetMenu();       // same, for the Assets row menu
@@ -214,28 +200,24 @@ private:
     Rml::ElementDocument*               document_;
     Rml::ElementDocument*               animationDocument_;
     Rml::ElementDocument*               tilesetDocument_;
+    SpriteAnimationEditorController     spriteAnimationEditor_;
+    TilesetEditorController             tilesetEditor_;
+    LogicBoardEditorController          logicBoardEditor_;
     HierarchyPanel                      hierarchy_;
     InspectorPanel                      inspector_;
     ConsolePanel                        console_;
     AssetsPanel                         assets_;
-    LogicBoardPanel                     logicBoard_;
     std::unique_ptr<Rml::EventListener> listener_;
     ProjectFileRequest                  newProjectRequest_;
     ProjectFileRequest                  openProjectRequest_;
     ProjectFileRequest                  saveProjectRequest_;
     ProjectFileRequest                  saveProjectAsRequest_;
     ImportAssetRequest                  importAssetRequest_;
-    ImportImageRequest                  importImageForAnimationRequest_;
     EntityPlacementRequest              addEntityRequest_;
     EntityPlacementRequest              addInstanceRequest_;
     EntityPlacementRequest              createEntityHereRequest_;
     EntityPlacementRequest              createInstanceHereRequest_;
     WorkspaceRequest                    fitViewRequest_;
-    WorkspaceRequest                    sliceAnimationRequest_;
-    WorkspaceRequest                    applyTilesetSlicingRequest_;
-    WorkspaceRequest                    closeTilesetEditorRequest_;
-    CreateTilesetRequest                createTilesetFromImageRequest_;
-    ImageSizeProvider                   tilesetImageSizeProvider_;
     bool                                viewportContextMenuVisible_ = false;
     bool                                hierarchyContextMenuVisible_ = false;
     // Deferred hierarchy menu request (applied on the next processFrame).
@@ -256,10 +238,6 @@ private:
     };
     std::optional<PendingAssetMenu>     pendingAssetMenu_;
     std::string                         pointerReadout_;   // last coords text shown
-    std::string                         spriteAnimationEditorMarkup_;
-    std::string                         tilesetEditorMarkup_;
-    // Chips currently in the timeline; bounds the playhead class sweep.
-    std::size_t                         spriteAnimationTimelineCount_ = 0;
 };
 
 } // namespace ArtCade::EditorNative
