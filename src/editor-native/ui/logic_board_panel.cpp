@@ -124,6 +124,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         ? selectedType->name : selectedId;
     const std::size_t sharedCount = selectedId.empty() ? 0 : instanceCountFor(selectedId);
 
+    const bool typeOpen = !typeIds.empty() && openDropdownId_ == "object-type" && !playing;
+
     std::string html = "<div class=\"logic-head\"><div class=\"logic-heading\">"
                        "<span class=\"logic-title\">Logic Board";
     if (!selectedName.empty()) html += " · " + escapeRml(selectedName);
@@ -135,33 +137,30 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
              + (sharedCount == 1 ? " instance" : " instances");
     }
     html += "</span></div>";
+    if (!typeIds.empty()) {
+        html += dropdownTriggerMarkup(selectedName, "toggle-logic-dropdown", "object-type",
+                                      typeOpen, playing, "logic-type-trigger");
+    }
+    html += "</div>";
+    // Rendered as its own row *after* .logic-head closes, never as a flex
+    // item inside it — nesting the list inside that flex row would grow the
+    // row's own height while open and re-centre .logic-heading's title with
+    // it (align-items: center), making the whole header bar visibly resize
+    // every time the picker is toggled.
+    if (typeOpen) {
+        html += "<div class=\"logic-type-list-row\"><div class=\"drop-list logic-type-list\">";
+        for (const ObjectTypeId& id : typeIds) {
+            const EntityDef& type = coordinator.document().data().objectTypes.at(id);
+            html += dropEntry(type.name.empty() ? id : type.name, id, id == selectedId,
+                              "object-type", "select-logic-object-type", "");
+        }
+        html += "</div></div>";
+    }
     const auto render = [&]() {
         root->SetInnerRML(html);
         if (Rml::Element* scroll = document->GetElementById("logic-scroll"))
             scroll->SetScrollTop(scrollTop_);
     };
-    if (!typeIds.empty()) {
-        // .logic-head is a flex row: the trigger and its list must share one
-        // non-flex wrapper here, or the list renders as a sibling flex item
-        // beside the trigger instead of stacking below it (the Inspector's
-        // dropdowns avoid this because their .drop-list is emitted after the
-        // enclosing .prop-row already closed, i.e. never inside a flex row).
-        const bool typeOpen = openDropdownId_ == "object-type" && !playing;
-        html += "<div class=\"logic-type-picker\">";
-        html += dropdownTriggerMarkup(selectedName, "toggle-logic-dropdown", "object-type",
-                                      typeOpen, playing);
-        if (typeOpen) {
-            html += "<div class=\"drop-list\">";
-            for (const ObjectTypeId& id : typeIds) {
-                const EntityDef& type = coordinator.document().data().objectTypes.at(id);
-                html += dropEntry(type.name.empty() ? id : type.name, id, id == selectedId,
-                                  "object-type", "select-logic-object-type", "");
-            }
-            html += "</div>";
-        }
-        html += "</div>";
-    }
-    html += "</div>";
 
     if (typeIds.empty()) {
         html += "<div class=\"logic-empty\"><div class=\"logic-empty-title\">No Object Types</div>"

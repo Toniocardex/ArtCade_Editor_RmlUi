@@ -27,13 +27,15 @@
     border-bottom: 1px #27272a;
 }
 .logic-heading { flex: 1; display: flex; flex-direction: column; }
-/* Wraps the Object Type trigger + its .drop-list in one non-flex block so
-   the list stacks below the trigger instead of beside it (both are flex
-   items of .logic-head otherwise). Also caps the width: .drop-trigger's
-   shared `flex: 1` is right for an Inspector prop-row (one fixed label, one
-   control) but would stretch this single-word picker across whatever space
-   .logic-heading doesn't claim. */
-.logic-type-picker { display: block; flex: 0 0 240dp; }
+/* .drop-trigger's shared `flex: 1` is right for an Inspector prop-row (one
+   fixed label, one control) but would stretch this single-word picker
+   across whatever space .logic-heading doesn't claim — cap it instead. */
+.logic-type-trigger { flex: 0 0 240dp; }
+/* The dropdown list renders as its own row *after* .logic-head, not nested
+   inside it (see the comment at its call site) — right-aligned and pinned
+   to the trigger's own width so it still reads as "this trigger's list". */
+.logic-type-list-row { display: flex; flex-direction: row; justify-content: flex-end; padding: 0 14dp; }
+.logic-type-list { width: 240dp; }
 .logic-title { font-size: 17dp; color: #f4f4f5; margin-right: 14dp; }
 .logic-owner { margin-top: 3dp; color: #8a8a93; font-size: 10dp; letter-spacing: 0.5dp; }
 /* Same outline-button tokens as .panel-btn (not that class itself, so the
