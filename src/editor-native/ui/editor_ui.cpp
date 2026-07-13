@@ -231,6 +231,22 @@ public:
         }
         if (action.empty()) return;
 
+        // A native <select> fires a genuine RmlUi "change" event as a side effect
+        // of being populated via SetInnerRML — e.g. WidgetDropDown::SetValue
+        // dispatches Change while parsing an <option selected> that differs from
+        // the box's prior value, with no user interaction at all. That happens
+        // every time the Logic Board panel repaints, even while hidden (it stays
+        // ready off-screen), so a synthetic change on the object-type picker
+        // could otherwise switch the whole workspace into Logic on a plain
+        // project load. A real user pick always focuses the control first
+        // (WidgetDropDown::ProcessEvent calls parent_element->Focus() on click,
+        // before dispatching Change); a populate-time synthetic one never does -
+        // so requiring focus tells them apart without special-casing content.
+        if (type == "change") {
+            Rml::Context* context = actionElement ? actionElement->GetContext() : nullptr;
+            if (!context || context->GetFocusElement() != actionElement) return;
+        }
+
         // Hierarchy context menu triggers carry the click position; the show is
         // deferred to processFrame (see requestHierarchyContextMenu).
         if (type == "click"
