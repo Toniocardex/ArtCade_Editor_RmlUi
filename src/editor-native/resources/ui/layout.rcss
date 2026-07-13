@@ -52,7 +52,9 @@ body {
     min-width: 0;
     display: flex;
     flex-direction: column;
-    background-color: #101114;
+    /* Keep the Scene workspace as a transparent hole: Raylib draws the
+       viewport before RmlUi. The Logic Board supplies its own opaque surface. */
+    background-color: transparent;
 }
 
 #center-modebar {
