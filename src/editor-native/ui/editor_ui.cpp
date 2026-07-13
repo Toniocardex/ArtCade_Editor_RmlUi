@@ -231,22 +231,6 @@ public:
         }
         if (action.empty()) return;
 
-        // A native <select> fires a genuine RmlUi "change" event as a side effect
-        // of being populated via SetInnerRML — e.g. WidgetDropDown::SetValue
-        // dispatches Change while parsing an <option selected> that differs from
-        // the box's prior value, with no user interaction at all. That happens
-        // every time the Logic Board panel repaints, even while hidden (it stays
-        // ready off-screen), so a synthetic change on the object-type picker
-        // could otherwise switch the whole workspace into Logic on a plain
-        // project load. A real user pick always focuses the control first
-        // (WidgetDropDown::ProcessEvent calls parent_element->Focus() on click,
-        // before dispatching Change); a populate-time synthetic one never does -
-        // so requiring focus tells them apart without special-casing content.
-        if (type == "change") {
-            Rml::Context* context = actionElement ? actionElement->GetContext() : nullptr;
-            if (!context || context->GetFocusElement() != actionElement) return;
-        }
-
         // Hierarchy context menu triggers carry the click position; the show is
         // deferred to processFrame (see requestHierarchyContextMenu).
         if (type == "click"
@@ -322,13 +306,19 @@ public:
                 return;
             }
         }
-        if (!isCommit && type != "click" && type != "dblclick" && type != "change") return;
+        if (!isCommit && type != "click" && type != "dblclick") return;
 
         if (type == "click" && action == "select-layer" && isLayerDoubleClick(arg)) {
             action = "begin-layer-rename";
         }
 
-        const std::string value = formValue(actionElement, event);
+        // A button/entry standing in for what used to be a <select> option
+        // (Logic Board's Event/Action/Key/Object-Type pickers) carries the
+        // value it represents in data-value, separate from data-arg (which
+        // stays the addressing key — a ruleId, or "ruleId|actionIndex").
+        const std::string value = (actionElement && actionElement->HasAttribute("data-value"))
+            ? attribute(actionElement, "data-value")
+            : formValue(actionElement, event);
         ui_.handleAction(action, arg, value);
     }
 
@@ -377,7 +367,6 @@ void EditorUi::bind() {
         doc->AddEventListener("focus", listener_.get(), true);
         doc->AddEventListener("blur", listener_.get(), true);
         doc->AddEventListener("keydown", listener_.get(), true);
-        doc->AddEventListener("change", listener_.get(), true);
         doc->AddEventListener("drag", listener_.get());
     };
     bindDocument(document_);
@@ -402,7 +391,6 @@ void EditorUi::detach() {
             doc->RemoveEventListener("focus", listener_.get(), true);
             doc->RemoveEventListener("blur", listener_.get(), true);
             doc->RemoveEventListener("keydown", listener_.get(), true);
-            doc->RemoveEventListener("change", listener_.get(), true);
             doc->RemoveEventListener("drag", listener_.get());
         };
         detachDocument(document_);
@@ -1541,6 +1529,16 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     if (action == "set-entity-layer" || action == "set-sprite-asset"
         || action == "set-sprite-animation" || action == "set-tilemap-tileset") {
         inspector_.closeDropdowns();   // then fall through to execute the pick
+    }
+
+    // Logic Board value dropdowns (Object Type / per-rule Key) follow the
+    // identical pattern.
+    if (action == "toggle-logic-dropdown") {
+        if (!coordinator_.isPlaying()) logicBoard_.toggleDropdown(document_, coordinator_, arg);
+        return;
+    }
+    if (action == "select-logic-object-type" || action == "set-logic-key") {
+        logicBoard_.closeDropdown();   // then fall through to execute the pick
     }
 
     if (handleProjectFileAction(action, arg, value)) return;

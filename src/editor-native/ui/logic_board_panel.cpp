@@ -2,6 +2,7 @@
 
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/ui/editor_ui.h"
+#include "editor-native/ui/ui_markup.h"
 #include "logic-core.h"
 
 #include <RmlUi/Core/Element.h>
@@ -31,14 +32,50 @@ std::string number(float value) {
     return out.str();
 }
 
-std::string option(const std::string& value, const std::string& label, bool selected) {
-    return "<option value=\"" + escapeRml(value) + "\""
-         + (selected ? " selected=\"selected\"" : "") + ">"
-         + escapeRml(label) + "</option>";
-}
-
 std::string actionArg(const LogicRuleId& ruleId, std::size_t index) {
     return ruleId + "|" + std::to_string(index);
+}
+
+// A `.drop-list` entry: the current value marks itself and just closes the
+// list on click (re-picking itself is a no-op); every other entry dispatches
+// `pickAction` with the value carried in data-value (never data-arg, which
+// stays the addressing key for the actions that need one — see the
+// data-value contract note below `handleLogicBoardAction`'s dispatch in
+// editor_ui.cpp). `pickArg`, when non-empty, is the addressing key riding
+// alongside (e.g. the rule a Key picker belongs to).
+std::string dropEntry(const std::string& label, const std::string& value, bool isCurrent,
+                      const std::string& closeDropdownId, const char* pickAction,
+                      const std::string& pickArg) {
+    std::string html = "<div class=\"drop-entry";
+    if (isCurrent) html += " selected";
+    html += "\"";
+    if (isCurrent) {
+        html += " data-action=\"toggle-logic-dropdown\" data-arg=\""
+              + escapeRml(closeDropdownId) + "\"";
+    } else {
+        html += " data-action=\"" + std::string(pickAction) + "\"";
+        if (!pickArg.empty()) html += " data-arg=\"" + escapeRml(pickArg) + "\"";
+        html += " data-value=\"" + escapeRml(value) + "\"";
+    }
+    html += ">";
+    if (isCurrent) html += "<span class=\"drop-mark\">&#x25cf;</span> ";
+    html += escapeRml(label) + "</div>";
+    return html;
+}
+
+// A 2-5 option button row (`.mode-block`/`.mode-options`/`.panel-btn.mode-
+// option`) — the same shape used for Box Collider Mode and Tilemap Tool.
+// Each option carries the addressing key in data-arg (unchanged from what
+// the native <select> it replaces used to receive) and the new value in
+// data-value.
+std::string modeOption(const char* label, const std::string& value, bool active,
+                       const char* action, const std::string& arg, bool disabled) {
+    std::string html = "<button class=\"panel-btn mode-option";
+    if (active) html += " active";
+    if (disabled) html += " disabled";
+    html += "\" data-action=\"" + std::string(action) + "\" data-arg=\"" + escapeRml(arg)
+         + "\" data-value=\"" + escapeRml(value) + "\">" + label + "</button>";
+    return html;
 }
 
 } // namespace
@@ -51,12 +88,18 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
 
     const LogicBoardEditorState& view = coordinator.state().logicBoardEditor;
     const bool playing = coordinator.isPlaying();
+    if (playing) openDropdownId_.clear();
     if (scrollObjectTypeId_ == view.objectTypeId) {
         if (Rml::Element* scroll = document->GetElementById("logic-scroll"))
             scrollTop_ = scroll->GetScrollTop();
     } else {
         scrollObjectTypeId_ = view.objectTypeId;
         scrollTop_ = 0.f;
+        openDropdownId_.clear();
+    }
+    if (lastTab_ != view.tab) {
+        lastTab_ = view.tab;
+        openDropdownId_.clear();
     }
     std::vector<ObjectTypeId> typeIds;
     typeIds.reserve(coordinator.document().data().objectTypes.size());
@@ -98,13 +141,18 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             scroll->SetScrollTop(scrollTop_);
     };
     if (!typeIds.empty()) {
-        html += "<select class=\"logic-search\" data-action=\"select-logic-object-type\">";
-        for (const ObjectTypeId& id : typeIds) {
-            const EntityDef& type = coordinator.document().data().objectTypes.at(id);
-            html += option(id, type.name.empty() ? id : type.name,
-                           view.objectTypeId && *view.objectTypeId == id);
+        const bool typeOpen = openDropdownId_ == "object-type" && !playing;
+        html += dropdownTriggerMarkup(selectedName, "toggle-logic-dropdown", "object-type",
+                                      typeOpen, playing);
+        if (typeOpen) {
+            html += "<div class=\"drop-list\">";
+            for (const ObjectTypeId& id : typeIds) {
+                const EntityDef& type = coordinator.document().data().objectTypes.at(id);
+                html += dropEntry(type.name.empty() ? id : type.name, id, id == selectedId,
+                                  "object-type", "select-logic-object-type", "");
+            }
+            html += "</div>";
         }
-        html += "</select>";
     }
     html += "</div>";
 
@@ -161,33 +209,48 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         html += "<div class=\"logic-rule" + std::string(rule.enabled ? "" : " off") + "\">"
                 "<div class=\"logic-rule-head\"><span class=\"logic-rule-id\">"
              + escapeRml(rule.id) + "</span>";
-        auto button = [&](const char* action, const char* label, bool disabled = false) {
+        html += "<button class=\"panel-btn\"";
+        if (playing) html += " disabled=\"disabled\"";
+        html += " data-action=\"toggle-logic-rule\" data-arg=\"" + escapeRml(rule.id) + "\">"
+             + std::string(rule.enabled ? "On" : "Off") + "</button>";
+        auto iconButton = [&](const char* action, const char* label, bool disabled = false) {
             html += "<button class=\"logic-icon-btn";
             if (playing || disabled) html += " disabled";
             html += "\" data-action=\"" + std::string(action) + "\" data-arg=\""
                  + escapeRml(rule.id) + "\">" + label + "</button>";
         };
-        button("toggle-logic-rule", rule.enabled ? "Enabled" : "Disabled");
-        button("move-logic-rule-up", "↑", ruleIndex == 0);
-        button("move-logic-rule-down", "↓", ruleIndex + 1 == board.rules.size());
-        button("remove-logic-rule", "Delete");
-        html += "</div><div class=\"logic-block\"><div><span class=\"logic-block-label\">EVENT</span>";
-        html += "<select data-action=\"change-logic-trigger\" data-arg=\"" + escapeRml(rule.id) + "\"";
-        if (playing) html += " disabled=\"disabled\"";
-        html += ">" + option(Logic::kOnStart, "On Start", rule.trigger.typeId == Logic::kOnStart)
-             + option(Logic::kKeyPressed, "Key Pressed", rule.trigger.typeId == Logic::kKeyPressed)
-             + "</select></div>";
+        iconButton("move-logic-rule-up", "↑", ruleIndex == 0);
+        iconButton("move-logic-rule-down", "↓", ruleIndex + 1 == board.rules.size());
+        html += "<button class=\"comp-remove";
+        if (playing) html += " disabled";
+        html += "\" data-action=\"remove-logic-rule\" data-arg=\"" + escapeRml(rule.id)
+             + "\" title=\"Delete rule\">" + iconMarkup("&#xeb41;") + "</button>";
+        html += "</div><div class=\"logic-block\"><div><span class=\"logic-block-label\">EVENT</span>"
+                "<div class=\"mode-options\">";
+        html += modeOption("On Start", Logic::kOnStart, rule.trigger.typeId == Logic::kOnStart,
+                          "change-logic-trigger", rule.id, playing);
+        html += modeOption("Key Pressed", Logic::kKeyPressed, rule.trigger.typeId == Logic::kKeyPressed,
+                          "change-logic-trigger", rule.id, playing);
+        html += "</div></div>";
         if (rule.trigger.typeId == Logic::kKeyPressed) {
             LogicKey selectedKey = LogicKey::Space;
             if (const LogicPropertyDef* p = property(rule.trigger, "key"))
                 if (const auto* key = std::get_if<LogicKey>(&p->value)) selectedKey = *key;
-            html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">KEY</span>"
-                    "<select data-action=\"set-logic-key\" data-arg=\"" + escapeRml(rule.id) + "\"";
-            if (playing) html += " disabled=\"disabled\"";
-            html += ">";
-            for (LogicKey key : Logic::supportedLogicKeys())
-                html += option(Logic::logicKeyName(key), Logic::logicKeyName(key), key == selectedKey);
-            html += "</select></div>";
+            const std::string keyDropdownId = "key|" + rule.id;
+            const bool keyOpen = openDropdownId_ == keyDropdownId && !playing;
+            html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">KEY</span>";
+            html += dropdownTriggerMarkup(Logic::logicKeyName(selectedKey), "toggle-logic-dropdown",
+                                          keyDropdownId, keyOpen, playing);
+            html += "</div>";
+            if (keyOpen) {
+                html += "<div class=\"drop-list logic-key-list\">";
+                for (LogicKey key : Logic::supportedLogicKeys()) {
+                    const std::string keyName = Logic::logicKeyName(key);
+                    html += dropEntry(keyName, keyName, key == selectedKey, keyDropdownId,
+                                      "set-logic-key", rule.id);
+                }
+                html += "</div>";
+            }
         }
         html += "</div>";
 
@@ -195,20 +258,21 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             const LogicBlockDef& action = rule.actions[actionIndex];
             const std::string arg = actionArg(rule.id, actionIndex);
             html += "<div class=\"logic-block action\"><div class=\"logic-action-row\"><div class=\"logic-action-main\">"
-                    "<span class=\"logic-block-label\">ACTION</span><select data-action=\"change-logic-action\" data-arg=\""
-                 + escapeRml(arg) + "\"";
-            if (playing) html += " disabled=\"disabled\"";
-            html += ">" + option(Logic::kSetVisible, "Set Visible", action.typeId == Logic::kSetVisible)
-                 + option(Logic::kSetPosition, "Set Position", action.typeId == Logic::kSetPosition)
-                 + "</select></div><button class=\"logic-icon-btn";
+                    "<span class=\"logic-block-label\">ACTION</span><div class=\"mode-options\">";
+            html += modeOption("Set Visible", Logic::kSetVisible, action.typeId == Logic::kSetVisible,
+                              "change-logic-action", arg, playing);
+            html += modeOption("Set Position", Logic::kSetPosition, action.typeId == Logic::kSetPosition,
+                              "change-logic-action", arg, playing);
+            html += "</div></div><button class=\"logic-icon-btn";
             if (playing || actionIndex == 0) html += " disabled";
             html += "\" data-action=\"move-logic-action-up\" data-arg=\"" + escapeRml(arg) + "\">↑</button>"
                     "<button class=\"logic-icon-btn";
             if (playing || actionIndex + 1 == rule.actions.size()) html += " disabled";
             html += "\" data-action=\"move-logic-action-down\" data-arg=\"" + escapeRml(arg) + "\">↓</button>"
-                    "<button class=\"logic-icon-btn";
+                    "<button class=\"comp-remove";
             if (playing || rule.actions.size() == 1) html += " disabled";
-            html += "\" data-action=\"remove-logic-action\" data-arg=\"" + escapeRml(arg) + "\">Delete</button></div>";
+            html += "\" data-action=\"remove-logic-action\" data-arg=\"" + escapeRml(arg)
+                 + "\" title=\"Delete action\">" + iconMarkup("&#xeb41;") + "</button></div>";
             if (action.typeId == Logic::kSetVisible) {
                 bool visible = true;
                 if (const LogicPropertyDef* p = property(action, "visible"))
@@ -217,7 +281,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                         "<button class=\"logic-btn";
                 if (playing) html += " disabled";
                 html += "\" data-action=\"toggle-logic-visible\" data-arg=\"" + escapeRml(arg) + "\">"
-                     + std::string(visible ? "true" : "false") + "</button></div>";
+                     + std::string(visible ? "On" : "Off") + "</button></div>";
             } else if (action.typeId == Logic::kSetPosition) {
                 Vec2 position{};
                 if (const LogicPropertyDef* p = property(action, "position"))
@@ -247,6 +311,13 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     }
     html += "</div>";
     render();
+}
+
+void LogicBoardPanel::toggleDropdown(Rml::ElementDocument* document,
+                                     const EditorCoordinator& coordinator,
+                                     const std::string& dropdownId) {
+    openDropdownId_ = (openDropdownId_ == dropdownId) ? std::string() : dropdownId;
+    refresh(document, coordinator);
 }
 
 } // namespace ArtCade::EditorNative

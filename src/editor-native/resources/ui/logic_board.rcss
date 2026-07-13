@@ -84,3 +84,8 @@
 .logic-action-main { flex: 1; }
 .logic-diagnostic { display: block; margin: 5dp 10dp; padding: 7dp; color: #e5706b; background-color: #2a1f20; }
 .logic-code { display: block; padding: 12dp; color: #d4d4d8; background-color: #111113; white-space: pre; font-family: "JetBrains Mono"; }
+
+/* The Key picker's option list spans 40+ entries (A-Z, 0-9, arrows, Space,
+   Enter) — bounded and scrollable, or it would push every rule below it
+   further down the page instead of scrolling internally. */
+.logic-key-list { max-height: 220dp; overflow-y: auto; }

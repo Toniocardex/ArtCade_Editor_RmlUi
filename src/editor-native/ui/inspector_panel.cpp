@@ -5,6 +5,7 @@
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_render_view.h"
 #include "editor-native/ui/editor_ui.h"
+#include "editor-native/ui/ui_markup.h"
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -28,9 +29,7 @@ std::string num(float v) {
 }
 
 // Tabler icon glyph span (PUA codepoint passed as an RML char reference).
-std::string icon(const char* cp) {
-    return std::string("<span class=\"icon\">") + cp + "</span>";
-}
+std::string icon(const char* cp) { return iconMarkup(cp); }
 
 // Display label of a Sprite Animation asset: its authored name when the id
 // still resolves, with the historical ".anim" suffix stripped either way
@@ -168,23 +167,16 @@ const SceneLayerDef* findLayer(const SceneDef& scene, const std::string& layerId
 // A one-row value dropdown trigger filling the value slot of a prop-row. The
 // option list is emitted separately by the caller (in-flow, Add Component
 // pattern — a floating popup would be clipped by the Inspector's scroll
-// region). Raw text centred via line-height, caret pinned right (see the
-// RmlUi flex/raw-text note in controls.rcss).
+// region). Wraps the panel-agnostic dropdownTriggerMarkup() in the
+// Inspector's own prop-row/prop-label shell and its dedicated toggle action.
 std::string dropdownTrigger(const char* label, const char* dropdownId,
                             const std::string& valueText, bool open, bool disabled) {
     std::string row = "<div class=\"prop-row\"><span class=\"prop-label\">";
     row += label;
-    row += "</span><div class=\"drop-trigger";
-    if (open) row += " open";
-    if (disabled) row += " disabled";
-    row += "\"";
-    if (!disabled) {
-        row += " data-action=\"toggle-inspector-dropdown\" data-arg=\"";
-        row += dropdownId;
-        row += "\"";
-    }
-    row += ">" + escapeRml(valueText)
-         + "<span class=\"drop-caret\">&#xeb5d;</span></div></div>";
+    row += "</span>";
+    row += dropdownTriggerMarkup(valueText, "toggle-inspector-dropdown", dropdownId,
+                                 open, disabled);
+    row += "</div>";
     return row;
 }
 

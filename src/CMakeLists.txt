@@ -132,6 +132,7 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/view/scene_view.cpp
     editor-native/view/tilemap_paint_overlay.cpp
     editor-native/app/tilemap_paint_input.cpp
+    editor-native/ui/ui_markup.cpp
     editor-native/ui/editor_ui.cpp
     editor-native/ui/editor_fonts.cpp
     editor-native/ui/hierarchy_panel.cpp
