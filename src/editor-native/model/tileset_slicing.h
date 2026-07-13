@@ -2,6 +2,7 @@
 
 #include "core/types.h"
 
+#include <optional>
 #include <vector>
 
 namespace ArtCade::EditorNative {
@@ -48,5 +49,11 @@ std::vector<TileDefinition> reconcileTiles(const std::vector<TileDefinition>& ol
 bool sameTilesetSlicing(const TilesetSlicing& a, const TilesetSlicing& b);
 bool sameTileDefinitions(const std::vector<TileDefinition>& a,
                          const std::vector<TileDefinition>& b);
+
+// Grid-adjacent index for the editor's keyboard selection (arrow keys): the
+// tile at (col+dx, row+dy) of `index`'s own cell in a columns x rows grid,
+// or nullopt when the move would leave the grid (selection stays put) or the
+// inputs don't describe a valid cell.
+std::optional<int> adjacentTileIndex(int columns, int rows, int index, int dx, int dy);
 
 } // namespace ArtCade::EditorNative

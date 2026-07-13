@@ -108,4 +108,13 @@ bool sameTileDefinitions(const std::vector<TileDefinition>& a,
     return true;
 }
 
+std::optional<int> adjacentTileIndex(int columns, int rows, int index, int dx, int dy) {
+    if (columns <= 0 || rows <= 0) return std::nullopt;
+    if (index < 0 || index >= columns * rows) return std::nullopt;
+    const int col = index % columns + dx;
+    const int row = index / columns + dy;
+    if (col < 0 || col >= columns || row < 0 || row >= rows) return std::nullopt;
+    return row * columns + col;
+}
+
 } // namespace ArtCade::EditorNative

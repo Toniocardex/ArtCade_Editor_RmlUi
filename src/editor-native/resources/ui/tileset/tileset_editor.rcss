@@ -247,6 +247,22 @@ body {
     font-size: 11dp;
     line-height: 15dp;
 }
+/* -- Committed tiles grid: .tile-thumb slots (shared with the Inspector
+      palette, panels.rcss) inside the panel's own scroll region; raylib
+      paints the crops after host.render(), clipped to this box. */
+.tileset-tiles-title { margin-top: 16dp; }
+.tileset-tiles-grid {
+    display: block;
+    max-height: 220dp;
+    overflow-y: auto;
+    margin-bottom: 6dp;
+}
+.tileset-tiles-more {
+    display: block;
+    margin: 2dp 0 4dp 0;
+    color: #71717a;
+    font-size: 11dp;
+}
 .tileset-settings-diagnostic {
     display: block;
     margin-top: auto;

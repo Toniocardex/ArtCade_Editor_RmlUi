@@ -989,6 +989,23 @@ static void runTilesetTests() {
         CHECK(uniqueTilesetAssetId(c.document(), "img-hero") == "img-hero-2.tileset");
     }
 
+    // -- adjacentTileIndex: arrow-key selection movement on the pending grid -
+    // stays put at every edge, rejects invalid grids/indices ------------------
+    {
+        // 4 x 3 grid: indices 0..11, row-major.
+        CHECK(adjacentTileIndex(4, 3, 0, 1, 0) == std::optional<int>{1});
+        CHECK(adjacentTileIndex(4, 3, 0, 0, 1) == std::optional<int>{4});
+        CHECK(adjacentTileIndex(4, 3, 5, -1, 0) == std::optional<int>{4});
+        CHECK(adjacentTileIndex(4, 3, 5, 0, -1) == std::optional<int>{1});
+        CHECK(!adjacentTileIndex(4, 3, 3, 1, 0).has_value());    // right edge
+        CHECK(!adjacentTileIndex(4, 3, 0, -1, 0).has_value());   // left edge
+        CHECK(!adjacentTileIndex(4, 3, 0, 0, -1).has_value());   // top edge
+        CHECK(!adjacentTileIndex(4, 3, 8, 0, 1).has_value());    // bottom edge
+        CHECK(!adjacentTileIndex(0, 3, 0, 1, 0).has_value());    // degenerate grid
+        CHECK(!adjacentTileIndex(4, 3, 12, 1, 0).has_value());   // index out of range
+        CHECK(!adjacentTileIndex(4, 3, -1, 1, 0).has_value());
+    }
+
     // -- sameTilesetSlicing / sameTileDefinitions: the one "unchanged"
     // definition shared by the no-op guard and the close guard's dirty check ---
     {

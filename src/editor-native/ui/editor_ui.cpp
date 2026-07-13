@@ -908,6 +908,31 @@ void EditorUi::refreshTilesetEditor() {
         html += "<span class=\"tileset-selected-empty\">Click a tile in the sheet to select it</span>";
     }
 
+    // Committed tiles as a visual grid (the Inspector palette's thumb-slot
+    // pattern: transparent divs raylib paints the crops into). Capped so a
+    // huge atlas cannot flood the layout with elements; the canvas remains
+    // the full view.
+    if (!asset->tiles.empty()) {
+        constexpr std::size_t kMaxTileThumbs = 512;
+        const std::size_t shown = std::min(asset->tiles.size(), kMaxTileThumbs);
+        html += "<div class=\"tileset-panel-title tileset-tiles-title\">Tiles ("
+              + std::to_string(asset->tiles.size()) + ")</div>";
+        html += "<div id=\"tileset-tiles-grid\" class=\"tileset-tiles-grid\">";
+        for (std::size_t i = 0; i < shown; ++i) {
+            const TileDefinition& tile = asset->tiles[i];
+            html += "<div id=\"tileset-grid-thumb-" + std::to_string(i)
+                  + "\" class=\"tile-thumb\" data-action=\"select-tileset-tile\""
+                    " data-arg=\"" + escapeRml(tile.id) + "\""
+                    " title=\"Tile " + std::to_string(i + 1) + " - ID: " + escapeRml(tile.id)
+                  + "\"></div>";
+        }
+        if (shown < asset->tiles.size()) {
+            html += "<span class=\"tileset-tiles-more\">+"
+                  + std::to_string(asset->tiles.size() - shown) + " more tiles</span>";
+        }
+        html += "</div>";
+    }
+
     html += "<span class=\"tileset-settings-diagnostic\">Source: " + escapeRml(asset->imageAssetId)
           + "<br/>" + std::to_string(asset->tiles.size()) + " tile(s) committed</span>";
     html += "</div>";      // .tileset-settings
@@ -1977,6 +2002,8 @@ bool EditorUi::handleTilesetEditorAction(const std::string& action, const std::s
         }
     } else if (action == "apply-tileset-slicing") {
         if (applyTilesetSlicingRequest_) applyTilesetSlicingRequest_();
+    } else if (action == "select-tileset-tile") {
+        if (!arg.empty()) coordinator_.apply(SelectTilesetTileIntent{arg});
     } else if (action == "reset-tileset-slicing") {
         const TilesetEditorState& state = coordinator_.state().tilesetEditor;
         const TilesetAsset* asset = state.openAssetId

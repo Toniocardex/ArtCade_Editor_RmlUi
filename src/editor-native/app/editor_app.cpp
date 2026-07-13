@@ -1027,8 +1027,9 @@ int EditorApp::run(int argc, char** argv) {
     ui.setTilesetApplySlicingHandler([&]() { tryApplyPendingTilesetSlicing(); });
     // Close guard: an unapplied pending slicing is a pending edit - it must
     // be resolved (Apply / Discard / Cancel), never dropped silently. Same
-    // pure decision as the project-level unsaved guard.
-    ui.setTilesetCloseHandler([&]() {
+    // pure decision as the project-level unsaved guard. Named so the Close
+    // button and the Esc key run the identical flow.
+    const std::function<void()> closeTilesetEditorGuarded = [&]() {
         const TilesetEditorState& state = coordinator.state().tilesetEditor;
         if (!state.openAssetId) return;
         const TilesetAsset* asset = coordinator.document().findTilesetAsset(*state.openAssetId);
@@ -1040,7 +1041,41 @@ int EditorApp::run(int argc, char** argv) {
         if (resolveUnsavedGuard(dirty, choice, applied) == GuardOutcome::Proceed) {
             coordinator.apply(CloseTilesetEditorIntent{});
         }
-    });
+    };
+    ui.setTilesetCloseHandler(closeTilesetEditorGuarded);
+    // Arrow-key selection on the pending grid: same positional tile ids the
+    // canvas click produces; a missing/stale selection starts at tile one.
+    const auto moveTilesetSelection = [&](int dx, int dy) {
+        const TilesetEditorState& state = coordinator.state().tilesetEditor;
+        if (!state.openAssetId) return;
+        const TilesetAsset* asset = coordinator.document().findTilesetAsset(*state.openAssetId);
+        if (!asset) return;
+        const TextureResource* resource = loadedTilesetSource(asset->imageAssetId);
+        if (!resource) return;
+        const TilesetSliceResult grid = computeTilesetSlicing(
+            resource->texture.width, resource->texture.height, state.pendingSlicing);
+        if (grid.tileCount <= 0) return;
+        const std::vector<TileDefinition> tiles = tilesForSlicing(
+            resource->texture.width, resource->texture.height, state.pendingSlicing);
+        int current = -1;
+        if (state.selectedTileId) {
+            for (std::size_t i = 0; i < tiles.size(); ++i) {
+                if (tiles[i].id == *state.selectedTileId) {
+                    current = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+        if (current < 0) {
+            coordinator.apply(SelectTilesetTileIntent{tiles.front().id});
+            return;
+        }
+        if (const std::optional<int> next =
+                adjacentTileIndex(grid.columns, grid.rows, current, dx, dy)) {
+            coordinator.apply(
+                SelectTilesetTileIntent{tiles[static_cast<std::size_t>(*next)].id});
+        }
+    };
     // Pixel-size projection for the editor's inline slicing feedback; read-only,
     // the cache stays the only owner of the loaded texture.
     ui.setTilesetImageSizeProvider(
@@ -1220,6 +1255,7 @@ int EditorApp::run(int argc, char** argv) {
     int   lastRenderH = GetRenderHeight();
     float lastDpi     = dpi > 0.f ? dpi : 1.f;
     int   sizeStableFrames = 0;
+    bool  prevTextFocus = false;   // last frame's RmlUi text focus (see Tileset keys)
     // Tile Palette Picker-sync: the tile last scrolled into view, so a
     // repeated selection (or none) does not re-trigger ScrollIntoView.
     std::optional<TileId> lastScrolledPaletteTile;
@@ -1386,7 +1422,27 @@ int EditorApp::run(int argc, char** argv) {
         if (!coordinator.isPlaying() && tilesetEditorOpen) {
             routeTilesetEditorCanvasInput(
                 coordinator, tilesetInputRect, rml, textureCache, textureRequests);
+            // Keyboard: Esc = guarded close, Enter = apply, arrows = move the
+            // pending-grid selection. prevTextFocus covers the commit frame -
+            // the Enter that just committed a field must not double as Apply,
+            // and the Esc that dismissed a field must not close the editor.
+            if (!rml.textFocus && !prevTextFocus) {
+                if (IsKeyPressed(KEY_ESCAPE)) {
+                    closeTilesetEditorGuarded();
+                } else if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) {
+                    tryApplyPendingTilesetSlicing();
+                } else {
+                    int dx = 0;
+                    int dy = 0;
+                    if (IsKeyPressed(KEY_RIGHT) || IsKeyPressedRepeat(KEY_RIGHT)) dx = 1;
+                    else if (IsKeyPressed(KEY_LEFT) || IsKeyPressedRepeat(KEY_LEFT)) dx = -1;
+                    else if (IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN)) dy = 1;
+                    else if (IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP)) dy = -1;
+                    if (dx != 0 || dy != 0) moveTilesetSelection(dx, dy);
+                }
+            }
         }
+        prevTextFocus = rml.textFocus;
 
         ui.processFrame();
         // Title dirty-cue: follows undo/redo/save as well as edits, so it can't
@@ -1581,6 +1637,26 @@ int EditorApp::run(int argc, char** argv) {
                         elementContentRectFromDocument(tilesetDocument,
                                                        "tileset-selected-thumb"),
                         textureCache, textureRequests);
+                }
+            }
+            // Committed-tiles grid: same renderer as the Inspector palette,
+            // clipped to the grid's own scroll box.
+            if (!tilesetAsset->tiles.empty()) {
+                const ViewportRect gridClip = elementContentRectFromDocument(
+                    tilesetDocument, "tileset-tiles-grid");
+                if (gridClip.valid()) {
+                    std::vector<ViewportRect> gridThumbRects;
+                    gridThumbRects.reserve(tilesetAsset->tiles.size());
+                    for (std::size_t i = 0; i < tilesetAsset->tiles.size(); ++i) {
+                        const std::string id = "tileset-grid-thumb-" + std::to_string(i);
+                        const ViewportRect slot =
+                            elementContentRectFromDocument(tilesetDocument, id.c_str());
+                        if (!slot.valid()) break;   // capped markup: no more slots
+                        gridThumbRects.push_back(slot);
+                    }
+                    renderTilePalette(*tilesetAsset, tilesetState.selectedTileId,
+                                      gridThumbRects, gridClip, textureCache,
+                                      textureRequests);
                 }
             }
         }

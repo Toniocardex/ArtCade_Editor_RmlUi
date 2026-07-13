@@ -534,6 +534,14 @@ Questa slice è subordinata alla RML contract suite e deve essere eseguita solo 
 
 **Gate:** la separazione riduce un rischio misurabile di lifecycle o coupling e non aggiunge soltanto file.
 
+### Registro P2
+
+Debiti pianificabili (Costituzione §2): rinviabili solo se registrati con motivazione, rischio, owner, priorità e condizione di chiusura.
+
+| ID | Voce | Motivazione del rinvio | Rischio | Owner | Priorità | Condizione di chiusura |
+|---|---|---|---|---|---|---|
+| P2-01 | Auto-detect della griglia nel Tileset Editor: euristica pura (divisori comuni, allineamento con colonne/righe trasparenti) che propone una slicing precompilando `pendingSlicing` via `SetPendingTilesetSlicingIntent`. | Comfort d'authoring, non correttezza: la slicing manuale con feedback live di copertura copre già il flusso. | Basso — funzione read-only senza nuova autorità; una proposta sbagliata resta una pending edit annullabile. | Editor (Tileset) | Bassa | Euristica pura con test su sheet reali (divisione esatta, gutter, margini) + azione "Detect" nel pannello Slicing che passa dal solito Intent. |
+
 ## 9. GATE-FINAL — Accettazione della remediation
 
 ### Build e test
