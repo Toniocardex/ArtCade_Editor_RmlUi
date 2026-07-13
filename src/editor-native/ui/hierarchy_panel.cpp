@@ -41,26 +41,36 @@ void setHtml(Rml::ElementDocument* document, const char* id, const std::string& 
 }
 
 // "Use Existing Type": one .menu-entry per catalog EntityDef, sorted by
-// display name (ProjectDoc.objectTypes is an unordered_map; iteration order
-// is not stable or meaningful to a user). Each entry places a new instance of
-// that type via add-instance-of-type, without needing a prior selection —
-// the counterpart to "Create Instance", which derives its type from one.
+// display name with the type id as tie-break (ProjectDoc.objectTypes is an
+// unordered_map; iteration order is not stable, and default-named types all
+// read "Entity" — without the tie-break equal names would shuffle between
+// refreshes). Each entry places a new instance of that type via
+// add-instance-of-type, without needing a prior selection — the counterpart
+// to "Create Instance", which derives its type from one. The section label
+// and the id hint exist because the list is the CATALOG of types, not the
+// scene's instances: without them five default-named types render as five
+// indistinguishable "Entity" rows glued under the create actions.
 std::string useExistingTypeList(const ProjectDocument& doc, bool disabled) {
     std::vector<const EntityDef*> sorted;
     sorted.reserve(doc.data().objectTypes.size());
     for (const auto& [id, type] : doc.data().objectTypes) sorted.push_back(&type);
     std::sort(sorted.begin(), sorted.end(), [](const EntityDef* a, const EntityDef* b) {
-        return a->name < b->name;
+        if (a->name != b->name) return a->name < b->name;
+        return a->className < b->className;
     });
 
     if (sorted.empty()) return {};   // no dead separator when the catalog is empty
 
-    std::string html = "<div class=\"menu-separator\"></div>";
+    std::string html = "<div class=\"menu-separator\"></div>"
+                       "<div class=\"menu-section\">Object types</div>";
     for (const EntityDef* type : sorted) {
         html += "<div class=\"menu-entry";
         if (disabled) html += " disabled";
         html += "\" data-action=\"add-instance-of-type\" data-arg=\""
-              + escapeRml(type->className) + "\">" + escapeRml(type->name) + "</div>";
+              + escapeRml(type->className) + "\" title=\"New instance of "
+              + escapeRml(type->className) + "\">" + escapeRml(type->name)
+              + "<span class=\"menu-entry-hint\">" + escapeRml(type->className)
+              + "</span></div>";
     }
     return html;
 }

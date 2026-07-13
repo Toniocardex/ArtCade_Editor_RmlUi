@@ -69,6 +69,29 @@
     margin: 4dp 6dp;
     background-color: #323236;
 }
+/* Section label inside a dropdown (e.g. the Create menu's "Object types"
+   catalog): explains what the rows below are, same eyebrow style as panel
+   titles but menu-sized. */
+.menu-section {
+    display: block;
+    height: 20dp;
+    line-height: 20dp;
+    padding: 0 10dp;
+    color: #71717a;
+    font-size: 10dp;
+    font-weight: 700;
+    letter-spacing: 1.1dp;
+    text-transform: uppercase;
+}
+/* Muted trailing hint on a menu entry (the object type's stable id next to
+   its display name — default-named types would otherwise be identical rows). */
+.menu-entry-hint {
+    margin-left: 8dp;
+    color: #6b6b74;
+    font-size: 11dp;
+    font-weight: 400;
+}
+.menu-entry.disabled .menu-entry-hint { color: #3f3f46; }
 
 /* -- Toolbar buttons — flat ------------------------------------------------ */
 .tool-btn {
