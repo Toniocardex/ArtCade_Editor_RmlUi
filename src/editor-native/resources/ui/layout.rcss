@@ -20,12 +20,21 @@ body {
     border-bottom: 1px #27272a;
 }
 
+/* min-height + wrap, not a fixed height: on a narrow window the toolbar's
+   ~20 controls don't fit one row. Without wrap, flex (nowrap by default)
+   still lays every item out left-to-right at full size and lets the row
+   overflow past the window edge - RmlUi does not clip or shrink text
+   buttons - so the right-pushed `margin-left: auto` readouts land past the
+   visible width, at whatever screen position their overflowed box ends up
+   in. #workspace (flex: 1, the sibling below) absorbs the extra height
+   automatically when a second row appears. */
 #toolbar {
-    height: 44dp;
+    min-height: 44dp;
     display: flex;
     flex-direction: row;
+    flex-wrap: wrap;
     align-items: center;
-    padding: 0 10dp;
+    padding: 4dp 10dp;
     background-color: #18181b;
     border-bottom: 1px #27272a;
 }

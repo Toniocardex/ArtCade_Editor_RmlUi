@@ -96,17 +96,19 @@
 /* -- Toolbar buttons — flat ------------------------------------------------ */
 .tool-btn {
     display: inline-block;
+    flex: 0 0 auto;
     height: 28dp;
     line-height: 28dp;
     text-align: center;
-    margin: 0 4dp;
-    padding: 0 17dp;
+    margin: 3dp;
+    padding: 0 13dp;
     background-color: #1c1c1f;
     border: 1px #27272a;
     border-radius: 4dp;
     color: #c4c4c8;
     font-size: 13dp;
     font-weight: 500;
+    white-space: nowrap;
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
 }
 .tool-btn:hover  { background-color: #222226; border-color: #323236; color: #d4d4d8; }
@@ -132,6 +134,7 @@
 
 .tool-sep {
     display: block;
+    flex: 0 0 auto;
     width: 1px;
     height: 18dp;
     margin: 0 7dp;
@@ -146,32 +149,45 @@
    so the X/Y digits don't shift width as the pointer moves. */
 .toolbar-coords {
     display: inline-block;
-    line-height: 44dp;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    width: 104dp;
+    line-height: 28dp;
     margin-left: auto;
-    padding: 0 10dp;
+    padding: 0 4dp;
+    overflow: hidden;
+    text-align: right;
     color: #8a8a93;
     font-family: JetBrains Mono;
     font-size: 11dp;
     font-weight: 500;
     letter-spacing: 0.4dp;
+    white-space: nowrap;
 }
 
 .toolbar-status {
     display: inline-block;
-    line-height: 44dp;
-    padding: 0 4dp 0 12dp;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    width: 120dp;
+    line-height: 28dp;
+    padding: 0 4dp;
+    overflow: hidden;
+    text-align: right;
     color: #52525b;
     font-size: 11dp;
     font-weight: 500;
     letter-spacing: 0.4dp;
+    white-space: nowrap;
 }
 
 /* Clickable zoom readout: shows the active scene zoom %, click resets to 100%. */
 .toolbar-zoom {
     display: inline-block;
+    flex: 0 0 auto;
     height: 24dp;
     line-height: 24dp;
-    margin: 0 2dp;
+    margin: 3dp 2dp;
     padding: 0 8dp;
     border-radius: 4dp;
     color: #c4c4c8;
@@ -185,6 +201,7 @@
 
 .grid-size-control {
     display: inline-block;
+    flex: 0 0 auto;
     position: relative;
 }
 .grid-size-trigger {

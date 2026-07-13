@@ -148,6 +148,7 @@
     color: #ffffff;
     font-size: 13dp;
     font-weight: 600;
+    white-space: nowrap;
     transition: background-color 0.1s, border-color 0.1s;
 }
 .viewport-empty-btn:hover { background-color: #2f74e6; border-color: #2f74e6; }

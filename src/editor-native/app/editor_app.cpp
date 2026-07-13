@@ -574,6 +574,7 @@ int EditorApp::run(int argc, char** argv) {
     int shotEntityIndex = -1;   // >= 0: select the Nth instance of the active scene
     std::string shotDropdown;   // non-empty: open this Inspector value dropdown
     std::string shotAssetMenu;  // "kind|id": open the Assets row menu on that asset
+    int shotWidth = 0, shotHeight = 0;  // >0: force a viewport size for responsive UI shots
     bool lifecycleSmoke = false; // hidden, self-checking bind/detach/shutdown run
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--shot") == 0 && i + 1 < argc) shotPath = argv[i + 1];
@@ -592,6 +593,12 @@ int EditorApp::run(int argc, char** argv) {
             shotDropdown = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-asset-menu") == 0 && i + 1 < argc)
             shotAssetMenu = argv[i + 1];
+        else if (std::strcmp(argv[i], "--shot-size") == 0 && i + 1 < argc) {
+            if (const char* x = std::strchr(argv[i + 1], 'x')) {
+                shotWidth = std::atoi(argv[i + 1]);
+                shotHeight = std::atoi(x + 1);
+            }
+        }
         else if (std::strcmp(argv[i], "--lifecycle-smoke") == 0)
             lifecycleSmoke = true;
     }
@@ -627,23 +634,30 @@ int EditorApp::run(int argc, char** argv) {
     const std::filesystem::path resourceRoot = editorResourceRoot();
     applyWindowIcon(resourceRoot);
     if (!lifecycleSmoke) MaximizeWindow();
+    // Screenshot-mode viewport override: lets responsive UI checks reproduce a
+    // narrow display (for example 1366x768) on any development monitor.
+    if (shotWidth > 0 && shotHeight > 0) SetWindowSize(shotWidth, shotHeight);
     SetExitKey(KEY_NULL);
     SetTargetFPS(60);
 
-    // Canvas text font (entity labels, scene chip, canvas messages): the same
-    // Inter face the RmlUi chrome uses. Owned here; unloaded before CloseWindow.
-    CanvasFont canvasFont = loadCanvasFont(resourceRoot);
-    if (!canvasFont.loaded) {
-        TraceLog(LOG_WARNING,
-                 "[editor] Inter-Medium.ttf not loaded - canvas text falls back to "
-                 "raylib's built-in font");
-    }
-
     // RmlUi context + viewport are sized in physical framebuffer pixels; the dp
     // ratio scales `dp` lengths in the RCSS so the UI keeps its intended size.
-    float dpi = GetWindowScaleDPI().x;
+    // GetRenderWidth/Height are sampled here, right after MaximizeWindow(): any
+    // work between the two (asset loads, etc.) risks widening the window's own
+    // maximize-animation race (the OS resize can still be in flight) so that
+    // this sample lands on the PRE-maximize size, sizing RmlUi's entire layout
+    // - hit-testing included - for a window smaller than what's on screen. Keep
+    // this call immediately adjacent to MaximizeWindow(); load fonts/textures
+    // after it, never between.
+    const float dpi = GetWindowScaleDPI().x;
+    // Keep the values actually applied to RmlUi. MaximizeWindow is asynchronous
+    // on Windows, so sampling fresh values later as the resize baseline can miss
+    // a size transition that happened after CreateContext but before frame 0.
+    const int hostRenderW = GetRenderWidth();
+    const int hostRenderH = GetRenderHeight();
+    const float hostDpi = dpi > 0.f ? dpi : 1.f;
     RmlHost host;
-    if (!host.initialize(GetRenderWidth(), GetRenderHeight(), dpi > 0.f ? dpi : 1.f,
+    if (!host.initialize(hostRenderW, hostRenderH, hostDpi,
                          resourceRoot, "ui/editor_shell.rml")) {
         TraceLog(LOG_ERROR, "[editor] failed to load native editor resources from %s",
                  resourceRoot.string().c_str());
@@ -672,6 +686,18 @@ int EditorApp::run(int argc, char** argv) {
     }
     syncAnimationDocumentViewport(tilesetDocument);   // same absolute full-window sync, generic
     tilesetDocument->Hide();
+
+    // Canvas text font (entity labels, scene chip, canvas messages): the same
+    // Inter face the RmlUi chrome uses. Owned here; unloaded before CloseWindow.
+    // Loaded only now, after RmlUi's context/documents are already sized and
+    // built - see the comment above host.initialize() for why nothing may sit
+    // between MaximizeWindow() and that sizing.
+    CanvasFont canvasFont = loadCanvasFont(resourceRoot);
+    if (!canvasFont.loaded) {
+        TraceLog(LOG_WARNING,
+                 "[editor] Inter-Medium.ttf not loaded - canvas text falls back to "
+                 "raylib's built-in font");
+    }
 
     int exitCode = 0;
     std::optional<EditorUi> uiOwner{std::in_place, coordinator, host.document(),
@@ -1263,9 +1289,9 @@ int EditorApp::run(int argc, char** argv) {
     }
 
     int   frame       = 0;
-    int   lastRenderW = GetRenderWidth();
-    int   lastRenderH = GetRenderHeight();
-    float lastDpi     = dpi > 0.f ? dpi : 1.f;
+    int   lastRenderW = hostRenderW;
+    int   lastRenderH = hostRenderH;
+    float lastDpi     = hostDpi;
     int   sizeStableFrames = 0;
     bool  prevTextFocus = false;   // last frame's RmlUi text focus (see Tileset keys)
     // Tile Palette Picker-sync: the tile last scrolled into view, so a
