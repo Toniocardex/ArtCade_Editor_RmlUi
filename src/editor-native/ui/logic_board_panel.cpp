@@ -141,9 +141,15 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             scroll->SetScrollTop(scrollTop_);
     };
     if (!typeIds.empty()) {
+        // .logic-head is a flex row: the trigger and its list must share one
+        // non-flex wrapper here, or the list renders as a sibling flex item
+        // beside the trigger instead of stacking below it (the Inspector's
+        // dropdowns avoid this because their .drop-list is emitted after the
+        // enclosing .prop-row already closed, i.e. never inside a flex row).
         const bool typeOpen = openDropdownId_ == "object-type" && !playing;
+        html += "<div class=\"logic-type-picker\">";
         html += dropdownTriggerMarkup(selectedName, "toggle-logic-dropdown", "object-type",
-                                      typeOpen, playing, "logic-type-trigger");
+                                      typeOpen, playing);
         if (typeOpen) {
             html += "<div class=\"drop-list\">";
             for (const ObjectTypeId& id : typeIds) {
@@ -153,6 +159,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             }
             html += "</div>";
         }
+        html += "</div>";
     }
     html += "</div>";
 
