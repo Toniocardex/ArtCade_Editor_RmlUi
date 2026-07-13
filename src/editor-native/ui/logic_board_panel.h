@@ -19,13 +19,23 @@ public:
     void refresh(Rml::ElementDocument* document,
                  const EditorCoordinator& coordinator) const;
 
-    // Toggle the in-flow value dropdown named `dropdownId` (Object Type /
-    // per-rule Key pickers); at most one is open at a time. Mirrors
-    // InspectorPanel's toggleDropdown/closeDropdowns pattern exactly.
+    // Toggle the in-flow value dropdown named `dropdownId` (per-rule Key
+    // picker); at most one is open at a time. Mirrors InspectorPanel's
+    // toggleDropdown/closeDropdowns pattern exactly. The Object Type picker
+    // itself is NOT one of these dropdownIds — it lives in the header's
+    // always-visible .logic-head, not inside the scrollable rules list, so
+    // EditorUi renders it as a floating menu instead (see
+    // objectTypeMenuEntries below) to avoid pushing the board down every
+    // time it opens.
     void toggleDropdown(Rml::ElementDocument* document,
                         const EditorCoordinator& coordinator,
                         const std::string& dropdownId);
     void closeDropdown() { openDropdownId_.clear(); }
+
+    // Entries for the floating Object Type menu (one `.drop-entry` per
+    // existing type, the current selection marked), for EditorUi to place
+    // inside its own positioned `.context-menu` element.
+    std::string objectTypeMenuEntries(const EditorCoordinator& coordinator) const;
 
 private:
     // Presentation-only scroll restoration across hidden/show and projection

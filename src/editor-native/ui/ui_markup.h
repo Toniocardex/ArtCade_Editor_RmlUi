@@ -17,11 +17,14 @@ std::string iconMarkup(const char* codepoint);
 // list markup (`.drop-list`/`.drop-entry`) separately — this only builds the
 // trigger itself (in-flow, not a floating popup: a scrollable ancestor would
 // clip a real popup, the same reason every dropdown in this app is built
-// in-flow instead).
+// in-flow instead). `elementId`, when non-empty, lets a caller that DOES need
+// a floating menu (positioned off this trigger's own on-screen box rather
+// than rendered in-flow) look the element back up via GetElementById.
 std::string dropdownTriggerMarkup(const std::string& valueText,
                                   const std::string& toggleAction,
                                   const std::string& dropdownId,
                                   bool open, bool disabled,
-                                  const std::string& extraClass = {});
+                                  const std::string& extraClass = {},
+                                  const std::string& elementId = {});
 
 } // namespace ArtCade::EditorNative

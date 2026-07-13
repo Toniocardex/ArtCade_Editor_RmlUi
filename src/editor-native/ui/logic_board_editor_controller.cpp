@@ -52,6 +52,10 @@ void LogicBoardEditorController::closeDropdown() {
     panel_.closeDropdown();
 }
 
+std::string LogicBoardEditorController::objectTypeMenuEntries() const {
+    return panel_.objectTypeMenuEntries(coordinator_);
+}
+
 bool LogicBoardEditorController::handleAction(
     const std::string& action, const std::string& arg, const std::string& value,
     const WorkspaceSwitchPreparation& prepareWorkspaceSwitch) {

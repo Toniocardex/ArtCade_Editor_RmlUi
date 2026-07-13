@@ -187,6 +187,12 @@ private:
     void commitGridCellSize(const std::string& text);
     void showPendingHierarchyMenu();   // consumes the deferred menu request
     void showPendingAssetMenu();       // same, for the Assets row menu
+    // Logic Board's Object Type picker: a floating menu (like the other
+    // context menus) positioned off the trigger's own on-screen box, rather
+    // than an in-flow list — .logic-head is never inside a scrollable
+    // ancestor, so there is no clipping risk to justify pushing the board
+    // down every time it opens, the way the in-flow pattern otherwise would.
+    void toggleLogicTypeMenu();
     // Applies EditorUiState.consoleVisible to the actual panel (Layout invalidation).
     void refreshLayout();
     // The scene the Scene View camera (zoom/pan) is currently showing: the
@@ -238,6 +244,7 @@ private:
         int           y = 0;
     };
     std::optional<PendingAssetMenu>     pendingAssetMenu_;
+    bool                                logicTypeMenuVisible_ = false;
     std::string                         pointerReadout_;   // last coords text shown
 };
 

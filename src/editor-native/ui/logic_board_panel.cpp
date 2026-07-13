@@ -124,8 +124,6 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         ? selectedType->name : selectedId;
     const std::size_t sharedCount = selectedId.empty() ? 0 : instanceCountFor(selectedId);
 
-    const bool typeOpen = !typeIds.empty() && openDropdownId_ == "object-type" && !playing;
-
     std::string html = "<div class=\"logic-head\"><div class=\"logic-heading\">"
                        "<span class=\"logic-title\">Logic Board";
     if (!selectedName.empty()) html += " · " + escapeRml(selectedName);
@@ -138,24 +136,15 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     }
     html += "</span></div>";
     if (!typeIds.empty()) {
+        // `open` is always false here: EditorUi owns this picker's floating
+        // menu (see objectTypeMenuEntries) and toggles the "open" class on
+        // this element directly, since opening/closing it never invalidates
+        // the Logic Board (no repaint would exist to reflect it otherwise).
         html += dropdownTriggerMarkup(selectedName, "toggle-logic-dropdown", "object-type",
-                                      typeOpen, playing, "logic-type-trigger");
+                                      /*open=*/false, playing, "logic-type-trigger",
+                                      "logic-type-trigger");
     }
     html += "</div>";
-    // Rendered as its own row *after* .logic-head closes, never as a flex
-    // item inside it — nesting the list inside that flex row would grow the
-    // row's own height while open and re-centre .logic-heading's title with
-    // it (align-items: center), making the whole header bar visibly resize
-    // every time the picker is toggled.
-    if (typeOpen) {
-        html += "<div class=\"logic-type-list-row\"><div class=\"drop-list logic-type-list\">";
-        for (const ObjectTypeId& id : typeIds) {
-            const EntityDef& type = coordinator.document().data().objectTypes.at(id);
-            html += dropEntry(type.name.empty() ? id : type.name, id, id == selectedId,
-                              "object-type", "select-logic-object-type", "");
-        }
-        html += "</div></div>";
-    }
     const auto render = [&]() {
         root->SetInnerRML(html);
         if (Rml::Element* scroll = document->GetElementById("logic-scroll"))
@@ -324,6 +313,33 @@ void LogicBoardPanel::toggleDropdown(Rml::ElementDocument* document,
                                      const std::string& dropdownId) {
     openDropdownId_ = (openDropdownId_ == dropdownId) ? std::string() : dropdownId;
     refresh(document, coordinator);
+}
+
+std::string LogicBoardPanel::objectTypeMenuEntries(const EditorCoordinator& coordinator) const {
+    std::vector<ObjectTypeId> typeIds;
+    typeIds.reserve(coordinator.document().data().objectTypes.size());
+    for (const auto& [id, unused] : coordinator.document().data().objectTypes)
+        typeIds.push_back(id);
+    std::sort(typeIds.begin(), typeIds.end());
+
+    const auto& view = coordinator.state().logicBoardEditor;
+    const ObjectTypeId selectedId = view.objectTypeId
+        && coordinator.document().hasObjectType(*view.objectTypeId)
+        ? *view.objectTypeId : (typeIds.empty() ? ObjectTypeId{} : typeIds.front());
+
+    std::string html;
+    for (const ObjectTypeId& id : typeIds) {
+        const EntityDef& type = coordinator.document().data().objectTypes.at(id);
+        const std::string label = type.name.empty() ? id : type.name;
+        const bool isCurrent = id == selectedId;
+        html += "<div class=\"drop-entry";
+        if (isCurrent) html += " selected";
+        html += "\" data-action=\"select-logic-object-type\" data-value=\""
+             + escapeRml(id) + "\">";
+        if (isCurrent) html += "<span class=\"drop-mark\">&#x25cf;</span> ";
+        html += escapeRml(label) + "</div>";
+    }
+    return html;
 }
 
 } // namespace ArtCade::EditorNative

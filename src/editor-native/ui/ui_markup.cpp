@@ -12,8 +12,11 @@ std::string dropdownTriggerMarkup(const std::string& valueText,
                                   const std::string& toggleAction,
                                   const std::string& dropdownId,
                                   bool open, bool disabled,
-                                  const std::string& extraClass) {
-    std::string row = "<div class=\"drop-trigger";
+                                  const std::string& extraClass,
+                                  const std::string& elementId) {
+    std::string row = "<div";
+    if (!elementId.empty()) row += " id=\"" + elementId + "\"";
+    row += " class=\"drop-trigger";
     if (!extraClass.empty()) row += " " + extraClass;
     if (open) row += " open";
     if (disabled) row += " disabled";

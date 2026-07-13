@@ -761,9 +761,16 @@ void EditorUi::hideContextMenus() {
     if (Rml::Element* menu = document_->GetElementById("assets-context-menu")) {
         menu->SetClass("hidden", true);
     }
+    if (Rml::Element* menu = document_->GetElementById("logic-type-menu")) {
+        menu->SetClass("hidden", true);
+    }
+    if (Rml::Element* trigger = document_->GetElementById("logic-type-trigger")) {
+        trigger->SetClass("open", false);
+    }
     viewportContextMenuVisible_ = false;
     hierarchyContextMenuVisible_ = false;
     assetsContextMenuVisible_ = false;
+    logicTypeMenuVisible_ = false;
 }
 
 bool EditorUi::isContextMenuHit(int physicalX, int physicalY) const {
@@ -783,7 +790,26 @@ bool EditorUi::isContextMenuHit(int physicalX, int physicalY) const {
     };
     return hits("viewport-context-menu", viewportContextMenuVisible_)
         || hits("hierarchy-context-menu", hierarchyContextMenuVisible_)
-        || hits("assets-context-menu", assetsContextMenuVisible_);
+        || hits("assets-context-menu", assetsContextMenuVisible_)
+        || hits("logic-type-menu", logicTypeMenuVisible_);
+}
+
+void EditorUi::toggleLogicTypeMenu() {
+    if (!document_) return;
+    if (logicTypeMenuVisible_) { hideContextMenus(); return; }
+    Rml::Element* trigger = document_->GetElementById("logic-type-trigger");
+    Rml::Element* menu = document_->GetElementById("logic-type-menu");
+    if (!trigger || !menu) return;
+    hideContextMenus();
+    menu->SetInnerRML(logicBoardEditor_.objectTypeMenuEntries());
+    const Rml::Vector2f offset = trigger->GetAbsoluteOffset();
+    menu->SetProperty("left", std::to_string(static_cast<int>(offset.x)) + "px");
+    menu->SetProperty("top",
+        std::to_string(static_cast<int>(offset.y + trigger->GetClientHeight())) + "px");
+    menu->SetProperty("width", std::to_string(static_cast<int>(trigger->GetClientWidth())) + "px");
+    menu->SetClass("hidden", false);
+    trigger->SetClass("open", true);
+    logicTypeMenuVisible_ = true;
 }
 
 void EditorUi::refreshToolbar() {
@@ -1034,6 +1060,14 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     // miss the menu are already dismissed by the application's outside-click
     // check, and the hierarchy/viewport menus close inside their own entries.
     if (assetsContextMenuVisible_) hideContextMenus();
+    // Same staleness guard for the Logic Board's Object Type menu: any other
+    // action (switching tabs, selecting a different entity, entering Play,
+    // toggling a different dropdown) makes it stale. Re-toggling the same
+    // trigger is handled by toggleLogicTypeMenu() itself, below.
+    if (logicTypeMenuVisible_
+        && !(action == "toggle-logic-dropdown" && arg == "object-type")) {
+        hideContextMenus();
+    }
 
     // Inspector Add Component menu: toggle it open/closed, and close it whenever a
     // component is actually added (the add invalidates the Inspector, which then
@@ -1060,17 +1094,23 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         inspector_.closeDropdowns();   // then fall through to execute the pick
     }
 
-    // Logic Board value dropdowns (Object Type / per-rule Key) follow the
-    // identical pattern.
+    // Logic Board's per-rule Key picker follows the same in-flow pattern as
+    // the Inspector's dropdowns; its Object Type picker (in the fixed header,
+    // never inside a scrollable list) instead uses a floating menu, same as
+    // the Hierarchy/Assets context menus.
     if (action == "toggle-logic-dropdown") {
-        if (!coordinator_.isPlaying()) logicBoardEditor_.toggleDropdown(arg);
+        if (coordinator_.isPlaying()) return;
+        if (arg == "object-type") toggleLogicTypeMenu();
+        else logicBoardEditor_.toggleDropdown(arg);
         return;
     }
     if (action == "toggle-inspector-section") {
         inspector_.toggleSection(document_, coordinator_, arg);
         return;
     }
-    if (action == "select-logic-object-type" || action == "set-logic-key") {
+    if (action == "select-logic-object-type") {
+        hideContextMenus();   // then fall through to execute the pick
+    } else if (action == "set-logic-key") {
         logicBoardEditor_.closeDropdown();   // then fall through to execute the pick
     }
 

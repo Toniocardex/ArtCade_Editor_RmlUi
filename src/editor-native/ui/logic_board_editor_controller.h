@@ -25,6 +25,7 @@ public:
     void refresh();
     void toggleDropdown(const std::string& dropdownId);
     void closeDropdown();
+    std::string objectTypeMenuEntries() const;
     bool handleAction(const std::string& action, const std::string& arg,
                       const std::string& value,
                       const WorkspaceSwitchPreparation& prepareWorkspaceSwitch);
