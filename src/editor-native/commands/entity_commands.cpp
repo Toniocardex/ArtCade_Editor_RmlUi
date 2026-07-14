@@ -272,9 +272,9 @@ EditorOperationResult CloneInstanceCommand::apply(ProjectDocument& document) {
         }
         captured_ = true;
     }
-    SceneInstanceDef clone      = *source;   // transform/visible/layerId/spriteRenderer/
-                                             // spriteAnimator/tilemap/localVariableOverrides
-                                             // all copied
+    SceneInstanceDef clone      = *source;   // transform/visible/layerId, sparse
+                                             // presentation overrides, tilemap and
+                                             // localVariableOverrides are copied
     clone.id                    = newId_;
     clone.instanceName          = newName_;
     clone.transform.position    = newPosition_;

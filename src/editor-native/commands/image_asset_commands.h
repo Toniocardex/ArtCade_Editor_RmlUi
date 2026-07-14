@@ -36,11 +36,14 @@ public:
     const char* name() const override { return "RemoveImageAsset"; }
 
 private:
-    struct ClearedRef {
+    struct ClearedTypeRef {
+        ObjectTypeId objectTypeId;
+        SpriteRendererComponent renderer{};
+    };
+    struct ClearedOverrideRef {
         SceneId sceneId;
         EntityId entityId = INVALID_ENTITY;
-        SpriteRendererComponent renderer{};
-        std::optional<SpriteAnimatorComponent> animator;
+        SpriteRendererOverride renderer{};
     };
     AssetId      assetId_;
     ImageAssetDef removed_{};   // captured for an exact undo
@@ -49,7 +52,8 @@ private:
     // Sprite renderers that referenced this image. Removing the asset clears them
     // (delete means delete — no dangling source on the entity); undo restores the
     // exact reference. Captured once, reused across redo.
-    std::vector<ClearedRef> clearedRefs_;
+    std::vector<ClearedTypeRef> clearedTypeRefs_;
+    std::vector<ClearedOverrideRef> clearedOverrideRefs_;
 };
 
 } // namespace ArtCade::EditorNative

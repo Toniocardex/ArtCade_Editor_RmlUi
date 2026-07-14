@@ -334,10 +334,6 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
         ResolvedSpritePresentation presentation;
         if (objectTypeIt != document.data().objectTypes.end()) {
             presentation = resolveSpritePresentation(objectTypeIt->second, instance);
-        } else {
-            // Catalog-less legacy projects are still accepted by validation.
-            presentation.renderer = instance.spriteRenderer;
-            presentation.animator = instance.spriteAnimator;
         }
         if (sprite.present && !sprite.assetId.empty()) {
             const ImageAssetDef* image = findImageAsset(document, sprite.assetId);

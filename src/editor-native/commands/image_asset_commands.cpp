@@ -69,12 +69,17 @@ EditorOperationResult RemoveImageAssetCommand::apply(ProjectDocument& document) 
             });
         assetIndex_ = static_cast<std::size_t>(std::distance(assets.begin(), assetIt));
         removed_ = *current;
+        for (const auto& [objectTypeId, type] : document.data().objectTypes) {
+            if (type.spriteRenderer && type.spriteRenderer->imageAssetId == assetId_) {
+                clearedTypeRefs_.push_back(ClearedTypeRef{objectTypeId, *type.spriteRenderer});
+            }
+        }
         for (const auto& [sceneId, scene] : document.data().scenes) {
             for (const SceneInstanceDef& instance : scene.instances) {
-                if (instance.spriteRenderer
-                    && instance.spriteRenderer->imageAssetId == assetId_) {
-                    clearedRefs_.push_back(ClearedRef{
-                        sceneId, instance.id, *instance.spriteRenderer, instance.spriteAnimator});
+                if (instance.spriteRendererOverride
+                    && instance.spriteRendererOverride->imageAssetId == assetId_) {
+                    clearedOverrideRefs_.push_back(ClearedOverrideRef{
+                        sceneId, instance.id, *instance.spriteRendererOverride});
                 }
             }
         }
@@ -89,11 +94,16 @@ EditorOperationResult RemoveImageAssetCommand::apply(ProjectDocument& document) 
         return EditorOperationResult::failure("Failed to stage image asset removal");
     }
     staged.imageAssets.erase(assetIt);
+    for (auto& [_, type] : staged.objectTypes) {
+        if (type.spriteRenderer && type.spriteRenderer->imageAssetId == assetId_) {
+            type.spriteRenderer->imageAssetId.clear();
+        }
+    }
     for (auto& [_, scene] : staged.scenes) {
         for (SceneInstanceDef& instance : scene.instances) {
-            if (instance.spriteRenderer
-                && instance.spriteRenderer->imageAssetId == assetId_) {
-                instance.spriteRenderer->imageAssetId.clear();
+            if (instance.spriteRendererOverride
+                && instance.spriteRendererOverride->imageAssetId == assetId_) {
+                instance.spriteRendererOverride->imageAssetId = AssetId{};
             }
         }
     }
@@ -112,7 +122,14 @@ EditorOperationResult RemoveImageAssetCommand::undo(ProjectDocument& document) {
     }
     staged.imageAssets.insert(
         staged.imageAssets.begin() + static_cast<std::ptrdiff_t>(assetIndex_), removed_);
-    for (const ClearedRef& ref : clearedRefs_) {
+    for (const ClearedTypeRef& ref : clearedTypeRefs_) {
+        const auto typeIt = staged.objectTypes.find(ref.objectTypeId);
+        if (typeIt == staged.objectTypes.end() || !typeIt->second.spriteRenderer) {
+            return EditorOperationResult::failure("Cannot restore image reference: object type missing");
+        }
+        typeIt->second.spriteRenderer = ref.renderer;
+    }
+    for (const ClearedOverrideRef& ref : clearedOverrideRefs_) {
         const auto sceneIt = staged.scenes.find(ref.sceneId);
         if (sceneIt == staged.scenes.end()) {
             return EditorOperationResult::failure("Cannot restore image reference: scene missing");
@@ -120,11 +137,10 @@ EditorOperationResult RemoveImageAssetCommand::undo(ProjectDocument& document) {
         const auto instanceIt = std::find_if(
             sceneIt->second.instances.begin(), sceneIt->second.instances.end(),
             [&](const SceneInstanceDef& instance) { return instance.id == ref.entityId; });
-        if (instanceIt == sceneIt->second.instances.end() || !instanceIt->spriteRenderer) {
+        if (instanceIt == sceneIt->second.instances.end()) {
             return EditorOperationResult::failure("Cannot restore image reference: instance missing");
         }
-        instanceIt->spriteRenderer = ref.renderer;
-        instanceIt->spriteAnimator = ref.animator;
+        instanceIt->spriteRendererOverride = ref.renderer;
     }
     document.commitStagedCommand(std::move(staged));
     return EditorOperationResult::success(kRemoveInvalidation, DomainChange::assetChanged(assetId_));

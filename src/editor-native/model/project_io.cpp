@@ -281,7 +281,7 @@ bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
         component.animationAssetId = readString(sr, "animationAssetId", "animation_asset_id");
         component.visible = readBool(
             sr, "visible", true, "scenes[].instances[].spriteRenderer.visible");
-        out.spriteRenderer = component;
+        out.legacySpriteRendererV3 = component;
     }
     if (const nlohmann::json* saValue = optionalObject(
             value, "spriteAnimator", "scenes[].instances[].spriteAnimator")) {
@@ -291,7 +291,7 @@ bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
         component.autoPlay = readBool(
             sa, "autoPlay", true, "scenes[].instances[].spriteAnimator.autoPlay");
         component.playbackSpeed = readFloat(sa, "playbackSpeed", 1.f);
-        out.spriteAnimator = component;
+        out.legacySpriteAnimatorV3 = component;
     }
     if (const nlohmann::json* srValue = optionalObject(
             value, "spriteRendererOverride",
@@ -737,7 +737,7 @@ void migrateSpriteOwnershipToObjectTypes(ProjectDoc& document) {
     std::vector<std::string> missingTypes;
     for (const auto& [_, scene] : document.scenes) {
         for (const SceneInstanceDef& instance : scene.instances) {
-            if ((instance.spriteRenderer || instance.spriteAnimator)
+            if ((instance.legacySpriteRendererV3 || instance.legacySpriteAnimatorV3)
                 && document.objectTypes.find(instance.objectTypeId)
                        == document.objectTypes.end()) {
                 missingTypes.push_back(instance.objectTypeId);
@@ -769,56 +769,56 @@ void migrateSpriteOwnershipToObjectTypes(ProjectDoc& document) {
         if (!type.spriteRenderer) {
             const auto first = std::find_if(instances.begin(), instances.end(),
                 [](const SceneInstanceDef* instance) {
-                    return instance->spriteRenderer.has_value();
+                    return instance->legacySpriteRendererV3.has_value();
                 });
             if (first != instances.end()) {
-                type.spriteRenderer = *(*first)->spriteRenderer;
+                type.spriteRenderer = *(*first)->legacySpriteRendererV3;
                 rendererPromotedFromInstance = true;
             }
         }
 
         for (SceneInstanceDef* instance : instances) {
-            if (instance->spriteRenderer && type.spriteRenderer
+            if (instance->legacySpriteRendererV3 && type.spriteRenderer
                 && !instance->spriteRendererOverride) {
                 SpriteRendererOverride delta = rendererDelta(
-                    *instance->spriteRenderer, *type.spriteRenderer);
+                    *instance->legacySpriteRendererV3, *type.spriteRenderer);
                 if (!empty(delta)) instance->spriteRendererOverride = std::move(delta);
-            } else if (!instance->spriteRenderer && type.spriteRenderer
+            } else if (!instance->legacySpriteRendererV3 && type.spriteRenderer
                        && rendererPromotedFromInstance
                        && !instance->spriteRendererOverride) {
                 SpriteRendererOverride disabled;
                 disabled.capabilityEnabled = false;
                 instance->spriteRendererOverride = std::move(disabled);
             }
-            instance->spriteRenderer.reset();
+            instance->legacySpriteRendererV3.reset();
         }
 
         bool animatorPromotedFromInstance = false;
         if (!type.spriteAnimator) {
             const auto first = std::find_if(instances.begin(), instances.end(),
                 [](const SceneInstanceDef* instance) {
-                    return instance->spriteAnimator.has_value();
+                    return instance->legacySpriteAnimatorV3.has_value();
                 });
             if (first != instances.end()) {
-                type.spriteAnimator = *(*first)->spriteAnimator;
+                type.spriteAnimator = *(*first)->legacySpriteAnimatorV3;
                 animatorPromotedFromInstance = true;
             }
         }
 
         for (SceneInstanceDef* instance : instances) {
-            if (instance->spriteAnimator && type.spriteAnimator
+            if (instance->legacySpriteAnimatorV3 && type.spriteAnimator
                 && !instance->spriteAnimatorOverride) {
                 SpriteAnimatorOverride delta = animatorDelta(
-                    *instance->spriteAnimator, *type.spriteAnimator);
+                    *instance->legacySpriteAnimatorV3, *type.spriteAnimator);
                 if (!empty(delta)) instance->spriteAnimatorOverride = std::move(delta);
-            } else if (!instance->spriteAnimator && type.spriteAnimator
+            } else if (!instance->legacySpriteAnimatorV3 && type.spriteAnimator
                        && animatorPromotedFromInstance
                        && !instance->spriteAnimatorOverride) {
                 SpriteAnimatorOverride disabled;
                 disabled.capabilityEnabled = false;
                 instance->spriteAnimatorOverride = std::move(disabled);
             }
-            instance->spriteAnimator.reset();
+            instance->legacySpriteAnimatorV3.reset();
         }
     }
 }
@@ -1475,10 +1475,22 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
             ResolvedSpritePresentation presentation;
             const auto typeIt = data.objectTypes.find(instance.objectTypeId);
             if (typeIt != data.objectTypes.end()) {
+                if (instance.spriteRendererOverride && !typeIt->second.spriteRenderer) {
+                    return DeserializeResult::failure(
+                        "SpriteRenderer override requires the Object Type capability");
+                }
+                if (instance.spriteAnimatorOverride && !typeIt->second.spriteAnimator) {
+                    return DeserializeResult::failure(
+                        "SpriteAnimator override requires the Object Type capability");
+                }
+                if (instance.spriteAnimatorOverride
+                    && instance.spriteAnimatorOverride->playbackSpeed
+                    && !NumericValidation::isPositive(
+                        *instance.spriteAnimatorOverride->playbackSpeed)) {
+                    return DeserializeResult::failure(
+                        "SpriteAnimator override playbackSpeed must be positive");
+                }
                 presentation = resolveSpritePresentation(typeIt->second, instance);
-            } else {
-                presentation.renderer = instance.spriteRenderer;
-                presentation.animator = instance.spriteAnimator;
             }
             // Validate the exact presentation Edit and Play will consume.
             if (presentation.renderer.has_value()) {
@@ -1581,16 +1593,12 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
         }
     }
 
-    // An inherited sprite asset (on the object type) is validated like an override.
+    // Legacy SpriteComponent contributes fillColor only; source ownership was
+    // migrated to the v4 SpriteRenderer capability above.
     for (const auto& [typeId, def] : data.objectTypes) {
         (void)typeId;
-        const AssetId& assetId = def.sprite.spriteAssetId;
         if (!NumericValidation::isFinite(def.sprite.fillColor)) {
             return DeserializeResult::failure("Object type sprite fillColor must be finite");
-        }
-        if (!assetId.empty() && !document.hasImageAsset(assetId)) {
-            return DeserializeResult::failure(
-                "Object type sprite references a missing image asset");
         }
         if (def.boxCollider2D.has_value()) {
             if (!NumericValidation::isValid(*def.boxCollider2D)) {

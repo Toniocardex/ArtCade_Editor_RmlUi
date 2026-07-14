@@ -38,12 +38,10 @@ add_library(artcade-editor-core STATIC
     editor-native/commands/tileset_commands.cpp
     editor-native/commands/tilemap_commands.cpp
     editor-native/commands/sprite_animation_commands.cpp
-    editor-native/commands/sprite_animator_commands.cpp
     editor-native/commands/logic_board_commands.cpp
     editor-native/commands/entity_commands.cpp
     editor-native/commands/scene_commands.cpp
     editor-native/commands/scene_layer_commands.cpp
-    editor-native/commands/sprite_commands.cpp
     editor-native/commands/sprite_presentation_commands.cpp
     editor-native/app/editor_coordinator.cpp
     editor-native/app/editor_coordinator_workspace.cpp

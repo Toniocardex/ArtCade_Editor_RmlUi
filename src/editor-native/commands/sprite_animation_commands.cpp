@@ -1,6 +1,7 @@
 #include "editor-native/commands/sprite_animation_commands.h"
 
 #include "editor-native/model/project_document.h"
+#include "editor-native/model/sprite_render_view.h"
 
 #include <algorithm>
 #include <cmath>
@@ -26,11 +27,22 @@ bool validFrame(const SpriteAnimationFrameDef& frame) {
 
 bool clipReferenced(const ProjectDocument& document, const AssetId& assetId,
                     const std::string& clipId) {
+    for (const auto& [_, type] : document.data().objectTypes) {
+        if (type.spriteRenderer && type.spriteAnimator
+            && type.spriteRenderer->animationAssetId == assetId
+            && type.spriteAnimator->initialClipId == clipId) {
+            return true;
+        }
+    }
     for (const auto& [_, scene] : document.data().scenes) {
         for (const SceneInstanceDef& instance : scene.instances) {
-            if (!instance.spriteRenderer || !instance.spriteAnimator) continue;
-            if (instance.spriteRenderer->animationAssetId == assetId
-                && instance.spriteAnimator->initialClipId == clipId) {
+            const auto type = document.data().objectTypes.find(instance.objectTypeId);
+            if (type == document.data().objectTypes.end()) continue;
+            const ResolvedSpritePresentation presentation =
+                resolveSpritePresentation(type->second, instance);
+            if (presentation.renderer && presentation.animator
+                && presentation.renderer->animationAssetId == assetId
+                && presentation.animator->initialClipId == clipId) {
                 return true;
             }
         }
@@ -122,18 +134,26 @@ EditorOperationResult RemoveSpriteAnimationAssetCommand::apply(ProjectDocument& 
             });
         assetIndex_ = static_cast<std::size_t>(std::distance(assets.begin(), assetIt));
         removed_ = *asset;
+        for (const auto& [objectTypeId, type] : document.data().objectTypes) {
+            if (type.spriteRenderer && type.spriteRenderer->animationAssetId == assetId_) {
+                clearedTypeRefs_.push_back(
+                    ClearedTypeRef{objectTypeId, *type.spriteRenderer, type.spriteAnimator});
+            }
+        }
         for (const auto& [sceneId, scene] : document.data().scenes) {
             for (const SceneInstanceDef& instance : scene.instances) {
-                if (!instance.spriteRenderer
-                    || instance.spriteRenderer->animationAssetId != assetId_) {
-                    continue;
-                }
-                ClearedRef ref;
-                ref.sceneId = sceneId;
-                ref.entityId = instance.id;
-                ref.renderer = *instance.spriteRenderer;
-                ref.animator = instance.spriteAnimator;
-                clearedRefs_.push_back(std::move(ref));
+                const auto type = document.data().objectTypes.find(instance.objectTypeId);
+                const bool inherited = type != document.data().objectTypes.end()
+                    && type->second.spriteRenderer
+                    && type->second.spriteRenderer->animationAssetId == assetId_
+                    && (!instance.spriteRendererOverride
+                        || !instance.spriteRendererOverride->animationAssetId);
+                const bool explicitRef = instance.spriteRendererOverride
+                    && instance.spriteRendererOverride->animationAssetId == assetId_;
+                if (!inherited && !explicitRef) continue;
+                clearedOverrideRefs_.push_back(ClearedOverrideRef{
+                    sceneId, instance.id, instance.spriteRendererOverride,
+                    instance.spriteAnimatorOverride, explicitRef});
             }
         }
         captured_ = true;
@@ -147,15 +167,23 @@ EditorOperationResult RemoveSpriteAnimationAssetCommand::apply(ProjectDocument& 
         return EditorOperationResult::failure("Failed to stage sprite animation asset removal");
     }
     staged.spriteAnimationAssets.erase(assetIt);
-    for (auto& [_, scene] : staged.scenes) {
-        for (SceneInstanceDef& instance : scene.instances) {
-            if (!instance.spriteRenderer
-                || instance.spriteRenderer->animationAssetId != assetId_) {
-                continue;
-            }
-            instance.spriteRenderer->animationAssetId.clear();
-            instance.spriteAnimator.reset();
+    for (auto& [_, type] : staged.objectTypes) {
+        if (type.spriteRenderer && type.spriteRenderer->animationAssetId == assetId_) {
+            type.spriteRenderer->animationAssetId.clear();
+            type.spriteAnimator.reset();
         }
+    }
+    for (const ClearedOverrideRef& ref : clearedOverrideRefs_) {
+        auto& instances = staged.scenes.at(ref.sceneId).instances;
+        auto instance = std::find_if(instances.begin(), instances.end(),
+            [&](const SceneInstanceDef& value) { return value.id == ref.entityId; });
+        if (instance == instances.end()) {
+            return EditorOperationResult::failure("Failed to stage animation reference removal");
+        }
+        if (ref.clearExplicitAnimation && instance->spriteRendererOverride) {
+            instance->spriteRendererOverride->animationAssetId = AssetId{};
+        }
+        instance->spriteAnimatorOverride.reset();
     }
     document.commitStagedCommand(std::move(staged));
     return EditorOperationResult::success(kAssetInvalidation, DomainChange::assetChanged(assetId_));
@@ -173,9 +201,15 @@ EditorOperationResult RemoveSpriteAnimationAssetCommand::undo(ProjectDocument& d
     staged.spriteAnimationAssets.insert(
         staged.spriteAnimationAssets.begin() + static_cast<std::ptrdiff_t>(assetIndex_), removed_);
 
-    // Restore each entity's complete renderer+animator state in staging. Any
-    // stale target aborts before the authoritative document is touched.
-    for (const ClearedRef& ref : clearedRefs_) {
+    for (const ClearedTypeRef& ref : clearedTypeRefs_) {
+        const auto typeIt = staged.objectTypes.find(ref.objectTypeId);
+        if (typeIt == staged.objectTypes.end() || !typeIt->second.spriteRenderer) {
+            return EditorOperationResult::failure("Cannot restore animation reference: object type missing");
+        }
+        typeIt->second.spriteRenderer = ref.renderer;
+        typeIt->second.spriteAnimator = ref.animator;
+    }
+    for (const ClearedOverrideRef& ref : clearedOverrideRefs_) {
         const auto sceneIt = staged.scenes.find(ref.sceneId);
         if (sceneIt == staged.scenes.end()) {
             return EditorOperationResult::failure("Cannot restore animation reference: scene missing");
@@ -183,11 +217,11 @@ EditorOperationResult RemoveSpriteAnimationAssetCommand::undo(ProjectDocument& d
         auto instanceIt = std::find_if(
             sceneIt->second.instances.begin(), sceneIt->second.instances.end(),
             [&](const SceneInstanceDef& instance) { return instance.id == ref.entityId; });
-        if (instanceIt == sceneIt->second.instances.end() || !instanceIt->spriteRenderer) {
+        if (instanceIt == sceneIt->second.instances.end()) {
             return EditorOperationResult::failure("Cannot restore animation reference: instance missing");
         }
-        instanceIt->spriteRenderer = ref.renderer;
-        instanceIt->spriteAnimator = ref.animator;
+        instanceIt->spriteRendererOverride = ref.renderer;
+        instanceIt->spriteAnimatorOverride = ref.animator;
     }
     document.commitStagedCommand(std::move(staged));
     return EditorOperationResult::success(kAssetInvalidation, DomainChange::assetChanged(assetId_));

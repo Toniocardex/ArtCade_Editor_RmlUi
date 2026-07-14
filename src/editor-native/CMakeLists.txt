@@ -32,11 +32,10 @@ add_library(artcade-editor-core STATIC
     commands/audio_asset_commands.cpp
     commands/font_asset_commands.cpp
     commands/sprite_animation_commands.cpp
-    commands/sprite_animator_commands.cpp
     commands/entity_commands.cpp
     commands/scene_commands.cpp
     commands/scene_layer_commands.cpp
-    commands/sprite_commands.cpp
+    commands/sprite_presentation_commands.cpp
     app/editor_coordinator.cpp
     app/editor_coordinator_workspace.cpp
     app/editor_coordinator_tilemap.cpp

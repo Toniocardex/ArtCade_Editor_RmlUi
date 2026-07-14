@@ -737,7 +737,6 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     // -- Sprite presentation: Object Type capability/defaults + instance delta.
     const ResolvedSpritePresentation presentation = type
         ? resolveSpritePresentation(*type, *inst) : ResolvedSpritePresentation{};
-    const SpriteRenderView resolved{}; // legacy branch below is removed in 2D.0D
     if (type && type->spriteRenderer && presentation.renderer) {
         const SpriteRendererComponent& sr = *presentation.renderer;
         html += header("sprite-renderer", isSectionCollapsed("sprite-renderer"),
@@ -849,17 +848,6 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                       + "\" data-action=\"reset-animator-override\">Reset to Object Type</button>";
             }
         }
-    } else if (false) {
-        // Inherited from the object type — read-only until overridden (no remove:
-        // the type sprite is not the instance's to drop).
-        html += header("sprite-renderer", isSectionCollapsed("sprite-renderer"),
-                       "&#xeb0a;", "Sprite Renderer", "INHERITED", "", "", instanceDisabled);
-        html += "<div class=\"prop-row\"><span class=\"prop-label\">Image</span>"
-                "<span class=\"prop-readonly\">"
-              + (resolved.assetId.empty() ? std::string("(none)") : escapeRml(resolved.assetId))
-              + "</span></div>";
-        html += "<button class=\"" + instanceBtn + "\" data-action=\"add-sprite-renderer\">"
-                "<span class=\"icon\">&#xeb0b;</span>Add Override</button>";
     }
 
     // -- Tilemap (instance-owned per ADR-0001) --------------------------------

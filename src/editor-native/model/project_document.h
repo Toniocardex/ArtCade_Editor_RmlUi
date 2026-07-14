@@ -11,7 +11,6 @@
 namespace ArtCade::EditorNative {
 
 class AddBoxColliderCommand;
-class AddSpriteRendererCommand;
 class CreateEntityCommand;
 class CreateSceneCommand;
 class DeleteEntityCommand;
@@ -20,7 +19,6 @@ class EditorCoordinator;
 class AddLinearMoverCommand;
 class RemoveBoxColliderCommand;
 class RemoveLinearMoverCommand;
-class RemoveSpriteRendererCommand;
 class RenameEntityCommand;
 class SetEntityPositionCommand;
 class SetBoxColliderEnabledCommand;
@@ -50,9 +48,6 @@ class SetBoxColliderModeCommand;
 class RenameSceneCommand;
 class SetSceneSizeCommand;
 class SetSceneBackgroundCommand;
-class SetSpriteRendererAssetCommand;
-class SetSpriteRendererAnimationCommand;
-class SetSpriteRendererVisibleCommand;
 class AddSpriteAnimationAssetCommand;
 class RemoveSpriteAnimationAssetCommand;
 class AddAnimationClipCommand;
@@ -61,11 +56,6 @@ class RemoveAnimationClipCommand;
 class SetAnimationClipFramesCommand;
 class SetAnimationClipFrameRateCommand;
 class SetAnimationClipPlaybackModeCommand;
-class AddSpriteAnimatorCommand;
-class RemoveSpriteAnimatorCommand;
-class SetSpriteAnimatorInitialClipCommand;
-class SetSpriteAnimatorPlaybackSpeedCommand;
-class SetSpriteAnimatorAutoPlayCommand;
 class AddTilemapComponentCommand;
 class RemoveTilemapComponentCommand;
 class SetTilemapTilesetCommand;
@@ -165,7 +155,6 @@ public:
 private:
     friend class AddBoxColliderCommand;
     friend class AddLinearMoverCommand;
-    friend class AddSpriteRendererCommand;
     friend class AddSpriteRendererToObjectTypeCommand;
     friend class RemoveSpriteRendererFromObjectTypeCommand;
     friend class SetObjectTypeSpriteSourceCommand;
@@ -187,7 +176,6 @@ private:
     friend class EditorCoordinator;
     friend class RemoveBoxColliderCommand;
     friend class RemoveLinearMoverCommand;
-    friend class RemoveSpriteRendererCommand;
     friend class RenameEntityCommand;
     friend class SetEntityPositionCommand;
     friend class SetBoxColliderEnabledCommand;
@@ -217,9 +205,6 @@ private:
     friend class RenameSceneCommand;
     friend class SetSceneSizeCommand;
     friend class SetSceneBackgroundCommand;
-    friend class SetSpriteRendererAssetCommand;
-    friend class SetSpriteRendererAnimationCommand;
-    friend class SetSpriteRendererVisibleCommand;
     friend class CreateSpriteAnimationAssetCommand;
     friend class AddSpriteAnimationAssetCommand;
     friend class RemoveSpriteAnimationAssetCommand;
@@ -229,11 +214,6 @@ private:
     friend class SetAnimationClipFramesCommand;
     friend class SetAnimationClipFrameRateCommand;
     friend class SetAnimationClipPlaybackModeCommand;
-    friend class AddSpriteAnimatorCommand;
-    friend class RemoveSpriteAnimatorCommand;
-    friend class SetSpriteAnimatorInitialClipCommand;
-    friend class SetSpriteAnimatorPlaybackSpeedCommand;
-    friend class SetSpriteAnimatorAutoPlayCommand;
     friend class AddTilemapComponentCommand;
     friend class RemoveTilemapComponentCommand;
     friend class SetTilemapTilesetCommand;
@@ -306,21 +286,6 @@ private:
     bool createInstance(const SceneId& sceneId, SceneInstanceDef instance);
     bool insertInstance(const SceneId& sceneId, std::size_t index, SceneInstanceDef instance);
     bool deleteInstance(const SceneId& sceneId, EntityId id);
-    // Sprite-renderer component patch verbs (explicit, no property bag).
-    bool addSpriteRenderer(const SceneId& sceneId, EntityId id, SpriteRendererComponent component);
-    bool removeSpriteRenderer(const SceneId& sceneId, EntityId id);
-    bool setSpriteRendererVisible(const SceneId& sceneId, EntityId id, bool visible);
-    // Atomically replace the two coupled instance-owned sprite components. Used
-    // when changing source kind (image/animation/none), where updating the
-    // renderer and adding/removing SpriteAnimator is one logical mutation.
-    bool setSpritePresentationState(
-        const SceneId& sceneId, EntityId id, SpriteRendererComponent renderer,
-        std::optional<SpriteAnimatorComponent> animator);
-    bool addSpriteAnimator(const SceneId& sceneId, EntityId id, SpriteAnimatorComponent component);
-    bool removeSpriteAnimator(const SceneId& sceneId, EntityId id);
-    bool setSpriteAnimatorInitialClip(const SceneId& sceneId, EntityId id, std::string clipId);
-    bool setSpriteAnimatorPlaybackSpeed(const SceneId& sceneId, EntityId id, float speed);
-    bool setSpriteAnimatorAutoPlay(const SceneId& sceneId, EntityId id, bool autoPlay);
     bool addTilemapComponent(const SceneId& sceneId, EntityId id, TilemapComponent component);
     bool removeTilemapComponent(const SceneId& sceneId, EntityId id);
     bool setTilemapTileset(const SceneId& sceneId, EntityId id, AssetId tilesetAssetId);

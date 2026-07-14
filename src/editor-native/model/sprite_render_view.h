@@ -43,18 +43,6 @@ struct SpriteRenderView {
     ComponentOrigin origin  = ComponentOrigin::None;
 };
 
-// Override-only projection of a single instance (no inheritance lookup).
-inline SpriteRenderView spriteRenderViewOf(const SceneInstanceDef& instance) {
-    if (!instance.spriteRenderer.has_value()) return SpriteRenderView{};
-    return SpriteRenderView{true,
-                            instance.spriteRenderer->visible,
-                            instance.spriteRenderer->imageAssetId,
-                            instance.spriteRenderer->animationAssetId,
-                            {},
-                            false,
-                            ComponentOrigin::InstanceOverride};
-}
-
 // Document-addressed projection used by the viewport. It delegates ownership
 // resolution to resolveSpritePresentation and only resolves animation assets.
 SpriteRenderView resolveSpriteRenderer(const ProjectDocument& document,

@@ -46,16 +46,6 @@ ResolvedSpritePresentation resolveSpritePresentation(
                 resolved.rendererOrigin = ComponentOrigin::EntityDefinition;
             }
         }
-    } else if (instance.spriteRenderer) {
-        // Transitional v3 in-memory input. ProjectMigration and the v4 writer
-        // eliminate this path; it remains until the command slice is complete.
-        resolved.renderer = *instance.spriteRenderer;
-        resolved.rendererOrigin = ComponentOrigin::InstanceOverride;
-    } else if (!objectType.sprite.spriteAssetId.empty()) {
-        // Transitional pre-v4 Object Type sprite input.
-        resolved.renderer = SpriteRendererComponent{
-            objectType.sprite.spriteAssetId, {}, objectType.visible};
-        resolved.rendererOrigin = ComponentOrigin::EntityDefinition;
     }
 
     if (objectType.spriteAnimator) {
@@ -80,9 +70,6 @@ ResolvedSpritePresentation resolveSpritePresentation(
                 resolved.animatorOrigin = ComponentOrigin::EntityDefinition;
             }
         }
-    } else if (instance.spriteAnimator) {
-        resolved.animator = *instance.spriteAnimator;
-        resolved.animatorOrigin = ComponentOrigin::InstanceOverride;
     }
 
     // Animator without a renderer is never materializable presentation.
@@ -101,14 +88,6 @@ SpriteRenderView resolveSpriteRenderer(const ProjectDocument& document,
     ResolvedSpritePresentation presentation;
     if (objectType) {
         presentation = resolveSpritePresentation(*objectType, *instance);
-    } else if (instance->spriteRenderer) {
-        // Catalog-less legacy documents are valid; still route them through the
-        // common asset/clip projection below.
-        presentation.renderer = instance->spriteRenderer;
-        presentation.animator = instance->spriteAnimator;
-        presentation.rendererOrigin = ComponentOrigin::InstanceOverride;
-        presentation.animatorOrigin = instance->spriteAnimator
-            ? ComponentOrigin::InstanceOverride : ComponentOrigin::None;
     }
     if (!presentation.renderer) return SpriteRenderView{};
 

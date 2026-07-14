@@ -29,7 +29,6 @@
 #include "editor-native/commands/sprite_animation_commands.h"
 #include "editor-native/commands/entity_commands.h"
 #include "editor-native/commands/scene_commands.h"
-#include "editor-native/commands/sprite_commands.h"
 #include "editor-native/commands/sprite_presentation_commands.h"
 #include "editor-native/model/project_io.h"
 #include "editor-native/model/path_confinement.h"
@@ -142,7 +141,7 @@ static ProjectDoc makeInheritedDoc() {
     hero.className = "Hero";
     hero.name = "Hero";
     hero.visible = true;
-    hero.sprite.spriteAssetId = "img-hero";
+    hero.spriteRenderer = SpriteRendererComponent{"img-hero", {}, true};
     doc.objectTypes.emplace("Hero", hero);
     return doc;
 }
@@ -163,6 +162,12 @@ static ProjectDoc makeAnimationDoc() {
     idle.frames.push_back(SpriteAnimationFrameDef{32, 0, 32, 32});
     anim.clips.push_back(idle);
     doc.spriteAnimationAssets.push_back(anim);
+    EntityDef hero;
+    hero.className = "Hero";
+    hero.name = "Hero";
+    hero.spriteRenderer = SpriteRendererComponent{{}, "hero.anim", true};
+    hero.spriteAnimator = SpriteAnimatorComponent{"idle", true, 1.f};
+    doc.objectTypes.emplace("Hero", std::move(hero));
     return doc;
 }
 
@@ -527,17 +532,18 @@ static void runSpriteAnimationTests() {
 
     // -- Sprite Renderer animation source requires SpriteAnimator ------------
     {
-        EditorCoordinator c{makeAnimationDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
+        ProjectDoc doc = makeAnimationDoc();
+        doc.objectTypes.at("Hero").spriteRenderer = SpriteRendererComponent{};
+        doc.objectTypes.at("Hero").spriteAnimator.reset();
+        EditorCoordinator c{std::move(doc)};
         const uint64_t revisionBefore = c.document().revision();
-        CHECK(c.execute(SetSpriteRendererAnimationCommand{kSceneA, kHero, "hero.anim"}).ok);
+        CHECK(c.execute(SetObjectTypeSpriteSourceCommand{
+            "Hero", ObjectTypeSpriteSourceKind::Animation, "hero.anim"}).ok);
         CHECK(c.document().revision() == revisionBefore + 1);  // one logical mutation
-        const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, kHero);
-        CHECK(inst && inst->spriteRenderer);
-        CHECK(inst && inst->spriteRenderer->imageAssetId.empty());
-        CHECK(inst && inst->spriteRenderer->animationAssetId == "hero.anim");
-        CHECK(inst && inst->spriteAnimator.has_value());
-        CHECK(inst && inst->spriteAnimator->initialClipId == "idle");
+        const EntityDef& type = c.document().data().objectTypes.at("Hero");
+        CHECK(type.spriteRenderer && type.spriteRenderer->imageAssetId.empty());
+        CHECK(type.spriteRenderer && type.spriteRenderer->animationAssetId == "hero.anim");
+        CHECK(type.spriteAnimator && type.spriteAnimator->initialClipId == "idle");
 
         const SceneFrameSnapshot frame =
             collectSceneFrameSnapshot(c.document(), kSceneA, kHero);
@@ -547,39 +553,32 @@ static void runSpriteAnimationTests() {
         CHECK(frame.sprites[0].source.width == 32.f);
 
         CHECK(c.undo().ok);
-        inst = c.document().findInstanceInScene(kSceneA, kHero);
-        CHECK(inst && inst->spriteRenderer);
-        CHECK(inst && inst->spriteRenderer->animationAssetId.empty());
-        CHECK(inst && !inst->spriteAnimator.has_value());
+        CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->animationAssetId.empty());
+        CHECK(!c.document().data().objectTypes.at("Hero").spriteAnimator);
 
         CHECK(c.redo().ok);
-        inst = c.document().findInstanceInScene(kSceneA, kHero);
-        CHECK(inst && inst->spriteRenderer->animationAssetId == "hero.anim");
-        CHECK(inst && inst->spriteAnimator.has_value()
-              && inst->spriteAnimator->initialClipId == "idle");
+        CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->animationAssetId
+              == "hero.anim");
+        CHECK(c.document().data().objectTypes.at("Hero").spriteAnimator->initialClipId == "idle");
     }
 
     // -- Animation -> image is one atomic renderer+animator state change -----
     {
         EditorCoordinator c{makeAnimationDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(c.execute(SetSpriteRendererAnimationCommand{kSceneA, kHero, "hero.anim"}).ok);
         const uint64_t imageRevisionBefore = c.document().revision();
-        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-hero"}).ok);
+        CHECK(c.execute(SetObjectTypeSpriteSourceCommand{
+            "Hero", ObjectTypeSpriteSourceKind::Image, "img-hero"}).ok);
         CHECK(c.document().revision() == imageRevisionBefore + 1);
-        const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, kHero);
-        CHECK(inst && inst->spriteRenderer->imageAssetId == "img-hero");
-        CHECK(inst && inst->spriteRenderer->animationAssetId.empty());
-        CHECK(inst && !inst->spriteAnimator.has_value());
+        CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->imageAssetId == "img-hero");
+        CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->animationAssetId.empty());
+        CHECK(!c.document().data().objectTypes.at("Hero").spriteAnimator);
         CHECK(c.undo().ok);
-        inst = c.document().findInstanceInScene(kSceneA, kHero);
-        CHECK(inst && inst->spriteRenderer->animationAssetId == "hero.anim");
-        CHECK(inst && inst->spriteAnimator.has_value()
-              && inst->spriteAnimator->initialClipId == "idle");
+        CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->animationAssetId
+              == "hero.anim");
+        CHECK(c.document().data().objectTypes.at("Hero").spriteAnimator->initialClipId == "idle");
         CHECK(c.redo().ok);
-        inst = c.document().findInstanceInScene(kSceneA, kHero);
-        CHECK(inst && inst->spriteRenderer->imageAssetId == "img-hero");
-        CHECK(inst && !inst->spriteAnimator.has_value());
+        CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->imageAssetId == "img-hero");
+        CHECK(!c.document().data().objectTypes.at("Hero").spriteAnimator);
     }
 
     // -- Removing an animation asset clears every reference atomically --------
@@ -590,44 +589,25 @@ static void runSpriteAnimationTests() {
         second.instanceName = "Hero 2";
         doc.scenes.at(kSceneA).instances.push_back(second);
         EditorCoordinator c{std::move(doc)};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(c.execute(SetSpriteRendererAnimationCommand{kSceneA, kHero, "hero.anim"}).ok);
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, 77}).ok);
-        CHECK(c.execute(SetSpriteRendererAnimationCommand{kSceneA, 77, "hero.anim"}).ok);
-        CHECK(c.document().findInstanceInScene(kSceneA, kHero)
-                  ->spriteRenderer->animationAssetId == "hero.anim");
+        CHECK(resolveSpriteRenderer(c.document(), kSceneA, kHero).animationAssetId == "hero.anim");
         const uint64_t revisionBefore = c.document().revision();
         // Delete means delete: the asset goes AND the entity is left clean, not
         // blocked and not dangling.
         CHECK(c.execute(RemoveSpriteAnimationAssetCommand{"hero.anim"}).ok);
         CHECK(c.document().revision() == revisionBefore + 1);  // one staged commit
         CHECK(!c.document().hasSpriteAnimationAsset("hero.anim"));
-        const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, kHero);
-        CHECK(inst && inst->spriteRenderer && inst->spriteRenderer->animationAssetId.empty());
-        CHECK(inst && !inst->spriteAnimator.has_value());
-        const SceneInstanceDef* secondInst = c.document().findInstanceInScene(kSceneA, 77);
-        CHECK(secondInst && secondInst->spriteRenderer
-              && secondInst->spriteRenderer->animationAssetId.empty());
-        CHECK(secondInst && !secondInst->spriteAnimator.has_value());
+        CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->animationAssetId.empty());
+        CHECK(!c.document().data().objectTypes.at("Hero").spriteAnimator);
         // Undo restores the asset, the source, and the animator (with its clip).
         CHECK(c.undo().ok);
         CHECK(c.document().hasSpriteAnimationAsset("hero.anim"));
-        inst = c.document().findInstanceInScene(kSceneA, kHero);
-        CHECK(inst && inst->spriteRenderer->animationAssetId == "hero.anim");
-        CHECK(inst && inst->spriteAnimator.has_value()
-              && inst->spriteAnimator->initialClipId == "idle");
-        secondInst = c.document().findInstanceInScene(kSceneA, 77);
-        CHECK(secondInst && secondInst->spriteRenderer->animationAssetId == "hero.anim");
-        CHECK(secondInst && secondInst->spriteAnimator.has_value()
-              && secondInst->spriteAnimator->initialClipId == "idle");
+        CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->animationAssetId
+              == "hero.anim");
+        CHECK(c.document().data().objectTypes.at("Hero").spriteAnimator->initialClipId == "idle");
         CHECK(c.redo().ok);
         CHECK(!c.document().hasSpriteAnimationAsset("hero.anim"));
-        inst = c.document().findInstanceInScene(kSceneA, kHero);
-        secondInst = c.document().findInstanceInScene(kSceneA, 77);
-        CHECK(inst && inst->spriteRenderer->animationAssetId.empty());
-        CHECK(inst && !inst->spriteAnimator.has_value());
-        CHECK(secondInst && secondInst->spriteRenderer->animationAssetId.empty());
-        CHECK(secondInst && !secondInst->spriteAnimator.has_value());
+        CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->animationAssetId.empty());
+        CHECK(!c.document().data().objectTypes.at("Hero").spriteAnimator);
     }
 
     // -- Slicing a second animation must not overwrite the first's clip -------
@@ -669,10 +649,6 @@ static void runSpriteAnimationTests() {
         second.transform.position.x += 80.f;
         doc.scenes.at(kSceneA).instances.push_back(second);
         EditorCoordinator c{std::move(doc)};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(c.execute(SetSpriteRendererAnimationCommand{kSceneA, kHero, "hero.anim"}).ok);
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, 77}).ok);
-        CHECK(c.execute(SetSpriteRendererAnimationCommand{kSceneA, 77, "hero.anim"}).ok);
         const uint64_t revision = c.document().revision();
         CHECK(c.playCurrentScene().ok);
         CHECK(c.playSession() != nullptr);
@@ -3828,8 +3804,10 @@ int main() {
         const SceneInstanceDef* inherited = migrated.value.findInstanceInScene("a", 2);
         const SceneInstanceDef* delta = migrated.value.findInstanceInScene("a", 3);
         const SceneInstanceDef* absent = migrated.value.findInstanceInScene("z", 1);
-        CHECK(inherited && !inherited->spriteRenderer && !inherited->spriteRendererOverride);
-        CHECK(inherited && !inherited->spriteAnimator && !inherited->spriteAnimatorOverride);
+        CHECK(inherited && !inherited->legacySpriteRendererV3
+              && !inherited->spriteRendererOverride);
+        CHECK(inherited && !inherited->legacySpriteAnimatorV3
+              && !inherited->spriteAnimatorOverride);
         CHECK(delta && delta->spriteRendererOverride);
         CHECK(delta && delta->spriteRendererOverride->imageAssetId
               && *delta->spriteRendererOverride->imageAssetId == "green");
@@ -3859,8 +3837,8 @@ int main() {
         CHECK(roundTrip.ok);
         const SceneInstanceDef* roundTripDelta =
             roundTrip.value.findInstanceInScene("a", 3);
-        CHECK(roundTripDelta && !roundTripDelta->spriteRenderer);
-        CHECK(roundTripDelta && !roundTripDelta->spriteAnimator);
+        CHECK(roundTripDelta && !roundTripDelta->legacySpriteRendererV3);
+        CHECK(roundTripDelta && !roundTripDelta->legacySpriteAnimatorV3);
         CHECK(roundTripDelta && roundTripDelta->spriteRendererOverride);
         CHECK(roundTripDelta && roundTripDelta->spriteAnimatorOverride);
     }
@@ -3868,15 +3846,13 @@ int main() {
     // -- 2D.0C: type-owned capability + sparse override have exact history ---
     {
         ProjectDoc doc = makeAnimationDoc();
-        EntityDef hero;
-        hero.className = "Hero";
-        hero.name = "Hero";
-        doc.objectTypes.emplace("Hero", hero);
+        doc.objectTypes.at("Hero").spriteRenderer.reset();
+        doc.objectTypes.at("Hero").spriteAnimator.reset();
         EditorCoordinator c{std::move(doc)};
 
         CHECK(c.execute(AddSpriteRendererToObjectTypeCommand{"Hero"}).ok);
         CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer.has_value());
-        CHECK(!c.document().findInstanceInScene(kSceneA, kHero)->spriteRenderer.has_value());
+        CHECK(!c.document().findInstanceInScene(kSceneA, kHero)->spriteRendererOverride);
         CHECK(c.execute(SetObjectTypeSpriteSourceCommand{
             "Hero", ObjectTypeSpriteSourceKind::Animation, "hero.anim"}).ok);
         const EntityDef& animatedType = c.document().data().objectTypes.at("Hero");
@@ -3943,6 +3919,48 @@ int main() {
         CHECK(!rejected.ok);
         CHECK(rejected.error.find("contains 2 actions") != std::string::npos);
         CHECK(guarded.document().data().objectTypes.at("Hero").spriteAnimator);
+    }
+
+    // -- 2D.0D: orphan/invalid deltas and referenced clips fail in core -------
+    {
+        ProjectDoc orphan = makeInheritedDoc();
+        SpriteAnimatorOverride animatorDelta;
+        animatorDelta.playbackSpeed = 1.5f;
+        orphan.scenes.at(kSceneA).instances.front().spriteAnimatorOverride = animatorDelta;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(orphan)}).ok);
+
+        ProjectDoc invalidSpeed = makeAnimationDoc();
+        animatorDelta.playbackSpeed = -1.f;
+        invalidSpeed.scenes.at(kSceneA).instances.front().spriteAnimatorOverride = animatorDelta;
+        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(invalidSpeed)}).ok);
+
+        EditorCoordinator referencedClip{makeAnimationDoc()};
+        const uint64_t revision = referencedClip.document().revision();
+        CHECK(!referencedClip.execute(RemoveAnimationClipCommand{"hero.anim", "idle"}).ok);
+        CHECK(referencedClip.document().revision() == revision);
+        CHECK(referencedClip.document().findSpriteAnimationAsset("hero.anim")->clips.size() == 1);
+    }
+
+    // -- 2D.0D: image deletion clears/restores a sparse instance delta exactly -
+    {
+        EditorCoordinator c{makeInheritedDoc()};
+        SpriteRendererOverride delta;
+        delta.imageAssetId = "img-alt";
+        delta.animationAssetId = AssetId{};
+        delta.visible = false;
+        CHECK(c.execute(SetInstanceSpriteOverrideCommand{kSceneA, kHero, delta}).ok);
+        CHECK(c.execute(RemoveImageAssetCommand{"img-alt"}).ok);
+        const SceneInstanceDef* instance = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(instance && instance->spriteRendererOverride
+              && instance->spriteRendererOverride->imageAssetId
+              && instance->spriteRendererOverride->imageAssetId->empty());
+        CHECK(c.undo().ok);
+        instance = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(instance && instance->spriteRendererOverride
+              && instance->spriteRendererOverride->imageAssetId
+              && *instance->spriteRendererOverride->imageAssetId == "img-alt");
+        CHECK(instance && instance->spriteRendererOverride->visible
+              && !*instance->spriteRendererOverride->visible);
     }
 
     // -- Project rename is persistent authoring metadata ----------------------
@@ -5551,8 +5569,10 @@ int main() {
         std::optional<PlaySession> session = PlaySession::startProject(c.document());
         CHECK(session.has_value()); // inherited img-hero at x=10
         CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {50.f, 20.f}}).ok);
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-alt"}).ok);
+        SpriteRendererOverride delta;
+        delta.imageAssetId = "img-alt";
+        delta.animationAssetId = AssetId{};
+        CHECK(c.execute(SetInstanceSpriteOverrideCommand{kSceneA, kHero, delta}).ok);
 
         const SceneFrameSnapshot editFrame =
             collectSceneFrameSnapshot(c.document(), kSceneA, INVALID_ENTITY);
@@ -5579,9 +5599,12 @@ int main() {
         CHECK(noSprite.playSession()->assets().imageAssets.empty());
 
         EditorCoordinator invisible{makeInheritedDoc()};
-        CHECK(invisible.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(invisible.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-alt"}).ok);
-        CHECK(invisible.execute(SetSpriteRendererVisibleCommand{kSceneA, kHero, false}).ok);
+        SpriteRendererOverride invisibleDelta;
+        invisibleDelta.imageAssetId = "img-alt";
+        invisibleDelta.animationAssetId = AssetId{};
+        invisibleDelta.visible = false;
+        CHECK(invisible.execute(SetInstanceSpriteOverrideCommand{
+            kSceneA, kHero, invisibleDelta}).ok);
         CHECK(invisible.playProject().ok);
         CHECK(invisible.playSession()->entities()[0].sprite.has_value());
         CHECK(invisible.playSession()->entities()[0].sprite->assetId == "img-alt");
@@ -5590,7 +5613,7 @@ int main() {
         CHECK(invisible.playSession()->assets().imageAssets.count("img-alt") == 1);
 
         ProjectDoc danglingDoc = makeInheritedDoc();
-        danglingDoc.objectTypes.at("Hero").sprite.spriteAssetId = "missing-image";
+        danglingDoc.objectTypes.at("Hero").spriteRenderer->imageAssetId = "missing-image";
         EditorCoordinator dangling{danglingDoc};
         CHECK(!dangling.playProject().ok);
         CHECK(!dangling.isPlaying());
@@ -5617,7 +5640,8 @@ int main() {
         CHECK(c.playProject().ok);
         CHECK(c.isPlaying());
         CHECK(!c.execute(SetEntityPositionCommand{kSceneA, kHero, {99.f, 20.f}}).ok);
-        CHECK(!c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
+        CHECK(!c.execute(SetInstanceSpriteOverrideCommand{
+            kSceneA, kHero, SpriteRendererOverride{}}).ok);
         CHECK(!c.undo().ok);
         CHECK(c.document().revision() == revisionBefore);
         CHECK(c.undoSize() == undoBefore);
@@ -6760,25 +6784,23 @@ int main() {
     // -- Remove clears the sprite-renderer reference (delete means delete) -----
     {
         EditorCoordinator c{makeInheritedDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-hero"}).ok);
-        CHECK(c.document().findInstanceInScene(kSceneA, kHero)
-                  ->spriteRenderer->imageAssetId == "img-hero");
+        CHECK(c.document().data().objectTypes.at("Hero")
+                  .spriteRenderer->imageAssetId == "img-hero");
         const uint64_t revisionBefore = c.document().revision();
         // Removing the image drops the reference - the entity keeps no dangling id.
         CHECK(c.execute(RemoveImageAssetCommand{"img-hero"}).ok);
         CHECK(c.document().revision() == revisionBefore + 1);
         CHECK(!c.document().hasImageAsset("img-hero"));
-        CHECK(c.document().findInstanceInScene(kSceneA, kHero)
-                  ->spriteRenderer->imageAssetId.empty());
+        CHECK(c.document().data().objectTypes.at("Hero")
+                  .spriteRenderer->imageAssetId.empty());
         // Undo restores the asset AND the exact reference; redo clears it again.
         CHECK(c.undo().ok);
         CHECK(c.document().hasImageAsset("img-hero"));
-        CHECK(c.document().findInstanceInScene(kSceneA, kHero)
-                  ->spriteRenderer->imageAssetId == "img-hero");
+        CHECK(c.document().data().objectTypes.at("Hero")
+                  .spriteRenderer->imageAssetId == "img-hero");
         CHECK(c.redo().ok);
-        CHECK(c.document().findInstanceInScene(kSceneA, kHero)
-                  ->spriteRenderer->imageAssetId.empty());
+        CHECK(c.document().data().objectTypes.at("Hero")
+                  .spriteRenderer->imageAssetId.empty());
     }
 
     // -- save/load preserves the catalog with the relative path ---------------
@@ -6843,12 +6865,16 @@ int main() {
         { std::ofstream f(audio, std::ios::binary); f << "WAV"; }
         { std::ofstream f(font, std::ios::binary); f << "TTF"; }
 
-        EditorCoordinator c{makeDoc()};
+        ProjectDoc catalogDoc = makeDoc();
+        EntityDef heroType; heroType.className = "Hero"; heroType.name = "Hero";
+        catalogDoc.objectTypes.emplace("Hero", std::move(heroType));
+        EditorCoordinator c{std::move(catalogDoc)};
         CHECK(importAsset(c, root, {AssetKind::Image, image}).ok);
         CHECK(importAsset(c, root, {AssetKind::Audio, audio}).ok);
         CHECK(importAsset(c, root, {AssetKind::Font, font}).ok);
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "hero"}).ok);
+        CHECK(c.execute(AddSpriteRendererToObjectTypeCommand{"Hero"}).ok);
+        CHECK(c.execute(SetObjectTypeSpriteSourceCommand{
+            "Hero", ObjectTypeSpriteSourceKind::Image, "hero"}).ok);
 
         const std::filesystem::path path = root / "catalog.artcade-project";
         CHECK(saveProjectToFile(c, path).ok);
@@ -8287,12 +8313,14 @@ int main() {
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
                   "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+        CHECK(c.execute(AddSpriteRendererToObjectTypeCommand{"obj-1"}).ok);
         CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", true}).ok);
 
         CHECK(!c.execute(SetEntityPositionCommand{"s", 1, {5.f, 5.f}}).ok);
         CHECK(!c.execute(RenameEntityCommand{"s", 1, "New Name"}).ok);
         CHECK(!c.execute(CloneInstanceCommand{"s", 1, 2, "Clone", {}}).ok);
-        CHECK(!c.execute(AddSpriteRendererCommand{"s", 1}).ok);
+        SpriteRendererOverride lockedDelta; lockedDelta.visible = false;
+        CHECK(!c.execute(SetInstanceSpriteOverrideCommand{"s", 1, lockedDelta}).ok);
         CHECK(!c.execute(AddTilemapComponentCommand{"s", 1, TilemapComponent{}}).ok);
         CHECK(!c.execute(DeleteEntityCommand{"s", 1}).ok);
         // Creating a new instance directly into the locked layer is rejected too.
@@ -8854,8 +8882,9 @@ int main() {
 
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
                   "s", 2, "obj-2", "Hero", "Hero", {16.f, 16.f}, "fg"}).ok);
-        CHECK(c.execute(AddSpriteRendererCommand{"s", 2}).ok);
-        CHECK(c.execute(SetSpriteRendererAssetCommand{"s", 2, "img-1"}).ok);
+        CHECK(c.execute(AddSpriteRendererToObjectTypeCommand{"obj-2"}).ok);
+        CHECK(c.execute(SetObjectTypeSpriteSourceCommand{
+            "obj-2", ObjectTypeSpriteSourceKind::Image, "img-1"}).ok);
 
         const SceneFrameSnapshot before =
             collectSceneFrameSnapshot(c.document(), "s", INVALID_ENTITY);
@@ -8989,481 +9018,6 @@ int main() {
         CHECK(reloaded.document().startSceneId() == kSceneB);
     }
 
-    // == Sprite Renderer component + asset reference (vertical slice) ==========
-
-    // -- (1)(15)(16) Add is a single Patch command, never a Replace -----------
-    {
-        EditorCoordinator c{makeSpriteDoc()};
-        const uint32_t replacesBefore = c.document().replaceCount();
-        const auto r = c.execute(AddSpriteRendererCommand{kSceneA, kHero});
-        CHECK(r.ok);
-        CHECK(r.change.kind == DomainChangeKind::ComponentAdded);
-        CHECK(r.change.componentKind == ComponentKind::SpriteRenderer);
-        CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer.has_value());
-        CHECK(c.document().replaceCount() == replacesBefore); // (15) Patch, not Replace
-        CHECK(c.undoSize() == 1);                              // (16) one command
-    }
-
-    // -- (2) Adding a sprite renderer twice is rejected and not recorded -------
-    {
-        EditorCoordinator c{makeSpriteDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        const std::size_t undoBefore = c.undoSize();
-        CHECK(!c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok); // duplicate
-        CHECK(c.undoSize() == undoBefore);
-    }
-
-    // -- (3) Remove captures the component; undo restores it exactly ----------
-    {
-        EditorCoordinator c{makeSpriteDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-hero"}).ok);
-        CHECK(c.execute(SetSpriteRendererVisibleCommand{kSceneA, kHero, false}).ok);
-        CHECK(c.execute(RemoveSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(!c.document().findInstanceInScene(kSceneA, kHero)->spriteRenderer.has_value());
-        c.undo();
-        const auto& comp = *c.document().findInstanceInScene(kSceneA, kHero)->spriteRenderer;
-        CHECK(comp.imageAssetId == "img-hero");
-        CHECK(comp.visible == false);
-    }
-
-    // -- (4) Setting the same visibility is a no-op (no undo, no mutation) -----
-    {
-        EditorCoordinator c{makeSpriteDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok); // visible defaults true
-        const std::size_t undoBefore = c.undoSize();
-        const uint64_t revBefore = c.document().revision();
-        c.consumeInvalidations();
-        CHECK(c.execute(SetSpriteRendererVisibleCommand{kSceneA, kHero, true}).ok);
-        CHECK(c.undoSize() == undoBefore);                       // not recorded
-        CHECK(c.document().revision() == revBefore);             // not mutated
-        CHECK(c.consumeInvalidations() == EditorInvalidation::None);
-    }
-
-    // -- (5) A missing asset id is rejected without mutation ------------------
-    {
-        EditorCoordinator c{makeSpriteDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        const uint64_t revisionBefore = c.document().revision();
-        const std::size_t undoBefore = c.undoSize();
-        CHECK(!c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "does-not-exist"}).ok);
-        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->spriteRenderer->imageAssetId.empty());
-        CHECK(c.document().revision() == revisionBefore);
-        CHECK(c.undoSize() == undoBefore);
-    }
-
-    // -- (6) A non-image asset id (a tileset) is rejected ---------------------
-    {
-        EditorCoordinator c{makeSpriteDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(!c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "tiles-1"}).ok);
-    }
-
-    // -- (7) Setting a valid asset invalidates only Inspector | Viewport ------
-    {
-        EditorCoordinator c{makeSpriteDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        c.consumeInvalidations();
-        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-hero"}).ok);
-        CHECK(c.consumeInvalidations()
-              == (EditorInvalidation::Inspector | EditorInvalidation::Viewport
-                  | EditorInvalidation::Toolbar));
-    }
-
-    // -- (8) Undo restores the previous asset ---------------------------------
-    {
-        EditorCoordinator c{makeSpriteDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-hero"}).ok);
-        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-alt"}).ok);
-        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->spriteRenderer->imageAssetId == "img-alt");
-        c.undo();
-        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->spriteRenderer->imageAssetId == "img-hero");
-    }
-
-    // -- (9)(10) The render projection reflects presence, visibility and asset -
-    {
-        EditorCoordinator c{makeSpriteDoc()};
-        CHECK(!spriteRenderViewOf(*c.document().findInstanceInScene(kSceneA, kHero)).present);
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-hero"}).ok);
-        CHECK(c.execute(SetSpriteRendererVisibleCommand{kSceneA, kHero, false}).ok);
-        const SpriteRenderView v = spriteRenderViewOf(*c.document().findInstanceInScene(kSceneA, kHero));
-        CHECK(v.present);
-        CHECK(!v.visible);
-        CHECK(v.assetId == "img-hero");
-        // (10) the projection changes after execute and after undo.
-        c.undo(); c.undo();   // undo asset, undo... visibility
-        c.undo();             // undo add
-        CHECK(!spriteRenderViewOf(*c.document().findInstanceInScene(kSceneA, kHero)).present);
-    }
-
-    // -- (11) Serializer round-trip preserves component + asset reference ------
-    {
-        EditorCoordinator c{makeSpriteDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-hero"}).ok);
-        CHECK(c.execute(SetSpriteRendererVisibleCommand{kSceneA, kHero, false}).ok);
-        const auto ser = ProjectSerializer::serialize(c.document());
-        CHECK(ser.ok);
-        const auto de = ProjectSerializer::deserialize(ser.value);
-        CHECK(de.ok);
-        const SpriteRenderView sprite = resolveSpriteRenderer(de.value, kSceneA, kHero);
-        CHECK(sprite.present);
-        CHECK(sprite.assetId == "img-hero");
-        CHECK(sprite.visible == false);
-        CHECK(de.value.hasImageAsset("img-hero"));             // catalog round-tripped
-        CHECK(de.value.data().imageAssets[0].sourcePath == "sprites/hero.ppm");
-    }
-
-    // -- (12) Real save/reload preserves the component ------------------------
-    {
-        EditorCoordinator c{makeSpriteDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-hero"}).ok);
-        const std::filesystem::path dir = testTempDir();
-        const std::filesystem::path path = dir / "sprite.artcade-project";
-        CHECK(saveProjectToFile(c, path).ok);
-
-        EditorCoordinator reloaded{makeReplacementDoc()};
-        CHECK(loadProjectFromFile(reloaded, path).ok);
-        const SpriteRenderView sprite =
-            resolveSpriteRenderer(reloaded.document(), kSceneA, kHero);
-        CHECK(sprite.present);
-        CHECK(sprite.assetId == "img-hero");
-        CHECK(reloaded.document().data().imageAssets[0].sourcePath == "sprites/hero.ppm");
-    }
-
-    // -- (13) No Inspector/workspace state leaks into the serialized project ---
-    {
-        EditorCoordinator c{makeSpriteDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        const auto ser = ProjectSerializer::serialize(c.document());
-        CHECK(ser.value.find("selection") == std::string::npos);
-        CHECK(ser.value.find("Inspector") == std::string::npos);
-        CHECK(ser.value.find("expanded") == std::string::npos);
-        // EditorUiState fields added this session (console filter/level toggles):
-        // same guarantee, extended to what's new since this test was written.
-        CHECK(ser.value.find("consoleFilter") == std::string::npos);
-        CHECK(ser.value.find("hierarchyFilter") == std::string::npos);
-    }
-
-    // -- (13b) Multiple sprite animation assets survive real save/reload -------
-    {
-        EditorCoordinator c{makeAnimationDoc()};   // img-hero + hero.anim/idle (2 frames)
-        // A second animation on the same image, with its own clip + frames -
-        // the exact shape the Import Sheet flow produces.
-        CHECK(c.execute(AddSpriteAnimationAssetCommand{"hero-2.anim", "hero-2.anim"}).ok);
-        CHECK(c.execute(AddAnimationClipCommand{"hero-2.anim", "walk", "Walk", "img-hero"}).ok);
-        CHECK(c.execute(SetAnimationClipFramesCommand{"hero-2.anim", "walk",
-            {SpriteAnimationFrameDef{0, 0, 16, 16},
-             SpriteAnimationFrameDef{16, 0, 16, 16}}}).ok);
-        CHECK(c.document().data().spriteAnimationAssets.size() == 2);
-
-        const std::filesystem::path dir = testTempDir();
-        const std::filesystem::path path = dir / "anim.artcade-project";
-        CHECK(saveProjectToFile(c, path).ok);
-
-        EditorCoordinator reloaded{makeReplacementDoc()};
-        CHECK(loadProjectFromFile(reloaded, path).ok);
-        CHECK(reloaded.document().data().spriteAnimationAssets.size() == 2);
-        const SpriteAnimationAssetDef* a1 =
-            reloaded.document().findSpriteAnimationAsset("hero.anim");
-        const SpriteAnimationAssetDef* a2 =
-            reloaded.document().findSpriteAnimationAsset("hero-2.anim");
-        CHECK(a1 && a1->clips.size() == 1 && a1->clips[0].frames.size() == 2);
-        CHECK(a2 && a2->clips.size() == 1 && a2->clips[0].imageId == "img-hero");
-        CHECK(a2 && a2->clips.size() == 1 && a2->clips[0].id == "walk"
-              && a2->clips[0].frames.size() == 2);
-    }
-
-    // -- (14) Commands act on the explicit scene, never an implicit active one -
-    {
-        EditorCoordinator c{makeSpriteDoc()};
-        CHECK(c.execute(CreateEntityCommand{kSceneB, 500, "T", "T", {}}).ok);
-        CHECK(c.state().activeSceneId == kSceneA);                       // active is A
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneB, 500}).ok);     // explicit B
-        CHECK(c.document().findInstanceInScene(kSceneB, 500)->spriteRenderer.has_value());
-        CHECK(!c.document().findInstanceInScene(kSceneA, kHero)->spriteRenderer.has_value());
-    }
-
-    // -- Inspector action: one click → one command on the authoritative target -
-    {
-        EditorCoordinator c{makeSpriteDoc()};
-        c.apply(SelectEntityIntent{kHero});
-        const std::size_t before = c.undoSize();
-        CHECK(addSpriteRenderer(c).ok);
-        CHECK(c.undoSize() == before + 1);
-        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->spriteRenderer.has_value());
-        // No selection → no-op, no command.
-        EditorCoordinator empty{makeInheritedDoc()};
-        CHECK(!addSpriteRenderer(empty).ok);
-        CHECK(empty.undoSize() == 0);
-    }
-
-    // == Sprite renderer resolution: instance override vs object type ==========
-
-    // -- (1) No override + sprite on the object type → inherited projection ----
-    {
-        EditorCoordinator c{makeInheritedDoc()};
-        const SpriteRenderView v = resolveSpriteRenderer(c.document(), kSceneA, kHero);
-        CHECK(v.present);
-        CHECK(v.origin == ComponentOrigin::EntityDefinition);
-        CHECK(v.assetId == "img-hero");
-        const SceneFrameSnapshot frame =
-            collectSceneFrameSnapshot(c.document(), kSceneA, kHero);
-        CHECK(frame.hasScene);
-        CHECK(frame.sprites.size() == 1);
-        CHECK(frame.sprites[0].entityId == kHero);
-        CHECK(frame.sprites[0].assetId == "img-hero");
-        CHECK(frame.sprites[0].visible);
-        CHECK(frame.sprites[0].selected);
-    }
-
-    // -- (2)(5) An instance override prevails over the inherited component -----
-    {
-        EditorCoordinator c{makeInheritedDoc()};
-        CHECK(resolveSpriteRenderer(c.document(), kSceneA, kHero).origin
-              == ComponentOrigin::EntityDefinition);             // (5) distinguished: inherited
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-alt"}).ok);
-        const SpriteRenderView v = resolveSpriteRenderer(c.document(), kSceneA, kHero);
-        CHECK(v.origin == ComponentOrigin::InstanceOverride);    // (5) distinguished: override
-        CHECK(v.assetId == "img-alt");                           // (2) override wins
-        const SceneFrameSnapshot frame =
-            collectSceneFrameSnapshot(c.document(), kSceneA, INVALID_ENTITY);
-        CHECK(frame.sprites.size() == 1);
-        CHECK(frame.sprites[0].assetId == "img-alt");
-    }
-
-    // -- Snapshot keeps invisible sprites non-drawable without consulting UI ---
-    {
-        EditorCoordinator c{makeInheritedDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-alt"}).ok);
-        CHECK(c.execute(SetSpriteRendererVisibleCommand{kSceneA, kHero, false}).ok);
-        const SceneFrameSnapshot frame =
-            collectSceneFrameSnapshot(c.document(), kSceneA, INVALID_ENTITY);
-        CHECK(frame.sprites.size() == 1);
-        CHECK(frame.sprites[0].assetId == "img-alt");
-        CHECK(!frame.sprites[0].visible);
-    }
-
-    // -- (3) Removing the override falls back to the inherited component -------
-    {
-        EditorCoordinator c{makeInheritedDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(c.execute(RemoveSpriteRendererCommand{kSceneA, kHero}).ok);
-        const SpriteRenderView v = resolveSpriteRenderer(c.document(), kSceneA, kHero);
-        CHECK(v.present);
-        CHECK(v.origin == ComponentOrigin::EntityDefinition);
-        CHECK(v.assetId == "img-hero");
-    }
-
-    // -- (4) Undo of Remove restores the exact override -----------------------
-    {
-        EditorCoordinator c{makeInheritedDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-alt"}).ok);
-        CHECK(c.execute(SetSpriteRendererVisibleCommand{kSceneA, kHero, false}).ok);
-        CHECK(c.execute(RemoveSpriteRendererCommand{kSceneA, kHero}).ok);
-        c.undo();
-        const auto& comp = *c.document().findInstanceInScene(kSceneA, kHero)->spriteRenderer;
-        CHECK(comp.imageAssetId == "img-alt");
-        CHECK(comp.visible == false);
-        CHECK(resolveSpriteRenderer(c.document(), kSceneA, kHero).origin
-              == ComponentOrigin::InstanceOverride);
-    }
-
-    // -- (6) Save/reload keeps the instance override absent (no base duplicated) -
-    {
-        EditorCoordinator c{makeInheritedDoc()};
-        const std::filesystem::path dir = testTempDir();
-        const std::filesystem::path path = dir / "inherit.artcade-project";
-        CHECK(saveProjectToFile(c, path).ok);
-        EditorCoordinator reloaded{makeReplacementDoc()};
-        CHECK(loadProjectFromFile(reloaded, path).ok);
-        const SceneInstanceDef* inst = reloaded.document().findInstanceInScene(kSceneA, kHero);
-        CHECK(inst != nullptr);
-        CHECK(!inst->spriteRenderer.has_value());   // the inherited component is not materialized
-    }
-
-    // -- (7) A dangling asset on the inherited component is rejected too -------
-    {
-        ProjectDoc doc = makeSpriteDoc();
-        EntityDef hero;
-        hero.className = "Hero";
-        hero.sprite.spriteAssetId = "ghost-asset";  // not in imageAssets
-        doc.objectTypes.emplace("Hero", hero);
-        CHECK(!ProjectValidator::validate(ProjectDocument{doc}).ok);
-    }
-
-    // -- (8) Deleting the instance does not touch the object type component ----
-    {
-        EditorCoordinator c{makeInheritedDoc()};
-        CHECK(c.execute(DeleteEntityCommand{kSceneA, kHero}).ok);
-        CHECK(c.document().data().objectTypes.at("Hero").sprite.spriteAssetId == "img-hero");
-    }
-
-    // -- Mutation detection is revision-based: no-op vs real change -----------
-    {
-        EditorCoordinator c{makeSpriteDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);  // visible defaults true
-        const uint64_t rev = c.document().revision();
-        CHECK(c.execute(SetSpriteRendererVisibleCommand{kSceneA, kHero, true}).ok); // no-op
-        CHECK(c.document().revision() == rev);   // revision unchanged → not recorded
-        const std::size_t undoBefore = c.undoSize();
-        CHECK(c.execute(SetSpriteRendererVisibleCommand{kSceneA, kHero, false}).ok); // real change
-        CHECK(c.document().revision() != rev);   // revision moved → recorded
-        CHECK(c.undoSize() == undoBefore + 1);
-    }
-
-    // == Object type persistence (the gate before more inherited components) ===
-
-    // -- (1) A base component on the object type survives reload --------------
-    {
-        EditorCoordinator c{makeInheritedDoc()};   // object type "Hero" sprite=img-hero
-        const std::filesystem::path dir = testTempDir();
-        const std::filesystem::path path = dir / "ot-base.artcade-project";
-        CHECK(saveProjectToFile(c, path).ok);
-
-        EditorCoordinator reloaded{makeReplacementDoc()};
-        CHECK(loadProjectFromFile(reloaded, path).ok);
-        CHECK(reloaded.document().data().objectTypes.count("Hero") == 1);
-        const SpriteRenderView v = resolveSpriteRenderer(reloaded.document(), kSceneA, kHero);
-        CHECK(v.present);
-        CHECK(v.origin == ComponentOrigin::EntityDefinition);  // inherited, restored
-        CHECK(v.assetId == "img-hero");
-    }
-
-    // -- (2) An override still prevails after reload --------------------------
-    {
-        EditorCoordinator c{makeInheritedDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-alt"}).ok);
-        const std::filesystem::path dir = testTempDir();
-        const std::filesystem::path path = dir / "ot-override.artcade-project";
-        CHECK(saveProjectToFile(c, path).ok);
-
-        EditorCoordinator reloaded{makeReplacementDoc()};
-        CHECK(loadProjectFromFile(reloaded, path).ok);
-        const SpriteRenderView v = resolveSpriteRenderer(reloaded.document(), kSceneA, kHero);
-        CHECK(v.origin == ComponentOrigin::InstanceOverride);
-        CHECK(v.assetId == "img-alt");
-    }
-
-    // -- (3) Removing the override falls back to the base even after reload ----
-    {
-        EditorCoordinator c{makeInheritedDoc()};
-        CHECK(c.execute(AddSpriteRendererCommand{kSceneA, kHero}).ok);
-        CHECK(c.execute(SetSpriteRendererAssetCommand{kSceneA, kHero, "img-alt"}).ok);
-        CHECK(c.execute(RemoveSpriteRendererCommand{kSceneA, kHero}).ok);
-        const std::filesystem::path dir = testTempDir();
-        const std::filesystem::path path = dir / "ot-removed.artcade-project";
-        CHECK(saveProjectToFile(c, path).ok);
-
-        EditorCoordinator reloaded{makeReplacementDoc()};
-        CHECK(loadProjectFromFile(reloaded, path).ok);
-        const SceneInstanceDef* inst = reloaded.document().findInstanceInScene(kSceneA, kHero);
-        CHECK(!inst->spriteRenderer.has_value());                       // no override persisted
-        const SpriteRenderView v = resolveSpriteRenderer(reloaded.document(), kSceneA, kHero);
-        CHECK(v.origin == ComponentOrigin::EntityDefinition);          // back to base
-        CHECK(v.assetId == "img-hero");
-    }
-
-    // -- (4) An instance with a dangling objectTypeId is rejected -------------
-    {
-        ProjectDoc doc = makeInheritedDoc();          // has the "Hero" catalog
-        SceneInstanceDef ghost;
-        ghost.id = 999;
-        ghost.objectTypeId = "Ghost";                 // not in the catalog
-        ghost.instanceName = "Ghost";
-        doc.scenes.at(kSceneA).instances.push_back(ghost);
-        CHECK(!ProjectValidator::validate(ProjectDocument{doc}).ok);
-    }
-
-    // -- (5) Duplicate object type ids are rejected on deserialize ------------
-    {
-        const std::string dup =
-            R"({"scenes":[],"objectTypes":[{"id":"A"},{"id":"A"}]})";
-        CHECK(!ProjectSerializer::deserialize(dup).ok);
-    }
-
-    // -- Validator rejects hostile non-finite persistent numeric state --------
-    {
-        const float nan = std::numeric_limits<float>::quiet_NaN();
-        const float inf = std::numeric_limits<float>::infinity();
-
-        ProjectDoc badTargetFps = makeDoc();
-        badTargetFps.targetFPS = inf;
-        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badTargetFps)}).ok);
-
-        ProjectDoc badRuntimeSettings = makeDoc();
-        badRuntimeSettings.world.pixelsPerMeter = 0.f;
-        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badRuntimeSettings)}).ok);
-
-        ProjectDoc badWorldSize = makeDoc();
-        badWorldSize.scenes.at(kSceneA).worldSize.x = nan;
-        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badWorldSize)}).ok);
-
-        ProjectDoc badViewport = makeDoc();
-        badViewport.scenes.at(kSceneA).viewportSize.y = 0.f;
-        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badViewport)}).ok);
-
-        ProjectDoc badBackground = makeDoc();
-        badBackground.scenes.at(kSceneA).backgroundColor.a = inf;
-        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badBackground)}).ok);
-
-        ProjectDoc badTransform = makeDoc();
-        badTransform.scenes.at(kSceneA).instances.front().transform.scale.x = inf;
-        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badTransform)}).ok);
-
-        ProjectDoc badFill = makeInheritedDoc();
-        badFill.objectTypes.at("Hero").sprite.fillColor.y = nan;
-        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badFill)}).ok);
-
-        ProjectDoc badController = makeInheritedDoc();
-        TopDownControllerComponent controller;
-        controller.acceleration = -1.f;
-        badController.objectTypes.at("Hero").topDownController = controller;
-        CHECK(!ProjectValidator::validate(ProjectDocument{std::move(badController)}).ok);
-    }
-
-    // -- A type carrying two movement drivers is rejected (one-writer invariant)
-    {
-        ProjectDoc doc;
-        doc.activeSceneId = "s";
-        SceneDef s; s.id = "s"; s.name = "S";
-        SceneInstanceDef inst; inst.id = 1; inst.objectTypeId = "T"; inst.instanceName = "T";
-        s.instances.push_back(inst);
-        doc.scenes.emplace("s", s);
-        EntityDef t; t.className = "T"; t.name = "T";
-        t.topDownController = TopDownControllerComponent{};
-        t.platformerController = PlatformerControllerComponent{};
-        doc.objectTypes.emplace("T", t);
-        // The runtime priority is only an internal defense; the project itself is
-        // invalid and must be rejected explicitly at load.
-        CHECK(!ProjectValidator::validate(ProjectDocument{doc}).ok);
-    }
-
-    // -- (6) The serializer does not copy the base component into instances ----
-    {
-        EditorCoordinator c{makeInheritedDoc()};      // kHero inherits, has no override
-        const auto ser = ProjectSerializer::serialize(c.document());
-        CHECK(ser.ok);
-        // The instance has no sparse delta; the Object Type owns the renderer.
-        CHECK(ser.value.find("spriteRendererOverride") == std::string::npos);
-        const auto de = ProjectSerializer::deserialize(ser.value);
-        CHECK(de.ok);
-        CHECK(!de.value.findInstanceInScene(kSceneA, kHero)->spriteRenderer.has_value());
-    }
-
-    // -- A catalog-less minimal project still validates (objectTypeId is a label)
-    {
-        // makeDoc has instances referencing "Hero" but defines no object types.
-        CHECK(ProjectValidator::validate(ProjectDocument{makeDoc()}).ok);
-    }
-
     // == BoxCollider2D component: object type only ============================
 
     // -- (1) Add targets objectTypeId, not scene/entity -----------------------
@@ -9477,7 +9031,7 @@ int main() {
         CHECK(r.change.objectTypeId == "Hero");
         CHECK(r.change.entityId == INVALID_ENTITY);
         CHECK(c.document().data().objectTypes.at("Hero").boxCollider2D.has_value());
-        CHECK(!c.document().findInstanceInScene(kSceneA, kHero)->spriteRenderer.has_value());
+        CHECK(!c.document().findInstanceInScene(kSceneA, kHero)->spriteRendererOverride);
         CHECK(c.document().replaceCount() == replacesBefore);
         CHECK(c.undoSize() == 1);
 
