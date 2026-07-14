@@ -28,16 +28,33 @@ inline bool shouldViewportReceiveInput(const ViewportInputContext& ctx) {
         && !ctx.rmlPopupOpen;
 }
 
-struct GameplayInputContext {
-    bool sceneWorkspace      = true;
-    bool cursorInViewport    = false;
-    bool rmlTextFieldFocused = false;
+struct GameplayKeyboardInputContext {
+    bool sceneWorkspace         = true;
+    bool viewportHasGameplayFocus = false;
+    bool windowFocused          = true;
+    bool rmlTextFieldFocused    = false;
+    bool popupOpen              = false;
 };
 
-// Runtime simulation may continue while another workspace is visible, but
-// gameplay controls are forwarded only from the focused Scene surface.
-inline bool shouldForwardGameplayInput(const GameplayInputContext& ctx) {
-    return ctx.sceneWorkspace && ctx.cursorInViewport && !ctx.rmlTextFieldFocused;
+// Keyboard ownership is persistent gameplay focus, never pointer hover. The
+// cursor may leave the Scene View without interrupting an active controller.
+inline bool shouldForwardGameplayKeyboardInput(const GameplayKeyboardInputContext& ctx) {
+    return ctx.sceneWorkspace
+        && ctx.viewportHasGameplayFocus
+        && ctx.windowFocused
+        && !ctx.rmlTextFieldFocused
+        && !ctx.popupOpen;
+}
+
+struct GameplayPointerInputContext {
+    GameplayKeyboardInputContext keyboard;
+    bool cursorInViewport = false;
+};
+
+// Pointer input remains spatial: it additionally requires the cursor to be
+// over the actual viewport. This intentionally differs from keyboard routing.
+inline bool shouldForwardGameplayPointerInput(const GameplayPointerInputContext& ctx) {
+    return shouldForwardGameplayKeyboardInput(ctx.keyboard) && ctx.cursorInViewport;
 }
 
 } // namespace ArtCade::EditorNative

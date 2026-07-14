@@ -4224,10 +4224,20 @@ int main() {
         CHECK(!shouldViewportReceiveInput({true, /*rmlConsumed*/true, false, false}));
         CHECK(!shouldViewportReceiveInput({/*inRect*/false, false, false, false}));
         CHECK(!shouldViewportReceiveInput({true, false, false, /*popup*/true}));
-        CHECK(shouldForwardGameplayInput({/*scene*/true, /*inRect*/true, false}));
-        CHECK(!shouldForwardGameplayInput({/*logic*/false, true, false}));
-        CHECK(!shouldForwardGameplayInput({true, /*outside*/false, false}));
-        CHECK(!shouldForwardGameplayInput({true, true, /*textFocus*/true}));
+        const GameplayKeyboardInputContext focusedScene{
+            /*scene*/true, /*gameplayFocus*/true, /*window*/true,
+            /*textFocus*/false, /*popup*/false};
+        CHECK(shouldForwardGameplayKeyboardInput(focusedScene));
+        // Mouse hover is not keyboard focus: leaving the viewport must not
+        // interrupt TopDown, Platformer, or Logic Board keyboard controls.
+        CHECK(shouldForwardGameplayKeyboardInput(focusedScene));
+        CHECK(!shouldForwardGameplayKeyboardInput({/*logic*/false, true, true, false, false}));
+        CHECK(!shouldForwardGameplayKeyboardInput({/*scene*/true, /*noFocus*/false, true, false, false}));
+        CHECK(!shouldForwardGameplayKeyboardInput({true, true, true, /*textFocus*/true, false}));
+        CHECK(!shouldForwardGameplayKeyboardInput({true, true, /*window*/false, false, false}));
+        CHECK(!shouldForwardGameplayKeyboardInput({true, true, true, false, /*popup*/true}));
+        CHECK(shouldForwardGameplayPointerInput({focusedScene, /*inRect*/true}));
+        CHECK(!shouldForwardGameplayPointerInput({focusedScene, /*outside*/false}));
     }
 
     // -- Asset filter: live workspace state, narrow invalidation, idempotent --

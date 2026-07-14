@@ -134,6 +134,7 @@ public:
     // Hide / hit-test cover every open context menu (viewport + hierarchy + assets).
     void hideContextMenus();
     bool isContextMenuHit(int physicalX, int physicalY) const;
+    bool hasOpenContextMenu() const;
 
     // Copies the selected Console message (full model text) to the clipboard via
     // raylib's SetClipboardText. The single entry point shared by the Copy button

@@ -120,11 +120,11 @@ body {
 }
 
 #center-modebar {
-    height: 34dp;
+    height: 40dp;
     display: flex;
     flex-direction: row;
     align-items: flex-end;
-    padding-left: 12dp;
+    padding-left: 14dp;
     background-color: #161619;
     border-bottom: 1px #27272a;
 }

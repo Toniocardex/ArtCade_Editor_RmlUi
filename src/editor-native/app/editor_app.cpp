@@ -703,6 +703,8 @@ int EditorApp::run(int argc, char** argv) {
     int   sizeStableFrames = 0;
     bool  prevTextFocus = false;   // last frame's RmlUi text focus (see Tileset keys)
     CenterWorkspaceMode previousWorkspaceMode = coordinator.state().logicBoardEditor.mode;
+    bool gameplayInputFocused = false;
+    bool previousPlaying = false;
     // Tile Palette Picker-sync: the tile last scrolled into view, so a
     // repeated selection (or none) does not re-trigger ScrollIntoView.
     std::optional<TileId> lastScrolledPaletteTile;
@@ -807,6 +809,21 @@ int EditorApp::run(int argc, char** argv) {
             coordinator.state().spriteAnimationEditor.openAssetId.has_value();
         const bool tilesetEditorOpen =
             coordinator.state().tilesetEditor.openAssetId.has_value();
+        const bool playing = coordinator.isPlaying();
+        const bool popupOpen = ui.hasOpenContextMenu();
+
+        // Keyboard ownership is a durable Scene View state, not a side effect
+        // of the cursor's current position. Play started from Scene acquires it;
+        // any explicit UI/text/window/popup transition releases it.
+        if (playing && !previousPlaying) gameplayInputFocused = !logicWorkspace;
+        if (!playing || logicWorkspace || rml.textFocus || !IsWindowFocused() || popupOpen
+            || animationEditorOpen || tilesetEditorOpen)
+            gameplayInputFocused = false;
+        if (playing && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            gameplayInputFocused = !logicWorkspace && !rml.textFocus && !popupOpen
+                && !contextMenuHit && rect.contains(GetMouseX(), GetMouseY());
+        }
+        previousPlaying = playing;
         const ViewportRect animationInputRect = animationEditorOpen
             ? resolveSpriteAnimationCanvasContentRect(animationDocument)
             : ViewportRect{};
@@ -816,15 +833,16 @@ int EditorApp::run(int argc, char** argv) {
         if (!animationEditorOpen && !tilesetEditorOpen && !logicWorkspace) {
             routeViewportInput(coordinator, rect, rml, contextMenuHit);
         }
-        if (coordinator.isPlaying()) {
+        if (playing) {
             const float dt = GetFrameTime();
             coordinator.advanceRuntime(dt);               // authored motion (LinearMover)
-            // Simulation continues in every workspace. Gameplay input belongs
-            // specifically to the visible/focused Scene viewport, so typing or
-            // navigating in Logic always delivers a neutral snapshot.
+            // Simulation continues in every workspace. Keyboard input belongs
+            // to the Scene View's persistent gameplay focus; pointer hover is
+            // deliberately irrelevant here.
             RuntimeInputSnapshot input;
-            if (shouldForwardGameplayInput({!logicWorkspace,
-                    rect.contains(GetMouseX(), GetMouseY()), rml.textFocus})) {
+            if (shouldForwardGameplayKeyboardInput({
+                    !logicWorkspace, gameplayInputFocused, IsWindowFocused(),
+                    rml.textFocus, popupOpen})) {
                 input.moveLeft  = IsKeyDown(KEY_LEFT)  || IsKeyDown(KEY_A);
                 input.moveRight = IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D);
                 input.moveUp    = IsKeyDown(KEY_UP)    || IsKeyDown(KEY_W);

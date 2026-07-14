@@ -803,6 +803,11 @@ bool EditorUi::isContextMenuHit(int physicalX, int physicalY) const {
         || hits("logic-more-menu", logicMoreMenuVisible_);
 }
 
+bool EditorUi::hasOpenContextMenu() const {
+    return viewportContextMenuVisible_ || hierarchyContextMenuVisible_
+        || assetsContextMenuVisible_ || logicTypeMenuVisible_ || logicMoreMenuVisible_;
+}
+
 void EditorUi::toggleLogicTypeMenu() {
     if (!document_) return;
     if (logicTypeMenuVisible_) { hideContextMenus(); return; }

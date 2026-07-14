@@ -1,13 +1,22 @@
 .center-mode-tab {
-    height: 30dp;
-    padding: 0 16dp;
-    color: #8d8d98;
+    height: 36dp;
+    line-height: 36dp;
+    min-width: 88dp;
+    margin-right: 4dp;
+    padding: 0 18dp;
     background-color: transparent;
     border-width: 0 0 2px 0;
     border-color: transparent;
+    color: #8a8a93;
+    font-size: 13dp;
+    text-align: center;
+    transition: border-color 0.1s, background-color 0.1s, color 0.1s;
 }
-.center-mode-tab:hover { color: #d4d4d8; background-color: #1d1e22; }
-.center-mode-tab.active { color: #f4f4f5; border-color: #3b82f6; }
+.center-mode-tab:hover { color: #d4d4d8; background-color: #1c1c1f; }
+.center-mode-tab.active { color: #f4f4f5; background-color: #1c1c1f; border-bottom-color: #3b82f6; }
+/* Focus lands as a border-color change, same token the active indicator
+   already uses — never a competing color, only whether it shows at all. */
+.center-mode-tab:focus { border-color: #3b82f6; }
 
 .logic-board-panel {
     width: 100%;
