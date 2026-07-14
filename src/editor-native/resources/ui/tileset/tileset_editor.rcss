@@ -154,7 +154,7 @@ body {
     min-height: 120dp;
     background-color: #0b0b0d;
     border: 1px #222226;
-    border-radius: 3dp;
+    border-radius: 4dp;
 }
 .tileset-canvas-status {
     display: flex;
@@ -232,7 +232,7 @@ body {
     height: 48dp;
     background-color: #0b0b0d;
     border: 1px #222226;
-    border-radius: 3dp;
+    border-radius: 2dp;
 }
 .tileset-selected-info {
     display: inline-block;

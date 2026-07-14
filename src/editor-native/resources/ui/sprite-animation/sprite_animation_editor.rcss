@@ -117,7 +117,7 @@ body {
     height: 28dp;
     padding: 0 8dp;
     margin-bottom: 3dp;
-    border-radius: 3dp;
+    border-radius: 2dp;
     border-left: 2dp transparent;
     color: #a1a1aa;
     transition: background-color 0.1s, color 0.1s;
@@ -139,7 +139,7 @@ body {
     line-height: 18dp;
     margin-left: 6dp;
     text-align: center;
-    border-radius: 3dp;
+    border-radius: 2dp;
     color: #6b6b73;
     transition: background-color 0.1s, color 0.1s;
 }
@@ -161,7 +161,7 @@ body {
     height: 28dp;
     padding: 0 8dp;
     margin-bottom: 3dp;
-    border-radius: 3dp;
+    border-radius: 2dp;
     border-left: 2dp transparent;
     color: #a1a1aa;
     transition: background-color 0.1s, color 0.1s;
@@ -187,7 +187,7 @@ body {
     line-height: 26dp;
     text-align: center;
     border: 1px #3a3a40;
-    border-radius: 3dp;
+    border-radius: 2dp;
     color: #a1a1aa;
     font-size: 11dp;
     font-weight: 500;
@@ -203,7 +203,7 @@ body {
     margin-top: 6dp;
     text-align: center;
     border: 1px transparent;
-    border-radius: 3dp;
+    border-radius: 2dp;
     color: #71717a;
     font-size: 11dp;
     font-weight: 500;
@@ -245,7 +245,7 @@ body {
     margin-bottom: 8dp;
     background-color: #101013;
     border: 1px #222226;
-    border-radius: 3dp;
+    border-radius: 4dp;
 }
 .anim-tool-group {
     display: flex;
@@ -293,7 +293,7 @@ body {
     min-height: 120dp;
     background-color: #0b0b0d;
     border: 1px #222226;
-    border-radius: 3dp;
+    border-radius: 4dp;
 }
 .anim-sheet-footer {
     display: block;
@@ -311,7 +311,7 @@ body {
     margin-bottom: 8dp;
     background-color: #141d30;
     border: 1px #2b4a7a;
-    border-radius: 3dp;
+    border-radius: 4dp;
 }
 .anim-canvas-empty-text { display: block; flex: 1; }
 .anim-canvas-empty-title {
@@ -334,7 +334,7 @@ body {
     padding: 0 14dp;
     background-color: #3b82f6;
     border: 1px #3b82f6;
-    border-radius: 4dp;
+    border-radius: 2dp;
     color: #ffffff;
     font-size: 12dp;
     font-weight: 600;
@@ -358,7 +358,7 @@ body {
     margin-bottom: 8dp;
     background-color: #0b0b0d;
     border: 1px #222226;
-    border-radius: 3dp;
+    border-radius: 4dp;
 }
 
 /* Transport: centred icon buttons under the preview canvas. */
@@ -390,7 +390,7 @@ body {
     line-height: 26dp;
     text-align: center;
     border: 1px #3a2527;
-    border-radius: 3dp;
+    border-radius: 2dp;
     color: #b3665f;
     font-size: 11dp;
     font-weight: 500;
@@ -444,7 +444,7 @@ body {
     margin-right: 6dp;
     background-color: #18181b;
     border: 1px #2c2d33;
-    border-radius: 3dp;
+    border-radius: 2dp;
     transition: border-color 0.1s;
 }
 .anim-frame:hover { border-color: #3f3f46; }

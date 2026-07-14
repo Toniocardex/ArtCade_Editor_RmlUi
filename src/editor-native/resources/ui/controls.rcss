@@ -22,7 +22,7 @@
     line-height: 22dp;
     padding: 0 10dp;
     margin: 0 1dp;
-    border-radius: 3dp;
+    border-radius: 2dp;
     color: #c4c4c8;
     font-size: 12dp;
     font-weight: 400;
@@ -45,7 +45,7 @@
     padding: 4dp;
     background-color: #1c1c1f;
     border: 1px #323236;
-    border-radius: 6dp;
+    border-radius: 4dp;
 }
 .menu-item:hover .menu-dropdown { display: block; }
 .menu-entry {
@@ -53,7 +53,7 @@
     height: 28dp;
     line-height: 28dp;
     padding: 0 10dp;
-    border-radius: 4dp;
+    border-radius: 2dp;
     color: #c4c4c8;
     font-size: 13dp;
     font-weight: 500;
@@ -104,7 +104,7 @@
     padding: 0 13dp;
     background-color: #1c1c1f;
     border: 1px #27272a;
-    border-radius: 4dp;
+    border-radius: 2dp;
     color: #c4c4c8;
     font-size: 13dp;
     font-weight: 500;
@@ -234,7 +234,7 @@
     line-height: 24dp;
     margin: 3dp 2dp;
     padding: 0 8dp;
-    border-radius: 4dp;
+    border-radius: 2dp;
     color: #c4c4c8;
     font-size: 12dp;
     font-weight: 500;
@@ -264,7 +264,7 @@
     padding: 8dp;
     background-color: #1c1c1f;
     border: 1px #323236;
-    border-radius: 6dp;
+    border-radius: 4dp;
 }
 .grid-size-control:hover .grid-size-popover { display: block; }
 .grid-size-title {
@@ -286,7 +286,7 @@
     padding: 0 8dp;
     background-color: #111113;
     border: 1px #323236;
-    border-radius: 3dp;
+    border-radius: 2dp;
     color: #e4e4e7;
     font-family: "JetBrains Mono";
     font-size: 12dp;
@@ -305,7 +305,7 @@
     padding: 0 6dp;
     background-color: transparent;
     border: 1px #323236;
-    border-radius: 3dp;
+    border-radius: 2dp;
     color: #c4c4c8;
     font-size: 11dp;
 }
@@ -371,7 +371,7 @@
     padding: 4dp;
     background-color: #1c1c1f;
     border: 1px #323236;
-    border-radius: 6dp;
+    border-radius: 4dp;
 }
 .create-menu:hover .create-dropdown { display: block; }
 
@@ -383,7 +383,7 @@
     width: 16dp;
     text-align: center;
     margin-left: 4dp;
-    border-radius: 3dp;
+    border-radius: 2dp;
     color: #6b6b73;
     font-family: tabler-icons;
     font-weight: normal;
@@ -414,7 +414,7 @@
     padding: 0 9dp;
     background-color: transparent;
     border: 1px #323236;
-    border-radius: 3dp;
+    border-radius: 2dp;
     color: #c4c4c8;
     font-size: 11dp;
     font-weight: 500;
@@ -443,7 +443,7 @@
     line-height: 30dp;
     text-align: center;
     border: 1px #3a3a40;
-    border-radius: 4dp;
+    border-radius: 2dp;
     color: #c4c4c8;
     font-size: 12dp;
     font-weight: 500;
@@ -465,7 +465,7 @@
     height: 26dp;
     line-height: 26dp;
     padding: 0 10dp;
-    border-radius: 3dp;
+    border-radius: 2dp;
     color: #c4c4c8;
     font-size: 12dp;
     transition: background-color 0.1s, color 0.1s;
@@ -487,7 +487,7 @@
     padding: 0 26dp 0 8dp;
     background-color: #111113;
     border: 1px #27272a;
-    border-radius: 3dp;
+    border-radius: 2dp;
     color: #d4d4d8;
     font-size: 12dp;
     white-space: nowrap;
@@ -523,7 +523,7 @@
     height: 24dp;
     line-height: 24dp;
     padding: 0 8dp;
-    border-radius: 3dp;
+    border-radius: 2dp;
     color: #c4c4c8;
     font-size: 11dp;
     white-space: nowrap;
@@ -546,7 +546,7 @@
     color: #c4c4c8;
     background-color: #1c1c1f;
     border: 1px #27272a;
-    border-radius: 3dp;
+    border-radius: 2dp;
     margin-bottom: 3dp;
     font-size: 11dp;
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
@@ -572,14 +572,14 @@
     padding: 4dp;
     background-color: #1c1c1f;
     border: 1px #323236;
-    border-radius: 6dp;
+    border-radius: 4dp;
 }
 .context-entry {
     display: block;
     height: 28dp;
     line-height: 28dp;
     padding: 0 10dp;
-    border-radius: 4dp;
+    border-radius: 2dp;
     color: #c4c4c8;
     font-size: 12dp;
     font-weight: 500;
@@ -597,7 +597,7 @@
     height: 26dp;
     padding: 0 4dp;
     margin-bottom: 2dp;
-    border-radius: 3dp;
+    border-radius: 2dp;
     color: #c4c4c8;
     transition: background-color 0.1s, color 0.1s;
 }
@@ -628,7 +628,7 @@
     padding: 0 6dp;
     background-color: #111113;
     border: 1px #3b82f6;
-    border-radius: 3dp;
+    border-radius: 2dp;
     color: #d4d4d8;
     font-size: 12dp;
 }
@@ -646,7 +646,7 @@
     text-align: center;
     color: #6b6b73;
     font-size: 13dp;
-    border-radius: 3dp;
+    border-radius: 2dp;
     transition: background-color 0.1s, color 0.1s;
 }
 .layer-btn:hover { background-color: #222226; color: #d4d4d8; }
@@ -660,7 +660,7 @@
     text-align: center;
     color: #6b6b73;
     font-size: 13dp;
-    border-radius: 3dp;
+    border-radius: 2dp;
     transition: background-color 0.1s, color 0.1s;
 }
 .layer-remove:hover { background-color: #2a1f20; color: #e5706b; }
@@ -690,7 +690,7 @@
     text-align: center;
     padding: 0 14dp;
     margin: 0 5dp 5dp 0;
-    border-radius: 3dp;
+    border-radius: 2dp;
     border: 1px #27272a;
     color: #c4c4c8;
     background-color: #18181b;
@@ -783,7 +783,7 @@
     padding: 0 8dp;
     background-color: #111113;
     border: 1px #27272a;
-    border-radius: 3dp;
+    border-radius: 2dp;
     color: #d4d4d8;
     font-size: 12dp;
     transition: border-color 0.1s;

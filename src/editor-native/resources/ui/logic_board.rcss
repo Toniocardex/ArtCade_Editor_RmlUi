@@ -64,7 +64,7 @@
     text-align: center;
     background-color: transparent;
     border: 1px #323236;
-    border-radius: 3dp;
+    border-radius: 2dp;
     color: #8a8a93;
 }
 .logic-more-trigger:hover { border-color: #4a4a52; color: #d4d4d8; }
@@ -78,6 +78,7 @@
     padding: 5dp 9dp;
     background-color: transparent;
     border: 1px #323236;
+    border-radius: 2dp;
     color: #c4c4c8;
 }
 .logic-btn:hover, .logic-icon-btn:hover {
@@ -98,14 +99,14 @@
    of itself (rule list, EVENT/ACTION blocks, diagnostics) or block content
    (the empty-state card) — left inline they'd run onto one line / flow
    horizontally instead of stacking, exactly like .logic-empty-title did. */
-.logic-empty { display: block; margin: 28dp auto; width: 430dp; padding: 28dp; text-align: center; background-color: #1c1c1f; border: 1px #27272a; }
+.logic-empty { display: block; margin: 28dp auto; width: 430dp; padding: 28dp; text-align: center; background-color: #1c1c1f; border: 1px #27272a; border-radius: 4dp; }
 .logic-empty-title { display: block; font-size: 18dp; color: #f4f4f5; margin-bottom: 8dp; }
 .logic-muted { display: block; color: #8a8a93; margin-bottom: 14dp; }
 /* Capped so a rule card reads as a card even on very wide/ultrawide windows,
    but raised from the old 720dp (too tight for the 3-column Event/
    Conditions/Actions body — see .logic-rule-body below) to 1280dp, and
    centered instead of hugging the left edge with dead space to its right. */
-.logic-rule { display: block; margin: 10dp auto; padding-bottom: 10dp; max-width: 1280dp; background-color: #1c1c1f; border: 1px #27272a; }
+.logic-rule { display: block; margin: 10dp auto; padding-bottom: 10dp; max-width: 1280dp; background-color: #1c1c1f; border: 1px #27272a; border-radius: 4dp; }
 .logic-rule.off { opacity: 0.62; }
 /* Separator is a hairline border, not a background shade — same convention
    as .comp-header, so the head reads as "a section of this card", not a
@@ -169,7 +170,7 @@
     padding: 9dp;
     background-color: #18181b;
     border: 1px #27272a;
-    border-radius: 3dp;
+    border-radius: 4dp;
 }
 .logic-block-label { color: #9ca3af; margin-right: 8dp; }
 .logic-inline { display: flex; flex-direction: row; align-items: center; margin-top: 7dp; }
@@ -273,7 +274,7 @@
     margin: 8dp auto 18dp auto;
     background-color: transparent;
     border: 1px #323236;
-    border-radius: 3dp;
+    border-radius: 2dp;
     color: #8a8a93;
     font-size: 12dp;
     font-weight: 500;

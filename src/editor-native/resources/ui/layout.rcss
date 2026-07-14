@@ -79,7 +79,7 @@ body {
     padding: 0 8dp;
     background-color: #111216;
     border: 1px #343640;
-    border-radius: 4dp;
+    border-radius: 2dp;
     color: #d4d4d8;
 }
 .logic-toolbar-search:focus { border-color: #3b82f6; }

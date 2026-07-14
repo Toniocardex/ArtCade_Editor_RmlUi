@@ -58,7 +58,7 @@
     margin-bottom: 12px;
     background: #181d25;
     border: 1px #3a4658;
-    border-radius: 5px;
+    border-radius: 4px;
 }
 .sfx-summary-row { display: flex; flex-direction: row; align-items: center; gap: 10px; }
 .sfx-status { color: #94a3b8; font-size: 11px; }
@@ -77,14 +77,14 @@
     padding: 3px 8px;
     background: transparent;
     border: 1px #3b82f6;
-    border-radius: 3px;
+    border-radius: 2px;
     color: #7aa2e8;
     font-size: 10px;
 }
 .sfx-inline-action:hover { background: #1d2a44; color: #a9c6ff; }
 
 .sfx-presets { display: flex; flex-direction: row; align-items: center; gap: 6px; margin-top: 7px; }
-.sfx-preset { padding: 5px 10px; background: #232a35; border: 1px #394353; border-radius: 4px; color: #dfe5ee; }
+.sfx-preset { padding: 5px 10px; background: #232a35; border: 1px #394353; border-radius: 2px; color: #dfe5ee; }
 .sfx-preset:hover { background: #2d3745; }
 /* The preset that exactly matches the current recipe, if any -- cleared the
    moment a macro edit makes the recipe diverge (see activeSfxPresetId). */
@@ -102,13 +102,13 @@
     padding: 12px;
     background: #181d25;
     border: 1px #2b3340;
-    border-radius: 5px;
+    border-radius: 4px;
 }
 .sfx-section-title { margin-bottom: 9px; font-size: 12px; font-weight: 600; color: #aeb9ca; }
 .sfx-field { display: flex; flex-direction: row; align-items: center; justify-content: space-between; height: 29px; }
 .sfx-field-label { color: #8f9bae; font-size: 11px; }
 .sfx-field input { width: 112px; height: 23px; padding: 2px 6px; background: #10141a; border: 1px #354052; color: #e6edf7; }
-.sfx-choice { min-width: 112px; padding: 3px 7px; background: #232a35; border: 1px #394353; border-radius: 3px; color: #dfe5ee; }
+.sfx-choice { min-width: 112px; padding: 3px 7px; background: #232a35; border: 1px #394353; border-radius: 2px; color: #dfe5ee; }
 .sfx-help { margin-top: 8px; color: #758399; font-size: 10px; }
 
 /* Simple/Advanced mode toggle -- a real expandable row (full-width, top
