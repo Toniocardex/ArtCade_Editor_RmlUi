@@ -15,3 +15,7 @@ endif()
 artcade_test(logic_board_editor_test
     logic-board-editor-test.cpp
     artcade-editor-core)
+
+artcade_test(sfx_synthesizer_test
+    ${CMAKE_SOURCE_DIR}/vendor/artcade-runtime/src/modules/sfx/tests/sfx_tests.cpp
+    ArtCade::Sfx)

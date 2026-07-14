@@ -34,7 +34,8 @@ public:
 
 private:
     AssetId       assetId_;
-    AudioAssetDef removed_{};
+    ProjectDoc    before_{};
+    ProjectDoc    after_{};
     bool          captured_ = false;
 };
 

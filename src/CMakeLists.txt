@@ -34,6 +34,7 @@ add_library(artcade-editor-core STATIC
     editor-native/commands/project_commands.cpp
     editor-native/commands/image_asset_commands.cpp
     editor-native/commands/audio_asset_commands.cpp
+    editor-native/commands/generated_sfx_commands.cpp
     editor-native/commands/font_asset_commands.cpp
     editor-native/commands/tileset_commands.cpp
     editor-native/commands/tilemap_commands.cpp
@@ -65,6 +66,7 @@ target_link_libraries(artcade-editor-core PUBLIC
     artcade-core
     artcade-logic-core
     artcade-logic-runtime
+    ArtCade::Sfx
 )
 
 # ----------------------------------------------------------------------------
@@ -178,6 +180,7 @@ target_compile_definitions(artcade-editor-native PRIVATE
 )
 target_link_libraries(artcade-editor-native PRIVATE
     artcade-editor-core
+    ArtCade::SfxRaylib
     raylib
     RmlUi::Core
     RmlUi::Debugger

@@ -10,6 +10,8 @@
 #include "editor-native/commands/scene_layer_commands.h"
 #include "editor-native/commands/image_asset_commands.h"
 #include "editor-native/commands/audio_asset_commands.h"
+#include "editor-native/commands/generated_sfx_commands.h"
+#include "artcade/sfx/presets.hpp"
 #include "editor-native/commands/font_asset_commands.h"
 #include "editor-native/commands/tilemap_commands.h"
 #include "editor-native/commands/tileset_commands.h"
@@ -36,6 +38,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <chrono>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -62,6 +65,7 @@ std::optional<AssetMenuKind> parseAssetMenuKind(const std::string& tag) {
     if (tag == "image")   return AssetMenuKind::Image;
     if (tag == "anim")    return AssetMenuKind::Animation;
     if (tag == "tileset") return AssetMenuKind::Tileset;
+    if (tag == "sfx")     return AssetMenuKind::GeneratedSfx;
     if (tag == "audio")   return AssetMenuKind::Audio;
     if (tag == "font")    return AssetMenuKind::Font;
     return std::nullopt;
@@ -135,6 +139,7 @@ bool actionRequiresPendingEditGate(const std::string& action) {
         "select-entity", "select-scene", "select-layer", "select-animation-clip",
         "open-sprite-animation", "close-sprite-animation",
         "open-tileset-editor", "close-tileset-editor",
+        "open-generated-sfx", "close-generated-sfx",
         "open-scene-workspace", "open-logic-workspace",
         "toggle-inspector-section",
         "toggle-logic-rule-collapsed", "collapse-all-logic-rules", "expand-all-logic-rules",
@@ -385,6 +390,9 @@ void EditorUi::detach() {
     createEntityHereRequest_ = {};
     createInstanceHereRequest_ = {};
     fitViewRequest_ = {};
+    previewGeneratedSfxRequest_ = {};
+    stopGeneratedSfxPreviewRequest_ = {};
+    generateSfxOutputRequest_ = {};
     spriteAnimationEditor_.detach();
     tilesetEditor_.detach();
     logicBoardEditor_.detach();
@@ -466,6 +474,9 @@ void EditorUi::applyInvalidations(EditorInvalidation flags) {
         console_.refresh(document_, coordinator_);
     if (has(flags, EditorInvalidation::Assets) || has(flags, EditorInvalidation::Project))
         assets_.refresh(document_, coordinator_);
+    if (has(flags, EditorInvalidation::Assets) || has(flags, EditorInvalidation::Project)
+        || has(flags, EditorInvalidation::Toolbar))
+        refreshGeneratedSfxEditor();
     if (has(flags, EditorInvalidation::LogicBoard) || has(flags, EditorInvalidation::Project))
         logicBoardEditor_.refresh();
     if (has(flags, EditorInvalidation::Viewport) || has(flags, EditorInvalidation::Assets)
@@ -581,6 +592,14 @@ void EditorUi::setTilesetImageSizeProvider(ImageSizeProvider imageSize) {
     tilesetEditor_.setImageSizeProvider(std::move(imageSize));
 }
 
+void EditorUi::setGeneratedSfxHandlers(GeneratedSfxRequest preview,
+                                       WorkspaceRequest stopPreview,
+                                       GeneratedSfxRequest generate) {
+    previewGeneratedSfxRequest_ = std::move(preview);
+    stopGeneratedSfxPreviewRequest_ = std::move(stopPreview);
+    generateSfxOutputRequest_ = std::move(generate);
+}
+
 void EditorUi::setEntityPlacementHandlers(EntityPlacementRequest addEntity,
                                           EntityPlacementRequest addInstance,
                                           EntityPlacementRequest createEntityHere,
@@ -659,6 +678,9 @@ void EditorUi::showPendingAssetMenu() {
                 sourceImageId = ts->imageAssetId;
             }
             break;
+        case AssetMenuKind::GeneratedSfx:
+            exists = coordinator_.document().hasGeneratedSfx(request.assetId);
+            break;
         case AssetMenuKind::Audio:
             for (const AudioAssetDef& asset : doc.audioAssets)
                 if (asset.assetId == request.assetId) { exists = true; break; }
@@ -684,8 +706,11 @@ void EditorUi::showPendingAssetMenu() {
     };
     const bool hasSource = (isAnim || isTileset) && !sourceImageId.empty()
         && coordinator_.document().hasImageAsset(sourceImageId);
-    setEntry("actx-edit", isAnim || isTileset,
-             isAnim ? "open-sprite-animation" : "open-tileset-editor", request.assetId);
+    const bool isGeneratedSfx = request.kind == AssetMenuKind::GeneratedSfx;
+    setEntry("actx-edit", isAnim || isTileset || isGeneratedSfx,
+             isAnim ? "open-sprite-animation"
+                    : isTileset ? "open-tileset-editor" : "open-generated-sfx",
+             request.assetId);
     setEntry("actx-use", isImage || isAnim,
              isImage ? "set-sprite-asset" : "set-sprite-animation", request.assetId);
     setEntry("actx-make-anim",   isImage, "create-sprite-animation",   request.assetId);
@@ -696,6 +721,7 @@ void EditorUi::showPendingAssetMenu() {
         isImage   ? "remove-image-asset"
       : isAnim    ? "remove-sprite-animation"
       : isTileset ? "remove-tileset"
+      : isGeneratedSfx ? "remove-generated-sfx"
       : request.kind == AssetMenuKind::Audio ? "remove-audio-asset"
                                              : "remove-font-asset";
     setEntry("actx-delete", true, removeAction, request.assetId);
@@ -803,6 +829,220 @@ bool EditorUi::isContextMenuHit(int physicalX, int physicalY) const {
         || hits("assets-context-menu", assetsContextMenuVisible_)
         || hits("logic-type-menu", logicTypeMenuVisible_)
         || hits("logic-more-menu", logicMoreMenuVisible_);
+}
+
+std::string sfxInput(const char* label, const char* field, const std::string& value);
+std::string sfxInput(const char* label, const char* field, float value);
+std::string sfxToggle(const char* label, const char* field, bool enabled);
+std::string sfxPitchFields(const artcade::sfx::PitchParams& pitch,
+                           const std::string& prefix);
+std::string sfxVoiceSection(const char* title, const char* prefix,
+                            const artcade::sfx::VoiceParams& voice);
+
+void EditorUi::refreshGeneratedSfxEditor() {
+    if (!document_) return;
+    Rml::Element* root = document_->GetElementById("sfx-editor");
+    Rml::Element* body = document_->GetElementById("sfx-editor-body");
+    if (!root || !body) return;
+    if (coordinator_.isPlaying()) {
+        root->SetClass("hidden", true);
+        return;
+    }
+    const artcade::sfx::GeneratedSfxDef* definition = openGeneratedSfxId_
+        ? coordinator_.document().findGeneratedSfx(*openGeneratedSfxId_) : nullptr;
+    if (!definition) {
+        openGeneratedSfxId_.reset();
+        root->SetClass("hidden", true);
+        body->SetInnerRML("");
+        return;
+    }
+    root->SetClass("hidden", false);
+    if (Rml::Element* title = document_->GetElementById("sfx-editor-title"))
+        title->SetInnerRML(escapeRml(definition->name));
+
+    const artcade::sfx::SfxRecipe& recipe = definition->recipe;
+    const bool ready = !definition->outputAssetId.empty();
+    const bool stale = !ready && coordinator_.document().hasAudioAsset(
+        "generated-audio-" + definition->id);
+    std::string html = "<div class=\"sfx-summary\"><div class=\"sfx-summary-row\">"
+        "<span class=\"sfx-field-label\">Name</span><input class=\"sfx-name\" type=\"text\" "
+        "data-action=\"commit-sfx-name\" value=\"" + escapeRml(definition->name) + "\"/>"
+        "<span class=\"sfx-status" + std::string(
+            ready ? " ready\">Ready" : stale ? "\">Recipe changed — regenerate"
+                                             : "\">Needs generation")
+        + "</span></div><div class=\"sfx-presets\">"
+          "<button class=\"sfx-preset\" data-action=\"apply-sfx-preset\" data-arg=\"coin\">Coin</button>"
+          "<button class=\"sfx-preset\" data-action=\"apply-sfx-preset\" data-arg=\"jump\">Jump</button>"
+          "<button class=\"sfx-preset\" data-action=\"apply-sfx-preset\" data-arg=\"laser\">Laser</button>"
+          "<button class=\"sfx-preset\" data-action=\"apply-sfx-preset\" data-arg=\"explosion\">Explosion</button>"
+          "<button class=\"sfx-preset\" data-action=\"apply-sfx-preset\" data-arg=\"hit\">Hit</button>"
+          "</div></div><div class=\"sfx-grid\">";
+
+    html += "<div class=\"sfx-section\"><div class=\"sfx-section-title\">Master &amp; Envelope</div>";
+    html += sfxInput("Duration (s)", "duration", recipe.durationSeconds);
+    html += sfxInput("Master gain", "masterGain", recipe.masterGain);
+    html += sfxInput("Attack (s)", "attack", recipe.amplitude.attackSeconds);
+    html += sfxInput("Decay (s)", "decay", recipe.amplitude.decaySeconds);
+    html += sfxInput("Sustain", "sustain", recipe.amplitude.sustainLevel);
+    html += sfxInput("Release (s)", "release", recipe.amplitude.releaseSeconds);
+    html += sfxInput("Random seed", "seed", std::to_string(recipe.randomSeed));
+    html += "<div class=\"sfx-help\">Recipe schema 1 · generator 2 · mono PCM</div></div>";
+    html += sfxVoiceSection("Primary Voice", "primary", recipe.primaryVoice);
+    html += sfxVoiceSection("Secondary Voice", "secondary", recipe.secondaryVoice);
+
+    html += "<div class=\"sfx-section\"><div class=\"sfx-section-title\">Noise Layer</div>";
+    html += sfxToggle("Enabled", "noise.enabled", recipe.noise.enabled);
+    html += sfxInput("Gain", "noise.gain", recipe.noise.gain);
+    html += sfxPitchFields(recipe.noise.clock, "noise.pitch");
+    html += "</div>";
+
+    html += "<div class=\"sfx-section\"><div class=\"sfx-section-title\">Bit Crusher</div>";
+    html += sfxToggle("Enabled", "crusher.enabled", recipe.bitCrusher.enabled);
+    html += sfxInput("Quantization bits", "crusher.bits",
+                     std::to_string(recipe.bitCrusher.quantizationBits));
+    html += sfxInput("Reduction rate", "crusher.rate", recipe.bitCrusher.reductionRateHz);
+    html += "</div>";
+
+    html += "<div class=\"sfx-section\"><div class=\"sfx-section-title\">Filter</div>";
+    html += sfxInput("Low-pass Hz", "filter.lowPass", recipe.filter.lowPassHz);
+    html += sfxToggle("DC blocker", "filter.dcEnabled", recipe.filter.dcBlockEnabled);
+    html += sfxInput("DC cutoff Hz", "filter.dcCutoff", recipe.filter.dcBlockCutoffHz);
+    html += "</div></div>";
+    body->SetInnerRML(html);
+}
+
+const char* waveformLabel(artcade::sfx::Waveform value) {
+    using artcade::sfx::Waveform;
+    switch (value) {
+        case Waveform::Square: return "Square";
+        case Waveform::Pulse: return "Pulse";
+        case Waveform::Triangle: return "Triangle";
+        case Waveform::Saw: return "Saw";
+    }
+    return "Square";
+}
+
+const char* qualityLabel(artcade::sfx::OscillatorQuality value) {
+    return value == artcade::sfx::OscillatorQuality::Raw ? "Raw" : "Band limited";
+}
+
+const char* sweepLabel(artcade::sfx::PitchSweepMode value) {
+    return value == artcade::sfx::PitchSweepMode::LinearHz ? "Linear Hz" : "Exponential";
+}
+
+std::string sfxInput(const char* label, const char* field, const std::string& value) {
+    return std::string("<div class=\"sfx-field\"><span class=\"sfx-field-label\">")
+         + label + "</span><input type=\"text\" data-action=\"commit-sfx-field\" data-arg=\""
+         + field + "\" value=\"" + escapeRml(value) + "\"/></div>";
+}
+
+std::string sfxInput(const char* label, const char* field, float value) {
+    return sfxInput(label, field, compactNumber(value));
+}
+
+std::string sfxChoice(const char* label, const char* action,
+                      const char* field, const char* value) {
+    return std::string("<div class=\"sfx-field\"><span class=\"sfx-field-label\">")
+         + label + "</span><button class=\"sfx-choice\" data-action=\"" + action
+         + "\" data-arg=\"" + field + "\">" + value + "</button></div>";
+}
+
+std::string sfxToggle(const char* label, const char* field, bool enabled) {
+    return sfxChoice(label, "toggle-sfx-field", field, enabled ? "On" : "Off");
+}
+
+std::string sfxPitchFields(const artcade::sfx::PitchParams& pitch,
+                           const std::string& prefix) {
+    std::string html;
+    html += sfxInput("Start frequency", (prefix + ".startHz").c_str(), pitch.startHz);
+    html += sfxInput("End frequency", (prefix + ".endHz").c_str(), pitch.endHz);
+    html += sfxInput("Sweep curve", (prefix + ".curve").c_str(), pitch.sweepCurve);
+    html += sfxChoice("Sweep", "cycle-sfx-field", (prefix + ".sweep").c_str(),
+                      sweepLabel(pitch.sweepMode));
+    html += sfxInput("Vibrato depth", (prefix + ".vibratoDepth").c_str(),
+                     pitch.vibratoDepthSemitones);
+    html += sfxInput("Vibrato rate", (prefix + ".vibratoRate").c_str(), pitch.vibratoRateHz);
+    html += sfxInput("Arpeggio semitones", (prefix + ".arpSemitones").c_str(),
+                     pitch.arpeggioSemitones);
+    html += sfxInput("Arpeggio rate", (prefix + ".arpRate").c_str(), pitch.arpeggioRateHz);
+    return html;
+}
+
+std::string sfxVoiceSection(const char* title, const char* prefix,
+                            const artcade::sfx::VoiceParams& voice) {
+    std::string html = std::string("<div class=\"sfx-section\"><div class=\"sfx-section-title\">")
+        + title + "</div>";
+    html += sfxToggle("Enabled", (std::string(prefix) + ".enabled").c_str(), voice.enabled);
+    html += sfxChoice("Waveform", "cycle-sfx-field",
+                      (std::string(prefix) + ".waveform").c_str(), waveformLabel(voice.waveform));
+    html += sfxChoice("Quality", "cycle-sfx-field",
+                      (std::string(prefix) + ".quality").c_str(), qualityLabel(voice.quality));
+    html += sfxInput("Gain", (std::string(prefix) + ".gain").c_str(), voice.gain);
+    html += sfxInput("Detune", (std::string(prefix) + ".detune").c_str(), voice.detuneSemitones);
+    html += sfxInput("Duty start", (std::string(prefix) + ".dutyStart").c_str(), voice.dutyStart);
+    html += sfxInput("Duty end", (std::string(prefix) + ".dutyEnd").c_str(), voice.dutyEnd);
+    html += sfxPitchFields(voice.pitch, std::string(prefix) + ".pitch");
+    html += "</div>";
+    return html;
+}
+
+bool setSfxNumericField(artcade::sfx::SfxRecipe& recipe, const std::string& field,
+                        const std::string& text) {
+    const auto parsed = parseNumberField(text);
+    if (!parsed) return false;
+    const float value = *parsed;
+    if (field == "duration") recipe.durationSeconds = value;
+    else if (field == "masterGain") recipe.masterGain = value;
+    else if (field == "attack") recipe.amplitude.attackSeconds = value;
+    else if (field == "decay") recipe.amplitude.decaySeconds = value;
+    else if (field == "sustain") recipe.amplitude.sustainLevel = value;
+    else if (field == "release") recipe.amplitude.releaseSeconds = value;
+    else if (field == "crusher.bits") {
+        if (std::floor(value) != value) return false;
+        recipe.bitCrusher.quantizationBits = static_cast<int>(value);
+    }
+    else if (field == "crusher.rate") recipe.bitCrusher.reductionRateHz = value;
+    else if (field == "filter.lowPass") recipe.filter.lowPassHz = value;
+    else if (field == "filter.dcCutoff") recipe.filter.dcBlockCutoffHz = value;
+    else if (field == "noise.gain") recipe.noise.gain = value;
+    else {
+        artcade::sfx::VoiceParams* voice = nullptr;
+        std::string suffix;
+        if (field.rfind("primary.", 0) == 0) {
+            voice = &recipe.primaryVoice; suffix = field.substr(8);
+        } else if (field.rfind("secondary.", 0) == 0) {
+            voice = &recipe.secondaryVoice; suffix = field.substr(10);
+        }
+        if (voice) {
+            if (suffix == "gain") voice->gain = value;
+            else if (suffix == "detune") voice->detuneSemitones = value;
+            else if (suffix == "dutyStart") voice->dutyStart = value;
+            else if (suffix == "dutyEnd") voice->dutyEnd = value;
+            else {
+                artcade::sfx::PitchParams& pitch = voice->pitch;
+                if (suffix == "pitch.startHz") pitch.startHz = value;
+                else if (suffix == "pitch.endHz") pitch.endHz = value;
+                else if (suffix == "pitch.curve") pitch.sweepCurve = value;
+                else if (suffix == "pitch.vibratoDepth") pitch.vibratoDepthSemitones = value;
+                else if (suffix == "pitch.vibratoRate") pitch.vibratoRateHz = value;
+                else if (suffix == "pitch.arpSemitones") pitch.arpeggioSemitones = value;
+                else if (suffix == "pitch.arpRate") pitch.arpeggioRateHz = value;
+                else return false;
+            }
+        } else if (field.rfind("noise.pitch.", 0) == 0) {
+            artcade::sfx::PitchParams& pitch = recipe.noise.clock;
+            suffix = field.substr(12);
+            if (suffix == "startHz") pitch.startHz = value;
+            else if (suffix == "endHz") pitch.endHz = value;
+            else if (suffix == "curve") pitch.sweepCurve = value;
+            else if (suffix == "vibratoDepth") pitch.vibratoDepthSemitones = value;
+            else if (suffix == "vibratoRate") pitch.vibratoRateHz = value;
+            else if (suffix == "arpSemitones") pitch.arpeggioSemitones = value;
+            else if (suffix == "arpRate") pitch.arpeggioRateHz = value;
+            else return false;
+        } else return false;
+    }
+    return true;
 }
 
 bool EditorUi::hasOpenContextMenu() const {
@@ -1182,6 +1422,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
 
     if (handleProjectFileAction(action, arg, value)) return;
     if (handleConsoleAction(action, arg, value)) return;
+    if (handleGeneratedSfxAction(action, arg, value)) return;
     if (handleAssetsAction(action, arg, value)) return;
     if (handleToolbarAction(action, arg, value)) return;
     if (spriteAnimationEditor_.handleAction(action, arg, value)) return;
@@ -1674,6 +1915,143 @@ bool EditorUi::handleAssetsAction(const std::string& action, const std::string& 
     } else {
         return false;
     }
+    return true;
+}
+
+bool EditorUi::handleGeneratedSfxAction(const std::string& action, const std::string& arg,
+                                        const std::string& value) {
+    if (action == "create-generated-sfx") {
+        if (coordinator_.isPlaying()) {
+            coordinator_.logWarning("Stop Play before creating Generated SFX");
+            return true;
+        }
+        int index = 1;
+        std::string id;
+        std::string name;
+        do {
+            id = "generated-sfx-" + std::to_string(index);
+            name = "Generated SFX " + std::to_string(index++);
+        } while (coordinator_.document().hasGeneratedSfx(id)
+                 || coordinator_.document().hasAudioAsset("generated-audio-" + id));
+        const auto result = coordinator_.execute(
+            CreateGeneratedSfxCommand{id, name, artcade::sfx::presets::coin()});
+        if (result.ok) {
+            openGeneratedSfxId_ = id;
+            refreshGeneratedSfxEditor();
+        }
+        return true;
+    }
+    if (action == "open-generated-sfx") {
+        if (!coordinator_.isPlaying() && coordinator_.document().hasGeneratedSfx(arg)) {
+            openGeneratedSfxId_ = arg;
+            refreshGeneratedSfxEditor();
+        }
+        return true;
+    }
+    if (action == "close-generated-sfx") {
+        openGeneratedSfxId_.reset();
+        refreshGeneratedSfxEditor();
+        return true;
+    }
+    if (action == "remove-generated-sfx") {
+        const std::string id = arg.empty() && openGeneratedSfxId_
+            ? *openGeneratedSfxId_ : arg;
+        if (!id.empty()) {
+            const auto result = coordinator_.execute(RemoveGeneratedSfxCommand{id});
+            if (result.ok && openGeneratedSfxId_ == id) openGeneratedSfxId_.reset();
+            refreshGeneratedSfxEditor();
+        }
+        return true;
+    }
+
+    if (!openGeneratedSfxId_) return false;
+    const auto* current = coordinator_.document().findGeneratedSfx(*openGeneratedSfxId_);
+    if (!current) {
+        openGeneratedSfxId_.reset();
+        refreshGeneratedSfxEditor();
+        return true;
+    }
+    if (action == "preview-generated-sfx") {
+        if (previewGeneratedSfxRequest_) previewGeneratedSfxRequest_(current->id);
+        return true;
+    }
+    if (action == "stop-generated-sfx-preview") {
+        if (stopGeneratedSfxPreviewRequest_) stopGeneratedSfxPreviewRequest_();
+        return true;
+    }
+    if (action == "generate-sfx-output") {
+        if (generateSfxOutputRequest_) generateSfxOutputRequest_(current->id);
+        return true;
+    }
+    if (action == "commit-sfx-name") {
+        coordinator_.execute(RenameGeneratedSfxCommand{current->id, value});
+        refreshGeneratedSfxEditor();
+        return true;
+    }
+    if (action == "apply-sfx-preset") {
+        artcade::sfx::SfxRecipe recipe;
+        if (arg == "coin") recipe = artcade::sfx::presets::coin();
+        else if (arg == "jump") recipe = artcade::sfx::presets::jump();
+        else if (arg == "laser") recipe = artcade::sfx::presets::laser();
+        else if (arg == "explosion") recipe = artcade::sfx::presets::explosion();
+        else if (arg == "hit") recipe = artcade::sfx::presets::hit();
+        else return true;
+        coordinator_.execute(UpdateGeneratedSfxRecipeCommand{current->id, recipe});
+        refreshGeneratedSfxEditor();
+        return true;
+    }
+    if (action != "commit-sfx-field" && action != "toggle-sfx-field"
+        && action != "cycle-sfx-field") return false;
+
+    artcade::sfx::SfxRecipe recipe = current->recipe;
+    bool understood = true;
+    if (action == "commit-sfx-field") {
+        if (arg == "seed") {
+            char* end = nullptr;
+            const unsigned long parsed = std::strtoul(value.c_str(), &end, 10);
+            understood = end && *end == '\0'
+                && parsed <= static_cast<unsigned long>(std::numeric_limits<std::uint32_t>::max());
+            if (understood) recipe.randomSeed = static_cast<std::uint32_t>(parsed);
+        } else {
+            understood = setSfxNumericField(recipe, arg, value);
+        }
+    } else if (action == "toggle-sfx-field") {
+        if (arg == "primary.enabled") recipe.primaryVoice.enabled = !recipe.primaryVoice.enabled;
+        else if (arg == "secondary.enabled") recipe.secondaryVoice.enabled = !recipe.secondaryVoice.enabled;
+        else if (arg == "noise.enabled") recipe.noise.enabled = !recipe.noise.enabled;
+        else if (arg == "crusher.enabled") recipe.bitCrusher.enabled = !recipe.bitCrusher.enabled;
+        else if (arg == "filter.dcEnabled") recipe.filter.dcBlockEnabled = !recipe.filter.dcBlockEnabled;
+        else understood = false;
+    } else {
+        artcade::sfx::VoiceParams* voice = nullptr;
+        if (arg.rfind("primary.", 0) == 0) voice = &recipe.primaryVoice;
+        else if (arg.rfind("secondary.", 0) == 0) voice = &recipe.secondaryVoice;
+        if (voice && arg.find(".waveform") != std::string::npos) {
+            using artcade::sfx::Waveform;
+            voice->waveform = static_cast<Waveform>((static_cast<int>(voice->waveform) + 1) % 4);
+        } else if (voice && arg.find(".quality") != std::string::npos) {
+            using artcade::sfx::OscillatorQuality;
+            voice->quality = voice->quality == OscillatorQuality::Raw
+                ? OscillatorQuality::BandLimited : OscillatorQuality::Raw;
+        } else if (arg.find(".sweep") != std::string::npos) {
+            artcade::sfx::PitchParams* pitch = nullptr;
+            if (arg.rfind("primary.", 0) == 0) pitch = &recipe.primaryVoice.pitch;
+            else if (arg.rfind("secondary.", 0) == 0) pitch = &recipe.secondaryVoice.pitch;
+            else if (arg.rfind("noise.", 0) == 0) pitch = &recipe.noise.clock;
+            if (pitch) {
+                using artcade::sfx::PitchSweepMode;
+                pitch->sweepMode = pitch->sweepMode == PitchSweepMode::LinearHz
+                    ? PitchSweepMode::Exponential : PitchSweepMode::LinearHz;
+            } else understood = false;
+        } else understood = false;
+    }
+    if (!understood) {
+        coordinator_.logError("Generated SFX field is not a valid number or setting");
+        refreshGeneratedSfxEditor();
+        return true;
+    }
+    coordinator_.execute(UpdateGeneratedSfxRecipeCommand{current->id, std::move(recipe)});
+    refreshGeneratedSfxEditor();
     return true;
 }
 

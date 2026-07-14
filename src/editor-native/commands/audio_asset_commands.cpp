@@ -2,6 +2,7 @@
 
 #include "editor-native/model/project_document.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace ArtCade::EditorNative {
@@ -46,19 +47,29 @@ EditorOperationResult RemoveAudioAssetCommand::apply(ProjectDocument& document) 
     const AudioAssetDef* current = document.findAudioAsset(assetId_);
     if (!current) return EditorOperationResult::failure("Unknown audio asset: " + assetId_);
     if (!captured_) {
-        removed_ = *current;
+        before_ = document.data();
+        after_ = before_;
+        after_.audioAssets.erase(std::remove_if(
+            after_.audioAssets.begin(), after_.audioAssets.end(),
+            [&](const AudioAssetDef& asset) { return asset.assetId == assetId_; }),
+            after_.audioAssets.end());
+        for (artcade::sfx::GeneratedSfxDef& definition : after_.generatedSfx) {
+            if (definition.outputAssetId == assetId_) {
+                definition.outputAssetId.clear();
+                definition.outputPath.clear();
+            }
+        }
         captured_ = true;
     }
-    if (!document.removeAudioAsset(assetId_)) {
-        return EditorOperationResult::failure("Failed to remove audio asset");
-    }
+    document.commitStagedCommand(after_);
     return EditorOperationResult::success(kInvalidation, DomainChange::assetChanged(assetId_));
 }
 
 EditorOperationResult RemoveAudioAssetCommand::undo(ProjectDocument& document) {
-    if (!captured_ || !document.addAudioAsset(removed_)) {
+    if (!captured_) {
         return EditorOperationResult::failure("Cannot undo audio asset removal");
     }
+    document.commitStagedCommand(before_);
     return EditorOperationResult::success(kInvalidation, DomainChange::assetChanged(assetId_));
 }
 

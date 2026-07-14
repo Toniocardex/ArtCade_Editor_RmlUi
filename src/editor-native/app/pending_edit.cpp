@@ -29,6 +29,7 @@ bool isNumericCommit(const std::string& action) {
         "commit-tileset-margin-x", "commit-tileset-margin-y",
         "commit-tileset-spacing-x", "commit-tileset-spacing-y",
         "commit-logic-position-x", "commit-logic-position-y",
+        "commit-sfx-field",
     };
     return std::find(std::begin(actions), std::end(actions), action) != std::end(actions);
 }
@@ -38,6 +39,7 @@ bool requiresNonEmptyText(const std::string& action) {
         "commit-project-name", "commit-scene-name", "commit-name",
         "commit-type-name", "commit-layer-rename",
         "commit-animation-clip-name", "commit-tileset-name",
+        "commit-sfx-name",
     };
     return std::find(std::begin(actions), std::end(actions), action) != std::end(actions);
 }

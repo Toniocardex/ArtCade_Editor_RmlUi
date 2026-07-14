@@ -24,6 +24,8 @@
 #include "editor-native/commands/tilemap_commands.h"
 #include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
+#include "editor-native/commands/generated_sfx_commands.h"
+#include "editor-native/model/path_confinement.h"
 #include "editor-native/model/play_session.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_animation_slicing.h"
@@ -37,6 +39,10 @@
 #include "editor-native/view/texture_request_catalog.h"
 #include "editor-native/view/tilemap_paint_overlay.h"
 
+#include "artcade/sfx/raylib_preview.hpp"
+#include "artcade/sfx/synthesizer.hpp"
+#include "artcade/sfx/wav_encoder.hpp"
+
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/Box.h>
@@ -45,10 +51,12 @@
 #include <raylib.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <functional>
+#include <future>
 #include <optional>
 #include <string>
 #include <system_error>
@@ -71,12 +79,49 @@ extern "C" void* glfwGetCurrentContext(void);
 // on Windows builds that predate an attribute they fail and are ignored.
 extern "C" __declspec(dllimport) long __stdcall DwmSetWindowAttribute(
     void* hwnd, unsigned long attribute, const void* value, unsigned long size);
+extern "C" __declspec(dllimport) int __stdcall MoveFileExW(
+    const wchar_t* existing, const wchar_t* replacement, unsigned long flags);
+extern "C" __declspec(dllimport) unsigned long __stdcall GetLastError();
 #pragma comment(lib, "dwmapi")
 #endif
 
 namespace ArtCade::EditorNative {
 
 namespace {
+
+enum class SfxJobKind { Preview, Generate };
+
+struct SfxJobResult {
+    SfxJobKind kind = SfxJobKind::Preview;
+    std::string id;
+    artcade::sfx::SfxRecipe recipe{};
+    artcade::sfx::FloatAudioBuffer audio{};
+    std::filesystem::path projectPath;
+    std::filesystem::path stagingPath;
+    std::filesystem::path finalPath;
+    std::string relativePath;
+    bool ok = false;
+    std::string error;
+};
+
+bool replaceGeneratedOutputAtomically(const std::filesystem::path& staging,
+                                      const std::filesystem::path& destination,
+                                      std::string& error) {
+#if defined(_WIN32)
+    constexpr unsigned long kReplaceExisting = 0x1u;
+    constexpr unsigned long kWriteThrough = 0x8u;
+    if (MoveFileExW(staging.c_str(), destination.c_str(),
+                    kReplaceExisting | kWriteThrough)) return true;
+    error = std::system_category().message(static_cast<int>(GetLastError()));
+    return false;
+#else
+    std::error_code filesystemError;
+    std::filesystem::rename(staging, destination, filesystemError);
+    if (!filesystemError) return true;
+    error = filesystemError.message();
+    return false;
+#endif
+}
 
 void collectLogicKeyPresses(RuntimeInputSnapshot& input) {
     static constexpr std::pair<LogicKey, int> kKeys[] = {
@@ -137,6 +182,7 @@ int EditorApp::run(int argc, char** argv) {
     bool shotAnimation = false;
     bool shotTileset = false;   // open the Tileset Editor (creating from the first image if none)
     bool shotLogic = false;     // open the Logic workspace for shell/layout smoke checks
+    bool shotSfx = false;       // create and open the native Generated SFX editor
     int shotSliceColumns = 0;   // > 0: slice the open clip into N frames for the shot
     bool shotSliceAll = false;  // slice every animation asset in turn (overwrite repro)
     std::string shotSavePath;   // non-empty: save the project here via the real path
@@ -152,6 +198,7 @@ int EditorApp::run(int argc, char** argv) {
         else if (std::strcmp(argv[i], "--shot-anim") == 0) shotAnimation = true;
         else if (std::strcmp(argv[i], "--shot-tileset") == 0) shotTileset = true;
         else if (std::strcmp(argv[i], "--shot-logic") == 0) shotLogic = true;
+        else if (std::strcmp(argv[i], "--shot-sfx") == 0) shotSfx = true;
         else if (std::strcmp(argv[i], "--shot-slice") == 0 && i + 1 < argc)
             shotSliceColumns = std::atoi(argv[i + 1]);
         else if (std::strcmp(argv[i], "--shot-slice-all") == 0) shotSliceAll = true;
@@ -284,6 +331,80 @@ int EditorApp::run(int argc, char** argv) {
 
     ProjectSessionController projectSession{coordinator, ui, textureCache};
     projectSession.bindUi();
+
+    artcade::sfx::RaylibPreview sfxPreview;
+    bool ownsSfxAudioDevice = false;
+    std::optional<std::future<SfxJobResult>> sfxJob;
+
+    const auto startSfxJob = [&](SfxJobKind kind, const std::string& id) {
+        if (coordinator.isPlaying()) {
+            coordinator.logWarning("Stop Play before previewing or generating SFX");
+            return;
+        }
+        if (sfxJob) {
+            coordinator.logWarning("A Generated SFX job is already running");
+            return;
+        }
+        const artcade::sfx::GeneratedSfxDef* definition =
+            coordinator.document().findGeneratedSfx(id);
+        if (!definition) {
+            coordinator.logError("Generated SFX no longer exists: " + id);
+            return;
+        }
+
+        SfxJobResult request;
+        request.kind = kind;
+        request.id = id;
+        request.recipe = definition->recipe;
+        if (kind == SfxJobKind::Generate) {
+            request.projectPath = projectSession.currentProjectPath();
+            if (request.projectPath.empty()) {
+                coordinator.logError("Save the project before generating a WAV asset");
+                return;
+            }
+            request.relativePath = "assets/audio/generated/" + id + ".wav";
+            const auto confined = resolvePathInsideRoot(
+                request.projectPath.parent_path(),
+                std::filesystem::u8path(request.relativePath));
+            if (!confined.ok) {
+                coordinator.logError("Generated SFX path rejected: " + confined.error);
+                return;
+            }
+            request.finalPath = confined.value;
+            request.stagingPath = request.finalPath.parent_path()
+                / (request.finalPath.stem().string() + ".artcade-pending.wav");
+        }
+
+        coordinator.logInfo(kind == SfxJobKind::Preview
+            ? "Rendering SFX preview..." : "Generating SFX WAV...");
+        sfxJob.emplace(std::async(std::launch::async,
+            [request = std::move(request)]() mutable {
+                artcade::sfx::SfxSynthesizer synthesizer;
+                auto rendered = synthesizer.render(request.recipe);
+                if (!rendered.ok()) {
+                    request.error = rendered.error().message;
+                    return request;
+                }
+                request.audio = rendered.takeValue();
+                if (request.kind == SfxJobKind::Generate) {
+                    artcade::sfx::WavEncoder encoder;
+                    auto encoded = encoder.encode(request.audio, request.stagingPath);
+                    if (!encoded.ok()) {
+                        request.error = encoded.error().message;
+                        return request;
+                    }
+                    request.audio.samples.clear();
+                    request.audio.samples.shrink_to_fit();
+                }
+                request.ok = true;
+                return request;
+            }));
+    };
+
+    ui.setGeneratedSfxHandlers(
+        [&](const std::string& id) { startSfxJob(SfxJobKind::Preview, id); },
+        [&]() { sfxPreview.stop(); },
+        [&](const std::string& id) { startSfxJob(SfxJobKind::Generate, id); });
 
     // Fit View / auto-fit: frame the active scene, centred, with a small padding.
     // Workspace-only (recenter pan to 0 + zoom-to-fit via intents); the viewport
@@ -695,6 +816,10 @@ int EditorApp::run(int argc, char** argv) {
     if (!shotPath.empty() && shotLogic) {
         ui.handleAction("open-logic-workspace", "", "");
     }
+    if (!shotPath.empty() && shotSfx) {
+        ui.handleAction("create-generated-sfx", "", "");
+        ui.processFrame();
+    }
 
     int   frame       = 0;
     int   lastRenderW = hostRenderW;
@@ -925,6 +1050,77 @@ int EditorApp::run(int argc, char** argv) {
             }
         }
         prevTextFocus = rml.textFocus;
+
+        // Worker jobs own only immutable recipe snapshots and CPU/file work.
+        // Completion, stale checks, Command mutation and Raylib resources stay
+        // on this owner thread.
+        if (sfxJob
+            && sfxJob->wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            SfxJobResult completed = sfxJob->get();
+            sfxJob.reset();
+            if (!completed.ok) {
+                coordinator.logError("Generated SFX failed: " + completed.error);
+            } else if (completed.kind == SfxJobKind::Preview) {
+                const auto* current = coordinator.document().findGeneratedSfx(completed.id);
+                if (!current || !generatedSfxRecipesEqual(current->recipe, completed.recipe)) {
+                    coordinator.logWarning("Discarded stale SFX preview");
+                } else {
+                    if (!IsAudioDeviceReady()) {
+                        InitAudioDevice();
+                        ownsSfxAudioDevice = IsAudioDeviceReady();
+                    }
+                    const auto loaded = sfxPreview.load(completed.audio);
+                    if (!loaded.ok()) coordinator.logError(loaded.error().message);
+                    else {
+                        sfxPreview.play();
+                        coordinator.logInfo("Playing SFX preview: " + current->name);
+                    }
+                }
+            } else {
+                const auto* current = coordinator.document().findGeneratedSfx(completed.id);
+                const bool sameProject = projectSession.currentProjectPath()
+                    == completed.projectPath;
+                if (!sameProject || !current
+                    || !generatedSfxRecipesEqual(current->recipe, completed.recipe)) {
+                    std::error_code cleanupError;
+                    std::filesystem::remove(completed.stagingPath, cleanupError);
+                    coordinator.logWarning("Discarded stale Generated SFX output");
+                } else {
+                    const std::string outputAssetId = "generated-audio-" + completed.id;
+                    const AudioAssetDef* existingOutput =
+                        coordinator.document().findAudioAsset(outputAssetId);
+                    if (existingOutput
+                        && existingOutput->sourcePath != completed.relativePath) {
+                        std::error_code cleanupError;
+                        std::filesystem::remove(completed.stagingPath, cleanupError);
+                        coordinator.logError(
+                            "Generated SFX output id conflicts with an existing audio asset");
+                        continue;
+                    }
+                    std::string finalizeError;
+                    if (!replaceGeneratedOutputAtomically(
+                            completed.stagingPath, completed.finalPath, finalizeError)) {
+                        std::error_code cleanupError;
+                        std::filesystem::remove(completed.stagingPath, cleanupError);
+                        coordinator.logError(
+                            "Could not finalize Generated SFX WAV: " + finalizeError);
+                    } else {
+                        AudioAssetDef output;
+                        output.assetId = outputAssetId;
+                        output.name = current->name;
+                        output.sourcePath = completed.relativePath;
+                        output.loadMode = AudioLoadMode::StaticSound;
+                        const auto registered = coordinator.execute(
+                            RegisterGeneratedSfxOutputCommand{
+                                completed.id, completed.recipe, std::move(output)});
+                        if (registered.ok) {
+                            coordinator.logInfo(
+                                "Generated WAV: " + completed.relativePath);
+                        }
+                    }
+                }
+            }
+        }
 
         ui.processFrame();
         // Title dirty-cue: follows undo/redo/save as well as edits, so it can't
@@ -1238,6 +1434,16 @@ int EditorApp::run(int argc, char** argv) {
         }
     }
 
+    if (sfxJob) {
+        SfxJobResult abandoned = sfxJob->get();
+        if (!abandoned.stagingPath.empty()) {
+            std::error_code cleanupError;
+            std::filesystem::remove(abandoned.stagingPath, cleanupError);
+        }
+        sfxJob.reset();
+    }
+    sfxPreview.unload();
+    if (ownsSfxAudioDevice && IsAudioDeviceReady()) CloseAudioDevice();
     textureCache.clear();
     unloadCanvasFont(canvasFont);   // GPU atlas: released before CloseWindow
     ui.detach();

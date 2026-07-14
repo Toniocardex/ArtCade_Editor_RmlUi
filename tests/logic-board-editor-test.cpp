@@ -65,7 +65,7 @@ static void testCommandsAndPersistence() {
 
     const auto serialized = ProjectSerializer::serialize(coordinator.document());
     CHECK(serialized.ok);
-    CHECK(serialized.value.find("\"formatVersion\": 4") != std::string::npos);
+    CHECK(serialized.value.find("\"formatVersion\": 5") != std::string::npos);
     const auto loaded = ProjectSerializer::deserialize(serialized.value);
     CHECK(loaded.ok);
     CHECK(loaded.value.data().objectTypes.at("Hero").logicBoard.has_value());
@@ -85,7 +85,7 @@ static void testCommandsAndPersistence() {
         while (end < v2.size() && (v2[end] == '\r' || v2[end] == '\n')) ++end;
         v2.erase(boardAt, end - boardAt);
     }
-    const std::string currentVersion = "\"formatVersion\": 4";
+    const std::string currentVersion = "\"formatVersion\": 5";
     const std::size_t version = v2.find(currentVersion);
     if (version != std::string::npos) {
         v2.replace(version, currentVersion.size(), "\"formatVersion\": 2");
@@ -94,7 +94,7 @@ static void testCommandsAndPersistence() {
     CHECK(migratedRaw.ok);
     auto migrated = ProjectMigration::migrate(std::move(migratedRaw.value));
     CHECK(migrated.ok);
-    CHECK(migrated.value.data().formatVersion == 4);
+    CHECK(migrated.value.data().formatVersion == 5);
     CHECK(!migrated.value.data().objectTypes.at("Hero").logicBoard.has_value());
 
     std::string malformed = serialized.value;

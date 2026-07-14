@@ -1,0 +1,68 @@
+.sfx-editor {
+    position: absolute;
+    left: 0px;
+    right: 0px;
+    top: 30px;
+    bottom: 22px;
+    z-index: 30;
+    background: #111419;
+    color: #dfe5ee;
+}
+
+.sfx-editor-header {
+    height: 62px;
+    padding: 10px 16px;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    background: #181c23;
+    border-bottom: 1px #303743;
+}
+
+.sfx-kicker { display: block; font-size: 10px; color: #758399; letter-spacing: 1px; }
+.sfx-editor-title { display: block; margin-top: 2px; font-size: 19px; font-weight: 600; }
+.sfx-header-actions { display: flex; flex-direction: row; gap: 7px; }
+.sfx-header-actions .primary { background: #3b82f6; color: white; }
+
+.sfx-editor-body {
+    position: absolute;
+    left: 0px;
+    right: 0px;
+    top: 63px;
+    bottom: 0px;
+    padding: 14px 18px 28px 18px;
+    overflow-y: auto;
+}
+
+.sfx-summary {
+    padding: 12px;
+    margin-bottom: 12px;
+    background: #181d25;
+    border: 1px #2b3340;
+    border-radius: 5px;
+}
+.sfx-summary-row { display: flex; flex-direction: row; align-items: center; gap: 10px; }
+.sfx-status { color: #94a3b8; font-size: 11px; }
+.sfx-status.ready { color: #67d391; }
+.sfx-name { width: 280px; }
+
+.sfx-presets { display: flex; flex-direction: row; gap: 6px; margin-top: 10px; }
+.sfx-preset { padding: 5px 10px; background: #232a35; border: 1px #394353; border-radius: 4px; color: #dfe5ee; }
+.sfx-preset:hover { background: #2d3745; }
+
+.sfx-grid { display: flex; flex-direction: row; flex-wrap: wrap; gap: 12px; }
+.sfx-section {
+    width: 31%;
+    min-width: 300px;
+    padding: 12px;
+    background: #181d25;
+    border: 1px #2b3340;
+    border-radius: 5px;
+}
+.sfx-section-title { margin-bottom: 9px; font-size: 12px; font-weight: 600; color: #aeb9ca; }
+.sfx-field { display: flex; flex-direction: row; align-items: center; justify-content: space-between; height: 29px; }
+.sfx-field-label { color: #8f9bae; font-size: 11px; }
+.sfx-field input { width: 112px; height: 23px; padding: 2px 6px; background: #10141a; border: 1px #354052; color: #e6edf7; }
+.sfx-choice { min-width: 112px; padding: 3px 7px; background: #232a35; border: 1px #394353; border-radius: 3px; color: #dfe5ee; }
+.sfx-help { margin-top: 8px; color: #758399; font-size: 10px; }

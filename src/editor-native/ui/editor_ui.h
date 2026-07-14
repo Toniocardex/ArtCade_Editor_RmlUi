@@ -29,7 +29,7 @@ struct ViewportPointerReadout;
 enum class HierarchyMenuKind { Scene, Entity };
 
 // Target kind of the Assets row menu ("⌄" affordance on an asset row).
-enum class AssetMenuKind { Image, Animation, Tileset, Audio, Font };
+enum class AssetMenuKind { Image, Animation, Tileset, GeneratedSfx, Audio, Font };
 // Parses the kind tag carried by open-asset-menu args ("image", "anim", ...).
 std::optional<AssetMenuKind> parseAssetMenuKind(const std::string& tag);
 
@@ -116,6 +116,11 @@ public:
         std::function<std::optional<std::pair<int, int>>(const AssetId&)>;
     void setTilesetImageSizeProvider(ImageSizeProvider imageSize);
 
+    using GeneratedSfxRequest = std::function<void(const std::string&)>;
+    void setGeneratedSfxHandlers(GeneratedSfxRequest preview,
+                                 WorkspaceRequest stopPreview,
+                                 GeneratedSfxRequest generate);
+
     using EntityPlacementRequest = std::function<void()>;
     void setEntityPlacementHandlers(EntityPlacementRequest addEntity,
                                     EntityPlacementRequest addInstance,
@@ -185,6 +190,9 @@ private:
     void refreshStatusBar();
     void refreshCenterWorkspace();
     void updateZoomReadout();   // toolbar zoom %, refreshed on Viewport invalidation
+    void refreshGeneratedSfxEditor();
+    bool handleGeneratedSfxAction(const std::string& action, const std::string& arg,
+                                  const std::string& value);
     void commitGridCellSize(const std::string& text);
     void showPendingHierarchyMenu();   // consumes the deferred menu request
     void showPendingAssetMenu();       // same, for the Assets row menu
@@ -230,6 +238,9 @@ private:
     EntityPlacementRequest              createEntityHereRequest_;
     EntityPlacementRequest              createInstanceHereRequest_;
     WorkspaceRequest                    fitViewRequest_;
+    GeneratedSfxRequest                 previewGeneratedSfxRequest_;
+    WorkspaceRequest                    stopGeneratedSfxPreviewRequest_;
+    GeneratedSfxRequest                 generateSfxOutputRequest_;
     bool                                viewportContextMenuVisible_ = false;
     bool                                hierarchyContextMenuVisible_ = false;
     // Deferred hierarchy menu request (applied on the next processFrame).
@@ -252,6 +263,7 @@ private:
     bool                                logicTypeMenuVisible_ = false;
     bool                                logicMoreMenuVisible_ = false;
     std::string                         pointerReadout_;   // last coords text shown
+    std::optional<std::string>          openGeneratedSfxId_;
 };
 
 } // namespace ArtCade::EditorNative

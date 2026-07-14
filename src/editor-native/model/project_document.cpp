@@ -753,6 +753,18 @@ const AudioAssetDef* ProjectDocument::findAudioAsset(const AssetId& id) const {
     return nullptr;
 }
 
+bool ProjectDocument::hasGeneratedSfx(const std::string& id) const {
+    return findGeneratedSfx(id) != nullptr;
+}
+
+const artcade::sfx::GeneratedSfxDef* ProjectDocument::findGeneratedSfx(
+    const std::string& id) const {
+    for (const artcade::sfx::GeneratedSfxDef& definition : doc_.generatedSfx) {
+        if (definition.id == id) return &definition;
+    }
+    return nullptr;
+}
+
 bool ProjectDocument::addAudioAsset(AudioAssetDef asset) {
     if (asset.assetId.empty() || hasAudioAsset(asset.assetId)
         || !isSafeProjectRelativePath(std::filesystem::u8path(asset.sourcePath))) return false;

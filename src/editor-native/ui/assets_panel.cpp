@@ -33,11 +33,12 @@ std::string importMenu(bool disabled) {
     return std::string("<div class=\"create-menu asset-import\">")
          + "<button class=\"asset-import-trigger " + btnClass(disabled)
          + "\"><span class=\"asset-import-title\"><span class=\"icon\">&#xeaad;</span>Import assets <span class=\"icon-caret\">&#xeb5d;</span></span>"
-           "<span class=\"asset-import-subtitle\">Images, audio or fonts</span></button>"
+           "<span class=\"asset-import-subtitle\">Files or generated sound</span></button>"
            "<div class=\"create-dropdown\">"
          + entry("import-image", "Image")
          + entry("import-audio", "Audio")
          + entry("import-font",  "Font")
+         + entry("create-generated-sfx", "Generated SFX")
          + "</div></div>";
 }
 
@@ -169,6 +170,23 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
                                asset.assetId, "open-tileset-editor", asset.assetId, "",
                                menuAffordance("tileset", asset.assetId));
             groups += sourceSubtitle(asset.imageAssetId);
+            ++shown;
+        }
+    }
+
+    // -- Audio: name + load mode ------------------------------------------------
+    groups += groupTitle("Generated SFX", doc.generatedSfx.size());
+    for (const artcade::sfx::GeneratedSfxDef& definition : doc.generatedSfx) {
+        if (matchesAssetFilter(filter, {definition.name, definition.id,
+                                        "Generated SFX", definition.outputPath})) {
+            const bool priorOutput = coordinator.document().hasAudioAsset(
+                "generated-audio-" + definition.id);
+            const char* state = !definition.outputAssetId.empty() ? "Ready"
+                : priorOutput ? "Stale" : "Needs generate";
+            groups += assetRow("&#xf1c8;", definition.name, definition.id,
+                               "open-generated-sfx", definition.id,
+                               "<span class=\"asset-meta\">" + std::string(state) + "</span>",
+                               menuAffordance("sfx", definition.id));
             ++shown;
         }
     }

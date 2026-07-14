@@ -1,4 +1,6 @@
 #include "editor-native/model/project_io.h"
+#include "artcade/sfx/recipe_json.hpp"
+#include "artcade/sfx/synthesizer.hpp"
 #include "logic-core.h"
 #include "editor-native/model/numeric_validation.h"
 #include "editor-native/model/path_confinement.h"
@@ -9,6 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <limits>
@@ -23,9 +26,9 @@ namespace ArtCade::EditorNative {
 
 namespace {
 
-// v4: SpriteRenderer/SpriteAnimator defaults belong to Object Types; scene
-// instances persist sparse override deltas only.
-constexpr int kCurrentSchemaVersion = 4;
+// v5: persistent authoring-only Generated SFX recipes. Runtime consumers still
+// see only the linked AudioAssetDef.
+constexpr int kCurrentSchemaVersion = 5;
 
 class JsonReadError final : public std::runtime_error {
 public:
@@ -1111,6 +1114,19 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
         }
     }
 
+    if (const nlohmann::json* generatedSfx = optionalArray(
+            root, "generatedSfx", "generatedSfx")) {
+        for (const auto& item : *generatedSfx) {
+            requireObject(item, "generatedSfx[]");
+            auto decoded = artcade::sfx::deserializeRecipeJson(item.dump());
+            if (!decoded.ok()) {
+                return DeserializeResult::failure(
+                    "Generated SFX recipe is invalid: " + decoded.error().message);
+            }
+            doc.generatedSfx.push_back(decoded.takeValue());
+        }
+    }
+
     if (const nlohmann::json* fontAssets = optionalArray(root, "fontAssets", "fontAssets")) {
         for (const auto& item : *fontAssets) {
             requireObject(item, "fontAssets[]");
@@ -1147,7 +1163,7 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
 }
 
 SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
-    // Keep the v4 writer strict even while older in-memory callers still hand
+    // Keep the current writer strict even while older in-memory callers still hand
     // us v3 instance components during the staged rollout. The normalization
     // is pure: saving never mutates the live ProjectDocument.
     ProjectDoc normalized = document.data();
@@ -1222,6 +1238,16 @@ SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
         });
     }
 
+    nlohmann::json generatedSfx = nlohmann::json::array();
+    for (const artcade::sfx::GeneratedSfxDef& definition : doc.generatedSfx) {
+        const auto encoded = artcade::sfx::serializeRecipeJson(definition, -1);
+        if (!encoded.ok()) {
+            return SerializeResult::failure(
+                "Generated SFX recipe could not be serialized: " + encoded.error().message);
+        }
+        generatedSfx.push_back(nlohmann::json::parse(encoded.value()));
+    }
+
     nlohmann::json fontAssets = nlohmann::json::array();
     for (const FontAssetDef& asset : doc.fontAssets) {
         fontAssets.push_back(nlohmann::json{
@@ -1247,6 +1273,7 @@ SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
         {"tilesets", std::move(tilesets)},
         {"spriteAnimationAssets", std::move(spriteAnimationAssets)},
         {"audioAssets", std::move(audioAssets)},
+        {"generatedSfx", std::move(generatedSfx)},
         {"fontAssets", std::move(fontAssets)},
     };
     return SerializeResult::success(root.dump(2));
@@ -1385,6 +1412,55 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
         }
         if (!isPortableAssetPath(asset.sourcePath)) {
             return DeserializeResult::failure("Audio asset path must be relative");
+        }
+    }
+
+    std::unordered_set<std::string> generatedSfxIds;
+    std::unordered_set<std::string> generatedSfxNames;
+    for (const artcade::sfx::GeneratedSfxDef& definition : data.generatedSfx) {
+        if (definition.schemaVersion != 1u) {
+            return DeserializeResult::failure("Unsupported Generated SFX schema version");
+        }
+        if (definition.id.empty() || definition.name.empty()) {
+            return DeserializeResult::failure("Generated SFX id and name cannot be empty");
+        }
+        if (!generatedSfxIds.insert(definition.id).second) {
+            return DeserializeResult::failure("Duplicate Generated SFX id");
+        }
+        std::string foldedName = definition.name;
+        std::transform(foldedName.begin(), foldedName.end(), foldedName.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (!generatedSfxNames.insert(std::move(foldedName)).second) {
+            return DeserializeResult::failure("Duplicate Generated SFX name");
+        }
+        const auto recipeValidation = artcade::sfx::SfxSynthesizer::validate(definition.recipe);
+        if (!recipeValidation.ok()) {
+            return DeserializeResult::failure(
+                "Generated SFX '" + definition.name + "' is invalid: "
+                + recipeValidation.error().message);
+        }
+        const bool hasAsset = !definition.outputAssetId.empty();
+        const bool hasPath = !definition.outputPath.empty();
+        if (hasAsset != hasPath) {
+            return DeserializeResult::failure(
+                "Generated SFX output asset and path must be set together");
+        }
+        if (hasPath && !isPortableAssetPath(definition.outputPath)) {
+            return DeserializeResult::failure("Generated SFX output path must be relative");
+        }
+        if (hasAsset) {
+            const auto audio = std::find_if(data.audioAssets.begin(), data.audioAssets.end(),
+                [&](const AudioAssetDef& asset) {
+                    return asset.assetId == definition.outputAssetId;
+                });
+            if (audio == data.audioAssets.end()) {
+                return DeserializeResult::failure(
+                    "Generated SFX output must reference an existing audio asset");
+            }
+            if (audio->sourcePath != definition.outputPath) {
+                return DeserializeResult::failure(
+                    "Generated SFX output path does not match its audio asset");
+            }
         }
     }
 

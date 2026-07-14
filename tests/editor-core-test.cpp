@@ -23,6 +23,7 @@
 #include "editor-native/commands/scene_layer_commands.h"
 #include "editor-native/commands/image_asset_commands.h"
 #include "editor-native/commands/audio_asset_commands.h"
+#include "editor-native/commands/generated_sfx_commands.h"
 #include "editor-native/commands/font_asset_commands.h"
 #include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/tilemap_commands.h"
@@ -3396,6 +3397,93 @@ static void runTilemapPlaySessionTests() {
     }
 }
 
+static void runGeneratedSfxTests() {
+    using artcade::sfx::SfxRecipe;
+
+    EditorCoordinator coordinator{makeDoc()};
+    SfxRecipe recipe;
+    recipe.durationSeconds = 0.18f;
+    recipe.primaryVoice.pitch.startHz = 880.f;
+    recipe.primaryVoice.pitch.endHz = 220.f;
+
+    CHECK(coordinator.execute(
+        CreateGeneratedSfxCommand{"sfx-jump", "Jump", recipe}).ok);
+    CHECK(coordinator.document().hasGeneratedSfx("sfx-jump"));
+    CHECK(coordinator.document().data().generatedSfx.size() == 1);
+    CHECK(coordinator.document().isDirty());
+
+    const SerializeResult serialized = ProjectSerializer::serialize(coordinator.document());
+    CHECK(serialized.ok);
+    CHECK(serialized.value.find("\"generatedSfx\"") != std::string::npos);
+    CHECK(serialized.value.find("\"generatorVersion\": 2") != std::string::npos);
+    const DeserializeResult decoded = ProjectSerializer::deserialize(serialized.value);
+    CHECK(decoded.ok);
+    CHECK(decoded.value.data().formatVersion == 5);
+    CHECK(ProjectValidator::validate(decoded.value).ok);
+    CHECK(generatedSfxRecipesEqual(
+        decoded.value.findGeneratedSfx("sfx-jump")->recipe, recipe));
+
+    CHECK(!coordinator.execute(
+        CreateGeneratedSfxCommand{"sfx-jump-2", "jump", recipe}).ok);
+    SfxRecipe invalid = recipe;
+    invalid.durationSeconds = -1.f;
+    CHECK(!coordinator.execute(
+        CreateGeneratedSfxCommand{"bad", "Bad", invalid}).ok);
+
+    AudioAssetDef output;
+    output.assetId = "generated-audio-sfx-jump";
+    output.name = "Jump";
+    output.sourcePath = "assets/audio/generated/sfx-jump.wav";
+    output.loadMode = AudioLoadMode::StaticSound;
+    CHECK(coordinator.execute(RegisterGeneratedSfxOutputCommand{
+        "sfx-jump", recipe, output}).ok);
+    CHECK(coordinator.document().hasAudioAsset(output.assetId));
+    CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId
+          == output.assetId);
+    CHECK(ProjectValidator::validate(coordinator.document()).ok);
+
+    SfxRecipe changed = recipe;
+    changed.randomSeed += 1u;
+    CHECK(coordinator.execute(
+        UpdateGeneratedSfxRecipeCommand{"sfx-jump", changed}).ok);
+    CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId.empty());
+    CHECK(coordinator.document().hasAudioAsset(output.assetId));
+    const std::uint64_t staleRevision = coordinator.document().revision();
+    CHECK(!coordinator.execute(RegisterGeneratedSfxOutputCommand{
+        "sfx-jump", recipe, output}).ok);
+    CHECK(coordinator.document().revision() == staleRevision);
+
+    CHECK(coordinator.undo().ok); // recipe update
+    CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId
+          == output.assetId);
+    CHECK(coordinator.redo().ok);
+    CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId.empty());
+
+    CHECK(coordinator.execute(RegisterGeneratedSfxOutputCommand{
+        "sfx-jump", changed, output}).ok);
+    CHECK(coordinator.execute(RemoveAudioAssetCommand{output.assetId}).ok);
+    CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId.empty());
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId
+          == output.assetId);
+
+    CHECK(coordinator.execute(RemoveGeneratedSfxCommand{"sfx-jump"}).ok);
+    CHECK(!coordinator.document().hasGeneratedSfx("sfx-jump"));
+    CHECK(coordinator.document().hasAudioAsset(output.assetId));
+    CHECK(!coordinator.execute(
+        CreateGeneratedSfxCommand{"sfx-jump", "Replacement", changed}).ok);
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().hasGeneratedSfx("sfx-jump"));
+
+    ProjectDoc unsupported = makeDoc();
+    artcade::sfx::GeneratedSfxDef badVersion;
+    badVersion.id = "future";
+    badVersion.name = "Future";
+    badVersion.recipe.generatorVersion = 999u;
+    unsupported.generatedSfx.push_back(std::move(badVersion));
+    CHECK(!ProjectValidator::validate(ProjectDocument{std::move(unsupported)}).ok);
+}
+
 int main() {
     // -- §24.1  A command modifies a single authority --------------------------
     {
@@ -3795,7 +3883,7 @@ int main() {
         CHECK(decoded.ok);
         DeserializeResult migrated = ProjectMigration::migrate(std::move(decoded.value));
         CHECK(migrated.ok);
-        CHECK(migrated.value.data().formatVersion == 4);
+        CHECK(migrated.value.data().formatVersion == 5);
 
         const EntityDef& type = migrated.value.data().objectTypes.at("Hero");
         CHECK(type.spriteRenderer && type.spriteRenderer->imageAssetId == "blue");
@@ -9299,6 +9387,7 @@ int main() {
     runTilesetResliceCascadeTests();
     runTilemapRegionTests();
     runTilemapPlaySessionTests();
+    runGeneratedSfxTests();
 
     std::cout << "editor-core-test: " << g_passed << " passed, "
               << g_failed << " failed\n";

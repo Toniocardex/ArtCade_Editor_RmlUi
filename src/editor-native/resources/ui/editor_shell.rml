@@ -6,6 +6,7 @@
     <link type="text/rcss" href="panels.rcss"/>
     <link type="text/rcss" href="controls.rcss"/>
     <link type="text/rcss" href="logic_board.rcss"/>
+    <link type="text/rcss" href="sfx_editor.rcss"/>
 </head>
 <body>
     <div id="menubar">
@@ -185,6 +186,22 @@
         <span id="status-coords" class="status-coords"></span>
         <span id="status-context" class="status-context"></span>
         <span id="status-project" class="status-project"></span>
+    </div>
+
+    <div id="sfx-editor" class="sfx-editor hidden">
+        <div class="sfx-editor-header">
+            <div>
+                <div class="sfx-kicker">PROCEDURAL AUDIO</div>
+                <div id="sfx-editor-title" class="sfx-editor-title">Generated SFX</div>
+            </div>
+            <div class="sfx-header-actions">
+                <button class="panel-btn" data-action="preview-generated-sfx">Preview</button>
+                <button class="panel-btn" data-action="stop-generated-sfx-preview">Stop</button>
+                <button class="panel-btn primary" data-action="generate-sfx-output">Generate WAV</button>
+                <button class="panel-btn" data-action="close-generated-sfx">Close</button>
+            </div>
+        </div>
+        <div id="sfx-editor-body" class="sfx-editor-body"></div>
     </div>
 
     <div id="viewport-context-menu" class="context-menu hidden">

@@ -67,11 +67,13 @@ echo [editor 3/3] Building artcade-editor-native...
 if errorlevel 1 ( popd >nul & echo [FAIL] build failed. & exit /b 1 )
 
 if "!DO_TEST!"=="1" (
-    echo [editor] Building + running editor_core_test...
-    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target editor_core_test
+    echo [editor] Building + running editor_core_test and sfx_synthesizer_test...
+    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target editor_core_test sfx_synthesizer_test
     if errorlevel 1 ( popd >nul & echo [FAIL] test build failed. & exit /b 1 )
     "!BUILD_DIR!\tests\editor_core_test.exe"
     if errorlevel 1 ( popd >nul & echo [FAIL] editor_core_test failed. & exit /b 1 )
+    "!BUILD_DIR!\tests\sfx_synthesizer_test.exe"
+    if errorlevel 1 ( popd >nul & echo [FAIL] sfx_synthesizer_test failed. & exit /b 1 )
     echo [editor] Building + running logic_board_editor_test...
     "%CMAKE_EXE%" --build "!BUILD_DIR!" --target logic_board_editor_test
     if errorlevel 1 ( popd >nul & echo [FAIL] Logic Board test build failed. & exit /b 1 )
