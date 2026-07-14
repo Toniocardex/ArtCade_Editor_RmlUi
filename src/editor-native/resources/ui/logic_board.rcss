@@ -57,7 +57,8 @@
    unlike every other .logic-btn use — needs its own inset to match the
    10dp margins .logic-rule-head/.logic-block already sit at. */
 .logic-add-action { margin: 2dp 10dp 10dp 10dp; }
-.logic-tools { display: flex; flex-direction: row; align-items: center; padding: 8dp 14dp; }
+.logic-tools { display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 8dp 14dp; }
+.logic-tools-group { display: flex; flex-direction: row; align-items: center; }
 .logic-search { width: 220dp; margin-right: 8dp; }
 .logic-scroll { flex: 1; overflow-y: auto; padding: 0 14dp 18dp 14dp; }
 /* RmlUi has no user-agent stylesheet: an element with no explicit `display`
@@ -69,9 +70,10 @@
 .logic-empty-title { display: block; font-size: 18dp; color: #f4f4f5; margin-bottom: 8dp; }
 .logic-muted { display: block; color: #8a8a93; margin-bottom: 14dp; }
 /* Capped so a rule card reads as a card on wide windows instead of stretching
-   edge-to-edge with its (much narrower) button-row content stranded on the
-   left and the rest bare background. */
-.logic-rule { display: block; margin: 8dp 0; padding-bottom: 10dp; max-width: 720dp; background-color: #1c1c1f; border: 1px #27272a; }
+   edge-to-edge — raised from 720dp (too tight for the 3-column Event/
+   Conditions/Actions body) to give each ~30/35/35 column room; ultrawide
+   windows still don't get an edge-to-edge card. */
+.logic-rule { display: block; margin: 8dp 0; padding-bottom: 10dp; max-width: 1120dp; background-color: #1c1c1f; border: 1px #27272a; }
 .logic-rule.off { opacity: 0.62; }
 /* Separator is a hairline border, not a background shade — same convention
    as .comp-header, so the head reads as "a section of this card", not a
@@ -84,7 +86,28 @@
     background-color: #1c1c1f;
     border-bottom: 1px #27272a;
 }
-.logic-rule-id { flex: 1; color: #f4f4f5; }
+/* Reuses .comp-caret's tabler-icons glyph styling (panels.rcss), as a
+   clickable button instead of a static span. */
+.logic-rule-caret {
+    display: inline-block;
+    width: 18dp;
+    margin-right: 2dp;
+    background-color: transparent;
+    border: 0;
+    color: #6b6b73;
+    font-family: tabler-icons;
+    font-weight: normal;
+}
+.logic-rule-caret:hover { color: #c4c4c8; }
+.logic-rule-index { color: #6b6b73; margin-right: 8dp; }
+.logic-rule-title { flex: 1; color: #f4f4f5; }
+.logic-rule-diagnostic-count {
+    margin-right: 8dp;
+    padding: 2dp 7dp;
+    color: #e5706b;
+    background-color: #2a1f20;
+    font-size: 10dp;
+}
 .logic-block { display: block; margin: 8dp 10dp; padding: 9dp; background-color: #1c1c1f; border-left: 3px #3b82f6; }
 /* A lighter shade of the same accent, not a second hue — EVENT vs ACTION is
    already communicated by the block labels (see .comp-badge.override for
@@ -97,6 +120,24 @@
 .logic-action-row { display: flex; flex-direction: row; align-items: center; }
 .logic-action-main { flex: 1; }
 .logic-diagnostic { display: block; margin: 5dp 10dp; padding: 7dp; color: #e5706b; background-color: #2a1f20; }
+.logic-rule-diagnostics { display: block; }
+
+/* Event/Conditions/Actions side by side on a wide workspace; .compact (see
+   LogicBoardPanel::syncResponsiveClass) stacks them instead. min-width:0
+   lets the inner dropdowns/inputs shrink rather than forcing horizontal
+   overflow — flex children default to their content's min size otherwise. */
+.logic-rule-body { display: flex; flex-direction: row; align-items: flex-start; width: 100%; }
+.logic-rule-col { display: block; box-sizing: border-box; min-width: 0; }
+.logic-rule-col.event-col { flex: 0 0 30%; }
+.logic-rule-col.conditions-col, .logic-rule-col.actions-col { flex: 0 0 35%; }
+.logic-rule-col.conditions-col, .logic-rule-col.actions-col { border-left: 1px #27272a; }
+.logic-board-panel.compact .logic-rule-body { flex-direction: column; }
+.logic-board-panel.compact .logic-rule-col { flex: 1 1 auto; width: 100%; }
+.logic-board-panel.compact .logic-rule-col.conditions-col,
+.logic-board-panel.compact .logic-rule-col.actions-col {
+    border-left-width: 0;
+    border-top: 1px #27272a;
+}
 .logic-code { display: block; padding: 12dp; color: #d4d4d8; background-color: #111113; white-space: pre; font-family: "JetBrains Mono"; }
 
 /* The Key picker's option list spans 40+ entries (A-Z, 0-9, arrows, Space,

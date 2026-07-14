@@ -4,6 +4,7 @@
 
 #include <optional>
 #include <string>
+#include <unordered_set>
 
 namespace Rml { class ElementDocument; }
 
@@ -37,10 +38,34 @@ public:
     // inside its own positioned `.context-menu` element.
     std::string objectTypeMenuEntries(const EditorCoordinator& coordinator) const;
 
+    // Collapse/expand one rule's body (presentation-only, no Command/Undo/
+    // dirty effect — mirrors InspectorPanel's toggleSection). Also clears
+    // openDropdownId_: a dropdown open inside a rule that collapses must not
+    // silently reappear open when the rule re-expands.
+    void toggleRuleCollapsed(Rml::ElementDocument* document,
+                             const EditorCoordinator& coordinator,
+                             const LogicRuleId& ruleId);
+    void collapseAllRules(Rml::ElementDocument* document,
+                          const EditorCoordinator& coordinator);
+    void expandAllRules(Rml::ElementDocument* document,
+                        const EditorCoordinator& coordinator);
+
+    // Re-measures #center-workspace (always visible, unlike this panel's own
+    // root while Scene mode is active) and toggles the "compact" class on
+    // #logic-board-panel accordingly. Cheap: no rebuild, just a SetClass.
+    // Called at the end of refresh() and directly from splitter drag.
+    void syncResponsiveClass(Rml::ElementDocument* document) const;
+
 private:
     // Presentation-only scroll restoration across hidden/show and projection
-    // rebuilds. A different explicit Object Type target starts at the top.
-    mutable std::optional<ObjectTypeId> scrollObjectTypeId_;
+    // rebuilds, and the board that collapsedRuleIds_/openDropdownId_ are
+    // currently scoped to. Tracks the resolved selectedId actually rendered
+    // (which may differ from EditorState's raw, possibly-empty
+    // logicBoardEditor.objectTypeId via the same-first-sorted-type fallback
+    // refresh() applies) — comparing against the raw workspace value here
+    // would let state leak across boards that both happen to have "rule-1".
+    // A different rendered Object Type starts at the top, uncollapsed.
+    mutable ObjectTypeId renderedObjectTypeId_;
     mutable float scrollTop_ = 0.f;
     // Open value dropdown ("" = none). Cleared whenever the rendered context
     // it belonged to changes from under it: Object Type switch, Rules <->
@@ -50,6 +75,8 @@ private:
     // construction: it simply never matches a dropdown id rendered again.
     mutable std::string openDropdownId_;
     mutable std::optional<LogicBoardTab> lastTab_;
+    // Presentation-only per-rule collapse state, scoped to renderedObjectTypeId_.
+    mutable std::unordered_set<LogicRuleId> collapsedRuleIds_;
 };
 
 } // namespace ArtCade::EditorNative

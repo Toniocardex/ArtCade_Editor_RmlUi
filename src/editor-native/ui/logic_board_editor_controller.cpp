@@ -52,6 +52,22 @@ void LogicBoardEditorController::closeDropdown() {
     panel_.closeDropdown();
 }
 
+void LogicBoardEditorController::toggleRuleCollapsed(const std::string& ruleId) {
+    panel_.toggleRuleCollapsed(document_, coordinator_, ruleId);
+}
+
+void LogicBoardEditorController::collapseAllRules() {
+    panel_.collapseAllRules(document_, coordinator_);
+}
+
+void LogicBoardEditorController::expandAllRules() {
+    panel_.expandAllRules(document_, coordinator_);
+}
+
+void LogicBoardEditorController::syncResponsiveClass() {
+    panel_.syncResponsiveClass(document_);
+}
+
 std::string LogicBoardEditorController::objectTypeMenuEntries() const {
     return panel_.objectTypeMenuEntries(coordinator_);
 }

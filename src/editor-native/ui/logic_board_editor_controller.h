@@ -25,6 +25,12 @@ public:
     void refresh();
     void toggleDropdown(const std::string& dropdownId);
     void closeDropdown();
+    void toggleRuleCollapsed(const std::string& ruleId);
+    void collapseAllRules();
+    void expandAllRules();
+    // Re-syncs the "compact" responsive class without a full rebuild — cheap
+    // enough to call from a per-frame splitter drag callback.
+    void syncResponsiveClass();
     std::string objectTypeMenuEntries() const;
     bool handleAction(const std::string& action, const std::string& arg,
                       const std::string& value,

@@ -135,6 +135,7 @@ bool actionRequiresPendingEditGate(const std::string& action) {
         "open-tileset-editor", "close-tileset-editor",
         "open-scene-workspace", "open-logic-workspace",
         "toggle-inspector-section",
+        "toggle-logic-rule-collapsed", "collapse-all-logic-rules", "expand-all-logic-rules",
     };
     return std::find(std::begin(actions), std::end(actions), action) != std::end(actions);
 }
@@ -1108,6 +1109,18 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         inspector_.toggleSection(document_, coordinator_, arg);
         return;
     }
+    if (action == "toggle-logic-rule-collapsed") {
+        logicBoardEditor_.toggleRuleCollapsed(arg);
+        return;
+    }
+    if (action == "collapse-all-logic-rules") {
+        logicBoardEditor_.collapseAllRules();
+        return;
+    }
+    if (action == "expand-all-logic-rules") {
+        logicBoardEditor_.expandAllRules();
+        return;
+    }
     if (action == "select-logic-object-type") {
         hideContextMenus();   // then fall through to execute the pick
     } else if (action == "set-logic-key") {
@@ -1618,11 +1631,13 @@ void EditorUi::handleDrag(const std::string& action, float mouseX, float mouseY)
         coordinator_.apply(ResizePanelIntent{ResizePanelIntent::Panel::Left, mouseX});
         if (Rml::Element* el = document_->GetElementById("left-col"))
             el->SetProperty("width", px(coordinator_.uiState().leftPanelWidth));
+        logicBoardEditor_.syncResponsiveClass();
     } else if (action == "resize-right") {
         coordinator_.apply(ResizePanelIntent{ResizePanelIntent::Panel::Right,
                                              static_cast<float>(dims.x) - mouseX});
         if (Rml::Element* el = document_->GetElementById("right-col"))
             el->SetProperty("width", px(coordinator_.uiState().rightPanelWidth));
+        logicBoardEditor_.syncResponsiveClass();
     } else if (action == "resize-console") {
         coordinator_.apply(ResizePanelIntent{ResizePanelIntent::Panel::Console,
                                              static_cast<float>(dims.y) - mouseY});
