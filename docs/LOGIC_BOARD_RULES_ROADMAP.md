@@ -13,6 +13,11 @@
 | 2D. Animazione e audio | Da fare | Prossima slice. |
 | 2E. Variabili | Da fare | Bloccata dalla decisione di ownership della slice. |
 | 2F. Tempo e messaggi | Da fare | Dopo contratto dedicato. |
+
+### Aggiornamenti trasversali completati
+
+- Play avviato dalla Logic Board ora crea prima la `PlaySession` e solo dopo passa alla Scene runtime; Stop ripristina la stessa board, tab e ricerca. Una selezione manuale del workspace durante Play annulla il ritorno automatico.
+- Il gameplay keyboard focus e la navigazione Play restano responsabilitÃ  di editor/coordinator; `PlaySession` rimane indipendente dalle tab RmlUi e dall'input host.
 **Ambito:** editor RmlUi nativo e `vendor/artcade-runtime`; nessun bridge WASM o codice React.
 **Precedenza:** `ARTCADE_RMLUI_ARCHITECTURE_CONSTITUTION.md` → `ARTCADE_RMLUI_ARCHITECTURE.md` → `ARTCADE_RMLUI_ENGINEERING_GATES.md`.
 

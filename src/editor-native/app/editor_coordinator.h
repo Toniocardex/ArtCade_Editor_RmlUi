@@ -25,6 +25,17 @@ struct ConsoleMessage {
     std::string text;
 };
 
+// Runtime/editor navigation only: never serialized, undoable, or visible to
+// PlaySession. It remembers the Logic Board context that initiated a test.
+struct PlayNavigationState {
+    CenterWorkspaceMode originWorkspace = CenterWorkspaceMode::Scene;
+    std::optional<ObjectTypeId> originObjectTypeId;
+    LogicBoardTab originLogicTab = LogicBoardTab::Rules;
+    std::string originLogicSearch;
+    bool autoSwitchedToScene = false;
+    bool returnToOriginArmed = false;
+};
+
 // Pure clipboard rendering of a console message. Copies the full, unabbreviated
 // model text (not whatever the panel may truncate) prefixed with the level, so a
 // shared error reads e.g. "[Error] Open failed: ...". Lives in editor-core (no
@@ -259,6 +270,7 @@ private:
     CommandStack                                     history_;
     std::vector<ConsoleMessage>                      console_;
     std::optional<PlaySession>                       playSession_;
+    std::optional<PlayNavigationState>               playNavigation_;
     EditorInvalidation                               pending_ = EditorInvalidation::None;
 };
 

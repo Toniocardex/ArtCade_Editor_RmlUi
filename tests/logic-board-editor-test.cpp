@@ -421,6 +421,46 @@ static void testWorkspaceTargetAndSwitchPolicy() {
     CHECK(coordinator.state().logicBoardEditor.objectTypeId == std::optional<ObjectTypeId>{"Enemy"});
 }
 
+static void testPlayNavigationFromLogicBoard() {
+    EditorCoordinator coordinator{makeProjectData()};
+    CHECK(coordinator.apply(OpenLogicBoardIntent{"Hero"}).ok);
+    CHECK(coordinator.apply(SetLogicBoardTabIntent{LogicBoardTab::GeneratedLua}).ok);
+    CHECK(coordinator.apply(SetLogicBoardSearchIntent{"hero rule"}).ok);
+
+    // Starting from Logic is atomic: a successful runtime session switches to
+    // Scene, while the exact Logic Board workspace context is retained only in
+    // transient coordinator state for Stop.
+    CHECK(coordinator.playCurrentScene().ok);
+    CHECK(coordinator.isPlaying());
+    CHECK(coordinator.state().logicBoardEditor.mode == CenterWorkspaceMode::Scene);
+    CHECK(coordinator.stopPlaying().ok);
+    CHECK(!coordinator.isPlaying());
+    CHECK(coordinator.state().logicBoardEditor.mode == CenterWorkspaceMode::Logic);
+    CHECK(coordinator.state().logicBoardEditor.objectTypeId == std::optional<ObjectTypeId>{"Hero"});
+    CHECK(coordinator.state().logicBoardEditor.tab == LogicBoardTab::GeneratedLua);
+    CHECK(coordinator.state().logicBoardEditor.search == "hero rule");
+
+    // An explicit workspace click during Play disarms the automatic return,
+    // including an explicit click on the currently visible Scene tab.
+    CHECK(coordinator.playCurrentScene().ok);
+    CHECK(coordinator.apply(SwitchCenterWorkspaceIntent{CenterWorkspaceMode::Scene}).ok);
+    CHECK(coordinator.stopPlaying().ok);
+    CHECK(coordinator.state().logicBoardEditor.mode == CenterWorkspaceMode::Scene);
+
+    ProjectDoc invalid = makeProjectData();
+    LogicBoardDef invalidBoard;
+    invalidBoard.id = "logic:Hero";
+    LogicRuleDef invalidRule = Logic::makeDefaultRule("rule-1");
+    invalidRule.trigger.typeId = "unknown.trigger";
+    invalidBoard.rules.push_back(invalidRule);
+    invalid.objectTypes.at("Hero").logicBoard = std::move(invalidBoard);
+    EditorCoordinator rejected{std::move(invalid)};
+    CHECK(rejected.apply(OpenLogicBoardIntent{"Hero"}).ok);
+    CHECK(!rejected.playCurrentScene().ok);
+    CHECK(!rejected.isPlaying());
+    CHECK(rejected.state().logicBoardEditor.mode == CenterWorkspaceMode::Logic);
+}
+
 int main() {
     testCommandsAndPersistence();
     testConditionCommands();
@@ -430,6 +470,7 @@ int main() {
     testCollisionEventOtherAndDeferredDestroy();
     testInvalidPlayIsAtomic();
     testWorkspaceTargetAndSwitchPolicy();
+    testPlayNavigationFromLogicBoard();
     std::cout << "logic-board-editor-test: " << passed << " passed, "
               << failed << " failed\n";
     return failed == 0 ? 0 : 1;

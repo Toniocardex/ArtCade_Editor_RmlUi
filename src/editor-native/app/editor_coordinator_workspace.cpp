@@ -71,6 +71,11 @@ EditorOperationResult EditorCoordinator::apply(const SelectSceneIntent& intent) 
 }
 
 EditorOperationResult EditorCoordinator::apply(const SwitchCenterWorkspaceIntent& intent) {
+    // A user-initiated workspace selection during Play overrides the automatic
+    // Logic -> Scene preview route. Do this before the no-op fast path so an
+    // explicit click on the already-visible Scene tab is still respected.
+    if (isPlaying() && playNavigation_ && playNavigation_->returnToOriginArmed)
+        playNavigation_->returnToOriginArmed = false;
     LogicBoardEditorState& logicState = state_.logicBoardEditor;
     if (logicState.mode == intent.mode) return EditorOperationResult::success(EditorInvalidation::None);
     // A scene gesture cannot survive after its surface has been hidden. This
@@ -102,6 +107,8 @@ EditorOperationResult EditorCoordinator::apply(const SwitchCenterWorkspaceIntent
 EditorOperationResult EditorCoordinator::apply(const OpenLogicBoardIntent& intent) {
     if (!document_.hasObjectType(intent.objectTypeId))
         return finishIntent(EditorOperationResult::failure("Unknown Object Type"));
+    if (isPlaying() && playNavigation_ && playNavigation_->returnToOriginArmed)
+        playNavigation_->returnToOriginArmed = false;
     LogicBoardEditorState& logicState = state_.logicBoardEditor;
     if (logicState.mode == CenterWorkspaceMode::Logic
         && logicState.objectTypeId == intent.objectTypeId)

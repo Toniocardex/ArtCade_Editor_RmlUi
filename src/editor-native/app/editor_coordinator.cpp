@@ -26,6 +26,9 @@ constexpr EditorInvalidation kPlayToggleInvalidation =
     | EditorInvalidation::Inspector | EditorInvalidation::Hierarchy
     | EditorInvalidation::Assets | EditorInvalidation::LogicBoard;
 
+constexpr EditorInvalidation kPlayNavigationInvalidation =
+    kPlayToggleInvalidation | EditorInvalidation::Layout;
+
 SceneId normalizedSceneId(const ProjectDocument& document) {
     if (!document.startSceneId().empty() && document.hasScene(document.startSceneId())) {
         return document.startSceneId();
@@ -452,14 +455,33 @@ EditorOperationResult EditorCoordinator::playProject() {
         appendConsole(ConsoleMessage::Level::Error, message);
         return EditorOperationResult::failure(message);
     }
+    const bool fromLogic = state_.logicBoardEditor.mode == CenterWorkspaceMode::Logic;
+    PlayNavigationState navigation;
+    if (fromLogic) {
+        navigation.originWorkspace = CenterWorkspaceMode::Logic;
+        navigation.originObjectTypeId = state_.logicBoardEditor.objectTypeId;
+        navigation.originLogicTab = state_.logicBoardEditor.tab;
+        navigation.originLogicSearch = state_.logicBoardEditor.search;
+        navigation.autoSwitchedToScene = true;
+        navigation.returnToOriginArmed = true;
+    }
     playSession_.emplace(std::move(*session));
     state_.spriteAnimationEditor = SpriteAnimationEditorState{};
-    logInfo("Play project started (document untouched)");
+    if (fromLogic) {
+        state_.logicBoardEditor.mode = CenterWorkspaceMode::Scene;
+        playNavigation_ = std::move(navigation);
+        logInfo("Play project started - Scene runtime opened; Stop returns to Logic Board");
+    } else {
+        playNavigation_.reset();
+        logInfo("Play project started (document untouched)");
+    }
     // A Play/Stop toggle re-renders every authoring-affordance panel so their
     // controls switch to the frozen (disabled) state and back: Inspector fields,
     // Hierarchy create/delete buttons and Assets import/remove buttons.
-    accumulate(kPlayToggleInvalidation);
-    return EditorOperationResult::success(kPlayToggleInvalidation);
+    const EditorInvalidation invalidation = fromLogic
+        ? kPlayNavigationInvalidation : kPlayToggleInvalidation;
+    accumulate(invalidation);
+    return EditorOperationResult::success(invalidation);
 }
 
 EditorOperationResult EditorCoordinator::playCurrentScene() {
@@ -480,14 +502,33 @@ EditorOperationResult EditorCoordinator::playCurrentScene() {
         appendConsole(ConsoleMessage::Level::Error, message);
         return EditorOperationResult::failure(message);
     }
+    const bool fromLogic = state_.logicBoardEditor.mode == CenterWorkspaceMode::Logic;
+    PlayNavigationState navigation;
+    if (fromLogic) {
+        navigation.originWorkspace = CenterWorkspaceMode::Logic;
+        navigation.originObjectTypeId = state_.logicBoardEditor.objectTypeId;
+        navigation.originLogicTab = state_.logicBoardEditor.tab;
+        navigation.originLogicSearch = state_.logicBoardEditor.search;
+        navigation.autoSwitchedToScene = true;
+        navigation.returnToOriginArmed = true;
+    }
     playSession_.emplace(std::move(*session));
     state_.spriteAnimationEditor = SpriteAnimationEditorState{};
-    logInfo("Play current scene started (document untouched)");
+    if (fromLogic) {
+        state_.logicBoardEditor.mode = CenterWorkspaceMode::Scene;
+        playNavigation_ = std::move(navigation);
+        logInfo("Play current scene started - Scene runtime opened; Stop returns to Logic Board");
+    } else {
+        playNavigation_.reset();
+        logInfo("Play current scene started (document untouched)");
+    }
     // A Play/Stop toggle re-renders every authoring-affordance panel so their
     // controls switch to the frozen (disabled) state and back: Inspector fields,
     // Hierarchy create/delete buttons and Assets import/remove buttons.
-    accumulate(kPlayToggleInvalidation);
-    return EditorOperationResult::success(kPlayToggleInvalidation);
+    const EditorInvalidation invalidation = fromLogic
+        ? kPlayNavigationInvalidation : kPlayToggleInvalidation;
+    accumulate(invalidation);
+    return EditorOperationResult::success(invalidation);
 }
 
 EditorOperationResult EditorCoordinator::stopPlaying() {
@@ -496,12 +537,24 @@ EditorOperationResult EditorCoordinator::stopPlaying() {
         return EditorOperationResult::failure("Not playing");
     }
     playSession_.reset();   // RAII: back to the untouched authoring document
-    logInfo("Stopped - back to authoring document");
+    EditorInvalidation invalidation = kPlayToggleInvalidation;
+    if (playNavigation_ && playNavigation_->returnToOriginArmed
+        && playNavigation_->originWorkspace == CenterWorkspaceMode::Logic) {
+        state_.logicBoardEditor.mode = CenterWorkspaceMode::Logic;
+        state_.logicBoardEditor.objectTypeId = playNavigation_->originObjectTypeId;
+        state_.logicBoardEditor.tab = playNavigation_->originLogicTab;
+        state_.logicBoardEditor.search = playNavigation_->originLogicSearch;
+        invalidation |= EditorInvalidation::Layout;
+        logInfo("Stopped - returned to Logic Board");
+    } else {
+        logInfo("Stopped - back to authoring document");
+    }
+    playNavigation_.reset();
     // A Play/Stop toggle re-renders every authoring-affordance panel so their
     // controls switch to the frozen (disabled) state and back: Inspector fields,
     // Hierarchy create/delete buttons and Assets import/remove buttons.
-    accumulate(kPlayToggleInvalidation);
-    return EditorOperationResult::success(kPlayToggleInvalidation);
+    accumulate(invalidation);
+    return EditorOperationResult::success(invalidation);
 }
 
 void EditorCoordinator::advanceRuntime(float dt) {
