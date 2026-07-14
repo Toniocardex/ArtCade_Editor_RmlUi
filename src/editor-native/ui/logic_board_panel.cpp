@@ -459,7 +459,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     // continuation of the list, not a new action or Command path.
     html += "<button class=\"logic-add-rule-footer";
     if (playing) html += " disabled";
-    html += "\" data-action=\"add-logic-rule\">+ Add Rule</button>";
+    html += "\" data-action=\"add-logic-rule\">+ Add Logic</button>";
     html += "</div>";
     render();
 }

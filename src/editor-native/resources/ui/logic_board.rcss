@@ -224,7 +224,7 @@
    further down the page instead of scrolling internally. */
 .logic-key-list { max-height: 220dp; overflow-y: auto; }
 
-/* A second, always-visible "+ Add Rule" at the end of the list — the natural
+/* A second, always-visible "+ Add Logic" at the end of the list — the natural
    continuation of scrolling down, not a replacement for the toolbar button.
    A dashed border-style isn't supported by this app's RmlUi build (confirmed
    by the identical fallback already in sprite_animation_editor.rcss's
@@ -234,10 +234,16 @@
     width: 100%;
     max-width: 1280dp;
     height: 38dp;
+    line-height: 38dp;
     margin: 8dp auto 18dp auto;
     background-color: transparent;
     border: 1px #323236;
+    border-radius: 3dp;
     color: #8a8a93;
+    font-size: 12dp;
+    font-weight: 500;
+    text-align: center;
+    transition: border-color 0.1s, color 0.1s;
 }
 .logic-add-rule-footer:hover { border-color: #3b82f6; color: #3b82f6; }
 .logic-add-rule-footer.disabled { opacity: 0.42; }
