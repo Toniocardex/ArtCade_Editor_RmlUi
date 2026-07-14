@@ -74,6 +74,18 @@ class PaintTilemapCellsCommand;
 class SetStartSceneCommand;
 class RenameProjectCommand;
 class ChangeLogicConditionTypeCommand;
+class AddSpriteRendererToObjectTypeCommand;
+class RemoveSpriteRendererFromObjectTypeCommand;
+class SetObjectTypeSpriteSourceCommand;
+class AddSpriteAnimatorToObjectTypeCommand;
+class RemoveSpriteAnimatorFromObjectTypeCommand;
+class SetObjectTypeInitialClipCommand;
+class SetObjectTypeAutoPlayCommand;
+class SetObjectTypePlaybackSpeedCommand;
+class SetInstanceSpriteOverrideCommand;
+class SetInstanceAnimatorOverrideCommand;
+class ClearInstanceSpriteOverrideCommand;
+class ClearInstanceAnimatorOverrideCommand;
 
 // =============================================================================
 // ProjectDocument — the single authoring authority of the native editor.
@@ -154,6 +166,18 @@ private:
     friend class AddBoxColliderCommand;
     friend class AddLinearMoverCommand;
     friend class AddSpriteRendererCommand;
+    friend class AddSpriteRendererToObjectTypeCommand;
+    friend class RemoveSpriteRendererFromObjectTypeCommand;
+    friend class SetObjectTypeSpriteSourceCommand;
+    friend class AddSpriteAnimatorToObjectTypeCommand;
+    friend class RemoveSpriteAnimatorFromObjectTypeCommand;
+    friend class SetObjectTypeInitialClipCommand;
+    friend class SetObjectTypeAutoPlayCommand;
+    friend class SetObjectTypePlaybackSpeedCommand;
+    friend class SetInstanceSpriteOverrideCommand;
+    friend class SetInstanceAnimatorOverrideCommand;
+    friend class ClearInstanceSpriteOverrideCommand;
+    friend class ClearInstanceAnimatorOverrideCommand;
     friend class CloneInstanceCommand;
     friend class CreateEntityCommand;
     friend class CreateEntityWithDefaultTypeCommand;

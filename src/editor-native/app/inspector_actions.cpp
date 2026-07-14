@@ -5,7 +5,7 @@
 #include "editor-native/commands/entity_commands.h"
 #include "editor-native/commands/linear_mover_commands.h"
 #include "editor-native/commands/platformer_controller_commands.h"
-#include "editor-native/commands/sprite_commands.h"
+#include "editor-native/commands/sprite_presentation_commands.h"
 #include "editor-native/commands/tilemap_commands.h"
 #include "editor-native/commands/top_down_controller_commands.h"
 #include "editor-native/model/scene_frame_snapshot.h"
@@ -43,19 +43,19 @@ EditorOperationResult fail(EditorCoordinator& coordinator, std::string message) 
 } // namespace
 
 EditorOperationResult addSpriteRenderer(EditorCoordinator& coordinator) {
-    SceneId sceneId; EntityId id;
-    if (!selectedTarget(coordinator, sceneId, id)) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
         return fail(coordinator, "No selected entity");
     }
-    return coordinator.execute(AddSpriteRendererCommand{sceneId, id});
+    return coordinator.execute(AddSpriteRendererToObjectTypeCommand{objectTypeId});
 }
 
 EditorOperationResult removeSpriteRenderer(EditorCoordinator& coordinator) {
-    SceneId sceneId; EntityId id;
-    if (!selectedTarget(coordinator, sceneId, id)) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
         return fail(coordinator, "No selected entity");
     }
-    return coordinator.execute(RemoveSpriteRendererCommand{sceneId, id});
+    return coordinator.execute(RemoveSpriteRendererFromObjectTypeCommand{objectTypeId});
 }
 
 EditorOperationResult setSpriteRendererVisible(EditorCoordinator& coordinator, bool visible) {
@@ -63,24 +63,43 @@ EditorOperationResult setSpriteRendererVisible(EditorCoordinator& coordinator, b
     if (!selectedTarget(coordinator, sceneId, id)) {
         return fail(coordinator, "No selected entity");
     }
-    return coordinator.execute(SetSpriteRendererVisibleCommand{sceneId, id, visible});
+    const SceneInstanceDef* instance =
+        coordinator.document().findInstanceInScene(sceneId, id);
+    const EntityDef* type = instance
+        ? coordinator.document().findObjectType(instance->objectTypeId) : nullptr;
+    if (!instance || !type || !type->spriteRenderer) {
+        return fail(coordinator, "Object Type has no SpriteRenderer");
+    }
+    SpriteRendererOverride delta = instance->spriteRendererOverride.value_or(
+        SpriteRendererOverride{});
+    delta.capabilityEnabled.reset();
+    if (visible == type->spriteRenderer->visible) delta.visible.reset();
+    else delta.visible = visible;
+    if (!delta.imageAssetId && !delta.animationAssetId && !delta.visible) {
+        return coordinator.execute(ClearInstanceSpriteOverrideCommand{sceneId, id});
+    }
+    return coordinator.execute(SetInstanceSpriteOverrideCommand{sceneId, id, std::move(delta)});
 }
 
 EditorOperationResult setSpriteRendererAsset(EditorCoordinator& coordinator, const AssetId& assetId) {
-    SceneId sceneId; EntityId id;
-    if (!selectedTarget(coordinator, sceneId, id)) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
         return fail(coordinator, "No selected entity");
     }
-    return coordinator.execute(SetSpriteRendererAssetCommand{sceneId, id, assetId});
+    const ObjectTypeSpriteSourceKind kind = assetId.empty()
+        ? ObjectTypeSpriteSourceKind::None : ObjectTypeSpriteSourceKind::Image;
+    return coordinator.execute(SetObjectTypeSpriteSourceCommand{objectTypeId, kind, assetId});
 }
 
 EditorOperationResult setSpriteRendererAnimation(EditorCoordinator& coordinator,
                                                  const AssetId& assetId) {
-    SceneId sceneId; EntityId id;
-    if (!selectedTarget(coordinator, sceneId, id)) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
         return fail(coordinator, "No selected entity");
     }
-    return coordinator.execute(SetSpriteRendererAnimationCommand{sceneId, id, assetId});
+    const ObjectTypeSpriteSourceKind kind = assetId.empty()
+        ? ObjectTypeSpriteSourceKind::None : ObjectTypeSpriteSourceKind::Animation;
+    return coordinator.execute(SetObjectTypeSpriteSourceCommand{objectTypeId, kind, assetId});
 }
 
 EditorOperationResult bringSelectedEntityIntoScene(EditorCoordinator& coordinator) {

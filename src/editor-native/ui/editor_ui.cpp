@@ -15,6 +15,8 @@
 #include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/project_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
+#include "editor-native/commands/sprite_presentation_commands.h"
+#include "editor-native/model/sprite_render_view.h"
 #include "editor-native/model/tileset_slicing.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view_camera.h"
@@ -1201,10 +1203,10 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
     } else if (action == "remove-sprite-renderer") {
         removeSpriteRenderer(coordinator_);
     } else if (action == "toggle-sprite-visible") {
-        const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
-            coordinator_.state().activeSceneId, coordinator_.selection().primaryEntity);
-        if (inst && inst->spriteRenderer)
-            setSpriteRendererVisible(coordinator_, !inst->spriteRenderer->visible);
+        const SpriteRenderView resolved = resolveSpriteRenderer(
+            coordinator_.document(), coordinator_.state().activeSceneId,
+            coordinator_.selection().primaryEntity);
+        if (resolved.present) setSpriteRendererVisible(coordinator_, !resolved.visible);
     } else if (action == "set-sprite-asset") {
         setSpriteRendererAsset(coordinator_, arg);   // arg = assetId ("" clears)
     } else if (action == "set-sprite-animation") {
@@ -1219,15 +1221,63 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         } else if (selected == INVALID_ENTITY) {
             coordinator_.logError("No selected instance");
         } else {
-            coordinator_.execute(SetSpriteAnimatorPlaybackSpeedCommand{
-                coordinator_.state().activeSceneId, selected, *parsed});
+            const SceneId& sceneId = coordinator_.state().activeSceneId;
+            const SceneInstanceDef* inst =
+                coordinator_.document().findInstanceInScene(sceneId, selected);
+            const EntityDef* type = inst
+                ? coordinator_.document().findObjectType(inst->objectTypeId) : nullptr;
+            if (!inst || !type || !type->spriteAnimator) {
+                coordinator_.logError("Object Type has no SpriteAnimator");
+            } else {
+                SpriteAnimatorOverride delta = inst->spriteAnimatorOverride.value_or(
+                    SpriteAnimatorOverride{});
+                delta.capabilityEnabled.reset();
+                if (*parsed == type->spriteAnimator->playbackSpeed) delta.playbackSpeed.reset();
+                else delta.playbackSpeed = *parsed;
+                if (!delta.initialClipId && !delta.autoPlay && !delta.playbackSpeed) {
+                    coordinator_.execute(ClearInstanceAnimatorOverrideCommand{sceneId, selected});
+                } else {
+                    coordinator_.execute(SetInstanceAnimatorOverrideCommand{
+                        sceneId, selected, std::move(delta)});
+                }
+            }
         }
     } else if (action == "toggle-animator-autoplay") {
+        const SceneId& sceneId = coordinator_.state().activeSceneId;
+        const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
+            sceneId, selected);
+        const EntityDef* type = inst
+            ? coordinator_.document().findObjectType(inst->objectTypeId) : nullptr;
+        if (inst && type && type->spriteAnimator) {
+            const ResolvedSpritePresentation resolved =
+                resolveSpritePresentation(*type, *inst);
+            if (resolved.animator) {
+                const bool next = !resolved.animator->autoPlay;
+                SpriteAnimatorOverride delta = inst->spriteAnimatorOverride.value_or(
+                    SpriteAnimatorOverride{});
+                delta.capabilityEnabled.reset();
+                if (next == type->spriteAnimator->autoPlay) delta.autoPlay.reset();
+                else delta.autoPlay = next;
+                if (!delta.initialClipId && !delta.autoPlay && !delta.playbackSpeed) {
+                    coordinator_.execute(ClearInstanceAnimatorOverrideCommand{sceneId, selected});
+                } else {
+                    coordinator_.execute(SetInstanceAnimatorOverrideCommand{
+                        sceneId, selected, std::move(delta)});
+                }
+            }
+        }
+    } else if (action == "reset-sprite-override") {
+        coordinator_.execute(ClearInstanceSpriteOverrideCommand{
+            coordinator_.state().activeSceneId, selected});
+    } else if (action == "reset-animator-override") {
+        coordinator_.execute(ClearInstanceAnimatorOverrideCommand{
+            coordinator_.state().activeSceneId, selected});
+    } else if (action == "remove-sprite-animator-type") {
         const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
             coordinator_.state().activeSceneId, selected);
-        if (inst && inst->spriteAnimator) {
-            coordinator_.execute(SetSpriteAnimatorAutoPlayCommand{
-                coordinator_.state().activeSceneId, selected, !inst->spriteAnimator->autoPlay});
+        if (inst) {
+            coordinator_.execute(
+                RemoveSpriteAnimatorFromObjectTypeCommand{inst->objectTypeId});
         }
     } else if (action == "bring-entity-into-scene") {
         bringSelectedEntityIntoScene(coordinator_);

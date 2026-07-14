@@ -21,51 +21,123 @@ const SpriteAnimationClipDef* activeClip(const SpriteAnimationAssetDef& asset,
 }
 } // namespace
 
+ResolvedSpritePresentation resolveSpritePresentation(
+    const EntityDef& objectType, const SceneInstanceDef& instance) {
+    ResolvedSpritePresentation resolved;
+
+    if (objectType.spriteRenderer) {
+        const SpriteRendererOverride* delta = instance.spriteRendererOverride
+            ? &*instance.spriteRendererOverride : nullptr;
+        if (!delta || !delta->capabilityEnabled || *delta->capabilityEnabled) {
+            resolved.renderer = *objectType.spriteRenderer;
+            if (delta) {
+                if (delta->imageAssetId) {
+                    resolved.renderer->imageAssetId = *delta->imageAssetId;
+                }
+                if (delta->animationAssetId) {
+                    resolved.renderer->animationAssetId = *delta->animationAssetId;
+                }
+                if (delta->visible) resolved.renderer->visible = *delta->visible;
+                resolved.rendererOrigin = (delta->imageAssetId || delta->animationAssetId
+                                             || delta->visible || delta->capabilityEnabled)
+                    ? ComponentOrigin::InstanceOverride
+                    : ComponentOrigin::EntityDefinition;
+            } else {
+                resolved.rendererOrigin = ComponentOrigin::EntityDefinition;
+            }
+        }
+    } else if (instance.spriteRenderer) {
+        // Transitional v3 in-memory input. ProjectMigration and the v4 writer
+        // eliminate this path; it remains until the command slice is complete.
+        resolved.renderer = *instance.spriteRenderer;
+        resolved.rendererOrigin = ComponentOrigin::InstanceOverride;
+    } else if (!objectType.sprite.spriteAssetId.empty()) {
+        // Transitional pre-v4 Object Type sprite input.
+        resolved.renderer = SpriteRendererComponent{
+            objectType.sprite.spriteAssetId, {}, objectType.visible};
+        resolved.rendererOrigin = ComponentOrigin::EntityDefinition;
+    }
+
+    if (objectType.spriteAnimator) {
+        const SpriteAnimatorOverride* delta = instance.spriteAnimatorOverride
+            ? &*instance.spriteAnimatorOverride : nullptr;
+        if (!delta || !delta->capabilityEnabled || *delta->capabilityEnabled) {
+            resolved.animator = *objectType.spriteAnimator;
+            if (delta) {
+                if (delta->initialClipId) {
+                    resolved.animator->initialClipId = *delta->initialClipId;
+                }
+                if (delta->autoPlay) resolved.animator->autoPlay = *delta->autoPlay;
+                if (delta->playbackSpeed) {
+                    resolved.animator->playbackSpeed = *delta->playbackSpeed;
+                }
+                resolved.animatorOrigin = (delta->initialClipId || delta->autoPlay
+                                             || delta->playbackSpeed
+                                             || delta->capabilityEnabled)
+                    ? ComponentOrigin::InstanceOverride
+                    : ComponentOrigin::EntityDefinition;
+            } else {
+                resolved.animatorOrigin = ComponentOrigin::EntityDefinition;
+            }
+        }
+    } else if (instance.spriteAnimator) {
+        resolved.animator = *instance.spriteAnimator;
+        resolved.animatorOrigin = ComponentOrigin::InstanceOverride;
+    }
+
+    // Animator without a renderer is never materializable presentation.
+    if (!resolved.renderer) {
+        resolved.animator.reset();
+        resolved.animatorOrigin = ComponentOrigin::None;
+    }
+    return resolved;
+}
+
 SpriteRenderView resolveSpriteRenderer(const ProjectDocument& document,
                                        const SceneId& sceneId, EntityId entityId) {
     const SceneInstanceDef* instance = document.findInstanceInScene(sceneId, entityId);
     if (!instance) return SpriteRenderView{};
+    const EntityDef* objectType = document.findObjectType(instance->objectTypeId);
+    ResolvedSpritePresentation presentation;
+    if (objectType) {
+        presentation = resolveSpritePresentation(*objectType, *instance);
+    } else if (instance->spriteRenderer) {
+        // Catalog-less legacy documents are valid; still route them through the
+        // common asset/clip projection below.
+        presentation.renderer = instance->spriteRenderer;
+        presentation.animator = instance->spriteAnimator;
+        presentation.rendererOrigin = ComponentOrigin::InstanceOverride;
+        presentation.animatorOrigin = instance->spriteAnimator
+            ? ComponentOrigin::InstanceOverride : ComponentOrigin::None;
+    }
+    if (!presentation.renderer) return SpriteRenderView{};
 
-    // 1. An instance override always wins.
-    if (instance->spriteRenderer.has_value()) {
-        SpriteRenderView view = spriteRenderViewOf(*instance);
-        if (!view.animationAssetId.empty()) {
-            const SpriteAnimationAssetDef* asset =
-                document.findSpriteAnimationAsset(view.animationAssetId);
-            if (!asset) return SpriteRenderView{};
-            const SpriteAnimationClipDef* clip = activeClip(*asset,
-                instance->spriteAnimator ? &*instance->spriteAnimator : nullptr);
-            if (!clip) return SpriteRenderView{};   // no clips: nothing to show
-            view.assetId = clip->imageId;           // the active clip's own sheet
-            if (!clip->frames.empty()) {
-                const SpriteAnimationFrameDef& frame = clip->frames.front();
-                view.sourceRect = AnimationFrameRect{
-                    static_cast<float>(frame.x), static_cast<float>(frame.y),
-                    static_cast<float>(frame.width), static_cast<float>(frame.height)};
-                view.hasSourceRect = frame.width > 0 && frame.height > 0;
-            } else {
-                view.sourceRect = AnimationFrameRect{};
-                view.hasSourceRect = false;
-            }
+    SpriteRenderView view{
+        true,
+        presentation.renderer->visible,
+        presentation.renderer->imageAssetId,
+        presentation.renderer->animationAssetId,
+        {},
+        false,
+        presentation.rendererOrigin,
+    };
+    if (!view.animationAssetId.empty()) {
+        const SpriteAnimationAssetDef* asset =
+            document.findSpriteAnimationAsset(view.animationAssetId);
+        if (!asset) return SpriteRenderView{};
+        const SpriteAnimationClipDef* clip = activeClip(
+            *asset, presentation.animator ? &*presentation.animator : nullptr);
+        if (!clip) return SpriteRenderView{};
+        view.assetId = clip->imageId;
+        if (!clip->frames.empty()) {
+            const SpriteAnimationFrameDef& frame = clip->frames.front();
+            view.sourceRect = AnimationFrameRect{
+                static_cast<float>(frame.x), static_cast<float>(frame.y),
+                static_cast<float>(frame.width), static_cast<float>(frame.height)};
+            view.hasSourceRect = frame.width > 0 && frame.height > 0;
         }
-        return view;
     }
-
-    // 2. Otherwise inherit from the object type when it carries a sprite image.
-    const auto& types = document.data().objectTypes;
-    const auto it = types.find(instance->objectTypeId);
-    if (it != types.end() && !it->second.sprite.spriteAssetId.empty()) {
-        return SpriteRenderView{true,
-                                it->second.visible,
-                                it->second.sprite.spriteAssetId,
-                                {},
-                                {},
-                                false,
-                                ComponentOrigin::EntityDefinition};
-    }
-
-    // 3. Neither: the entity has no sprite renderer.
-    return SpriteRenderView{};
+    return view;
 }
 
 } // namespace ArtCade::EditorNative

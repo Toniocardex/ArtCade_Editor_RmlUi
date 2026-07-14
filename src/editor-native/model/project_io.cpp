@@ -2,6 +2,7 @@
 #include "logic-core.h"
 #include "editor-native/model/numeric_validation.h"
 #include "editor-native/model/path_confinement.h"
+#include "editor-native/model/sprite_render_view.h"
 
 #include "editor-native/model/tilemap_validation.h"
 
@@ -14,6 +15,7 @@
 #include <optional>
 #include <stdexcept>
 #include <type_traits>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -21,9 +23,9 @@ namespace ArtCade::EditorNative {
 
 namespace {
 
-// v2: sprite animation source moved from asset-level imageId to per-clip imageId
-// (each clip owns its sheet), plus asset defaultClipId.
-constexpr int kCurrentSchemaVersion = 3;
+// v4: SpriteRenderer/SpriteAnimator defaults belong to Object Types; scene
+// instances persist sparse override deltas only.
+constexpr int kCurrentSchemaVersion = 4;
 
 class JsonReadError final : public std::runtime_error {
 public:
@@ -291,6 +293,53 @@ bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
         component.playbackSpeed = readFloat(sa, "playbackSpeed", 1.f);
         out.spriteAnimator = component;
     }
+    if (const nlohmann::json* srValue = optionalObject(
+            value, "spriteRendererOverride",
+            "scenes[].instances[].spriteRendererOverride")) {
+        const auto& sr = *srValue;
+        SpriteRendererOverride delta;
+        if (findMember(sr, "imageAssetId", "image_asset_id")) {
+            delta.imageAssetId = readString(sr, "imageAssetId", "image_asset_id");
+        }
+        if (findMember(sr, "animationAssetId", "animation_asset_id")) {
+            delta.animationAssetId = readString(
+                sr, "animationAssetId", "animation_asset_id");
+        }
+        if (findMember(sr, "visible")) {
+            delta.visible = readBool(
+                sr, "visible", true,
+                "scenes[].instances[].spriteRendererOverride.visible");
+        }
+        if (findMember(sr, "capabilityEnabled")) {
+            delta.capabilityEnabled = readBool(
+                sr, "capabilityEnabled", true,
+                "scenes[].instances[].spriteRendererOverride.capabilityEnabled");
+        }
+        out.spriteRendererOverride = std::move(delta);
+    }
+    if (const nlohmann::json* saValue = optionalObject(
+            value, "spriteAnimatorOverride",
+            "scenes[].instances[].spriteAnimatorOverride")) {
+        const auto& sa = *saValue;
+        SpriteAnimatorOverride delta;
+        if (findMember(sa, "initialClipId", "initial_clip_id")) {
+            delta.initialClipId = readString(sa, "initialClipId", "initial_clip_id");
+        }
+        if (findMember(sa, "autoPlay")) {
+            delta.autoPlay = readBool(
+                sa, "autoPlay", true,
+                "scenes[].instances[].spriteAnimatorOverride.autoPlay");
+        }
+        if (findMember(sa, "playbackSpeed")) {
+            delta.playbackSpeed = readFloat(sa, "playbackSpeed", 1.f);
+        }
+        if (findMember(sa, "capabilityEnabled")) {
+            delta.capabilityEnabled = readBool(
+                sa, "capabilityEnabled", true,
+                "scenes[].instances[].spriteAnimatorOverride.capabilityEnabled");
+        }
+        out.spriteAnimatorOverride = std::move(delta);
+    }
     if (const nlohmann::json* tmValue = optionalObject(
             value, "tilemap", "scenes[].instances[].tilemap")) {
         const auto& tm = *tmValue;
@@ -463,19 +512,29 @@ nlohmann::json instanceToJson(const SceneInstanceDef& instance) {
         {"visible", instance.visible},
         {"layerId", instance.layerId},
     };
-    if (instance.spriteRenderer.has_value()) {
-        json["spriteRenderer"] = nlohmann::json{
-            {"imageAssetId", instance.spriteRenderer->imageAssetId},
-            {"animationAssetId", instance.spriteRenderer->animationAssetId},
-            {"visible", instance.spriteRenderer->visible},
-        };
+    if (instance.spriteRendererOverride.has_value()) {
+        const SpriteRendererOverride& deltaValue = *instance.spriteRendererOverride;
+        nlohmann::json delta = nlohmann::json::object();
+        if (deltaValue.imageAssetId) delta["imageAssetId"] = *deltaValue.imageAssetId;
+        if (deltaValue.animationAssetId) {
+            delta["animationAssetId"] = *deltaValue.animationAssetId;
+        }
+        if (deltaValue.visible) delta["visible"] = *deltaValue.visible;
+        if (deltaValue.capabilityEnabled) {
+            delta["capabilityEnabled"] = *deltaValue.capabilityEnabled;
+        }
+        if (!delta.empty()) json["spriteRendererOverride"] = std::move(delta);
     }
-    if (instance.spriteAnimator.has_value()) {
-        json["spriteAnimator"] = nlohmann::json{
-            {"initialClipId", instance.spriteAnimator->initialClipId},
-            {"autoPlay", instance.spriteAnimator->autoPlay},
-            {"playbackSpeed", instance.spriteAnimator->playbackSpeed},
-        };
+    if (instance.spriteAnimatorOverride.has_value()) {
+        const SpriteAnimatorOverride& deltaValue = *instance.spriteAnimatorOverride;
+        nlohmann::json delta = nlohmann::json::object();
+        if (deltaValue.initialClipId) delta["initialClipId"] = *deltaValue.initialClipId;
+        if (deltaValue.autoPlay) delta["autoPlay"] = *deltaValue.autoPlay;
+        if (deltaValue.playbackSpeed) delta["playbackSpeed"] = *deltaValue.playbackSpeed;
+        if (deltaValue.capabilityEnabled) {
+            delta["capabilityEnabled"] = *deltaValue.capabilityEnabled;
+        }
+        if (!delta.empty()) json["spriteAnimatorOverride"] = std::move(delta);
     }
     if (instance.tilemap.has_value()) {
         nlohmann::json chunks = nlohmann::json::array();
@@ -531,19 +590,28 @@ nlohmann::json animationClipToJson(const SpriteAnimationClipDef& clip) {
     };
 }
 
-// Minimal object-type persistence: only the fields the native editor resolves
-// or renders (id, name, visible, sprite asset + fill). The full EntityDef bag is
-// deliberately not serialized by the spike.
+// Minimal object-type persistence: only fields resolved or rendered by the
+// native editor. v4 makes sprite presentation defaults explicit here.
 nlohmann::json objectTypeToJson(const std::string& id, const EntityDef& def) {
     nlohmann::json json{
         {"id", id},
         {"name", def.name},
         {"visible", def.visible},
-        {"sprite", nlohmann::json{
-            {"spriteAssetId", def.sprite.spriteAssetId},
-            {"fillColor", vec3ToJson(def.sprite.fillColor)},
-        }},
     };
+    if (def.spriteRenderer.has_value()) {
+        json["spriteRenderer"] = nlohmann::json{
+            {"imageAssetId", def.spriteRenderer->imageAssetId},
+            {"animationAssetId", def.spriteRenderer->animationAssetId},
+            {"visible", def.spriteRenderer->visible},
+        };
+    }
+    if (def.spriteAnimator.has_value()) {
+        json["spriteAnimator"] = nlohmann::json{
+            {"initialClipId", def.spriteAnimator->initialClipId},
+            {"autoPlay", def.spriteAnimator->autoPlay},
+            {"playbackSpeed", def.spriteAnimator->playbackSpeed},
+        };
+    }
     if (def.boxCollider2D.has_value()) {
         json["boxCollider2D"] = nlohmann::json{
             {"offset", vec2ToJson(def.boxCollider2D->offset)},
@@ -607,6 +675,154 @@ nlohmann::json sceneToJson(const SceneDef& scene) {
     };
 }
 
+bool empty(const SpriteRendererOverride& delta) {
+    return !delta.imageAssetId && !delta.animationAssetId && !delta.visible
+        && !delta.capabilityEnabled;
+}
+
+bool empty(const SpriteAnimatorOverride& delta) {
+    return !delta.initialClipId && !delta.autoPlay && !delta.playbackSpeed
+        && !delta.capabilityEnabled;
+}
+
+SpriteRendererOverride rendererDelta(const SpriteRendererComponent& value,
+                                     const SpriteRendererComponent& defaults) {
+    SpriteRendererOverride delta;
+    if (value.imageAssetId != defaults.imageAssetId) delta.imageAssetId = value.imageAssetId;
+    if (value.animationAssetId != defaults.animationAssetId) {
+        delta.animationAssetId = value.animationAssetId;
+    }
+    if (value.visible != defaults.visible) delta.visible = value.visible;
+    return delta;
+}
+
+SpriteAnimatorOverride animatorDelta(const SpriteAnimatorComponent& value,
+                                     const SpriteAnimatorComponent& defaults) {
+    SpriteAnimatorOverride delta;
+    if (value.initialClipId != defaults.initialClipId) delta.initialClipId = value.initialClipId;
+    if (value.autoPlay != defaults.autoPlay) delta.autoPlay = value.autoPlay;
+    if (value.playbackSpeed != defaults.playbackSpeed) {
+        delta.playbackSpeed = value.playbackSpeed;
+    }
+    return delta;
+}
+
+std::vector<SceneInstanceDef*> instancesInCanonicalOrder(ProjectDoc& document,
+                                                          const std::string& objectTypeId) {
+    // ProjectDoc stores scenes in an unordered_map. Canonical lexicographic
+    // scene-id order makes the v3 promotion stable across machines and saves;
+    // instance vector order remains the persisted authoring order.
+    std::vector<std::pair<SceneId, SceneDef*>> scenes;
+    scenes.reserve(document.scenes.size());
+    for (auto& [sceneKey, scene] : document.scenes) {
+        scenes.emplace_back(sceneKey, &scene);
+    }
+    std::sort(scenes.begin(), scenes.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.first < rhs.first;
+    });
+
+    std::vector<SceneInstanceDef*> result;
+    for (const auto& [_, scene] : scenes) {
+        for (SceneInstanceDef& instance : scene->instances) {
+            if (instance.objectTypeId == objectTypeId) result.push_back(&instance);
+        }
+    }
+    return result;
+}
+
+void migrateSpriteOwnershipToObjectTypes(ProjectDoc& document) {
+    // A legacy catalog-less document may still have authored per-instance
+    // presentation. Create only the missing types needed to preserve that
+    // capability; completely component-less free labels remain untouched.
+    std::vector<std::string> missingTypes;
+    for (const auto& [_, scene] : document.scenes) {
+        for (const SceneInstanceDef& instance : scene.instances) {
+            if ((instance.spriteRenderer || instance.spriteAnimator)
+                && document.objectTypes.find(instance.objectTypeId)
+                       == document.objectTypes.end()) {
+                missingTypes.push_back(instance.objectTypeId);
+            }
+        }
+    }
+    std::sort(missingTypes.begin(), missingTypes.end());
+    missingTypes.erase(std::unique(missingTypes.begin(), missingTypes.end()),
+                       missingTypes.end());
+    for (const std::string& id : missingTypes) {
+        EntityDef type;
+        type.className = id;
+        type.name = id;
+        document.objectTypes.emplace(id, std::move(type));
+    }
+
+    for (auto& [objectTypeId, type] : document.objectTypes) {
+        std::vector<SceneInstanceDef*> instances =
+            instancesInCanonicalOrder(document, objectTypeId);
+
+        bool rendererPromotedFromInstance = false;
+        if (!type.spriteRenderer && !type.sprite.spriteAssetId.empty()) {
+            type.spriteRenderer = SpriteRendererComponent{
+                type.sprite.spriteAssetId,
+                {},
+                type.visible,
+            };
+        }
+        if (!type.spriteRenderer) {
+            const auto first = std::find_if(instances.begin(), instances.end(),
+                [](const SceneInstanceDef* instance) {
+                    return instance->spriteRenderer.has_value();
+                });
+            if (first != instances.end()) {
+                type.spriteRenderer = *(*first)->spriteRenderer;
+                rendererPromotedFromInstance = true;
+            }
+        }
+
+        for (SceneInstanceDef* instance : instances) {
+            if (instance->spriteRenderer && type.spriteRenderer
+                && !instance->spriteRendererOverride) {
+                SpriteRendererOverride delta = rendererDelta(
+                    *instance->spriteRenderer, *type.spriteRenderer);
+                if (!empty(delta)) instance->spriteRendererOverride = std::move(delta);
+            } else if (!instance->spriteRenderer && type.spriteRenderer
+                       && rendererPromotedFromInstance
+                       && !instance->spriteRendererOverride) {
+                SpriteRendererOverride disabled;
+                disabled.capabilityEnabled = false;
+                instance->spriteRendererOverride = std::move(disabled);
+            }
+            instance->spriteRenderer.reset();
+        }
+
+        bool animatorPromotedFromInstance = false;
+        if (!type.spriteAnimator) {
+            const auto first = std::find_if(instances.begin(), instances.end(),
+                [](const SceneInstanceDef* instance) {
+                    return instance->spriteAnimator.has_value();
+                });
+            if (first != instances.end()) {
+                type.spriteAnimator = *(*first)->spriteAnimator;
+                animatorPromotedFromInstance = true;
+            }
+        }
+
+        for (SceneInstanceDef* instance : instances) {
+            if (instance->spriteAnimator && type.spriteAnimator
+                && !instance->spriteAnimatorOverride) {
+                SpriteAnimatorOverride delta = animatorDelta(
+                    *instance->spriteAnimator, *type.spriteAnimator);
+                if (!empty(delta)) instance->spriteAnimatorOverride = std::move(delta);
+            } else if (!instance->spriteAnimator && type.spriteAnimator
+                       && animatorPromotedFromInstance
+                       && !instance->spriteAnimatorOverride) {
+                SpriteAnimatorOverride disabled;
+                disabled.capabilityEnabled = false;
+                instance->spriteAnimatorOverride = std::move(disabled);
+            }
+            instance->spriteAnimator.reset();
+        }
+    }
+}
+
 } // namespace
 
 DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
@@ -649,6 +865,31 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                 if (sprite.contains("fillColor")) {
                     def.sprite.fillColor = readVec3(sprite["fillColor"], def.sprite.fillColor);
                 }
+            }
+            if (const nlohmann::json* srValue = optionalObject(
+                    item, "spriteRenderer", "objectTypes[].spriteRenderer")) {
+                const auto& sr = *srValue;
+                SpriteRendererComponent component;
+                component.imageAssetId = readString(sr, "imageAssetId", "image_asset_id");
+                component.animationAssetId = readString(
+                    sr, "animationAssetId", "animation_asset_id");
+                component.visible = readBool(
+                    sr, "visible", component.visible,
+                    "objectTypes[].spriteRenderer.visible");
+                def.spriteRenderer = std::move(component);
+            }
+            if (const nlohmann::json* saValue = optionalObject(
+                    item, "spriteAnimator", "objectTypes[].spriteAnimator")) {
+                const auto& sa = *saValue;
+                SpriteAnimatorComponent component;
+                component.initialClipId = readString(
+                    sa, "initialClipId", "initial_clip_id");
+                component.autoPlay = readBool(
+                    sa, "autoPlay", component.autoPlay,
+                    "objectTypes[].spriteAnimator.autoPlay");
+                component.playbackSpeed = readFloat(
+                    sa, "playbackSpeed", component.playbackSpeed);
+                def.spriteAnimator = std::move(component);
             }
             if (const nlohmann::json* colliderValue = optionalObject(
                     item, "boxCollider2D", "objectTypes[].boxCollider2D")) {
@@ -906,7 +1147,13 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
 }
 
 SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
-    const ProjectDoc& doc = document.data();
+    // Keep the v4 writer strict even while older in-memory callers still hand
+    // us v3 instance components during the staged rollout. The normalization
+    // is pure: saving never mutates the live ProjectDocument.
+    ProjectDoc normalized = document.data();
+    migrateSpriteOwnershipToObjectTypes(normalized);
+    normalized.formatVersion = kCurrentSchemaVersion;
+    const ProjectDoc& doc = normalized;
     nlohmann::json scenes = nlohmann::json::array();
     for (const auto& [_, scene] : doc.scenes) {
         scenes.push_back(sceneToJson(scene));
@@ -1012,6 +1259,7 @@ DeserializeResult ProjectMigration::migrate(ProjectDocument document) {
     }
     if (version < kCurrentSchemaVersion) {
         ProjectDoc migrated = document.data();
+        if (version < 4) migrateSpriteOwnershipToObjectTypes(migrated);
         migrated.formatVersion = kCurrentSchemaVersion;
         return DeserializeResult::success(ProjectDocument{std::move(migrated)});
     }
@@ -1022,11 +1270,57 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
     const ProjectDoc& data = document.data();
 
     for (const auto& [objectTypeId, type] : data.objectTypes) {
-        if (!type.logicBoard) continue;
-        const auto diagnostics = Logic::validateBoard(objectTypeId, *type.logicBoard, &type, &data);
-        if (!diagnostics.empty()) {
+        if (type.logicBoard) {
+            const auto diagnostics =
+                Logic::validateBoard(objectTypeId, *type.logicBoard, &type, &data);
+            if (!diagnostics.empty()) {
+                return DeserializeResult::failure(
+                    diagnostics.front().code + ": " + diagnostics.front().message);
+            }
+        }
+        if (type.spriteRenderer) {
+            const AssetId& imageId = type.spriteRenderer->imageAssetId;
+            const AssetId& animationId = type.spriteRenderer->animationAssetId;
+            if (!imageId.empty() && !animationId.empty()) {
+                return DeserializeResult::failure(
+                    "Object Type SpriteRenderer cannot reference image and animation together");
+            }
+            if (!imageId.empty() && !document.hasImageAsset(imageId)) {
+                return DeserializeResult::failure(
+                    "Object Type SpriteRenderer references a missing image asset");
+            }
+            if (!animationId.empty() && !document.hasSpriteAnimationAsset(animationId)) {
+                return DeserializeResult::failure(
+                    "Object Type SpriteRenderer references a missing animation asset");
+            }
+            if (!animationId.empty() && !type.spriteAnimator) {
+                return DeserializeResult::failure(
+                    "Object Type animation source requires SpriteAnimator");
+            }
+            if (animationId.empty() && type.spriteAnimator) {
+                return DeserializeResult::failure(
+                    "Object Type SpriteAnimator requires an animation source");
+            }
+        } else if (type.spriteAnimator) {
             return DeserializeResult::failure(
-                diagnostics.front().code + ": " + diagnostics.front().message);
+                "Object Type SpriteAnimator requires SpriteRenderer");
+        }
+        if (type.spriteAnimator) {
+            const SpriteAnimationAssetDef* asset = document.findSpriteAnimationAsset(
+                type.spriteRenderer->animationAssetId);
+            const bool ownsClip = asset && std::any_of(
+                asset->clips.begin(), asset->clips.end(),
+                [&](const SpriteAnimationClipDef& clip) {
+                    return clip.id == type.spriteAnimator->initialClipId;
+                });
+            if (!ownsClip) {
+                return DeserializeResult::failure(
+                    "Object Type SpriteAnimator initialClipId must belong to its animation asset");
+            }
+            if (!NumericValidation::isValid(*type.spriteAnimator)) {
+                return DeserializeResult::failure(
+                    "Object Type SpriteAnimator playbackSpeed must be positive");
+            }
         }
     }
 
@@ -1178,10 +1472,18 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
                 && data.objectTypes.find(instance.objectTypeId) == data.objectTypes.end()) {
                 return DeserializeResult::failure("Instance references a missing object type");
             }
-            // A sprite renderer's asset reference must resolve to an image asset.
-            if (instance.spriteRenderer.has_value()) {
-                const AssetId& imageId = instance.spriteRenderer->imageAssetId;
-                const AssetId& animationId = instance.spriteRenderer->animationAssetId;
+            ResolvedSpritePresentation presentation;
+            const auto typeIt = data.objectTypes.find(instance.objectTypeId);
+            if (typeIt != data.objectTypes.end()) {
+                presentation = resolveSpritePresentation(typeIt->second, instance);
+            } else {
+                presentation.renderer = instance.spriteRenderer;
+                presentation.animator = instance.spriteAnimator;
+            }
+            // Validate the exact presentation Edit and Play will consume.
+            if (presentation.renderer.has_value()) {
+                const AssetId& imageId = presentation.renderer->imageAssetId;
+                const AssetId& animationId = presentation.renderer->animationAssetId;
                 if (!imageId.empty() && !animationId.empty()) {
                     return DeserializeResult::failure(
                         "Sprite renderer cannot reference image and animation together");
@@ -1194,25 +1496,25 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
                     return DeserializeResult::failure(
                         "Sprite renderer references a missing animation asset");
                 }
-                if (!animationId.empty() && !instance.spriteAnimator.has_value()) {
+                if (!animationId.empty() && !presentation.animator.has_value()) {
                     return DeserializeResult::failure(
                         "Animation sprite renderer requires SpriteAnimator");
                 }
-                if (animationId.empty() && instance.spriteAnimator.has_value()) {
+                if (animationId.empty() && presentation.animator.has_value()) {
                     return DeserializeResult::failure(
                         "SpriteAnimator requires an animation sprite source");
                 }
-            } else if (instance.spriteAnimator.has_value()) {
+            } else if (presentation.animator.has_value()) {
                 return DeserializeResult::failure(
                     "SpriteAnimator requires a sprite renderer");
             }
-            if (instance.spriteAnimator.has_value()) {
+            if (presentation.animator.has_value()) {
                 const SpriteAnimationAssetDef* asset =
-                    document.findSpriteAnimationAsset(instance.spriteRenderer->animationAssetId);
+                    document.findSpriteAnimationAsset(presentation.renderer->animationAssetId);
                 bool ownsClip = false;
                 if (asset) {
                     for (const SpriteAnimationClipDef& clip : asset->clips) {
-                        if (clip.id == instance.spriteAnimator->initialClipId) {
+                        if (clip.id == presentation.animator->initialClipId) {
                             ownsClip = true;
                             break;
                         }
@@ -1222,7 +1524,7 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
                     return DeserializeResult::failure(
                         "SpriteAnimator initialClipId must belong to its animation asset");
                 }
-                if (!NumericValidation::isValid(*instance.spriteAnimator)) {
+                if (!NumericValidation::isValid(*presentation.animator)) {
                     return DeserializeResult::failure(
                         "SpriteAnimator playbackSpeed must be positive");
                 }

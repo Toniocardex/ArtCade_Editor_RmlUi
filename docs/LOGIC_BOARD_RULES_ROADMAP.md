@@ -10,7 +10,13 @@
 | 2A. Catalog foundation e picker | Completata | Registry descriptor-driven, compatibilitÃ  e picker RmlUi. |
 | 2B. Personaggio controllabile | Completata | Input edge/held e intent riusati dai controller esistenti. |
 | 2C. Collisioni e `EventOther` | Completata | Enter/exit deterministici, filtro per Object Type e `Destroy Self` differito. |
-| 2D. Animazione e audio | Da fare | Prossima slice. |
+| 2D. Animazione e audio | In corso | Ownership, resolver e authoring UI completati; cleanup 2D.0D in corso. |
+| 2D.0A. Schema e migrazione ownership | Completata | Schema v4 type-owned, override sparse, promozione deterministica, round-trip e idempotenza. |
+| 2D.0B. Resolver canonico Edit/Play | Completata | Un solo `resolveSpritePresentation`; Viewport, validazione e `PlaySession` consumano gli stessi valori risolti. |
+| 2D.0C. Command, Inspector e Undo/Redo | Completata | Command distinti per authority, Undo esatto, badge ownership e Reset al default. |
+| 2D.0D. Invarianti e cleanup legacy | In corso | Validator type-owned, guardie Logic Board e rimozione percorsi transitori. |
+| 2D.1. Action animazione | Da fare | Sbloccata solo dopo 2D.0D. |
+| 2D.2. Action audio | Da fare | Successiva alle Action animazione. |
 | 2E. Variabili | Da fare | Bloccata dalla decisione di ownership della slice. |
 | 2F. Tempo e messaggi | Da fare | Dopo contratto dedicato. |
 
@@ -132,6 +138,25 @@ La slice 2A non cambia il formato persistito: i board esistenti continuano a con
 ### 2D. Animazione e audio
 
 **Obiettivo:** collegare il feedback del gameplay agli asset già authoring, senza incorporare editor di asset nella Logic Board.
+
+#### 2D.0 — Prerequisito: ownership SpriteRenderer/SpriteAnimator
+
+La capability completa e i default appartengono all'Object Type. Una
+`SceneInstanceDef` persiste soltanto delta opzionali; campo assente significa
+inherit. Il resolver canonico applica default type-owned → override sparse →
+validazione → proiezione Edit/Play. I progetti v3 vengono promossi in ordine
+canonico di Scene ID e ordine persistito delle istanze; i casi misti conservano
+esattamente l'assenza tramite il solo flag migration-only `capabilityEnabled`.
+
+- **2D.0A completata:** schema v4, codec, migrazione pura e idempotente, nessun
+  blocco legacy risalvato sulle istanze.
+- **2D.0B completata:** `resolveSpritePresentation` è l'unica precedenza usata
+  da viewport, validator e materializzazione Play.
+- **2D.0C completata:** Command separati per default Object Type e delta istanza,
+  Undo/Redo esatto, Inspector con badge `OBJECT TYPE` / `INSTANCE OVERRIDE` e
+  azione `Reset to Object Type`.
+- **2D.0D in corso:** blocco rimozione Animator richiesto dalla board, pulizia
+  degli input legacy e test negativi finali.
 
 | Kind | Blocchi |
 |---|---|

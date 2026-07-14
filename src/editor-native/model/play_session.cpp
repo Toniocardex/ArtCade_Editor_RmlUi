@@ -331,6 +331,14 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
         }
 
         const SpriteRenderView sprite = resolveSpriteRenderer(document, sceneId, instance.id);
+        ResolvedSpritePresentation presentation;
+        if (objectTypeIt != document.data().objectTypes.end()) {
+            presentation = resolveSpritePresentation(objectTypeIt->second, instance);
+        } else {
+            // Catalog-less legacy projects are still accepted by validation.
+            presentation.renderer = instance.spriteRenderer;
+            presentation.animator = instance.spriteAnimator;
+        }
         if (sprite.present && !sprite.assetId.empty()) {
             const ImageAssetDef* image = findImageAsset(document, sprite.assetId);
             if (!image) {
@@ -348,12 +356,12 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
             if (!sprite.animationAssetId.empty()) {
                 const SpriteAnimationAssetDef* animation =
                     findSpriteAnimationAsset(document, sprite.animationAssetId);
-                if (!animation || !instance.spriteAnimator) {
+                if (!animation || !presentation.animator) {
                     if (error) *error = "Cannot start Play: animation source is incomplete";
                     return std::nullopt;
                 }
                 const SpriteAnimationClipDef* clip =
-                    findAnimationClip(*animation, instance.spriteAnimator->initialClipId);
+                    findAnimationClip(*animation, presentation.animator->initialClipId);
                 if (!clip) {
                     if (error) *error = "Cannot start Play: initial animation clip is missing";
                     return std::nullopt;
@@ -381,8 +389,8 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
                 RuntimeSpriteAnimatorState animator;
                 animator.animationAssetId = animation->id;
                 animator.currentClipId = clip->id;
-                animator.playbackSpeed = instance.spriteAnimator->playbackSpeed;
-                animator.playing = instance.spriteAnimator->autoPlay && !clip->frames.empty();
+                animator.playbackSpeed = presentation.animator->playbackSpeed;
+                animator.playing = presentation.animator->autoPlay && !clip->frames.empty();
                 animator.finished = false;
                 // The rendered image follows the active clip's own sheet.
                 entity.sprite->assetId = clip->imageId;

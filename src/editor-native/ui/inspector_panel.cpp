@@ -734,27 +734,29 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         html += outsideSceneWarning(classifySceneContainment(*bounds, frame.worldSize), instanceDisabled);
     }
 
-    // -- Sprite Renderer (instance override, or inherited from the type) ------
-    const SpriteRenderView resolved =
-        resolveSpriteRenderer(coordinator.document(), coordinator.state().activeSceneId, selected);
-    const bool spriteOverride = inst->spriteRenderer.has_value();
-    const bool spriteInherited = !spriteOverride
-                              && resolved.origin == ComponentOrigin::EntityDefinition;
-    if (spriteOverride) {
-        const SpriteRendererComponent& sr = *inst->spriteRenderer;
+    // -- Sprite presentation: Object Type capability/defaults + instance delta.
+    const ResolvedSpritePresentation presentation = type
+        ? resolveSpritePresentation(*type, *inst) : ResolvedSpritePresentation{};
+    const SpriteRenderView resolved{}; // legacy branch below is removed in 2D.0D
+    if (type && type->spriteRenderer && presentation.renderer) {
+        const SpriteRendererComponent& sr = *presentation.renderer;
         html += header("sprite-renderer", isSectionCollapsed("sprite-renderer"),
-                       "&#xeb0a;", "Sprite Renderer", "OVERRIDE", "override",
-                       "remove-sprite-renderer", instanceDisabled);
+                       "&#xeb0a;", "Sprite Renderer", "OBJECT TYPE", "",
+                       "remove-sprite-renderer", playing);
+        html += typeOwnedLockNote;
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Visible</span>"
                 "<button class=\"" + instanceBtn + "\" data-action=\"toggle-sprite-visible\">";
         html += sr.visible ? "On" : "Off";
-        html += "</button></div>";
+        html += "</button>";
+        if (inst->spriteRendererOverride && inst->spriteRendererOverride->visible) {
+            html += "<span class=\"comp-badge override\">INSTANCE OVERRIDE</span>";
+        }
+        html += "</div>";
         const std::string sourceLabel = !sr.animationAssetId.empty()
             ? animationAssetLabel(coordinator, sr.animationAssetId)
             : (sr.imageAssetId.empty() ? std::string("(none)") : sr.imageAssetId);
-        const bool sourceOpen = openDropdownId_ == "sprite-source" && !instanceDisabled;
-        html += dropdownTrigger("Source", "sprite-source", sourceLabel, sourceOpen,
-                                instanceDisabled);
+        const bool sourceOpen = openDropdownId_ == "sprite-source" && !playing;
+        html += dropdownTrigger("Source", "sprite-source", sourceLabel, sourceOpen, playing);
         if (sourceOpen) {
             html += "<div class=\"drop-list\">";
             const bool noneSelected = sr.animationAssetId.empty() && sr.imageAssetId.empty();
@@ -816,22 +818,38 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                   + escapeRml(sr.animationAssetId)
                   + "\"><span class=\"icon\">&#xeb0a;</span>Open Animation Editor</button>";
         }
-        if (inst->spriteAnimator.has_value()) {
-            const SpriteAnimatorComponent& animator = *inst->spriteAnimator;
+        if (inst->spriteRendererOverride) {
+            html += "<button class=\"" + instanceBtn
+                  + "\" data-action=\"reset-sprite-override\">Reset to Object Type</button>";
+        }
+        if (type->spriteAnimator && presentation.animator) {
+            const SpriteAnimatorComponent& animator = *presentation.animator;
             html += header("sprite-animator", isSectionCollapsed("sprite-animator"),
-                           "&#xeb0a;", "Sprite Animator", "INSTANCE", "", "", instanceDisabled);
+                           "&#xeb0a;", "Sprite Animator", "OBJECT TYPE", "",
+                           "remove-sprite-animator-type", playing);
+            html += typeOwnedLockNote;
             html += "<div class=\"prop-row\"><span class=\"prop-label\">Initial Clip</span>"
                     "<span class=\"prop-readonly\">"
                   + escapeRml(animationClipDisplayName(coordinator, sr.animationAssetId,
                                                        animator.initialClipId))
                   + "</span></div>";
             html += field("Speed", "commit-animator-speed", num(animator.playbackSpeed), instanceDisabled);
+            if (inst->spriteAnimatorOverride && inst->spriteAnimatorOverride->playbackSpeed) {
+                html += "<div class=\"type-owned-note\">Playback Speed: INSTANCE OVERRIDE</div>";
+            }
             html += "<div class=\"prop-row\"><span class=\"prop-label\">Auto Play</span>"
                     "<button class=\"" + instanceBtn + "\" data-action=\"toggle-animator-autoplay\">"
                   + (animator.autoPlay ? std::string("On") : std::string("Off"))
                   + "</button></div>";
+            if (inst->spriteAnimatorOverride && inst->spriteAnimatorOverride->autoPlay) {
+                html += "<div class=\"type-owned-note\">Auto Play: INSTANCE OVERRIDE</div>";
+            }
+            if (inst->spriteAnimatorOverride) {
+                html += "<button class=\"" + instanceBtn
+                      + "\" data-action=\"reset-animator-override\">Reset to Object Type</button>";
+            }
         }
-    } else if (spriteInherited) {
+    } else if (false) {
         // Inherited from the object type — read-only until overridden (no remove:
         // the type sprite is not the instance's to drop).
         html += header("sprite-renderer", isSectionCollapsed("sprite-renderer"),
@@ -1046,10 +1064,9 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         && (type->linearMover || type->topDownController || type->platformerController);
     struct Addable { const char* label; const char* action; bool show; };
     const Addable addable[] = {
-        // Sprite override is instance-level (works even without an object type) -
-        // gated by instanceLocked, unlike the object-type-owned entries below.
+        // Sprite capability is Object-Type-owned, like the gameplay components.
         {"Sprite Renderer", "add-sprite-renderer",
-            !instanceLocked && !spriteOverride && resolved.origin == ComponentOrigin::None},
+            type && !type->spriteRenderer},
         {"Box Collider 2D", "add-box-collider", type && !collider},
         // The three movement drivers are mutually exclusive: offer none once one exists.
         {"Top Down Controller", "add-top-down", type && !hasDriver},

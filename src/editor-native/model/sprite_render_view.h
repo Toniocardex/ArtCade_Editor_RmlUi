@@ -10,9 +10,21 @@ class ProjectDocument;
 // object-type definition; absence of both means the component is not present.
 enum class ComponentOrigin {
     None,
-    EntityDefinition,   // inherited from the object type (EntityDef.sprite)
-    InstanceOverride,   // per-instance override (SceneInstanceDef.spriteRenderer)
+    EntityDefinition,   // inherited from Object Type defaults
+    InstanceOverride,   // one or more values come from the sparse instance delta
 };
+
+// Canonical presentation resolver output. Both Edit and Play consume this
+// value, so ownership precedence cannot drift between the two projections.
+struct ResolvedSpritePresentation {
+    std::optional<SpriteRendererComponent> renderer;
+    std::optional<SpriteAnimatorComponent> animator;
+    ComponentOrigin rendererOrigin = ComponentOrigin::None;
+    ComponentOrigin animatorOrigin = ComponentOrigin::None;
+};
+
+ResolvedSpritePresentation resolveSpritePresentation(
+    const EntityDef& objectType, const SceneInstanceDef& instance);
 
 // =============================================================================
 // SpriteRenderView — the immutable per-instance sprite descriptor the viewport
@@ -43,11 +55,8 @@ inline SpriteRenderView spriteRenderViewOf(const SceneInstanceDef& instance) {
                             ComponentOrigin::InstanceOverride};
 }
 
-// The central resolution query (used by viewport + Inspector). Precedence:
-//   instance override  -> use it
-//   else object type sprite (EntityDef.sprite with an image) -> inherited
-//   else                -> absent
-// So a pre-existing project whose sprites live on the object type still renders.
+// Document-addressed projection used by the viewport. It delegates ownership
+// resolution to resolveSpritePresentation and only resolves animation assets.
 SpriteRenderView resolveSpriteRenderer(const ProjectDocument& document,
                                        const SceneId& sceneId, EntityId entityId);
 
