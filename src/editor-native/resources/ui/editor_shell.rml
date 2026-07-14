@@ -88,11 +88,26 @@
             </div>
         </div>
         <div id="logic-context-tools" class="contextual-tools hidden">
-            <button id="btn-logic-add-rule" class="tool-btn" data-action="add-logic-rule">+ Rule</button>
-            <input id="logic-toolbar-search" class="logic-toolbar-search" type="text" data-action="commit-logic-search" placeholder="Search rules"/>
-            <button id="btn-logic-rules" class="tool-btn" data-action="logic-tab-rules">Rules</button>
-            <button id="btn-logic-lua" class="tool-btn" data-action="logic-tab-lua">Generated Lua</button>
-            <button id="btn-logic-validate" class="tool-btn" data-action="validate-logic-board">Validate</button>
+            <div class="tool-group">
+                <button id="btn-logic-rules" class="tool-btn" data-action="logic-tab-rules">Rules</button>
+                <button id="btn-logic-lua" class="tool-btn" data-action="logic-tab-lua">Generated Lua</button>
+            </div>
+            <span class="tool-sep"></span>
+            <div id="logic-search-slot" class="logic-search-slot">
+                <span class="logic-search-icon">&#xeb1c;</span>
+                <span class="logic-search-label">Search</span>
+                <input id="logic-toolbar-search" class="logic-toolbar-search" type="text" data-action="commit-logic-search" placeholder="Search rules"/>
+            </div>
+            <span class="tool-sep"></span>
+            <div class="tool-group">
+                <button id="btn-logic-collapse-all" class="tool-btn" data-action="collapse-all-logic-rules">Collapse All</button>
+                <button id="btn-logic-expand-all" class="tool-btn" data-action="expand-all-logic-rules">Expand All</button>
+            </div>
+            <span class="tool-sep"></span>
+            <div class="tool-group">
+                <button id="btn-logic-add-rule" class="tool-btn" data-action="add-logic-rule">+ Rule</button>
+                <button id="btn-logic-validate" class="tool-btn" data-action="validate-logic-board">Validate</button>
+            </div>
         </div>
     </div>
 
@@ -203,5 +218,14 @@
          panel's own SetInnerRML rebuilds; contents are stamped in by
          EditorUi::toggleLogicTypeMenu each time it opens. -->
     <div id="logic-type-menu" class="context-menu hidden"></div>
+
+    <!-- Logic Board "more" menu (Remove Logic Board). Same rationale as
+         logic-type-menu above: lives outside the panel's rebuilt region so a
+         panel refresh mid-interaction can't wipe it. Content is static (one
+         entry) so, unlike the Object Type menu, it doesn't need to be
+         stamped in on open. -->
+    <div id="logic-more-menu" class="context-menu hidden">
+        <div id="logic-more-remove" class="context-entry destructive" data-action="remove-logic-board">Remove Logic Board</div>
+    </div>
 </body>
 </rml>

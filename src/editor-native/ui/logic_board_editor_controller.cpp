@@ -64,6 +64,14 @@ void LogicBoardEditorController::expandAllRules() {
     panel_.expandAllRules(document_, coordinator_);
 }
 
+bool LogicBoardEditorController::canCollapseAllRules() const {
+    return panel_.canCollapseAllRules(coordinator_);
+}
+
+bool LogicBoardEditorController::canExpandAllRules() const {
+    return panel_.canExpandAllRules(coordinator_);
+}
+
 void LogicBoardEditorController::syncResponsiveClass() {
     panel_.syncResponsiveClass(document_);
 }

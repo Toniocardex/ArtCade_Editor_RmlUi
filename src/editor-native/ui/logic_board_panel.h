@@ -50,6 +50,14 @@ public:
     void expandAllRules(Rml::ElementDocument* document,
                         const EditorCoordinator& coordinator);
 
+    // True when at least one of the current board's rules is not collapsed
+    // (so Collapse All would have an effect) / is collapsed (so Expand All
+    // would). Positive semantics deliberately, not collapsedRuleIds_.empty()
+    // — that set can outlive a rule that gets deleted while collapsed, so an
+    // emptiness check alone would misreport "nothing collapsed" as false.
+    bool canCollapseAllRules(const EditorCoordinator& coordinator) const;
+    bool canExpandAllRules(const EditorCoordinator& coordinator) const;
+
     // Re-measures #center-workspace (always visible, unlike this panel's own
     // root while Scene mode is active) and toggles the "compact" class on
     // #logic-board-panel accordingly. Cheap: no rebuild, just a SetClass.
@@ -57,6 +65,13 @@ public:
     void syncResponsiveClass(Rml::ElementDocument* document) const;
 
 private:
+    // The LogicBoardDef belonging to renderedObjectTypeId_ (the board this
+    // panel's collapse/scroll/dropdown state is currently scoped to), or
+    // nullptr if that type no longer exists or has no board. Shared by every
+    // method that needs to validate a rule id or enumerate rules without
+    // duplicating the same "resolve current board" lookup.
+    const LogicBoardDef* currentBoard(const EditorCoordinator& coordinator) const;
+
     // Presentation-only scroll restoration across hidden/show and projection
     // rebuilds, and the board that collapsedRuleIds_/openDropdownId_ are
     // currently scoped to. Tracks the resolved selectedId actually rendered

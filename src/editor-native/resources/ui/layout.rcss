@@ -52,17 +52,37 @@ body {
     min-width: 0;
 }
 .contextual-tools.hidden { display: none; }
-.logic-toolbar-search {
-    display: block;
-    width: 180dp;
+/* Mirrors .assets-search-slot/.assets-search-icon (panels.rcss) — the
+   `placeholder` attribute doesn't render as ghost text anywhere in this app
+   (confirmed on both the Assets and Logic search fields), so a persistent
+   icon + label communicates "this is a search field" instead of relying on
+   it. */
+.logic-search-slot {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
     height: 30dp;
     margin: 0 5dp;
+}
+.logic-search-icon {
+    display: inline-block;
+    width: 18dp;
+    color: #6b6b73;
+    font-family: tabler-icons;
+    font-size: 11dp;
+}
+.logic-search-label { display: inline-block; margin-right: 6dp; color: #6b6b73; font-size: 11dp; }
+.logic-toolbar-search {
+    display: block;
+    width: 220dp;
+    height: 30dp;
     padding: 0 8dp;
     background-color: #111216;
     border: 1px #343640;
     border-radius: 4dp;
     color: #d4d4d8;
 }
+.logic-toolbar-search:focus { border-color: #3b82f6; }
 
 #workspace {
     flex: 1;

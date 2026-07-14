@@ -28,6 +28,11 @@ public:
     void toggleRuleCollapsed(const std::string& ruleId);
     void collapseAllRules();
     void expandAllRules();
+    // Queried by EditorUi::refreshToolbar() to sync the static Collapse
+    // All/Expand All toolbar buttons' disabled state (those buttons live
+    // outside the panel's own rebuilt markup as of slice 1c).
+    bool canCollapseAllRules() const;
+    bool canExpandAllRules() const;
     // Re-syncs the "compact" responsive class without a full rebuild — cheap
     // enough to call from a per-frame splitter drag callback.
     void syncResponsiveClass();

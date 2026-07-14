@@ -96,12 +96,18 @@ std::string descriptorLabel(const std::string& typeId) {
 // Derived, read-only projection — never a second source of truth for the
 // trigger/action display names, always resolved through the same registry
 // the compiler and the mode-option buttons use. Conditions are intentionally
-// excluded to keep the summary short.
+// excluded to keep the summary short. The action suffix is unconditional —
+// "On Start" alone used to be a bug (the suffix only appeared for the
+// Key Pressed trigger), not an intentional distinction.
 std::string logicRuleSummary(const LogicRuleDef& rule) {
-    if (rule.trigger.typeId != Logic::kKeyPressed) return descriptorLabel(rule.trigger.typeId);
-    std::string head = "Key";
-    if (const LogicPropertyDef* p = property(rule.trigger, "key"))
-        if (const auto* key = std::get_if<LogicKey>(&p->value)) head = Logic::logicKeyName(*key);
+    std::string head;
+    if (rule.trigger.typeId == Logic::kKeyPressed) {
+        head = "Key";
+        if (const LogicPropertyDef* p = property(rule.trigger, "key"))
+            if (const auto* key = std::get_if<LogicKey>(&p->value)) head = Logic::logicKeyName(*key);
+    } else {
+        head = descriptorLabel(rule.trigger.typeId);
+    }
     if (!rule.actions.empty()) head += " \xE2\x86\x92 " + descriptorLabel(rule.actions.front().typeId);
     return head;
 }
@@ -162,17 +168,10 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         ? selectedType->name : selectedId;
     const std::size_t sharedCount = selectedId.empty() ? 0 : instanceCountFor(selectedId);
 
+    const bool selectedHasBoard = selectedType && selectedType->logicBoard.has_value();
     std::string html = "<div class=\"logic-head\"><div class=\"logic-heading\">"
-                       "<span class=\"logic-title\">Logic Board";
-    if (!selectedName.empty()) html += " · " + escapeRml(selectedName);
-    html += "</span><span class=\"logic-owner\">OBJECT TYPE · ";
-    if (selectedName.empty()) {
-        html += "No target";
-    } else {
-        html += "Shared by " + std::to_string(sharedCount)
-             + (sharedCount == 1 ? " instance" : " instances");
-    }
-    html += "</span></div>";
+                       "<div class=\"logic-title-row\"><span class=\"logic-title-prefix\">Logic Board"
+                       + std::string(selectedName.empty() ? "" : " ·") + "</span>";
     if (!typeIds.empty()) {
         // `open` is always false here: EditorUi owns this picker's floating
         // menu (see objectTypeMenuEntries) and toggles the "open" class on
@@ -182,7 +181,30 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                                       /*open=*/false, playing, "logic-type-trigger",
                                       "logic-type-trigger");
     }
-    html += "</div>";
+    if (selectedHasBoard) {
+        // "..." menu (Remove Logic Board), a small step away from the picker
+        // so it doesn't read as "delete this Object Type" — see
+        // EditorUi::toggleLogicMoreMenu, which mirrors the Object Type
+        // picker's own floating-menu mechanism.
+        html += "<button id=\"logic-more-trigger\" class=\"logic-more-trigger";
+        if (playing) html += " disabled";
+        html += "\" data-action=\"toggle-logic-more-menu\" title=\"More\">"
+                // Three ASCII periods, not a Unicode ellipsis or tabler-icons
+                // glyph: U+22EF rendered as a missing-glyph tofu box in this
+                // app's font (confirmed by screenshot), and a codepoint
+                // outside the embedded tabler-icons subset risks the same —
+                // plain periods can't fail to render in any font.
+                "...</button>";
+    }
+    html += "</div><span class=\"logic-owner\">OBJECT TYPE · ";
+    if (selectedName.empty()) {
+        html += "No target";
+    } else {
+        html += "Shared by " + std::to_string(sharedCount)
+             + (sharedCount == 1 ? " instance" : " instances");
+    }
+    html += "</span></div>"; // .logic-heading
+    html += "</div>"; // .logic-head
     const auto render = [&]() {
         root->SetInnerRML(html);
         if (Rml::Element* scroll = document->GetElementById("logic-scroll"))
@@ -228,23 +250,13 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         return;
     }
 
-    const bool anyRules = !board.rules.empty();
-    const bool allCollapsed = anyRules && std::all_of(board.rules.begin(), board.rules.end(),
-        [&](const LogicRuleDef& r) { return collapsedRuleIds_.count(r.id) != 0; });
-    const bool noneCollapsed = collapsedRuleIds_.empty();
-    html += "<div class=\"logic-tools\"><div class=\"logic-tools-group\">"
-            "<button class=\"logic-btn";
-    if (!anyRules || allCollapsed) html += " disabled";
-    html += "\" data-action=\"collapse-all-logic-rules\">Collapse All</button>"
-            "<button class=\"logic-btn";
-    if (!anyRules || noneCollapsed) html += " disabled";
-    html += "\" data-action=\"expand-all-logic-rules\">Expand All</button></div>"
-            "<button class=\"logic-btn danger";
-    if (playing) html += " disabled";
-    html += "\" data-action=\"remove-logic-board\">Remove Board</button></div>"
-            "<div id=\"logic-scroll\" class=\"logic-scroll\">";
+    // Collapse All/Expand All/Remove Board now live in the static toolbar and
+    // the "..." menu (see EditorUi::refreshToolbar/toggleLogicMoreMenu) — this
+    // panel no longer generates a separate tools row for them.
+    html += "<div id=\"logic-scroll\" class=\"logic-scroll\">";
 
     const std::string query = lower(view.search);
+    std::size_t renderedRules = 0;
     for (std::size_t ruleIndex = 0; ruleIndex < board.rules.size(); ++ruleIndex) {
         const LogicRuleDef& rule = board.rules[ruleIndex];
         const std::string summary = logicRuleSummary(rule);
@@ -252,6 +264,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         for (const LogicBlockDef& condition : rule.conditions) searchable += " " + lower(condition.typeId);
         for (const LogicBlockDef& action : rule.actions) searchable += " " + lower(action.typeId);
         if (!query.empty() && searchable.find(query) == std::string::npos) continue;
+        ++renderedRules;
 
         const bool collapsed = collapsedRuleIds_.count(rule.id) != 0;
         const std::size_t diagnosticCount = static_cast<std::size_t>(std::count_if(
@@ -292,10 +305,13 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             continue;
         }
 
-        html += "<div class=\"logic-rule-body\">"
-                "<div class=\"logic-rule-col event-col\">"
-                "<div class=\"logic-block\"><span class=\"mode-label\">EVENT</span>"
-                "<div class=\"mode-options\">";
+        html += "<div class=\"logic-rule-body\">";
+
+        // EVENT — no footer, there's only ever one trigger.
+        html += "<div class=\"logic-rule-col event-col\">"
+                "<div class=\"logic-col-head\">EVENT</div>"
+                "<div class=\"logic-col-content\">"
+                "<div class=\"logic-block\"><div class=\"mode-options\">";
         html += modeOption("On Start", Logic::kOnStart, rule.trigger.typeId == Logic::kOnStart,
                           "change-logic-trigger", rule.id, playing);
         html += modeOption("Key Pressed", Logic::kKeyPressed, rule.trigger.typeId == Logic::kKeyPressed,
@@ -322,14 +338,24 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             }
         }
         html += "</div>"; // .logic-block (EVENT)
+        html += "</div>"; // .logic-col-content
         html += "</div>"; // event-col
-        html += "<div class=\"logic-rule-col conditions-col\">";
 
+        // CONDITIONS — always has a head and a footer, even with zero
+        // conditions: an empty column with only a floating "+ Add Condition"
+        // button read as broken, not as "optional and currently unused".
+        html += "<div class=\"logic-rule-col conditions-col\">"
+                "<div class=\"logic-col-head\">CONDITIONS</div>"
+                "<div class=\"logic-col-content\">";
+        if (rule.conditions.empty()) {
+            html += "<div class=\"logic-col-empty\">No conditions"
+                    "<span class=\"logic-col-empty-sub\">Actions run whenever the event occurs.</span></div>";
+        }
         for (std::size_t conditionIndex = 0; conditionIndex < rule.conditions.size(); ++conditionIndex) {
             const LogicBlockDef& condition = rule.conditions[conditionIndex];
             const std::string arg = actionArg(rule.id, conditionIndex);
-            html += "<div class=\"logic-block condition\"><div class=\"logic-action-row\">"
-                    "<div class=\"logic-action-main\"><span class=\"mode-label\">CONDITION</span>"
+            html += "<div class=\"logic-block\"><div class=\"logic-action-row\">"
+                    "<div class=\"logic-action-main\">"
                     "<span class=\"logic-block-label\">Self · Is Grounded</span></div>"
                     "<button class=\"logic-icon-btn";
             if (playing || conditionIndex == 0) html += " disabled";
@@ -351,18 +377,23 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                  + std::string(expected ? "Yes" : "No") + "</button></div>";
             html += "</div>";
         }
-        html += "<button class=\"logic-btn logic-add-action";
+        html += "</div>"; // .logic-col-content
+        html += "<div class=\"logic-col-footer\"><button class=\"logic-btn logic-add-action";
         if (playing || rule.conditions.size() >= Logic::kMaxConditionsPerRule) html += " disabled";
         html += "\" data-action=\"add-logic-condition\" data-arg=\"" + escapeRml(rule.id)
-             + "\">+ Add Condition</button>";
+             + "\">+ Add Condition</button></div>";
         html += "</div>"; // conditions-col
-        html += "<div class=\"logic-rule-col actions-col\">";
 
+        // ACTIONS — always at least one (enforced by RemoveLogicActionCommand),
+        // so no empty state, but the same head/content/footer shape.
+        html += "<div class=\"logic-rule-col actions-col\">"
+                "<div class=\"logic-col-head\">ACTIONS</div>"
+                "<div class=\"logic-col-content\">";
         for (std::size_t actionIndex = 0; actionIndex < rule.actions.size(); ++actionIndex) {
             const LogicBlockDef& action = rule.actions[actionIndex];
             const std::string arg = actionArg(rule.id, actionIndex);
-            html += "<div class=\"logic-block action\"><div class=\"logic-action-row\"><div class=\"logic-action-main\">"
-                    "<span class=\"mode-label\">ACTION</span><div class=\"mode-options\">";
+            html += "<div class=\"logic-block\"><div class=\"logic-action-row\"><div class=\"logic-action-main\">"
+                    "<div class=\"mode-options\">";
             html += modeOption("Set Visible", Logic::kSetVisible, action.typeId == Logic::kSetVisible,
                               "change-logic-action", arg, playing);
             html += modeOption("Set Position", Logic::kSetPosition, action.typeId == Logic::kSetPosition,
@@ -402,11 +433,13 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             }
             html += "</div>";
         }
-        html += "<button class=\"logic-btn logic-add-action";
+        html += "</div>"; // .logic-col-content
+        html += "<div class=\"logic-col-footer\"><button class=\"logic-btn logic-add-action";
         if (playing || rule.actions.size() >= Logic::kMaxActionsPerRule) html += " disabled";
         html += "\" data-action=\"add-logic-action\" data-arg=\"" + escapeRml(rule.id)
-             + "\">+ Add Action</button>";
+             + "\">+ Add Action</button></div>";
         html += "</div>"; // actions-col
+
         html += "</div>"; // .logic-rule-body
         html += "<div class=\"logic-rule-diagnostics\">";
         for (const Logic::LogicDiagnostic& diagnostic : compiled.diagnostics) {
@@ -417,6 +450,16 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         html += "</div>"; // .logic-rule-diagnostics
         html += "</div>"; // .logic-rule
     }
+    if (renderedRules == 0 && !query.empty()) {
+        html += "<div class=\"logic-empty\"><div class=\"logic-muted\">No rules match &quot;"
+             + escapeRml(view.search) + "&quot;</div></div>";
+    }
+    // A second, always-visible entry point for the same add-logic-rule action
+    // the toolbar's "+ Rule" button already dispatches — the natural
+    // continuation of the list, not a new action or Command path.
+    html += "<button class=\"logic-add-rule-footer";
+    if (playing) html += " disabled";
+    html += "\" data-action=\"add-logic-rule\">+ Add Rule</button>";
     html += "</div>";
     render();
 }
@@ -428,14 +471,19 @@ void LogicBoardPanel::toggleDropdown(Rml::ElementDocument* document,
     refresh(document, coordinator);
 }
 
+const LogicBoardDef* LogicBoardPanel::currentBoard(const EditorCoordinator& coordinator) const {
+    if (renderedObjectTypeId_.empty()
+        || !coordinator.document().hasObjectType(renderedObjectTypeId_)) return nullptr;
+    const EntityDef& objectType = coordinator.document().data().objectTypes.at(renderedObjectTypeId_);
+    return objectType.logicBoard ? &*objectType.logicBoard : nullptr;
+}
+
 void LogicBoardPanel::toggleRuleCollapsed(Rml::ElementDocument* document,
                                           const EditorCoordinator& coordinator,
                                           const LogicRuleId& ruleId) {
-    if (renderedObjectTypeId_.empty()
-        || !coordinator.document().hasObjectType(renderedObjectTypeId_)) return;
-    const EntityDef& objectType = coordinator.document().data().objectTypes.at(renderedObjectTypeId_);
-    if (!objectType.logicBoard) return;
-    const bool exists = std::any_of(objectType.logicBoard->rules.begin(), objectType.logicBoard->rules.end(),
+    const LogicBoardDef* board = currentBoard(coordinator);
+    if (!board) return;
+    const bool exists = std::any_of(board->rules.begin(), board->rules.end(),
         [&](const LogicRuleDef& rule) { return rule.id == ruleId; });
     if (!exists) return;
     // A dropdown open inside a rule about to collapse must not silently
@@ -447,14 +495,9 @@ void LogicBoardPanel::toggleRuleCollapsed(Rml::ElementDocument* document,
 
 void LogicBoardPanel::collapseAllRules(Rml::ElementDocument* document,
                                        const EditorCoordinator& coordinator) {
-    if (!renderedObjectTypeId_.empty()
-        && coordinator.document().hasObjectType(renderedObjectTypeId_)) {
-        const EntityDef& objectType = coordinator.document().data().objectTypes.at(renderedObjectTypeId_);
-        if (objectType.logicBoard) {
-            openDropdownId_.clear();
-            for (const LogicRuleDef& rule : objectType.logicBoard->rules)
-                collapsedRuleIds_.insert(rule.id);
-        }
+    if (const LogicBoardDef* board = currentBoard(coordinator)) {
+        openDropdownId_.clear();
+        for (const LogicRuleDef& rule : board->rules) collapsedRuleIds_.insert(rule.id);
     }
     refresh(document, coordinator);
 }
@@ -464,6 +507,20 @@ void LogicBoardPanel::expandAllRules(Rml::ElementDocument* document,
     openDropdownId_.clear();
     collapsedRuleIds_.clear();
     refresh(document, coordinator);
+}
+
+bool LogicBoardPanel::canCollapseAllRules(const EditorCoordinator& coordinator) const {
+    const LogicBoardDef* board = currentBoard(coordinator);
+    if (!board || board->rules.empty()) return false;
+    return std::any_of(board->rules.begin(), board->rules.end(),
+        [&](const LogicRuleDef& rule) { return collapsedRuleIds_.count(rule.id) == 0; });
+}
+
+bool LogicBoardPanel::canExpandAllRules(const EditorCoordinator& coordinator) const {
+    const LogicBoardDef* board = currentBoard(coordinator);
+    if (!board || board->rules.empty()) return false;
+    return std::any_of(board->rules.begin(), board->rules.end(),
+        [&](const LogicRuleDef& rule) { return collapsedRuleIds_.count(rule.id) != 0; });
 }
 
 void LogicBoardPanel::syncResponsiveClass(Rml::ElementDocument* document) const {

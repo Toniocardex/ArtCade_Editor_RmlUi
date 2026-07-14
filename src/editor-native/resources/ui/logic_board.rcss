@@ -26,15 +26,41 @@
     background-color: #18181b;
     border-bottom: 1px #27272a;
 }
-.logic-heading { flex: 1; display: flex; flex-direction: column; }
+.logic-heading { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+/* The Object Type picker sits inline with the title instead of pinned to the
+   header's far edge — it's part of what "Logic Board · <name>" means, not an
+   unrelated remote control. */
+.logic-title-row { display: flex; flex-direction: row; align-items: center; min-width: 0; }
+.logic-title-prefix { flex: 0 0 auto; font-size: 17dp; color: #f4f4f5; margin-right: 7dp; }
 /* .drop-trigger's shared `flex: 1` is right for an Inspector prop-row (one
-   fixed label, one control) but would stretch this single-word picker
-   across whatever space .logic-heading doesn't claim — cap it instead. Its
-   dropdown is a floating .context-menu (see editor_ui.cpp), not an in-flow
-   .drop-list, so opening it never resizes this header. */
-.logic-type-trigger { flex: 0 0 240dp; }
-.logic-title { font-size: 17dp; color: #f4f4f5; margin-right: 14dp; }
-.logic-owner { margin-top: 3dp; color: #8a8a93; font-size: 10dp; letter-spacing: 0.5dp; }
+   fixed label, one control) but would let this picker consume the whole
+   title row — cap it, and let it shrink (not just cap) so a long Object Type
+   name doesn't blow out the header. Its dropdown is a floating .context-menu
+   (see editor_ui.cpp), not an in-flow .drop-list, so opening it never
+   resizes this header. */
+.logic-type-trigger { flex: 0 1 240dp; min-width: 140dp; max-width: 240dp; }
+.logic-owner { margin-top: 3dp; color: #8a8a93; font-size: 11dp; letter-spacing: 0.5dp; }
+/* "..." menu (Remove Logic Board) — deliberately its own class, not reusing
+   .comp-remove or .logic-btn.danger verbatim: it sits right next to the
+   Object Type picker and must read as calm/secondary until interacted with,
+   not as an already-alarming trash icon (see EditorUi::toggleLogicMoreMenu).
+   Blue-on-open mirrors .drop-trigger.open's convention. */
+.logic-more-trigger {
+    flex: 0 0 auto;
+    display: inline-block;
+    margin-left: 8dp;
+    width: 26dp;
+    height: 26dp;
+    line-height: 24dp;
+    text-align: center;
+    background-color: transparent;
+    border: 1px #323236;
+    border-radius: 3dp;
+    color: #8a8a93;
+}
+.logic-more-trigger:hover { border-color: #4a4a52; color: #d4d4d8; }
+.logic-more-trigger.open { border-color: #3b82f6; background-color: #3b82f618; color: #3b82f6; }
+.logic-more-trigger.disabled { opacity: 0.42; }
 /* Same outline-button tokens as .panel-btn (not that class itself, so the
    widget-conversion pass can retire the ones it makes obsolete without
    touching the shared class other panels depend on). */
@@ -53,13 +79,10 @@
 .logic-btn.danger { color: #e5706b; }
 .logic-btn.danger:hover { background-color: #2a1f20; border-color: #7f3b38; color: #f0918c; }
 .logic-btn.disabled, .logic-icon-btn.disabled { opacity: 0.42; }
-/* Bare child of .logic-rule (no container padding of its own to inherit),
-   unlike every other .logic-btn use — needs its own inset to match the
-   10dp margins .logic-rule-head/.logic-block already sit at. */
-.logic-add-action { margin: 2dp 10dp 10dp 10dp; }
-.logic-tools { display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 8dp 14dp; }
-.logic-tools-group { display: flex; flex-direction: row; align-items: center; }
-.logic-search { width: 220dp; margin-right: 8dp; }
+/* Sits inside .logic-col-footer now (padded by the footer itself), so no
+   margin of its own is needed — unlike the old bare-child-of-.logic-rule
+   placement this replaced. */
+.logic-add-action { margin: 0; }
 .logic-scroll { flex: 1; overflow-y: auto; padding: 0 14dp 18dp 14dp; }
 /* RmlUi has no user-agent stylesheet: an element with no explicit `display`
    defaults to inline, not block. Every one of these wraps sibling instances
@@ -69,11 +92,11 @@
 .logic-empty { display: block; margin: 28dp auto; width: 430dp; padding: 28dp; text-align: center; background-color: #1c1c1f; border: 1px #27272a; }
 .logic-empty-title { display: block; font-size: 18dp; color: #f4f4f5; margin-bottom: 8dp; }
 .logic-muted { display: block; color: #8a8a93; margin-bottom: 14dp; }
-/* Capped so a rule card reads as a card on wide windows instead of stretching
-   edge-to-edge — raised from 720dp (too tight for the 3-column Event/
-   Conditions/Actions body) to give each ~30/35/35 column room; ultrawide
-   windows still don't get an edge-to-edge card. */
-.logic-rule { display: block; margin: 8dp 0; padding-bottom: 10dp; max-width: 1120dp; background-color: #1c1c1f; border: 1px #27272a; }
+/* Capped so a rule card reads as a card even on very wide/ultrawide windows,
+   but raised from the old 720dp (too tight for the 3-column Event/
+   Conditions/Actions body — see .logic-rule-body below) to 1280dp, and
+   centered instead of hugging the left edge with dead space to its right. */
+.logic-rule { display: block; margin: 10dp auto; padding-bottom: 10dp; max-width: 1280dp; background-color: #1c1c1f; border: 1px #27272a; }
 .logic-rule.off { opacity: 0.62; }
 /* Separator is a hairline border, not a background shade — same convention
    as .comp-header, so the head reads as "a section of this card", not a
@@ -82,15 +105,20 @@
     display: flex;
     flex-direction: row;
     align-items: center;
-    padding: 8dp 10dp;
+    min-height: 34dp;
+    padding: 10dp 12dp;
     background-color: #1c1c1f;
     border-bottom: 1px #27272a;
 }
 /* Reuses .comp-caret's tabler-icons glyph styling (panels.rcss), as a
-   clickable button instead of a static span. */
+   clickable button instead of a static span, sized to a real ~28dp hit
+   area rather than just the glyph's own visual size. */
 .logic-rule-caret {
     display: inline-block;
-    width: 18dp;
+    width: 28dp;
+    height: 28dp;
+    line-height: 28dp;
+    text-align: center;
     margin-right: 2dp;
     background-color: transparent;
     border: 0;
@@ -99,8 +127,18 @@
     font-weight: normal;
 }
 .logic-rule-caret:hover { color: #c4c4c8; }
+/* Scoped to cards, not the shared .comp-remove definition itself (other
+   panels use that class at its own, smaller size) — the move/delete buttons
+   throughout a Logic Board card get the same real hit area as the caret. */
+.logic-rule .comp-remove, .logic-rule .logic-icon-btn {
+    width: 28dp;
+    height: 28dp;
+    line-height: 26dp;
+    text-align: center;
+    padding: 0;
+}
 .logic-rule-index { color: #6b6b73; margin-right: 8dp; }
-.logic-rule-title { flex: 1; color: #f4f4f5; }
+.logic-rule-title { flex: 1; font-size: 13dp; color: #f4f4f5; }
 .logic-rule-diagnostic-count {
     margin-right: 8dp;
     padding: 2dp 7dp;
@@ -108,12 +146,22 @@
     background-color: #2a1f20;
     font-size: 10dp;
 }
-.logic-block { display: block; margin: 8dp 10dp; padding: 9dp; background-color: #1c1c1f; border-left: 3px #3b82f6; }
-/* A lighter shade of the same accent, not a second hue — EVENT vs ACTION is
-   already communicated by the block labels (see .comp-badge.override for
-   the same "variant, not category" precedent). */
-.logic-block.action { border-left-color: #7aa2e8; }
-.logic-block.condition { border-left-color: #5b8ee0; }
+/* Blue used to mark every block's left edge permanently (Event/Action/
+   Condition each their own shade) — freed up for actual state (focus,
+   active tab, primary button) instead. .logic-rule and .logic-block used to
+   share the exact same background, so the colored edge was the *only* thing
+   separating adjacent blocks (e.g. two Actions); a plain removal would have
+   merged them into one undifferentiated mass. The replacement is a real,
+   if quiet, boundary: its own background one step lighter than the card,
+   plus a full 1px border. */
+.logic-block {
+    display: block;
+    margin: 8dp 0;
+    padding: 9dp;
+    background-color: #18181b;
+    border: 1px #27272a;
+    border-radius: 3dp;
+}
 .logic-block-label { color: #9ca3af; margin-right: 8dp; }
 .logic-inline { display: flex; flex-direction: row; align-items: center; margin-top: 7dp; }
 .logic-inline input { width: 110dp; margin-right: 6dp; }
@@ -126,11 +174,42 @@
    LogicBoardPanel::syncResponsiveClass) stacks them instead. min-width:0
    lets the inner dropdowns/inputs shrink rather than forcing horizontal
    overflow — flex children default to their content's min size otherwise. */
-.logic-rule-body { display: flex; flex-direction: row; align-items: flex-start; width: 100%; }
-.logic-rule-col { display: block; box-sizing: border-box; min-width: 0; }
+.logic-rule-body { display: flex; flex-direction: row; align-items: stretch; width: 100%; }
+/* Plain block, not flex-column: head/content/footer only need to stack in
+   DOM order, which block flow already guarantees — nesting another flex
+   container here (inside .logic-rule-body's own row flex) produced visibly
+   wrong ordering in this app's RmlUi build (footer painted before content),
+   so this deliberately stays simple. */
+.logic-rule-col { display: block; box-sizing: border-box; min-width: 0; padding: 12dp; }
 .logic-rule-col.event-col { flex: 0 0 30%; }
 .logic-rule-col.conditions-col, .logic-rule-col.actions-col { flex: 0 0 35%; }
 .logic-rule-col.conditions-col, .logic-rule-col.actions-col { border-left: 1px #27272a; }
+/* Every column is permanent structure (head/content[/footer]), independent
+   of whether it currently has anything in it — an empty Conditions column
+   still reads as "a Conditions section that's empty", not as a hole in the
+   layout with an orphaned "+ Add Condition" button. Reinforces the neutral
+   border-left above with its own hairline, same "section within a card"
+   convention .comp-header already uses elsewhere in this app. */
+.logic-col-head {
+    display: block;
+    padding-bottom: 8dp;
+    margin-bottom: 8dp;
+    border-bottom: 1px #27272a;
+    color: #8a8a93;
+    font-size: 10dp;
+    font-weight: 700;
+    letter-spacing: 1.1dp;
+    text-transform: uppercase;
+}
+.logic-col-content { display: block; }
+.logic-col-footer { display: block; margin-top: 8dp; }
+.logic-col-empty {
+    display: block;
+    margin-bottom: 8dp;
+    color: #8a8a93;
+    font-size: 11dp;
+}
+.logic-col-empty-sub { display: block; margin-top: 3dp; color: #5f5f68; font-size: 10dp; }
 .logic-board-panel.compact .logic-rule-body { flex-direction: column; }
 .logic-board-panel.compact .logic-rule-col { flex: 1 1 auto; width: 100%; }
 .logic-board-panel.compact .logic-rule-col.conditions-col,
@@ -144,3 +223,21 @@
    Enter) — bounded and scrollable, or it would push every rule below it
    further down the page instead of scrolling internally. */
 .logic-key-list { max-height: 220dp; overflow-y: auto; }
+
+/* A second, always-visible "+ Add Rule" at the end of the list — the natural
+   continuation of scrolling down, not a replacement for the toolbar button.
+   A dashed border-style isn't supported by this app's RmlUi build (confirmed
+   by the identical fallback already in sprite_animation_editor.rcss's
+   .anim-add-clip), so this uses a plain solid hairline instead. */
+.logic-add-rule-footer {
+    display: block;
+    width: 100%;
+    max-width: 1280dp;
+    height: 38dp;
+    margin: 8dp auto 18dp auto;
+    background-color: transparent;
+    border: 1px #323236;
+    color: #8a8a93;
+}
+.logic-add-rule-footer:hover { border-color: #3b82f6; color: #3b82f6; }
+.logic-add-rule-footer.disabled { opacity: 0.42; }

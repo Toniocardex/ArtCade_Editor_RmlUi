@@ -193,6 +193,10 @@ private:
     // ancestor, so there is no clipping risk to justify pushing the board
     // down every time it opens, the way the in-flow pattern otherwise would.
     void toggleLogicTypeMenu();
+    // Logic Board's "..." menu (Remove Logic Board). Same floating-menu
+    // mechanism as toggleLogicTypeMenu, but the menu content is static (one
+    // entry), so there's nothing to stamp in on open.
+    void toggleLogicMoreMenu();
     // Applies EditorUiState.consoleVisible to the actual panel (Layout invalidation).
     void refreshLayout();
     // The scene the Scene View camera (zoom/pan) is currently showing: the
@@ -245,6 +249,7 @@ private:
     };
     std::optional<PendingAssetMenu>     pendingAssetMenu_;
     bool                                logicTypeMenuVisible_ = false;
+    bool                                logicMoreMenuVisible_ = false;
     std::string                         pointerReadout_;   // last coords text shown
 };
 

@@ -768,10 +768,17 @@ void EditorUi::hideContextMenus() {
     if (Rml::Element* trigger = document_->GetElementById("logic-type-trigger")) {
         trigger->SetClass("open", false);
     }
+    if (Rml::Element* menu = document_->GetElementById("logic-more-menu")) {
+        menu->SetClass("hidden", true);
+    }
+    if (Rml::Element* trigger = document_->GetElementById("logic-more-trigger")) {
+        trigger->SetClass("open", false);
+    }
     viewportContextMenuVisible_ = false;
     hierarchyContextMenuVisible_ = false;
     assetsContextMenuVisible_ = false;
     logicTypeMenuVisible_ = false;
+    logicMoreMenuVisible_ = false;
 }
 
 bool EditorUi::isContextMenuHit(int physicalX, int physicalY) const {
@@ -792,7 +799,8 @@ bool EditorUi::isContextMenuHit(int physicalX, int physicalY) const {
     return hits("viewport-context-menu", viewportContextMenuVisible_)
         || hits("hierarchy-context-menu", hierarchyContextMenuVisible_)
         || hits("assets-context-menu", assetsContextMenuVisible_)
-        || hits("logic-type-menu", logicTypeMenuVisible_);
+        || hits("logic-type-menu", logicTypeMenuVisible_)
+        || hits("logic-more-menu", logicMoreMenuVisible_);
 }
 
 void EditorUi::toggleLogicTypeMenu() {
@@ -811,6 +819,22 @@ void EditorUi::toggleLogicTypeMenu() {
     menu->SetClass("hidden", false);
     trigger->SetClass("open", true);
     logicTypeMenuVisible_ = true;
+}
+
+void EditorUi::toggleLogicMoreMenu() {
+    if (!document_) return;
+    if (logicMoreMenuVisible_) { hideContextMenus(); return; }
+    Rml::Element* trigger = document_->GetElementById("logic-more-trigger");
+    Rml::Element* menu = document_->GetElementById("logic-more-menu");
+    if (!trigger || !menu) return;
+    hideContextMenus();
+    const Rml::Vector2f offset = trigger->GetAbsoluteOffset();
+    menu->SetProperty("left", std::to_string(static_cast<int>(offset.x)) + "px");
+    menu->SetProperty("top",
+        std::to_string(static_cast<int>(offset.y + trigger->GetClientHeight())) + "px");
+    menu->SetClass("hidden", false);
+    trigger->SetClass("open", true);
+    logicMoreMenuVisible_ = true;
 }
 
 void EditorUi::refreshToolbar() {
@@ -847,6 +871,13 @@ void EditorUi::refreshToolbar() {
     setEnabled("btn-logic-rules", logicWorkspace);
     setEnabled("btn-logic-lua", logicWorkspace);
     setEnabled("btn-logic-validate", logicWorkspace && hasLogicBoard);
+    // Collapse/Expand are workspace navigation, not authoring: usable during
+    // Play, but meaningless outside the Rules tab (nothing to collapse in
+    // Generated Lua). Their disabled state comes from the panel's own
+    // collapsedRuleIds_, queried against the board it currently renders.
+    const bool logicRulesTab = logicWorkspace && logicView.tab == LogicBoardTab::Rules;
+    setEnabled("btn-logic-collapse-all", logicRulesTab && logicBoardEditor_.canCollapseAllRules());
+    setEnabled("btn-logic-expand-all", logicRulesTab && logicBoardEditor_.canExpandAllRules());
     if (Rml::Element* el = document_->GetElementById("btn-logic-rules"))
         el->SetClass("active", logicWorkspace && logicView.tab == LogicBoardTab::Rules);
     if (Rml::Element* el = document_->GetElementById("btn-logic-lua"))
@@ -1069,6 +1100,10 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         && !(action == "toggle-logic-dropdown" && arg == "object-type")) {
         hideContextMenus();
     }
+    // Same staleness guard for the Logic Board's "..." menu.
+    if (logicMoreMenuVisible_ && action != "toggle-logic-more-menu") {
+        hideContextMenus();
+    }
 
     // Inspector Add Component menu: toggle it open/closed, and close it whenever a
     // component is actually added (the add invalidates the Inspector, which then
@@ -1105,20 +1140,31 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         else logicBoardEditor_.toggleDropdown(arg);
         return;
     }
+    if (action == "toggle-logic-more-menu") {
+        if (coordinator_.isPlaying()) return;
+        toggleLogicMoreMenu();
+        return;
+    }
     if (action == "toggle-inspector-section") {
         inspector_.toggleSection(document_, coordinator_, arg);
         return;
     }
     if (action == "toggle-logic-rule-collapsed") {
         logicBoardEditor_.toggleRuleCollapsed(arg);
+        // Collapse All/Expand All now live in the static toolbar, so their
+        // disabled state isn't refreshed by the panel's own re-render — sync
+        // it explicitly, or a single collapse/expand leaves them stale.
+        refreshToolbar();
         return;
     }
     if (action == "collapse-all-logic-rules") {
         logicBoardEditor_.collapseAllRules();
+        refreshToolbar();
         return;
     }
     if (action == "expand-all-logic-rules") {
         logicBoardEditor_.expandAllRules();
+        refreshToolbar();
         return;
     }
     if (action == "select-logic-object-type") {
