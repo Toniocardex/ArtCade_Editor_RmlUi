@@ -16,6 +16,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_set>
 
 namespace Rml { class ElementDocument; class EventListener; }
 
@@ -120,6 +121,20 @@ public:
     void setGeneratedSfxHandlers(GeneratedSfxRequest preview,
                                  WorkspaceRequest stopPreview,
                                  GeneratedSfxRequest generate);
+    // Generate writes into the project's own folder (assets/audio/generated/),
+    // which requires a saved project path -- a constraint the application
+    // layer already enforces (it logs a Console error and no-ops otherwise).
+    // Surfacing it here too means the SFX panel's own status line explains
+    // the constraint before the click, not only after it via a Console
+    // message the user has to go looking for.
+    using ProjectSavedQuery = std::function<bool()>;
+    void setProjectSavedQuery(ProjectSavedQuery query);
+    // Called by the application right after a Generate job's output is
+    // committed via RegisterGeneratedSfxOutputCommand. Shows a one-shot
+    // "Audio asset generated" confirmation (closing the mental loop of
+    // "where did that go") in place of the steady-state "Audio asset ready"
+    // wording, until the next SFX panel interaction of any kind.
+    void notifyGeneratedSfxOutputReady(const std::string& id);
 
     using EntityPlacementRequest = std::function<void()>;
     void setEntityPlacementHandlers(EntityPlacementRequest addEntity,
@@ -156,12 +171,31 @@ public:
     // scene). Presentation-only per-frame update: change-guarded, no
     // invalidation, never touches authoring state.
     void showViewportPointerReadout(const ViewportPointerReadout& readout);
+    // Called once per frame by the application (same push pattern as
+    // showViewportPointerReadout): the header's Stop button lives in static
+    // RML outside the invalidation-driven body, and playback can end on its
+    // own (the clip finishes) without any action passing through here, so it
+    // can't be a plain refreshGeneratedSfxEditor()-on-invalidation update.
+    void syncGeneratedSfxPreviewPlaying(bool playing);
 
     // Called by the listener; routes one UI interaction to command/intent.
     void handleAction(const std::string& action, const std::string& arg,
                       const std::string& value);
     // Splitter drag: clamps via ResizePanelIntent and re-lays out the panel.
     void handleDrag(const std::string& action, float mouseX, float mouseY);
+    // Generated SFX macro slider drag lifecycle. A macro edit is an undoable
+    // recipe field (unlike a splitter's panel width), so unlike handleDrag it
+    // must not submit a Command on every "change" tick during a drag -- only
+    // once, on release. See editor_ui.cpp's Listener for the dragstart/change/
+    // dragend discipline this backs.
+    void beginSfxMacroDrag(const std::string& macroId);
+    // "change" fires on every drag tick, a plain click-to-position, and a
+    // keyboard arrow nudge alike. While a drag session is open for this
+    // macroId, this only updates the live preview (no Command); otherwise
+    // (click/keyboard, no session open) it commits immediately, same as
+    // every other field in this editor.
+    void handleSfxMacroChange(const std::string& macroId, float value);
+    void commitSfxMacroDrag();
 
 private:
     class Listener;   // defined in editor_ui.cpp
@@ -241,6 +275,7 @@ private:
     GeneratedSfxRequest                 previewGeneratedSfxRequest_;
     WorkspaceRequest                    stopGeneratedSfxPreviewRequest_;
     GeneratedSfxRequest                 generateSfxOutputRequest_;
+    ProjectSavedQuery                   projectSavedQuery_;
     bool                                viewportContextMenuVisible_ = false;
     bool                                hierarchyContextMenuVisible_ = false;
     // Deferred hierarchy menu request (applied on the next processFrame).
@@ -264,6 +299,21 @@ private:
     bool                                logicMoreMenuVisible_ = false;
     std::string                         pointerReadout_;   // last coords text shown
     std::optional<std::string>          openGeneratedSfxId_;
+    // Simple/Advanced is a workspace view, not document state -- no dirty, no
+    // Undo, same contract as openGeneratedSfxId_ itself.
+    bool                                sfxAdvancedMode_ = false;
+    std::unordered_set<std::string>     sfxCollapsedSections_{"secondary-voice", "noise-layer"};
+    // Live state for an in-progress macro-slider drag; see handleSfxMacroDrag.
+    struct SfxMacroDragSession {
+        std::string assetId;      // GeneratedSfxDef::id this session belongs to
+        std::string macroId;
+        float       baselineValue = 0.f;
+        float       liveValue = 0.f;
+    };
+    std::optional<SfxMacroDragSession>  sfxMacroDrag_;
+    // Non-empty right after a successful Generate, until the next SFX panel
+    // interaction; see notifyGeneratedSfxOutputReady().
+    std::string                         sfxJustGeneratedId_;
 };
 
 } // namespace ArtCade::EditorNative

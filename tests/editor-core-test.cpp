@@ -24,6 +24,7 @@
 #include "editor-native/commands/image_asset_commands.h"
 #include "editor-native/commands/audio_asset_commands.h"
 #include "editor-native/commands/generated_sfx_commands.h"
+#include "editor-native/commands/generated_sfx_macros.h"
 #include "editor-native/commands/font_asset_commands.h"
 #include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/tilemap_commands.h"
@@ -52,10 +53,14 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include "artcade/sfx/presets.hpp"
+#include "artcade/sfx/synthesizer.hpp"
+
 #include <iostream>
 #include <iterator>
 #include <limits>
 #include <optional>
+#include <random>
 #include <string>
 #include <system_error>
 #include <type_traits>
@@ -3482,6 +3487,149 @@ static void runGeneratedSfxTests() {
     badVersion.recipe.generatorVersion = 999u;
     unsupported.generatedSfx.push_back(std::move(badVersion));
     CHECK(!ProjectValidator::validate(ProjectDocument{std::move(unsupported)}).ok);
+}
+
+static void runGeneratedSfxMacrosTests() {
+    using artcade::sfx::SfxRecipe;
+    using artcade::sfx::SfxSynthesizer;
+
+    // Pitch: slider extremes map exactly to the configured Hz bounds.
+    CHECK(std::abs(sfxPitchMacroToHz(0.f) - kSfxPitchMinHz) < 0.01f);
+    CHECK(std::abs(sfxPitchMacroToHz(1.f) - kSfxPitchMaxHz) < 0.5f);
+    CHECK(std::abs(sfxHzToPitchMacro(kSfxPitchMinHz) - 0.f) < 0.001f);
+    CHECK(std::abs(sfxHzToPitchMacro(kSfxPitchMaxHz) - 1.f) < 0.001f);
+
+    // Pitch display value (Hz, for the companion text input) round-trips
+    // through setSfxMacroFieldFromDisplay independently of slider space.
+    {
+        SfxRecipe recipe;
+        CHECK(setSfxMacroFieldFromDisplay(recipe, "pitch", 880.f));
+        CHECK(std::abs(sfxMacroDisplayValue(recipe, "pitch") - 880.f) < 0.5f);
+        CHECK(std::abs(recipe.primaryVoice.pitch.startHz - 880.f) < 0.5f);
+        // Every other macro's display value equals its slider-space value.
+        CHECK(setSfxMacroFieldFromDisplay(recipe, "duration", 0.3f));
+        CHECK(std::abs(sfxMacroDisplayValue(recipe, "duration") - 0.3f) < 1.0e-4f);
+    }
+
+    // Sweep: positive and negative semitones move endHz by the expected
+    // ratio, and it's always positive by construction — never the additive-
+    // Hz-delta bug that could drive endHz negative when startHz shrinks.
+    {
+        SfxRecipe recipe;
+        CHECK(setSfxMacroField(recipe, "pitch", 0.5f));
+        const float startHz = recipe.primaryVoice.pitch.startHz;
+        CHECK(setSfxMacroField(recipe, "pitchSweep", 12.f)); // +1 octave
+        CHECK(recipe.primaryVoice.pitch.endHz > 0.f);
+        CHECK(std::abs(recipe.primaryVoice.pitch.endHz - startHz * 2.f) < 1.f);
+        CHECK(std::abs(sfxMacroValue(recipe, "pitchSweep") - 12.f) < 0.05f);
+
+        CHECK(setSfxMacroField(recipe, "pitchSweep", -12.f)); // -1 octave
+        CHECK(recipe.primaryVoice.pitch.endHz > 0.f);
+        CHECK(std::abs(recipe.primaryVoice.pitch.endHz - startHz * 0.5f) < 1.f);
+
+        // Lowering Pitch after a wide negative sweep never drives endHz
+        // negative or non-finite.
+        CHECK(setSfxMacroField(recipe, "pitchSweep", -24.f));
+        CHECK(setSfxMacroField(recipe, "pitch", 0.f)); // startHz -> kSfxPitchMinHz
+        CHECK(recipe.primaryVoice.pitch.endHz > 0.f);
+        CHECK(std::isfinite(recipe.primaryVoice.pitch.endHz));
+    }
+
+    // Every macro, swept across its full domain from a preset base recipe,
+    // always leaves the recipe passing SfxSynthesizer::validate().
+    for (const SfxMacro& macro : kSfxMacros) {
+        SfxRecipe recipe = artcade::sfx::presets::coin();
+        if (std::string(macro.id) == "pitchSweep") {
+            // Pin startHz to a safe mid-range value first so extreme sweeps
+            // (x4 / x0.25) stay well under Nyquist regardless of what the
+            // preset's own startHz happened to be.
+            CHECK(setSfxMacroField(recipe, "pitch", 0.5f));
+        }
+        for (int i = 0; i <= 8; ++i) {
+            const float t = static_cast<float>(i) / 8.f;
+            const float value = macro.sliderMin + t * (macro.sliderMax - macro.sliderMin);
+            CHECK(setSfxMacroField(recipe, macro.id, value));
+            CHECK(SfxSynthesizer::validate(recipe).ok());
+        }
+    }
+
+    // Duration shrinking below the current Attack+Decay+Release rescales all
+    // three proportionally instead of producing an invalid recipe.
+    {
+        SfxRecipe recipe;
+        recipe.amplitude.attackSeconds = 0.3f;
+        recipe.amplitude.decaySeconds = 0.3f;
+        recipe.amplitude.releaseSeconds = 0.3f; // occupied = 0.9s
+        CHECK(setSfxMacroField(recipe, "duration", 0.1f));
+        const float occupied = recipe.amplitude.attackSeconds + recipe.amplitude.decaySeconds
+                              + recipe.amplitude.releaseSeconds;
+        CHECK(occupied <= recipe.durationSeconds + 1.0e-4f);
+        CHECK(SfxSynthesizer::validate(recipe).ok());
+        // Proportions preserved: all three were equal, so they still are.
+        CHECK(std::abs(recipe.amplitude.attackSeconds - recipe.amplitude.decaySeconds) < 1.0e-5f);
+    }
+
+    // Noise: 0 disables, >0 enables and scales gain.
+    {
+        SfxRecipe recipe;
+        recipe.noise.enabled = true;
+        recipe.noise.gain = 0.5f;
+        CHECK(setSfxMacroField(recipe, "noise", 0.f));
+        CHECK(!recipe.noise.enabled);
+        CHECK(setSfxMacroField(recipe, "noise", 40.f));
+        CHECK(recipe.noise.enabled);
+        CHECK(std::abs(recipe.noise.gain - 0.4f) < 1.0e-4f);
+        CHECK(std::abs(sfxMacroValue(recipe, "noise") - 40.f) < 0.01f);
+    }
+
+    // Crunch: 0 disables the Bit Crusher (bits untouched); >0 enables it and
+    // quantizes 16 -> 4 bits as intensity rises.
+    {
+        SfxRecipe recipe;
+        recipe.bitCrusher.enabled = true;
+        recipe.bitCrusher.quantizationBits = 10;
+        CHECK(setSfxMacroField(recipe, "crunch", 0.f));
+        CHECK(!recipe.bitCrusher.enabled);
+        CHECK(recipe.bitCrusher.quantizationBits == 10); // untouched
+
+        CHECK(setSfxMacroField(recipe, "crunch", 1.0e-4f));
+        CHECK(recipe.bitCrusher.enabled);
+        CHECK(recipe.bitCrusher.quantizationBits == 16);
+
+        CHECK(setSfxMacroField(recipe, "crunch", 100.f));
+        CHECK(recipe.bitCrusher.enabled);
+        CHECK(recipe.bitCrusher.quantizationBits == 4);
+
+        CHECK(setSfxMacroField(recipe, "crunch", 50.f));
+        CHECK(recipe.bitCrusher.quantizationBits == 10);
+    }
+
+    // Unknown macro id leaves the recipe untouched and reports failure.
+    {
+        SfxRecipe recipe;
+        const SfxRecipe before = recipe;
+        CHECK(!setSfxMacroField(recipe, "does-not-exist", 1.f));
+        CHECK(generatedSfxRecipesEqual(recipe, before));
+    }
+
+    // Randomize: every output stays valid; Noise/Crunch land at exactly-off
+    // noticeably more often than a uniform [0,100] draw would (sanity check
+    // on the bias, not an exact probability assertion).
+    {
+        std::mt19937 rng(1234);
+        int noiseOffCount = 0;
+        int crunchOffCount = 0;
+        constexpr int kRuns = 200;
+        for (int i = 0; i < kRuns; ++i) {
+            SfxRecipe recipe = artcade::sfx::presets::coin();
+            randomizeSfxMacros(recipe, rng);
+            CHECK(SfxSynthesizer::validate(recipe).ok());
+            if (!recipe.noise.enabled) ++noiseOffCount;
+            if (!recipe.bitCrusher.enabled) ++crunchOffCount;
+        }
+        CHECK(noiseOffCount > kRuns / 3);
+        CHECK(crunchOffCount > kRuns / 3);
+    }
 }
 
 int main() {
@@ -9388,6 +9536,7 @@ int main() {
     runTilemapRegionTests();
     runTilemapPlaySessionTests();
     runGeneratedSfxTests();
+    runGeneratedSfxMacrosTests();
 
     std::cout << "editor-core-test: " << g_passed << " passed, "
               << g_failed << " failed\n";

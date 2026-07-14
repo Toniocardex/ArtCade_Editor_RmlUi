@@ -23,7 +23,9 @@
 .sfx-kicker { display: block; font-size: 10px; color: #758399; letter-spacing: 1px; }
 .sfx-editor-title { display: block; margin-top: 2px; font-size: 19px; font-weight: 600; }
 .sfx-header-actions { display: flex; flex-direction: row; gap: 7px; }
-.sfx-header-actions .primary { background: #3b82f6; color: white; }
+/* Extra breathing room before the primary action -- Preview/Stop read as one
+   group (listen), Generate/Close as another (commit/leave). */
+.sfx-header-actions .primary { background: #3b82f6; color: white; margin-left: 10px; }
 
 .sfx-editor-body {
     position: absolute;
@@ -35,21 +37,59 @@
     overflow-y: auto;
 }
 
+/* Confirmed via RmlUi's Outlines debugger: this block's width collapsed to
+   its padding alone (content width ~0) -- its flex children (.sfx-summary-
+   row, .sfx-presets) render at their own natural size but entirely outside
+   this element's collapsed box, which is what showed as a bare sliver of
+   background/border on the left edge.
+   width: 100% did NOT fix it -- computed width still resolved to ~13px.
+   #sfx-editor-body is position:absolute, sized via left/right rather than
+   an explicit width, and this RmlUi build apparently can't resolve a
+   percentage against that kind of containing block reliably. width: auto
+   (plain block auto-fill, no percentage math involved) is what actually
+   works here -- do not reintroduce width: 100% on this element. */
 .sfx-summary {
-    padding: 12px;
+    display: block;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    box-sizing: border-box;
+    padding: 10px 12px;
     margin-bottom: 12px;
     background: #181d25;
-    border: 1px #2b3340;
+    border: 1px #3a4658;
     border-radius: 5px;
 }
 .sfx-summary-row { display: flex; flex-direction: row; align-items: center; gap: 10px; }
 .sfx-status { color: #94a3b8; font-size: 11px; }
 .sfx-status.ready { color: #67d391; }
 .sfx-name { width: 280px; }
+.sfx-output-path { margin-top: 4px; color: #758399; font-size: 10px; }
+/* One truth, not two: this only ever renders while the Generate button is
+   also disabled (see EditorUi::refreshGeneratedSfxEditor) -- the message and
+   the button state can't disagree, and the button carries its own fix. */
+.sfx-inline-action {
+    margin-left: 8px;
+    padding: 3px 8px;
+    background: transparent;
+    border: 1px #3b82f6;
+    border-radius: 3px;
+    color: #7aa2e8;
+    font-size: 10px;
+}
+.sfx-inline-action:hover { background: #1d2a44; color: #a9c6ff; }
 
-.sfx-presets { display: flex; flex-direction: row; gap: 6px; margin-top: 10px; }
+.sfx-presets { display: flex; flex-direction: row; align-items: center; gap: 6px; margin-top: 7px; }
 .sfx-preset { padding: 5px 10px; background: #232a35; border: 1px #394353; border-radius: 4px; color: #dfe5ee; }
 .sfx-preset:hover { background: #2d3745; }
+/* The preset that exactly matches the current recipe, if any -- cleared the
+   moment a macro edit makes the recipe diverge (see activeSfxPresetId). */
+.sfx-preset.active { background: #1d2a44; border-color: #3b82f6; color: #dbe6ff; }
+/* Randomize is an operation, not a sound choice -- a divider plus a slightly
+   muted tone keeps it from reading as a sixth preset and inviting stray clicks. */
+.sfx-preset-divider { width: 1px; align-self: stretch; background: #2b3340; margin: 0 2px; }
+.sfx-randomize { color: #9099a8; }
+.sfx-custom-badge { margin-left: 4px; color: #6b7684; font-size: 10px; }
 
 .sfx-grid { display: flex; flex-direction: row; flex-wrap: wrap; gap: 12px; }
 .sfx-section {
@@ -66,3 +106,122 @@
 .sfx-field input { width: 112px; height: 23px; padding: 2px 6px; background: #10141a; border: 1px #354052; color: #e6edf7; }
 .sfx-choice { min-width: 112px; padding: 3px 7px; background: #232a35; border: 1px #394353; border-radius: 3px; color: #dfe5ee; }
 .sfx-help { margin-top: 8px; color: #758399; font-size: 10px; }
+
+/* Simple/Advanced mode toggle -- a real expandable row (full-width, top
+   hairline, chevron flipped to point the way it will move), not a small
+   text link easy to overlook next to seven sliders. width: auto, not 100%
+   or unset -- see the .sfx-summary comment above for why a percentage here
+   would silently misresolve against #sfx-editor-body's absolute-positioned
+   containing block; .sfx-macro-row (display:flex, no width set at all)
+   happens to auto-fill correctly, but that's not a pattern to rely on
+   without the explicit width:auto everywhere else already had to add. */
+.sfx-mode-toggle-row {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    width: auto;
+    box-sizing: border-box;
+    height: 32px;
+    margin-top: 8px;
+    padding: 0 4px;
+    background: transparent;
+    border-width: 1px 0 0 0;
+    border-color: #272e38;
+    color: #7aa2e8;
+    font-size: 12px;
+}
+.sfx-mode-toggle-row:hover { background: #181d25; color: #a9c6ff; }
+.sfx-mode-toggle-chevron { color: #758399; font-size: 14px; }
+
+/* -- Simple mode: seven macro sliders standing in for the ~40 raw fields --
+   Constrained and centered (not stretched edge-to-edge): at full editor
+   width a slider spanning 1500+ px makes values hard to compare and forces
+   a long mouse travel for a small value change. */
+.sfx-simple-content { width: auto; max-width: 1100px; margin-left: auto; margin-right: auto; box-sizing: border-box; }
+.sfx-simple { width: auto; }
+.sfx-macro-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    height: 30px;
+}
+.sfx-macro-label { width: 76px; color: #8f9bae; font-size: 11px; }
+.sfx-macro-unit { width: 28px; color: #758399; font-size: 10px; }
+.sfx-macro-input { width: 64px; height: 23px; padding: 2px 6px; background: #10141a; border: 1px #354052; color: #e6edf7; }
+
+/* The native <input type="range"> (RmlUi's WidgetSlider) driving each macro.
+   slidertrack/sliderbar/sliderprogress/sliderarrow* are the same non-DOM
+   child tags theme.rcss already styles for scrollbars -- reused here rather
+   than reinventing a drag-handle control from scratch.
+
+   The input itself is 22px tall -- a bigger invisible hit/drag area than the
+   4px visual track alone would give, without inflating the track's own look.
+   Vertical offsets below are NOT independent of each other -- verified
+   against RmlUi's own WidgetSlider::PositionBar()/FormatProgress() (source):
+   - sliderbar's margin-top is its Y offset directly, relative to the input's
+     own top edge. Centering a 14px thumb in 22px needs (22-14)/2=4px.
+   - sliderprogress's Y offset is `track's own offset + progress's margin-top`
+     -- i.e. ADDED on top of wherever the track already sits, not computed
+     independently the way sliderbar's is. Since slidertrack sits at
+     margin-top:9px (centering its 4px track in the 22px input, (22-4)/2=9),
+     giving sliderprogress its own margin-top would double-count that and
+     render the blue fill below the grey track instead of on top of it. It
+     must stay 0 so it lands exactly on the track's own position. */
+.sfx-macro-slider {
+    flex: 1;
+    height: 22px;
+    border: 1px transparent;
+    box-sizing: border-box;
+}
+.sfx-macro-slider:focus { border-color: #3b82f6; }
+.sfx-macro-slider slidertrack {
+    height: 4px;
+    margin-top: 9px;
+    background-color: #232a35;
+    border-radius: 2px;
+    transition: background-color 0.1s;
+}
+.sfx-macro-slider:hover slidertrack { background-color: #2b3340; }
+.sfx-macro-slider sliderbar {
+    width: 14px;
+    height: 14px;
+    margin-top: 4px;
+    background-color: #dfe5ee;
+    border-radius: 7px;
+    border: 2px transparent;
+    box-sizing: border-box;
+    transition: background-color 0.1s, border-color 0.1s;
+}
+.sfx-macro-slider sliderbar:hover { background-color: #eef2f7; }
+/* :active is RmlUi's "currently pressed" pseudo-class -- true for the whole
+   duration of a drag, giving the thumb a distinct in-progress look beyond
+   the plain hover tint. */
+.sfx-macro-slider sliderbar:active { background-color: #3b82f6; border-color: #93c5fd; }
+.sfx-macro-slider sliderprogress { height: 4px; margin-top: 0; background-color: #3b82f6; border-radius: 2px; }
+/* Compact rows: the increment/decrement stepper arrows would crowd a
+   76px-label row that already has a drag track and a typed-value field. */
+.sfx-macro-slider sliderarrowdec, .sfx-macro-slider sliderarrowinc { display: none; }
+
+/* -- Advanced mode: collapsible section header (Secondary Voice, Noise Layer) -- */
+.sfx-section-head {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    margin-bottom: 6px;
+}
+.sfx-section-caret { padding: 0; background: transparent; border-width: 0; color: #758399; font-family: "tabler-icons"; }
+.sfx-section-head .sfx-section-title { flex: 1; margin-bottom: 0; }
+.sfx-section-toggle { margin-left: auto; }
+.sfx-subsection-toggle {
+    margin: 4px 0 8px 0;
+    padding: 0;
+    background: transparent;
+    border-width: 0;
+    color: #7aa2e8;
+    font-size: 10px;
+}
+.sfx-copy-primary { margin-top: 4px; }

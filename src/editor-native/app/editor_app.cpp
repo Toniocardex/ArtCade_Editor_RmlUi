@@ -405,6 +405,7 @@ int EditorApp::run(int argc, char** argv) {
         [&](const std::string& id) { startSfxJob(SfxJobKind::Preview, id); },
         [&]() { sfxPreview.stop(); },
         [&](const std::string& id) { startSfxJob(SfxJobKind::Generate, id); });
+    ui.setProjectSavedQuery([&] { return !projectSession.currentProjectPath().empty(); });
 
     // Fit View / auto-fit: frame the active scene, centred, with a small padding.
     // Workspace-only (recenter pan to 0 + zoom-to-fit via intents); the viewport
@@ -1116,6 +1117,7 @@ int EditorApp::run(int argc, char** argv) {
                         if (registered.ok) {
                             coordinator.logInfo(
                                 "Generated WAV: " + completed.relativePath);
+                            ui.notifyGeneratedSfxOutputReady(completed.id);
                         }
                     }
                 }
@@ -1123,6 +1125,7 @@ int EditorApp::run(int argc, char** argv) {
         }
 
         ui.processFrame();
+        ui.syncGeneratedSfxPreviewPlaying(sfxPreview.playing());
         // Title dirty-cue: follows undo/redo/save as well as edits, so it can't
         // hang off any single action path. Change-guarded O(1) check per frame.
         projectSession.refreshWindowTitleIfNeeded();

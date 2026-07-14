@@ -11,6 +11,7 @@
 #include "editor-native/commands/image_asset_commands.h"
 #include "editor-native/commands/audio_asset_commands.h"
 #include "editor-native/commands/generated_sfx_commands.h"
+#include "editor-native/commands/generated_sfx_macros.h"
 #include "artcade/sfx/presets.hpp"
 #include "editor-native/commands/font_asset_commands.h"
 #include "editor-native/commands/tilemap_commands.h"
@@ -36,10 +37,12 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <chrono>
 #include <limits>
 #include <optional>
+#include <random>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -143,6 +146,7 @@ bool actionRequiresPendingEditGate(const std::string& action) {
         "open-scene-workspace", "open-logic-workspace",
         "toggle-inspector-section",
         "toggle-logic-rule-collapsed", "collapse-all-logic-rules", "expand-all-logic-rules",
+        "toggle-sfx-mode", "toggle-sfx-section",
     };
     return std::find(std::begin(actions), std::end(actions), action) != std::end(actions);
 }
@@ -235,6 +239,19 @@ public:
             if (type != "drag") return;
             ui_.handleDrag(action, event.GetParameter<float>("mouse_x", 0.f),
                                    event.GetParameter<float>("mouse_y", 0.f));
+            return;
+        }
+        // Generated SFX macro range-input: dragstart/dragend bracket a real
+        // drag gesture (RmlUi only fires them when the mouse actually moves
+        // while held; a plain click or keyboard nudge never sees either), so
+        // a single commit lands on dragend instead of once per "change" tick.
+        if (action == "drag-sfx-macro") {
+            if (type == "dragstart") { ui_.beginSfxMacroDrag(arg); return; }
+            if (type == "dragend") { ui_.commitSfxMacroDrag(); return; }
+            if (type == "change") {
+                ui_.handleSfxMacroChange(arg, event.GetParameter<float>("value", 0.f));
+                return;
+            }
             return;
         }
         // Text edits stay local while typing. Commit only on blur or explicit Enter.
@@ -341,6 +358,8 @@ void EditorUi::bind() {
         doc->AddEventListener("keydown", listener_.get(), true);
         doc->AddEventListener("change", listener_.get());
         doc->AddEventListener("drag", listener_.get());
+        doc->AddEventListener("dragstart", listener_.get());
+        doc->AddEventListener("dragend", listener_.get());
     };
     bindDocument(document_);
     bindDocument(animationDocument_);
@@ -366,6 +385,8 @@ void EditorUi::detach() {
             doc->RemoveEventListener("keydown", listener_.get(), true);
             doc->RemoveEventListener("change", listener_.get());
             doc->RemoveEventListener("drag", listener_.get());
+            doc->RemoveEventListener("dragstart", listener_.get());
+            doc->RemoveEventListener("dragend", listener_.get());
         };
         detachDocument(document_);
         detachDocument(animationDocument_);
@@ -598,6 +619,15 @@ void EditorUi::setGeneratedSfxHandlers(GeneratedSfxRequest preview,
     previewGeneratedSfxRequest_ = std::move(preview);
     stopGeneratedSfxPreviewRequest_ = std::move(stopPreview);
     generateSfxOutputRequest_ = std::move(generate);
+}
+
+void EditorUi::setProjectSavedQuery(ProjectSavedQuery query) {
+    projectSavedQuery_ = std::move(query);
+}
+
+void EditorUi::notifyGeneratedSfxOutputReady(const std::string& id) {
+    sfxJustGeneratedId_ = id;
+    refreshGeneratedSfxEditor();
 }
 
 void EditorUi::setEntityPlacementHandlers(EntityPlacementRequest addEntity,
@@ -836,8 +866,30 @@ std::string sfxInput(const char* label, const char* field, float value);
 std::string sfxToggle(const char* label, const char* field, bool enabled);
 std::string sfxPitchFields(const artcade::sfx::PitchParams& pitch,
                            const std::string& prefix);
-std::string sfxVoiceSection(const char* title, const char* prefix,
-                            const artcade::sfx::VoiceParams& voice);
+// Primary Voice's Advanced section uses this plus sfxPitchFields in
+// sequence -- equivalent to the old sfxVoiceSection, just decomposed so
+// Secondary Voice's compact view can render Mix/Detune/Copy once and the
+// "More settings" sub-section can render oscillator + pitch fields without
+// repeating them (the exact duplication a single shared sfxVoiceSection
+// risked between "compact" and "more").
+std::string sfxVoiceOscillatorFields(const artcade::sfx::VoiceParams& voice, const char* prefix);
+std::string sfxSecondaryCompactFields(const artcade::sfx::VoiceParams& voice);
+// Collapsible Advanced-section header: caret (data-action="toggle-sfx-
+// section") + title, and for layers that can be switched off, an inline
+// Enabled toggle so on/off stays visible even while the body is collapsed.
+std::string sfxSectionHeader(const char* title, const std::string& sectionId, bool collapsed,
+                             const char* toggleField, bool toggleOn);
+// One Simple-mode macro row: a native <input type="range"> (drag/click/
+// keyboard all handled by RmlUi's WidgetSlider) paired with a plain numeric
+// text input showing the same value in real-world display units, plus a
+// unit label. See generated_sfx_macros.h for the slider-space/display-space
+// distinction (only Pitch's Hz differs from its [0,1] log-mapped slider).
+std::string sfxMacroRow(const SfxMacro& macro, const artcade::sfx::SfxRecipe& recipe);
+std::string formatSfxMacroNumber(const SfxMacro& macro, float displayValue);
+// Empty when the recipe has been hand-edited since the last preset apply --
+// never claim a preset is still "active" once the user has touched a macro,
+// even if a coincidental value match would technically pass the comparison.
+std::string activeSfxPresetId(const artcade::sfx::SfxRecipe& recipe);
 
 void EditorUi::refreshGeneratedSfxEditor() {
     if (!document_) return;
@@ -852,10 +904,18 @@ void EditorUi::refreshGeneratedSfxEditor() {
         ? coordinator_.document().findGeneratedSfx(*openGeneratedSfxId_) : nullptr;
     if (!definition) {
         openGeneratedSfxId_.reset();
+        sfxMacroDrag_.reset();
         root->SetClass("hidden", true);
         body->SetInnerRML("");
         return;
     }
+    // A drag session belongs to one specific asset. Every action that changes
+    // openGeneratedSfxId_ (open a different asset, close, remove) calls this
+    // function right after, so checking it here in one place -- rather than
+    // scattering a reset in every such handler -- is enough to guarantee a
+    // stray liveValue never lands on the wrong recipe.
+    if (sfxMacroDrag_ && sfxMacroDrag_->assetId != definition->id) sfxMacroDrag_.reset();
+
     root->SetClass("hidden", false);
     if (Rml::Element* title = document_->GetElementById("sfx-editor-title"))
         title->SetInnerRML(escapeRml(definition->name));
@@ -864,19 +924,67 @@ void EditorUi::refreshGeneratedSfxEditor() {
     const bool ready = !definition->outputAssetId.empty();
     const bool stale = !ready && coordinator_.document().hasAudioAsset(
         "generated-audio-" + definition->id);
+    // Generate writes into the project's own folder, so it needs a saved
+    // project path -- surfaced here (not just via the Console error the
+    // application layer already logs) so the constraint is visible before
+    // the click does nothing, not only after. Disabling the button itself
+    // (not just describing the constraint in prose next to an active-looking
+    // button) is what makes "why didn't that do anything" unreachable.
+    const bool projectSaved = !projectSavedQuery_ || projectSavedQuery_();
+    // The button's own label carries the consequence, not just the verb: the
+    // first generation adds a new entry to the project's Assets catalog
+    // (usable by Logic Board/Play), every one after that updates it in place.
+    if (Rml::Element* generateBtn = document_->GetElementById("btn-sfx-generate")) {
+        generateBtn->SetInnerRML(ready || stale ? "Regenerate Audio Asset" : "Generate &amp; Add to Project");
+        generateBtn->SetClass("disabled", !projectSaved);
+    }
+    const std::string activePreset = activeSfxPresetId(recipe);
+    const auto presetButton = [&](const char* id, const char* label) {
+        return "<button class=\"sfx-preset" + std::string(activePreset == id ? " active" : "")
+             + "\" data-action=\"apply-sfx-preset\" data-arg=\"" + id + "\">" + label + "</button>";
+    };
+    const bool justGenerated = ready && sfxJustGeneratedId_ == definition->id;
     std::string html = "<div class=\"sfx-summary\"><div class=\"sfx-summary-row\">"
         "<span class=\"sfx-field-label\">Name</span><input class=\"sfx-name\" type=\"text\" "
         "data-action=\"commit-sfx-name\" value=\"" + escapeRml(definition->name) + "\"/>"
         "<span class=\"sfx-status" + std::string(
-            ready ? " ready\">Ready" : stale ? "\">Recipe changed — regenerate"
-                                             : "\">Needs generation")
-        + "</span></div><div class=\"sfx-presets\">"
-          "<button class=\"sfx-preset\" data-action=\"apply-sfx-preset\" data-arg=\"coin\">Coin</button>"
-          "<button class=\"sfx-preset\" data-action=\"apply-sfx-preset\" data-arg=\"jump\">Jump</button>"
-          "<button class=\"sfx-preset\" data-action=\"apply-sfx-preset\" data-arg=\"laser\">Laser</button>"
-          "<button class=\"sfx-preset\" data-action=\"apply-sfx-preset\" data-arg=\"explosion\">Explosion</button>"
-          "<button class=\"sfx-preset\" data-action=\"apply-sfx-preset\" data-arg=\"hit\">Hit</button>"
-          "</div></div><div class=\"sfx-grid\">";
+            !projectSaved ? "\">Save the project before generating an audio asset."
+            : justGenerated ? " ready\">Audio asset generated"
+            : ready ? " ready\">Audio asset ready" : stale ? "\">Modified · Regenerate audio asset"
+                                                            : "\">Needs generation")
+        + "</span>"
+        + (!projectSaved ? "<button class=\"sfx-inline-action\" data-action=\"save-project\">Save Project&#8230;</button>" : "")
+        + "</div>"
+        + (ready ? "<div class=\"sfx-output-path\">" + escapeRml(definition->outputPath) + "</div>" : "")
+        + "<div class=\"sfx-presets\">"
+        + presetButton("coin", "Coin") + presetButton("jump", "Jump") + presetButton("laser", "Laser")
+        + presetButton("explosion", "Explosion") + presetButton("hit", "Hit")
+        + "<span class=\"sfx-preset-divider\"></span>"
+          "<button class=\"sfx-preset sfx-randomize\" data-action=\"randomize-sfx\">Randomize</button>"
+        + (activePreset.empty() ? "<span class=\"sfx-custom-badge\">Custom</span>" : "")
+        + "</div></div>";
+
+    if (!sfxAdvancedMode_) {
+        // Simple mode: seven macro sliders standing in for the ~40 raw
+        // fields below. The header (always visible, Preview/Stop/Generate/
+        // Close) already covers those actions -- Simple mode is short enough
+        // that a second copy at the bottom would just be an unexplained
+        // duplicate, not a convenience (unlike Logic Board's "+ Add Logic"
+        // footer, which duplicates a toolbar button the user may have
+        // scrolled well past).
+        html += "<div class=\"sfx-simple-content\"><div class=\"sfx-simple\">";
+        for (const SfxMacro& macro : kSfxMacros) html += sfxMacroRow(macro, recipe);
+        html += "</div>"
+                "<button class=\"sfx-mode-toggle-row\" data-action=\"toggle-sfx-mode\">"
+                "<span>Advanced settings</span><span class=\"sfx-mode-toggle-chevron\">&#8250;</span>"
+                "</button></div>";
+        body->SetInnerRML(html);
+        return;
+    }
+
+    html += "<button class=\"sfx-mode-toggle-row\" data-action=\"toggle-sfx-mode\">"
+            "<span>Simple mode</span><span class=\"sfx-mode-toggle-chevron\">&#8249;</span>"
+            "</button><div class=\"sfx-grid\">";
 
     html += "<div class=\"sfx-section\"><div class=\"sfx-section-title\">Master &amp; Envelope</div>";
     html += sfxInput("Duration (s)", "duration", recipe.durationSeconds);
@@ -887,14 +995,47 @@ void EditorUi::refreshGeneratedSfxEditor() {
     html += sfxInput("Release (s)", "release", recipe.amplitude.releaseSeconds);
     html += sfxInput("Random seed", "seed", std::to_string(recipe.randomSeed));
     html += "<div class=\"sfx-help\">Recipe schema 1 · generator 2 · mono PCM</div></div>";
-    html += sfxVoiceSection("Primary Voice", "primary", recipe.primaryVoice);
-    html += sfxVoiceSection("Secondary Voice", "secondary", recipe.secondaryVoice);
 
-    html += "<div class=\"sfx-section\"><div class=\"sfx-section-title\">Noise Layer</div>";
-    html += sfxToggle("Enabled", "noise.enabled", recipe.noise.enabled);
-    html += sfxInput("Gain", "noise.gain", recipe.noise.gain);
-    html += sfxPitchFields(recipe.noise.clock, "noise.pitch");
+    html += "<div class=\"sfx-section\"><div class=\"sfx-section-title\">Primary Voice</div>";
+    html += sfxToggle("Enabled", "primary.enabled", recipe.primaryVoice.enabled);
+    html += sfxInput("Gain", "primary.gain", recipe.primaryVoice.gain);
+    html += sfxInput("Detune", "primary.detune", recipe.primaryVoice.detuneSemitones);
+    html += sfxVoiceOscillatorFields(recipe.primaryVoice, "primary");
+    html += sfxPitchFields(recipe.primaryVoice.pitch, "primary.pitch");
     html += "</div>";
+
+    // Secondary Voice: header carries its own Enabled toggle (visible even
+    // collapsed); the body, when expanded, leads with the three fields that
+    // matter for "a second layer of the same sound" (Mix/Detune/Copy) before
+    // a nested "More settings" reveals the full oscillator/pitch/modulation
+    // set -- none of it repeating what the compact block already showed.
+    const bool secondaryCollapsed = sfxCollapsedSections_.count("secondary-voice") != 0;
+    html += sfxSectionHeader("Secondary Voice", "secondary-voice", secondaryCollapsed,
+                             "secondary.enabled", recipe.secondaryVoice.enabled);
+    if (!secondaryCollapsed) {
+        html += "<div class=\"sfx-section\">";
+        html += sfxSecondaryCompactFields(recipe.secondaryVoice);
+        const bool moreCollapsed = sfxCollapsedSections_.count("secondary-voice-more") != 0;
+        html += "<button class=\"sfx-subsection-toggle\" data-action=\"toggle-sfx-section\" "
+                "data-arg=\"secondary-voice-more\">"
+              + std::string(moreCollapsed ? "More settings &#8250;" : "More settings &#8249;")
+              + "</button>";
+        if (!moreCollapsed) {
+            html += sfxVoiceOscillatorFields(recipe.secondaryVoice, "secondary");
+            html += sfxPitchFields(recipe.secondaryVoice.pitch, "secondary.pitch");
+        }
+        html += "</div>";
+    }
+
+    const bool noiseCollapsed = sfxCollapsedSections_.count("noise-layer") != 0;
+    html += sfxSectionHeader("Noise Layer", "noise-layer", noiseCollapsed,
+                             "noise.enabled", recipe.noise.enabled);
+    if (!noiseCollapsed) {
+        html += "<div class=\"sfx-section\">";
+        html += sfxInput("Gain", "noise.gain", recipe.noise.gain);
+        html += sfxPitchFields(recipe.noise.clock, "noise.pitch");
+        html += "</div>";
+    }
 
     html += "<div class=\"sfx-section\"><div class=\"sfx-section-title\">Bit Crusher</div>";
     html += sfxToggle("Enabled", "crusher.enabled", recipe.bitCrusher.enabled);
@@ -968,22 +1109,72 @@ std::string sfxPitchFields(const artcade::sfx::PitchParams& pitch,
     return html;
 }
 
-std::string sfxVoiceSection(const char* title, const char* prefix,
-                            const artcade::sfx::VoiceParams& voice) {
-    std::string html = std::string("<div class=\"sfx-section\"><div class=\"sfx-section-title\">")
-        + title + "</div>";
-    html += sfxToggle("Enabled", (std::string(prefix) + ".enabled").c_str(), voice.enabled);
-    html += sfxChoice("Waveform", "cycle-sfx-field",
+// Waveform, Quality, Duty start/end -- deliberately NOT gain/detune, which
+// Secondary Voice's compact block shows as "Mix"/"Detune" instead; Primary
+// Voice's Advanced section renders those two inline itself (see caller).
+std::string sfxVoiceOscillatorFields(const artcade::sfx::VoiceParams& voice, const char* prefix) {
+    std::string html = sfxChoice("Waveform", "cycle-sfx-field",
                       (std::string(prefix) + ".waveform").c_str(), waveformLabel(voice.waveform));
     html += sfxChoice("Quality", "cycle-sfx-field",
                       (std::string(prefix) + ".quality").c_str(), qualityLabel(voice.quality));
-    html += sfxInput("Gain", (std::string(prefix) + ".gain").c_str(), voice.gain);
-    html += sfxInput("Detune", (std::string(prefix) + ".detune").c_str(), voice.detuneSemitones);
     html += sfxInput("Duty start", (std::string(prefix) + ".dutyStart").c_str(), voice.dutyStart);
     html += sfxInput("Duty end", (std::string(prefix) + ".dutyEnd").c_str(), voice.dutyEnd);
-    html += sfxPitchFields(voice.pitch, std::string(prefix) + ".pitch");
+    return html;
+}
+
+// Secondary Voice's always-visible block once its section is expanded:
+// Enabled itself lives in the section header (sfxSectionHeader), so this is
+// just the three fields that matter for "a second layer of the same sound".
+std::string sfxSecondaryCompactFields(const artcade::sfx::VoiceParams& voice) {
+    std::string html = sfxInput("Mix", "secondary.gain", voice.gain);
+    html += sfxInput("Detune", "secondary.detune", voice.detuneSemitones);
+    html += "<button class=\"panel-btn sfx-copy-primary\" "
+            "data-action=\"copy-primary-to-secondary\">Copy Primary Settings</button>";
+    return html;
+}
+
+std::string sfxSectionHeader(const char* title, const std::string& sectionId, bool collapsed,
+                             const char* toggleField, bool toggleOn) {
+    std::string html = "<div class=\"sfx-section-head\">"
+        "<button class=\"sfx-section-caret\" data-action=\"toggle-sfx-section\" data-arg=\""
+        + sectionId + "\">" + (collapsed ? "&#xeb5d;" : "&#xeb5f;") + "</button>"
+        "<span class=\"sfx-section-title\">" + title + "</span>";
+    if (toggleField) {
+        html += "<button class=\"sfx-choice sfx-section-toggle\" data-action=\"toggle-sfx-field\" "
+                "data-arg=\"" + std::string(toggleField) + "\">"
+              + (toggleOn ? "On" : "Off") + "</button>";
+    }
     html += "</div>";
     return html;
+}
+
+std::string formatSfxMacroNumber(const SfxMacro& macro, float displayValue) {
+    char buffer[32];
+    std::snprintf(buffer, sizeof(buffer), "%.*f", macro.decimals, displayValue);
+    return std::string(buffer);
+}
+
+std::string sfxMacroRow(const SfxMacro& macro, const artcade::sfx::SfxRecipe& recipe) {
+    const float sliderValue = sfxMacroValue(recipe, macro.id);
+    const float displayValue = sfxMacroDisplayValue(recipe, macro.id);
+    return "<div class=\"sfx-macro-row\"><span class=\"sfx-macro-label\">" + std::string(macro.label)
+         + "</span><input type=\"range\" class=\"sfx-macro-slider\" min=\"" + compactNumber(macro.sliderMin)
+         + "\" max=\"" + compactNumber(macro.sliderMax) + "\" step=\"" + compactNumber(macro.step)
+         + "\" value=\"" + compactNumber(sliderValue) + "\" data-action=\"drag-sfx-macro\" data-arg=\""
+         + macro.id + "\"/><input type=\"text\" class=\"sfx-macro-input\" id=\"sfx-macro-input-"
+         + macro.id + "\" data-action=\"commit-sfx-macro\" data-arg=\"" + macro.id + "\" value=\""
+         + formatSfxMacroNumber(macro, displayValue)
+         + "\"/><span class=\"sfx-macro-unit\">" + macro.unit + "</span></div>";
+}
+
+std::string activeSfxPresetId(const artcade::sfx::SfxRecipe& recipe) {
+    using namespace artcade::sfx;
+    if (generatedSfxRecipesEqual(recipe, presets::coin())) return "coin";
+    if (generatedSfxRecipesEqual(recipe, presets::jump())) return "jump";
+    if (generatedSfxRecipesEqual(recipe, presets::laser())) return "laser";
+    if (generatedSfxRecipesEqual(recipe, presets::explosion())) return "explosion";
+    if (generatedSfxRecipesEqual(recipe, presets::hit())) return "hit";
+    return {};
 }
 
 bool setSfxNumericField(artcade::sfx::SfxRecipe& recipe, const std::string& field,
@@ -1313,6 +1504,12 @@ void EditorUi::showViewportPointerReadout(const ViewportPointerReadout& readout)
     if (Rml::Element* el = document_->GetElementById("status-coords")) {
         el->SetInnerRML(escapeRml(text));
     }
+}
+
+void EditorUi::syncGeneratedSfxPreviewPlaying(bool playing) {
+    if (!document_ || !openGeneratedSfxId_) return;
+    if (Rml::Element* stop = document_->GetElementById("btn-sfx-stop"))
+        stop->SetClass("disabled", !playing);
 }
 
 void EditorUi::commitGridCellSize(const std::string& text) {
@@ -1920,6 +2117,10 @@ bool EditorUi::handleAssetsAction(const std::string& action, const std::string& 
 
 bool EditorUi::handleGeneratedSfxAction(const std::string& action, const std::string& arg,
                                         const std::string& value) {
+    // The "Audio asset generated" one-shot confirmation (see
+    // notifyGeneratedSfxOutputReady) lasts until the next panel interaction
+    // of any kind -- this is that "any kind" catch-all.
+    sfxJustGeneratedId_.clear();
     if (action == "create-generated-sfx") {
         if (coordinator_.isPlaying()) {
             coordinator_.logWarning("Stop Play before creating Generated SFX");
@@ -1997,6 +2198,51 @@ bool EditorUi::handleGeneratedSfxAction(const std::string& action, const std::st
         else if (arg == "hit") recipe = artcade::sfx::presets::hit();
         else return true;
         coordinator_.execute(UpdateGeneratedSfxRecipeCommand{current->id, recipe});
+        refreshGeneratedSfxEditor();
+        return true;
+    }
+    if (action == "randomize-sfx") {
+        static std::mt19937 rng{std::random_device{}()};
+        artcade::sfx::SfxRecipe recipe = current->recipe;
+        randomizeSfxMacros(recipe, rng);
+        coordinator_.execute(UpdateGeneratedSfxRecipeCommand{current->id, std::move(recipe)});
+        refreshGeneratedSfxEditor();
+        return true;
+    }
+    // Simple/Advanced is a workspace view, not document state -- no Command,
+    // no dirty, same contract as open/close-generated-sfx. Both still go
+    // through the pending-edit gate (actionRequiresPendingEditGate), so a
+    // dirty/invalid focused field is resolved first, exactly like toggling
+    // an Inspector section already does.
+    if (action == "toggle-sfx-mode") {
+        sfxAdvancedMode_ = !sfxAdvancedMode_;
+        refreshGeneratedSfxEditor();
+        return true;
+    }
+    if (action == "toggle-sfx-section") {
+        if (sfxCollapsedSections_.count(arg)) sfxCollapsedSections_.erase(arg);
+        else sfxCollapsedSections_.insert(arg);
+        refreshGeneratedSfxEditor();
+        return true;
+    }
+    if (action == "copy-primary-to-secondary") {
+        artcade::sfx::SfxRecipe recipe = current->recipe;
+        const bool wasEnabled = recipe.secondaryVoice.enabled;
+        recipe.secondaryVoice = recipe.primaryVoice;
+        recipe.secondaryVoice.enabled = wasEnabled;
+        coordinator_.execute(UpdateGeneratedSfxRecipeCommand{current->id, std::move(recipe)});
+        refreshGeneratedSfxEditor();
+        return true;
+    }
+    if (action == "commit-sfx-macro") {
+        const auto parsed = parseNumberField(value);
+        artcade::sfx::SfxRecipe recipe = current->recipe;
+        if (!parsed || !setSfxMacroFieldFromDisplay(recipe, arg, *parsed)) {
+            coordinator_.logError("Generated SFX macro is not a valid number");
+            refreshGeneratedSfxEditor();
+            return true;
+        }
+        coordinator_.execute(UpdateGeneratedSfxRecipeCommand{current->id, std::move(recipe)});
         refreshGeneratedSfxEditor();
         return true;
     }
@@ -2123,6 +2369,62 @@ void EditorUi::handleDrag(const std::string& action, float mouseX, float mouseY)
         if (Rml::Element* el = document_->GetElementById("console"))
             el->SetProperty("height", px(coordinator_.uiState().consoleHeight));
     }
+}
+
+void EditorUi::beginSfxMacroDrag(const std::string& macroId) {
+    if (!openGeneratedSfxId_) return;
+    const auto* current = coordinator_.document().findGeneratedSfx(*openGeneratedSfxId_);
+    if (!current) return;
+    sfxJustGeneratedId_.clear(); // touching a macro is panel interaction too
+    const float baseline = sfxMacroValue(current->recipe, macroId);
+    sfxMacroDrag_ = SfxMacroDragSession{current->id, macroId, baseline, baseline};
+}
+
+void EditorUi::handleSfxMacroChange(const std::string& macroId, float value) {
+    if (!openGeneratedSfxId_) return;
+    const auto* current = coordinator_.document().findGeneratedSfx(*openGeneratedSfxId_);
+    if (!current) return;
+    sfxJustGeneratedId_.clear();
+
+    if (sfxMacroDrag_ && sfxMacroDrag_->assetId == current->id && sfxMacroDrag_->macroId == macroId) {
+        // Live preview only -- no Command until dragend, or every drag tick
+        // would push its own Undo step.
+        sfxMacroDrag_->liveValue = value;
+        if (document_) {
+            if (Rml::Element* input =
+                    document_->GetElementById("sfx-macro-input-" + macroId)) {
+                if (auto* control = rmlui_dynamic_cast<Rml::ElementFormControl*>(input)) {
+                    if (const SfxMacro* macro = findSfxMacro(macroId)) {
+                        artcade::sfx::SfxRecipe preview = current->recipe;
+                        setSfxMacroField(preview, macroId, value);
+                        control->SetValue(formatSfxMacroNumber(*macro, sfxMacroDisplayValue(preview, macroId)));
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    // No active drag session for this macro (a plain click-to-position or a
+    // keyboard arrow nudge never dispatches dragstart/dragend at all) --
+    // commit immediately, same as every other field in this editor.
+    artcade::sfx::SfxRecipe recipe = current->recipe;
+    if (!setSfxMacroField(recipe, macroId, value)) return;
+    coordinator_.execute(UpdateGeneratedSfxRecipeCommand{current->id, std::move(recipe)});
+    refreshGeneratedSfxEditor();
+}
+
+void EditorUi::commitSfxMacroDrag() {
+    if (!sfxMacroDrag_) return;
+    const SfxMacroDragSession session = *sfxMacroDrag_;
+    sfxMacroDrag_.reset();
+    if (!openGeneratedSfxId_ || *openGeneratedSfxId_ != session.assetId) return;
+    const auto* current = coordinator_.document().findGeneratedSfx(session.assetId);
+    if (!current) return;
+    artcade::sfx::SfxRecipe recipe = current->recipe;
+    if (!setSfxMacroField(recipe, session.macroId, session.liveValue)) return;
+    coordinator_.execute(UpdateGeneratedSfxRecipeCommand{current->id, std::move(recipe)});
+    refreshGeneratedSfxEditor();
 }
 
 } // namespace ArtCade::EditorNative
