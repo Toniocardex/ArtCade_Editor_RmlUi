@@ -165,10 +165,23 @@ body {
     flex-direction: column;
     background-color: #161619;
     border-top: 1px #27272a;
+    /* #console is a normal-flow flex child, but .sfx-editor (and any other
+       full-workspace overlay) is position:absolute with z-index:30 covering
+       the same screen region -- without a stacking context of its own, a
+       non-positioned element always paints below any positioned one
+       regardless of DOM order, so opening the console while such an overlay
+       is up would otherwise render it invisible underneath. position:relative
+       only opts this element into z-index; it does not change its layout. */
+    position: relative;
+    z-index: 40;
 }
 /* .hidden alone can't win here: #console's own display:flex is an ID rule and
    outranks a plain class by specificity, so the override needs the ID too. */
 #console.hidden { display: none; }
+
+/* Same reasoning as #console above -- the splitter between it and the
+   viewport needs to stay grabbable above an open overlay too. */
+#split-console { position: relative; z-index: 40; }
 
 #status-bar {
     height: 26dp;

@@ -944,6 +944,17 @@ void EditorUi::refreshGeneratedSfxEditor() {
              + "\" data-action=\"apply-sfx-preset\" data-arg=\"" + id + "\">" + label + "</button>";
     };
     const bool justGenerated = ready && sfxJustGeneratedId_ == definition->id;
+    // ConsoleMessage carries no asset id or field path (that's the deferred
+    // "field-addressable diagnostics" slice), so this can only reflect the
+    // console's global counts -- the same numbers status-health already
+    // shows -- not "problems belonging to this specific Generated SFX".
+    // Reusing status-health/status-dot's own classes (controls.rcss) gets
+    // identical dot+color styling here for free.
+    std::size_t consoleErrors = 0, consoleWarnings = 0;
+    for (const ConsoleMessage& message : coordinator_.consoleLog()) {
+        if (message.level == ConsoleMessage::Level::Error) ++consoleErrors;
+        else if (message.level == ConsoleMessage::Level::Warning) ++consoleWarnings;
+    }
     std::string html = "<div class=\"sfx-summary\"><div class=\"sfx-summary-row\">"
         "<span class=\"sfx-field-label\">Name</span><input class=\"sfx-name\" type=\"text\" "
         "data-action=\"commit-sfx-name\" value=\"" + escapeRml(definition->name) + "\"/>"
@@ -956,6 +967,14 @@ void EditorUi::refreshGeneratedSfxEditor() {
         + (!projectSaved ? "<button class=\"sfx-inline-action\" data-action=\"save-project\">Save Project&#8230;</button>" : "")
         + "</div>"
         + (ready ? "<div class=\"sfx-output-path\">" + escapeRml(definition->outputPath) + "</div>" : "")
+        + ((consoleErrors + consoleWarnings) > 0
+            ? "<div class=\"sfx-console-issues\"><span class=\"status-health "
+              + std::string(consoleErrors != 0 ? "error" : "warning") + "\"><span class=\"status-dot\"></span>"
+              + (consoleErrors != 0
+                    ? std::to_string(consoleErrors) + (consoleErrors == 1 ? " error" : " errors")
+                    : std::to_string(consoleWarnings) + (consoleWarnings == 1 ? " warning" : " warnings"))
+              + "</span><button class=\"sfx-inline-action\" data-action=\"open-console-issues\">Show details</button></div>"
+            : "")
         + "<div class=\"sfx-presets\">"
         + presetButton("coin", "Coin") + presetButton("jump", "Jump") + presetButton("laser", "Laser")
         + presetButton("explosion", "Explosion") + presetButton("hit", "Hit")
@@ -982,8 +1001,8 @@ void EditorUi::refreshGeneratedSfxEditor() {
         return;
     }
 
-    html += "<button class=\"sfx-mode-toggle-row\" data-action=\"toggle-sfx-mode\">"
-            "<span>Simple mode</span><span class=\"sfx-mode-toggle-chevron\">&#8249;</span>"
+    html += "<button class=\"sfx-mode-toggle-row sfx-mode-toggle-back\" data-action=\"toggle-sfx-mode\">"
+            "<span class=\"sfx-mode-toggle-chevron\">&#8249;</span><span>Back to Simple</span>"
             "</button><div class=\"sfx-grid\">";
 
     html += "<div class=\"sfx-section\"><div class=\"sfx-section-title\">Master &amp; Envelope</div>";
@@ -1004,16 +1023,20 @@ void EditorUi::refreshGeneratedSfxEditor() {
     html += sfxPitchFields(recipe.primaryVoice.pitch, "primary.pitch");
     html += "</div>";
 
-    // Secondary Voice: header carries its own Enabled toggle (visible even
-    // collapsed); the body, when expanded, leads with the three fields that
-    // matter for "a second layer of the same sound" (Mix/Detune/Copy) before
-    // a nested "More settings" reveals the full oscillator/pitch/modulation
-    // set -- none of it repeating what the compact block already showed.
+    // Secondary Voice: one card in the same grid as every other section --
+    // collapsed, it's just the header (Enabled toggle visible even then);
+    // expanded, it leads with the three fields that matter for "a second
+    // layer of the same sound" (Mix/Detune/Copy) before a nested "More
+    // settings" reveals the full oscillator/pitch/modulation set, none of it
+    // repeating what the compact block already showed. The header used to be
+    // emitted as a bare .sfx-grid child with no card wrapper at all, which is
+    // why it stretched edge-to-edge with the toggle stranded at the far
+    // right -- it was never inside a .sfx-section box to begin with.
     const bool secondaryCollapsed = sfxCollapsedSections_.count("secondary-voice") != 0;
+    html += "<div class=\"sfx-section\">";
     html += sfxSectionHeader("Secondary Voice", "secondary-voice", secondaryCollapsed,
                              "secondary.enabled", recipe.secondaryVoice.enabled);
     if (!secondaryCollapsed) {
-        html += "<div class=\"sfx-section\">";
         html += sfxSecondaryCompactFields(recipe.secondaryVoice);
         const bool moreCollapsed = sfxCollapsedSections_.count("secondary-voice-more") != 0;
         html += "<button class=\"sfx-subsection-toggle\" data-action=\"toggle-sfx-section\" "
@@ -1024,18 +1047,18 @@ void EditorUi::refreshGeneratedSfxEditor() {
             html += sfxVoiceOscillatorFields(recipe.secondaryVoice, "secondary");
             html += sfxPitchFields(recipe.secondaryVoice.pitch, "secondary.pitch");
         }
-        html += "</div>";
     }
+    html += "</div>";
 
     const bool noiseCollapsed = sfxCollapsedSections_.count("noise-layer") != 0;
+    html += "<div class=\"sfx-section\">";
     html += sfxSectionHeader("Noise Layer", "noise-layer", noiseCollapsed,
                              "noise.enabled", recipe.noise.enabled);
     if (!noiseCollapsed) {
-        html += "<div class=\"sfx-section\">";
         html += sfxInput("Gain", "noise.gain", recipe.noise.gain);
         html += sfxPitchFields(recipe.noise.clock, "noise.pitch");
-        html += "</div>";
     }
+    html += "</div>";
 
     html += "<div class=\"sfx-section\"><div class=\"sfx-section-title\">Bit Crusher</div>";
     html += sfxToggle("Enabled", "crusher.enabled", recipe.bitCrusher.enabled);
@@ -2312,6 +2335,28 @@ bool EditorUi::handleConsoleAction(const std::string& action, const std::string&
         coordinator_.clearConsole();
     } else if (action == "toggle-console") {
         coordinator_.apply(ToggleConsoleIntent{});
+    } else if (action == "open-console-issues") {
+        // #status-health's own click: force the console open (never close it
+        // if it's already open -- unlike the generic toggle-console the View
+        // menu still uses) and narrow the filter to whichever severity the
+        // button itself is currently displaying, so "N warnings" leads
+        // straight to those N warnings instead of an unfiltered log.
+        std::size_t errors = 0, warnings = 0;
+        for (const ConsoleMessage& message : coordinator_.consoleLog()) {
+            if (message.level == ConsoleMessage::Level::Error) ++errors;
+            else if (message.level == ConsoleMessage::Level::Warning) ++warnings;
+        }
+        if (!coordinator_.uiState().consoleVisible) coordinator_.apply(ToggleConsoleIntent{});
+        if (errors != 0) {
+            coordinator_.apply(SetConsoleShowErrorIntent{true});
+            coordinator_.apply(SetConsoleShowWarningIntent{false});
+            coordinator_.apply(SetConsoleShowInfoIntent{false});
+        } else if (warnings != 0) {
+            coordinator_.apply(SetConsoleShowWarningIntent{true});
+            coordinator_.apply(SetConsoleShowErrorIntent{false});
+            coordinator_.apply(SetConsoleShowInfoIntent{false});
+        }
+        // Ready (no errors/warnings): just open, leave existing filters alone.
     } else if (action == "toggle-console-info") {
         coordinator_.apply(SetConsoleShowInfoIntent{!coordinator_.uiState().consoleShowInfo});
     } else if (action == "toggle-console-warning") {

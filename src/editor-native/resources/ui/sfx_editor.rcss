@@ -65,6 +65,10 @@
 .sfx-status.ready { color: #67d391; }
 .sfx-name { width: 280px; }
 .sfx-output-path { margin-top: 4px; color: #758399; font-size: 10px; }
+/* Global console counts (see the comment at their computation site in
+   editor_ui.cpp for why this isn't scoped to this asset specifically).
+   status-health/status-dot are reused as-is from controls.rcss. */
+.sfx-console-issues { display: flex; flex-direction: row; align-items: center; margin-top: 4px; }
 /* One truth, not two: this only ever renders while the Generate button is
    also disabled (see EditorUi::refreshGeneratedSfxEditor) -- the message and
    the button state can't disagree, and the button carries its own fix. */
@@ -133,6 +137,10 @@
 }
 .sfx-mode-toggle-row:hover { background: #181d25; color: #a9c6ff; }
 .sfx-mode-toggle-chevron { color: #758399; font-size: 14px; }
+/* Advanced -> Simple reads as "go back", not "expand" -- chevron and label
+   sit together at the start of the row instead of being pushed to opposite
+   ends the way Simple mode's "Advanced settings" row deliberately is. */
+.sfx-mode-toggle-back { justify-content: flex-start; gap: 6px; }
 
 /* -- Simple mode: seven macro sliders standing in for the ~40 raw fields --
    Constrained and centered (not stretched edge-to-edge): at full editor

@@ -182,7 +182,7 @@
     </div>
 
     <div id="status-bar">
-        <button id="status-health" class="status-health ready" data-action="toggle-console"><span class="status-dot"></span>Ready</button>
+        <button id="status-health" class="status-health ready" data-action="open-console-issues"><span class="status-dot"></span>Ready</button>
         <span id="status-coords" class="status-coords"></span>
         <span id="status-context" class="status-context"></span>
         <span id="status-project" class="status-project"></span>
