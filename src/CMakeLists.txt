@@ -152,6 +152,11 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
 )
 if(WIN32)
     list(APPEND ARTCADE_EDITOR_NATIVE_SOURCES editor-native/artcade_editor_native.rc)
+    # The Windows resource compiler does not reliably report the icon file as a
+    # dependency, so track it explicitly. This makes icon-only updates rebuild
+    # the executable instead of merely copying the runtime PNG resource.
+    set_property(SOURCE editor-native/artcade_editor_native.rc APPEND PROPERTY
+        OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/editor-native/resources/app-icon.ico")
 endif()
 
 add_executable(artcade-editor-native

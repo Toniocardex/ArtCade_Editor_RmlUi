@@ -109,6 +109,11 @@ bool LogicBoardEditorController::handleAction(
         coordinator_.apply(SetLogicBoardSearchIntent{value});
         return true;
     }
+    if (action == "change-logic-trigger" || action == "change-logic-action"
+        || action == "change-logic-condition" || action == "add-logic-action-type"
+        || action == "add-logic-condition-type" || action == "set-logic-collision-object-type") {
+        panel_.closeDropdown();
+    }
 
     const auto& view = coordinator_.state().logicBoardEditor;
     if (!view.objectTypeId || !coordinator_.document().hasObjectType(*view.objectTypeId))
@@ -119,7 +124,8 @@ bool LogicBoardEditorController::handleAction(
     if (action == "validate-logic-board") {
         if (!objectType.logicBoard) return true;
         const Logic::LogicCompileResult result =
-            Logic::compileBoard(objectTypeId, *objectType.logicBoard);
+            Logic::compileBoard(objectTypeId, *objectType.logicBoard, &objectType,
+                                &coordinator_.document().data());
         if (result.diagnostics.empty()) {
             coordinator_.logInfo("Logic valid · " + objectTypeId);
         } else {
@@ -143,12 +149,15 @@ bool LogicBoardEditorController::handleAction(
         || action == "move-logic-rule-up" || action == "move-logic-rule-down"
         || action == "toggle-logic-rule" || action == "change-logic-trigger"
         || action == "set-logic-key" || action == "add-logic-action"
+        || action == "add-logic-action-type"
         || action == "remove-logic-action" || action == "move-logic-action-up"
         || action == "move-logic-action-down" || action == "change-logic-action"
         || action == "toggle-logic-visible" || action == "commit-logic-position-x"
         || action == "commit-logic-position-y" || action == "add-logic-condition"
+        || action == "add-logic-condition-type" || action == "change-logic-condition"
         || action == "remove-logic-condition" || action == "move-logic-condition-up"
-        || action == "move-logic-condition-down" || action == "toggle-logic-condition-expected";
+        || action == "move-logic-condition-down" || action == "toggle-logic-condition-expected"
+        || action == "set-logic-collision-object-type";
     if (coordinator_.isPlaying() && authoringAction) return true;
 
     if (action == "create-logic-board") {
@@ -200,12 +209,9 @@ bool LogicBoardEditorController::handleAction(
         if (const LogicRuleDef* rule = ruleById(arg))
             coordinator_.execute(SetLogicRuleEnabledCommand{objectTypeId, arg, !rule->enabled});
     } else if (action == "change-logic-trigger") {
-        LogicBlockDef trigger = Logic::makeDefaultTrigger();
-        if (value == Logic::kKeyPressed) {
-            trigger.typeId = Logic::kKeyPressed;
-            trigger.properties = {{"key", LogicKey::Space}};
-        }
-        coordinator_.execute(ReplaceLogicTriggerCommand{objectTypeId, arg, std::move(trigger)});
+        LogicBlockDef trigger = Logic::makeDefaultBlock(value, Logic::BlockKind::Trigger);
+        if (!trigger.typeId.empty())
+            coordinator_.execute(ReplaceLogicTriggerCommand{objectTypeId, arg, std::move(trigger)});
     } else if (action == "set-logic-key") {
         if (const auto key = Logic::logicKeyFromName(value)) {
             coordinator_.execute(SetLogicPropertyCommand{
@@ -215,6 +221,12 @@ bool LogicBoardEditorController::handleAction(
         if (const LogicRuleDef* rule = ruleById(arg)) {
             coordinator_.execute(AddLogicActionCommand{
                 objectTypeId, arg, Logic::makeDefaultAction(), rule->actions.size()});
+        }
+    } else if (action == "add-logic-action-type") {
+        if (const LogicRuleDef* rule = ruleById(arg)) {
+            LogicBlockDef action = Logic::makeDefaultBlock(value, Logic::BlockKind::Action);
+            if (!action.typeId.empty()) coordinator_.execute(AddLogicActionCommand{
+                objectTypeId, arg, std::move(action), rule->actions.size()});
         }
     } else if (action == "remove-logic-action" || action == "move-logic-action-up"
                || action == "move-logic-action-down" || action == "change-logic-action"
@@ -259,9 +271,17 @@ bool LogicBoardEditorController::handleAction(
             coordinator_.execute(AddLogicConditionCommand{
                 objectTypeId, arg, Logic::makeDefaultCondition(), rule->conditions.size()});
         }
+    } else if (action == "add-logic-condition-type") {
+        if (const LogicRuleDef* rule = ruleById(arg)) {
+            LogicBlockDef condition = Logic::makeDefaultBlock(value, Logic::BlockKind::Condition);
+            if (!condition.typeId.empty()) coordinator_.execute(AddLogicConditionCommand{
+                objectTypeId, arg, std::move(condition), rule->conditions.size()});
+        }
     } else if (action == "remove-logic-condition" || action == "move-logic-condition-up"
                || action == "move-logic-condition-down"
-               || action == "toggle-logic-condition-expected") {
+               || action == "toggle-logic-condition-expected"
+               || action == "change-logic-condition"
+               || action == "set-logic-collision-object-type") {
         LogicRuleId ruleId;
         std::size_t index = 0;
         if (!parseActionArg(arg, ruleId, index)) return true;
@@ -274,6 +294,12 @@ bool LogicBoardEditorController::handleAction(
                 ? (index == 0 ? 0 : index - 1)
                 : std::min(index + 1, rule->conditions.size() - 1);
             coordinator_.execute(MoveLogicConditionCommand{objectTypeId, ruleId, index, destination});
+        } else if (action == "change-logic-condition") {
+            coordinator_.execute(ChangeLogicConditionTypeCommand{objectTypeId, ruleId, index, value});
+        } else if (action == "set-logic-collision-object-type") {
+            coordinator_.execute(SetLogicPropertyCommand{
+                objectTypeId, ruleId, LogicPropertyTarget::Condition, index,
+                "objectTypeId", LogicStringValue{value}});
         } else {
             bool expected = true;
             if (const LogicPropertyDef* p = Logic::findProperty(rule->conditions[index], "expected"))

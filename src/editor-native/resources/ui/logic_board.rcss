@@ -224,6 +224,32 @@
    further down the page instead of scrolling internally. */
 .logic-key-list { max-height: 220dp; overflow-y: auto; }
 
+/* Descriptor-driven block picker. Entries are buttons so the standard RmlUi
+   focus order gives keyboard access without a separate focus store. Metadata
+   is presentation only; compatibility remains validated by logic-core. */
+.logic-catalog-list { max-height: 260dp; overflow-y: auto; }
+.logic-catalog-category {
+    display: block;
+    padding: 7dp 9dp 3dp 9dp;
+    color: #8a8a93;
+    font-size: 10dp;
+    font-weight: 700;
+    letter-spacing: 0.8dp;
+    text-transform: uppercase;
+}
+.logic-catalog-entry {
+    display: block;
+    width: 100%;
+    padding: 7dp 9dp;
+    text-align: left;
+    background-color: transparent;
+    border-width: 0;
+}
+.logic-catalog-entry.disabled { opacity: 0.48; }
+.logic-catalog-name, .logic-catalog-description { display: block; }
+.logic-catalog-name { color: #d4d4d8; font-size: 12dp; }
+.logic-catalog-description { margin-top: 2dp; color: #8a8a93; font-size: 10dp; }
+
 /* A second, always-visible "+ Add Logic" at the end of the list — the natural
    continuation of scrolling down, not a replacement for the toolbar button.
    A dashed border-style isn't supported by this app's RmlUi build (confirmed

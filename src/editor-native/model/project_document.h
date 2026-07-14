@@ -73,6 +73,7 @@ class SetTilemapCellSizeCommand;
 class PaintTilemapCellsCommand;
 class SetStartSceneCommand;
 class RenameProjectCommand;
+class ChangeLogicConditionTypeCommand;
 
 // =============================================================================
 // ProjectDocument — the single authoring authority of the native editor.
@@ -235,6 +236,7 @@ private:
     friend class AddLogicConditionCommand;
     friend class RemoveLogicConditionCommand;
     friend class MoveLogicConditionCommand;
+    friend class ChangeLogicConditionTypeCommand;
     friend class SetLogicPropertyCommand;
 
     // ---- Patch (authoring mutations; called by commands) --------------------

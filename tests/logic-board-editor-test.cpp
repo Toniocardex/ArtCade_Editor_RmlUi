@@ -101,7 +101,9 @@ static void testCommandsAndPersistence() {
 }
 
 static void testConditionCommands() {
-    EditorCoordinator coordinator{makeProjectData()};
+    ProjectDoc project = makeProjectData();
+    project.objectTypes.at("Hero").platformerController = PlatformerControllerComponent{};
+    EditorCoordinator coordinator{std::move(project)};
     CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
     const LogicBoardDef& empty = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     const LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
@@ -139,6 +141,19 @@ static void testConditionCommands() {
     CHECK(coordinator.undo().ok);
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
         .conditions.size() == countBeforeRemove);
+}
+
+static void testConditionCompatibility() {
+    EditorCoordinator coordinator{makeProjectData()};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& empty = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
+    const auto result = coordinator.execute(AddLogicConditionCommand{
+        "Hero", rule.id, Logic::makeDefaultCondition(), 0});
+    CHECK(!result.ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
+        .conditions.empty());
 }
 
 static ProjectDoc makePlatformerProjectData() {
@@ -260,6 +275,84 @@ static void testPlayRuntimeIsolation() {
     CHECK(coordinator.document().findInstanceInScene("scene-1", 1)->transform.position.x == 5.f);
 }
 
+static void testCollisionEventOtherAndDeferredDestroy() {
+    ProjectDoc data = makeProjectData();
+    data.objectTypes.at("Hero").boxCollider2D =
+        BoxCollider2DComponent{{0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Trigger};
+    EntityDef pickup;
+    pickup.name = "Pickup";
+    pickup.className = "Pickup";
+    pickup.boxCollider2D = BoxCollider2DComponent{
+        {0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Trigger};
+    data.objectTypes.emplace("Pickup", pickup);
+    EntityDef sensor;
+    sensor.name = "Sensor";
+    sensor.className = "Sensor";
+    sensor.boxCollider2D = BoxCollider2DComponent{
+        {0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Trigger};
+    sensor.topDownController = TopDownControllerComponent{600.f, 0.f, 0.f, true};
+    data.objectTypes.emplace("Sensor", sensor);
+    SceneInstanceDef pickupInstance;
+    pickupInstance.id = 2;
+    pickupInstance.objectTypeId = "Pickup";
+    pickupInstance.instanceName = "Pickup 1";
+    pickupInstance.layerId = "layer-1";
+    pickupInstance.transform.position = {5.f, 6.f}; // overlaps Hero from the first runtime frame
+    data.scenes.at("scene-1").instances.push_back(pickupInstance);
+    data.scenes.at("scene-1").entityIds.push_back(2);
+    SceneInstanceDef sensorInstance;
+    sensorInstance.id = 3;
+    sensorInstance.objectTypeId = "Sensor";
+    sensorInstance.instanceName = "Sensor 1";
+    sensorInstance.layerId = "layer-1";
+    sensorInstance.transform.position = {5.f, 6.f};
+    data.scenes.at("scene-1").instances.push_back(sensorInstance);
+    data.scenes.at("scene-1").entityIds.push_back(3);
+
+    EditorCoordinator coordinator{std::move(data)};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Pickup"}).ok);
+    const LogicBoardDef& empty = *coordinator.document().data().objectTypes.at("Pickup").logicBoard;
+    LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
+    rule.trigger = Logic::makeDefaultBlock(Logic::kCollisionEnter, Logic::BlockKind::Trigger);
+    rule.actions[0] = Logic::makeDefaultBlock(Logic::kDestroySelf, Logic::BlockKind::Action);
+    LogicBlockDef other = Logic::makeDefaultBlock(Logic::kOtherIsObjectType, Logic::BlockKind::Condition);
+    other.properties[0].value = LogicStringValue{"Hero"};
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Pickup", rule, 0}).ok);
+    CHECK(coordinator.execute(AddLogicConditionCommand{"Pickup", rule.id, other, 0}).ok);
+
+    // EventOther is not valid outside collision triggers, and the failed Command
+    // leaves the authoring board unchanged.
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& heroEmpty = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicRuleDef heroRule = Logic::makeDefaultRule(nextLogicRuleId(heroEmpty));
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", heroRule, 0}).ok);
+    CHECK(!coordinator.execute(AddLogicConditionCommand{"Hero", heroRule.id, other, 0}).ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0].conditions.empty());
+
+    const LogicBoardDef& heroBoard = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    LogicRuleDef exitRule = Logic::makeDefaultRule(nextLogicRuleId(heroBoard));
+    exitRule.trigger = Logic::makeDefaultBlock(Logic::kCollisionExit, Logic::BlockKind::Trigger);
+    exitRule.actions[0] = {Logic::kSetVisible,
+                           {{"target", LogicEntityReference{}}, {"visible", false}}};
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", exitRule, 1}).ok);
+
+    CHECK(coordinator.playCurrentScene().ok);
+    RuntimeInputSnapshot none;
+    coordinator.updateRuntime(none, 1.f / 60.f);
+    // The collision snapshot finishes dispatching before destruction is applied;
+    // then the scope and collider disappear without touching authoring data.
+    CHECK(coordinator.playSession()->findEntity(2) == nullptr);
+    CHECK(coordinator.document().findInstanceInScene("scene-1", 2) != nullptr);
+    // The exit subscription fires once for the pair transition and is not
+    // emitted while the pair remains absent on later frames.
+    RuntimeInputSnapshot moveSensor;
+    moveSensor.moveRight = true;
+    coordinator.updateRuntime(moveSensor, 0.2f);
+    CHECK(!coordinator.playSession()->findEntity(1)->visible);
+    CHECK(coordinator.playSession()->findEntity(2) == nullptr);
+    CHECK(coordinator.stopPlaying().ok);
+}
+
 static void testInvalidPlayIsAtomic() {
     ProjectDoc data = makeProjectData();
     LogicBoardDef board;
@@ -331,8 +424,10 @@ static void testWorkspaceTargetAndSwitchPolicy() {
 int main() {
     testCommandsAndPersistence();
     testConditionCommands();
+    testConditionCompatibility();
     testConditionGatesRuntimeDispatch();
     testPlayRuntimeIsolation();
+    testCollisionEventOtherAndDeferredDestroy();
     testInvalidPlayIsAtomic();
     testWorkspaceTargetAndSwitchPolicy();
     std::cout << "logic-board-editor-test: " << passed << " passed, "

@@ -34,6 +34,28 @@ struct PlaySession::LogicHostAdapter final : Logic::ILogicRuntimeHost {
         const RuntimeEntity* entity = owner ? owner->findEntity(id) : nullptr;
         return entity && entity->platformerController && entity->platformerController->grounded;
     }
+    bool requestPlatformerMove(EntityId id, float axis) override {
+        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
+        if (!entity || !entity->platformerController || !std::isfinite(axis)) return false;
+        owner->platformerMoveIntents_[id] = std::clamp(axis, -1.f, 1.f);
+        return true;
+    }
+    bool requestPlatformerJump(EntityId id) override {
+        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
+        if (!entity || !entity->platformerController) return false;
+        owner->platformerJumpIntents_[id] = true;
+        return true;
+    }
+    bool isObjectType(EntityId id, const ObjectTypeId& objectTypeId) override {
+        const RuntimeEntity* entity = owner ? owner->findEntity(id) : nullptr;
+        return entity && entity->objectTypeId == objectTypeId;
+    }
+    bool requestDestroy(EntityId id) override {
+        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
+        if (!entity || entity->destroyed) return false;
+        owner->pendingDestroy_.insert(id);
+        return true;
+    }
 
     PlaySession* owner = nullptr;
 };
@@ -158,6 +180,14 @@ bool isStaticObstacle(const std::optional<RuntimeBoxCollider>& collider) {
             || collider->mode == BoxColliderMode::OneWayPlatform);
 }
 
+bool overlaps(const Aabb& a, const Aabb& b) {
+    return a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY;
+}
+
+std::pair<EntityId, EntityId> collisionPair(EntityId a, EntityId b) {
+    return a < b ? std::make_pair(a, b) : std::make_pair(b, a);
+}
+
 // Largest fraction of `move` allowed along one axis before the mover box [lo,hi]
 // would penetrate a solid box [sLo,sHi], given the boxes already overlap on the
 // cross axis. Only solids genuinely ahead constrain the move, so an already-
@@ -196,7 +226,12 @@ PlaySession::PlaySession(PlaySession&& other) noexcept
       spriteAnimationAssets_(std::move(other.spriteAnimationAssets_)),
       staticColliders_(std::move(other.staticColliders_)),
       logicHost_(std::move(other.logicHost_)),
-      logicRuntime_(std::move(other.logicRuntime_)) {
+      logicRuntime_(std::move(other.logicRuntime_)),
+      platformerMoveIntents_(std::move(other.platformerMoveIntents_)),
+      platformerJumpIntents_(std::move(other.platformerJumpIntents_)),
+      logicScopesByEntity_(std::move(other.logicScopesByEntity_)),
+      activeCollisionPairs_(std::move(other.activeCollisionPairs_)),
+      pendingDestroy_(std::move(other.pendingDestroy_)) {
     if (logicHost_) logicHost_->owner = this;
 }
 
@@ -210,6 +245,11 @@ PlaySession& PlaySession::operator=(PlaySession&& other) noexcept {
     staticColliders_ = std::move(other.staticColliders_);
     logicHost_ = std::move(other.logicHost_);
     logicRuntime_ = std::move(other.logicRuntime_);
+    platformerMoveIntents_ = std::move(other.platformerMoveIntents_);
+    platformerJumpIntents_ = std::move(other.platformerJumpIntents_);
+    logicScopesByEntity_ = std::move(other.logicScopesByEntity_);
+    activeCollisionPairs_ = std::move(other.activeCollisionPairs_);
+    pendingDestroy_ = std::move(other.pendingDestroy_);
     if (logicHost_) logicHost_->owner = this;
     return *this;
 }
@@ -424,10 +464,12 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
         for (const RuntimeEntity& entity : session.scene_.entities) {
             const auto typeIt = document.data().objectTypes.find(entity.objectTypeId);
             if (typeIt == document.data().objectTypes.end() || !typeIt->second.logicBoard) continue;
-            if (!session.logicRuntime_->install(entity.objectTypeId, entity.id, &logicError)) {
+            const auto scope = session.logicRuntime_->install(entity.objectTypeId, entity.id, &logicError);
+            if (!scope) {
                 if (error) *error = "Cannot start Play: " + logicError;
                 return std::nullopt;
             }
+            session.logicScopesByEntity_.emplace(entity.id, *scope);
         }
         session.logicRuntime_->beginFrame();
         session.logicRuntime_->dispatchStart();
@@ -449,14 +491,14 @@ std::optional<PlaySession> PlaySession::startActiveScene(const ProjectDocument& 
 
 const RuntimeEntity* PlaySession::findEntity(EntityId id) const {
     for (const RuntimeEntity& entity : scene_.entities) {
-        if (entity.id == id) return &entity;
+        if (entity.id == id && !entity.destroyed) return &entity;
     }
     return nullptr;
 }
 
 RuntimeEntity* PlaySession::findEntityMutable(EntityId id) {
     for (RuntimeEntity& entity : scene_.entities) {
-        if (entity.id == id) return &entity;
+        if (entity.id == id && !entity.destroyed) return &entity;
     }
     return nullptr;
 }
@@ -467,6 +509,58 @@ void PlaySession::refreshStaticCollider(EntityId owner) {
     for (StaticRuntimeCollider& collider : staticColliders_) {
         if (collider.owner == owner) collider.bounds = runtimeColliderBounds(*entity);
     }
+}
+
+void PlaySession::dispatchCollisionTransitions() {
+    if (!logicRuntime_) return;
+    std::set<std::pair<EntityId, EntityId>> current;
+    for (std::size_t i = 0; i < scene_.entities.size(); ++i) {
+        const RuntimeEntity& a = scene_.entities[i];
+        if (a.destroyed || !a.collider || !a.collider->enabled) continue;
+        const Aabb aBounds = runtimeColliderBounds(a);
+        for (std::size_t j = i + 1; j < scene_.entities.size(); ++j) {
+            const RuntimeEntity& b = scene_.entities[j];
+            if (b.destroyed || !b.collider || !b.collider->enabled) continue;
+            if (overlaps(aBounds, runtimeColliderBounds(b))) current.insert(collisionPair(a.id, b.id));
+        }
+    }
+    for (const auto& pair : current) {
+        if (activeCollisionPairs_.count(pair) != 0) continue;
+        logicRuntime_->dispatchCollisionEnter(pair.first, pair.second);
+        logicRuntime_->dispatchCollisionEnter(pair.second, pair.first);
+    }
+    for (const auto& pair : activeCollisionPairs_) {
+        if (current.count(pair) != 0) continue;
+        logicRuntime_->dispatchCollisionExit(pair.first, pair.second);
+        logicRuntime_->dispatchCollisionExit(pair.second, pair.first);
+    }
+    activeCollisionPairs_ = std::move(current);
+}
+
+void PlaySession::flushPendingDestroys() {
+    if (pendingDestroy_.empty()) return;
+    for (const EntityId id : pendingDestroy_) {
+        RuntimeEntity* entity = findEntityMutable(id);
+        if (!entity) continue;
+        entity->destroyed = true;
+        entity->visible = false;
+        if (entity->collider) entity->collider->enabled = false;
+        if (logicRuntime_) {
+            const auto scope = logicScopesByEntity_.find(id);
+            if (scope != logicScopesByEntity_.end()) logicRuntime_->cancelScope(scope->second);
+        }
+        logicScopesByEntity_.erase(id);
+        platformerMoveIntents_.erase(id);
+        platformerJumpIntents_.erase(id);
+        staticColliders_.erase(std::remove_if(staticColliders_.begin(), staticColliders_.end(),
+            [&](const StaticRuntimeCollider& collider) { return collider.owner == id; }),
+            staticColliders_.end());
+        for (auto it = activeCollisionPairs_.begin(); it != activeCollisionPairs_.end();) {
+            if (it->first == id || it->second == id) it = activeCollisionPairs_.erase(it);
+            else ++it;
+        }
+    }
+    pendingDestroy_.clear();
 }
 
 KinematicMoveResult PlaySession::moveKinematicEntity(RuntimeEntity& entity, Vec2 desiredDelta) {
@@ -521,6 +615,7 @@ KinematicMoveResult PlaySession::moveKinematicEntity(RuntimeEntity& entity, Vec2
 void PlaySession::advance(float dt) {
     if (dt <= 0.f) return;
     for (RuntimeEntity& entity : scene_.entities) {
+        if (entity.destroyed) continue;
         if (!entity.sprite || !entity.spriteAnimator || !entity.spriteAnimator->playing) continue;
         RuntimeSpriteAnimatorState& animator = *entity.spriteAnimator;
         const auto assetIt = spriteAnimationAssets_.find(animator.animationAssetId);
@@ -554,6 +649,7 @@ void PlaySession::advance(float dt) {
     }
     // Authored velocity (LinearMover) routed through the one resolver.
     for (RuntimeEntity& entity : scene_.entities) {
+        if (entity.destroyed) continue;
         moveKinematicEntity(entity, Vec2{entity.velocity.x * dt, entity.velocity.y * dt});
     }
 }
@@ -575,13 +671,17 @@ void PlaySession::updatePlatformer(RuntimeEntity& entity, const RuntimeInputSnap
     RuntimePlatformerController& pc = *entity.platformerController;
 
     // Jump is an edge input and only fires from the ground.
-    if (input.jumpPressed && pc.grounded) {
+    const bool logicJump = platformerJumpIntents_.count(entity.id) != 0;
+    if ((input.jumpPressed || logicJump) && pc.grounded) {
         pc.verticalVelocity = -pc.jumpSpeed;   // -Y is up
         pc.grounded = false;
     }
     pc.verticalVelocity += pc.gravity * dt;    // +Y is down
 
-    const float dx = (static_cast<float>(input.moveRight) - static_cast<float>(input.moveLeft))
+    float axis = static_cast<float>(input.moveRight) - static_cast<float>(input.moveLeft);
+    if (const auto it = platformerMoveIntents_.find(entity.id); it != platformerMoveIntents_.end())
+        axis = it->second;
+    const float dx = axis
                      * pc.moveSpeed * dt;
     const float dy = pc.verticalVelocity * dt;
 
@@ -598,15 +698,23 @@ void PlaySession::updatePlatformer(RuntimeEntity& entity, const RuntimeInputSnap
 
 void PlaySession::update(const RuntimeInputSnapshot& input, float dt) {
     if (logicRuntime_) {
+        platformerMoveIntents_.clear();
+        platformerJumpIntents_.clear();
         logicRuntime_->beginFrame();
         for (LogicKey key : input.pressedLogicKeys) logicRuntime_->dispatchKeyPressed(key);
+        for (LogicKey key : input.releasedLogicKeys) logicRuntime_->dispatchKeyReleased(key);
+        for (LogicKey key : input.heldLogicKeys) logicRuntime_->dispatchKeyHeld(key);
+        flushPendingDestroys();
     }
     if (!std::isfinite(dt) || dt <= 0.f) return;
     // One movement writer per entity (enforced at authoring): dispatch by driver.
     for (RuntimeEntity& entity : scene_.entities) {
+        if (entity.destroyed) continue;
         if (entity.topDownController)        updateTopDown(entity, input, dt);
         else if (entity.platformerController) updatePlatformer(entity, input, dt);
     }
+    dispatchCollisionTransitions();
+    flushPendingDestroys();
 }
 
 } // namespace ArtCade::EditorNative

@@ -5,6 +5,7 @@
 
 #include <optional>
 #include <memory>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -88,6 +89,9 @@ struct RuntimeEntity {
     // Runtime-only root visibility. Logic Board mutates this independently of
     // SpriteRenderer presence; Stop drops the entire runtime copy.
     bool visible = true;
+    // Destroy is a runtime-only lifecycle state. The structural vector keeps
+    // stable indices for render order while all simulation/render queries skip it.
+    bool destroyed = false;
     Vec2 velocity{};   // world units/second, resolved from authoring at materialize
     Vec3 fillColor{0.47f, 0.49f, 0.52f};
     std::optional<RuntimeSpriteComponent> sprite;
@@ -137,6 +141,8 @@ struct RuntimeInputSnapshot {
     bool jumpPressed = false;
     // Edge-triggered Logic Board keys in deterministic registry order.
     std::vector<LogicKey> pressedLogicKeys;
+    std::vector<LogicKey> releasedLogicKeys;
+    std::vector<LogicKey> heldLogicKeys;
 };
 
 struct RuntimeScene {
@@ -234,6 +240,8 @@ private:
     void updatePlatformer(RuntimeEntity& entity, const RuntimeInputSnapshot& input, float dt);
     RuntimeEntity* findEntityMutable(EntityId id);
     void refreshStaticCollider(EntityId owner);
+    void dispatchCollisionTransitions();
+    void flushPendingDestroys();
 
     RuntimeScene scene_;
     PlayAssetCatalogSnapshot assets_;
@@ -246,6 +254,11 @@ private:
     // invalidates the reference retained by LogicRuntime.
     std::unique_ptr<LogicHostAdapter> logicHost_;
     std::unique_ptr<Logic::LogicRuntime> logicRuntime_;
+    std::unordered_map<EntityId, float> platformerMoveIntents_;
+    std::unordered_map<EntityId, bool> platformerJumpIntents_;
+    std::unordered_map<EntityId, Logic::ScopeToken> logicScopesByEntity_;
+    std::set<std::pair<EntityId, EntityId>> activeCollisionPairs_;
+    std::set<EntityId> pendingDestroy_;
 };
 
 } // namespace ArtCade::EditorNative

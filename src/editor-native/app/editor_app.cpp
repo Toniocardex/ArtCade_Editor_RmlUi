@@ -100,6 +100,8 @@ void collectLogicKeyPresses(RuntimeInputSnapshot& input) {
     };
     for (const auto& [logicKey, raylibKey] : kKeys) {
         if (IsKeyPressed(raylibKey)) input.pressedLogicKeys.push_back(logicKey);
+        if (IsKeyReleased(raylibKey)) input.releasedLogicKeys.push_back(logicKey);
+        if (IsKeyDown(raylibKey)) input.heldLogicKeys.push_back(logicKey);
     }
 }
 

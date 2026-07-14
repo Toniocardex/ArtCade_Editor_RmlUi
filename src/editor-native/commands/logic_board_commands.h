@@ -148,6 +148,16 @@ private:
     std::optional<LogicBoardDef> before_;
 };
 
+class ChangeLogicConditionTypeCommand final : public EditorCommand {
+public:
+    ChangeLogicConditionTypeCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
+                                    std::size_t index, std::string typeId);
+    ARTCADE_LOGIC_BOARD_COMMAND_COMMON(ChangeLogicConditionType)
+private:
+    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t index_ = 0; std::string typeId_;
+    std::optional<LogicBoardDef> before_;
+};
+
 enum class LogicPropertyTarget { Trigger, Action, Condition };
 
 class SetLogicPropertyCommand final : public EditorCommand {

@@ -84,6 +84,51 @@ std::string modeOption(const char* label, const std::string& value, bool active,
     return html;
 }
 
+std::string categoryLabel(const Logic::LogicCategoryId& categoryId) {
+    if (categoryId.empty()) return "Other";
+    std::string label = categoryId;
+    label.front() = static_cast<char>(std::toupper(static_cast<unsigned char>(label.front())));
+    return label;
+}
+
+std::string catalogEntries(const EntityDef& owner, const Logic::LogicBlockDescriptor* trigger,
+                           Logic::BlockKind kind, const std::string& currentTypeId,
+                           const std::string& dropdownId, const char* selectAction,
+                           const std::string& selectArg) {
+    std::string html = "<div class=\"drop-list logic-catalog-list\">";
+    std::string previousCategory;
+    for (const Logic::LogicBlockDescriptor& descriptor : Logic::registry()) {
+        if (descriptor.kind != kind) continue;
+        if (descriptor.categoryId != previousCategory) {
+            previousCategory = descriptor.categoryId;
+            html += "<div class=\"logic-catalog-category\">"
+                 + escapeRml(categoryLabel(descriptor.categoryId)) + "</div>";
+        }
+        const bool current = descriptor.typeId == currentTypeId;
+        const Logic::LogicBlockAvailability availability =
+            Logic::blockAvailability(owner, descriptor, trigger);
+        html += "<button class=\"drop-entry logic-catalog-entry";
+        if (current) html += " selected";
+        if (!availability.compatible) html += " disabled";
+        html += "\"";
+        if (current) {
+            html += " data-action=\"toggle-logic-dropdown\" data-arg=\""
+                 + escapeRml(dropdownId) + "\"";
+        } else if (availability.compatible) {
+            html += " data-action=\"" + std::string(selectAction) + "\" data-arg=\""
+                 + escapeRml(selectArg) + "\" data-value=\""
+                 + escapeRml(descriptor.typeId) + "\"";
+        } else {
+            html += " disabled=\"disabled\" title=\"" + escapeRml(availability.reason) + "\"";
+        }
+        html += "><span class=\"logic-catalog-name\">" + escapeRml(descriptor.displayName)
+             + "</span><span class=\"logic-catalog-description\">"
+             + escapeRml(availability.compatible ? descriptor.description : availability.reason)
+             + "</span></button>";
+    }
+    return html + "</div>";
+}
+
 // Falls back to the raw typeId (never blank) for a descriptor the registry no
 // longer knows — a migrated project, a removed block type, or a future
 // schema opened by an older build must still show *something* readable.
@@ -231,7 +276,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     }
 
     const LogicBoardDef& board = *objectType.logicBoard;
-    const Logic::LogicCompileResult compiled = Logic::compileBoard(selectedId, board);
+    const Logic::LogicCompileResult compiled = Logic::compileBoard(
+        selectedId, board, selectedType, &coordinator.document().data());
 
     if (view.tab == LogicBoardTab::GeneratedLua) {
         html += "<div id=\"logic-scroll\" class=\"logic-scroll\">";
@@ -311,13 +357,18 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         html += "<div class=\"logic-rule-col event-col\">"
                 "<div class=\"logic-col-head\">EVENT</div>"
                 "<div class=\"logic-col-content\">"
-                "<div class=\"logic-block\"><div class=\"mode-options\">";
-        html += modeOption("On Start", Logic::kOnStart, rule.trigger.typeId == Logic::kOnStart,
-                          "change-logic-trigger", rule.id, playing);
-        html += modeOption("Key Pressed", Logic::kKeyPressed, rule.trigger.typeId == Logic::kKeyPressed,
-                          "change-logic-trigger", rule.id, playing);
-        html += "</div>";
-        if (rule.trigger.typeId == Logic::kKeyPressed) {
+                "<div class=\"logic-block\">";
+        const std::string triggerDropdownId = "trigger|" + rule.id;
+        const bool triggerOpen = openDropdownId_ == triggerDropdownId && !playing;
+        html += dropdownTriggerMarkup(descriptorLabel(rule.trigger.typeId), "toggle-logic-dropdown",
+                                      triggerDropdownId, triggerOpen, playing);
+        if (triggerOpen) {
+            html += catalogEntries(objectType, nullptr, Logic::BlockKind::Trigger,
+                                   rule.trigger.typeId, triggerDropdownId,
+                                   "change-logic-trigger", rule.id);
+        }
+        if (rule.trigger.typeId == Logic::kKeyPressed || rule.trigger.typeId == Logic::kKeyReleased
+            || rule.trigger.typeId == Logic::kKeyHeld) {
             LogicKey selectedKey = LogicKey::Space;
             if (const LogicPropertyDef* p = property(rule.trigger, "key"))
                 if (const auto* key = std::get_if<LogicKey>(&p->value)) selectedKey = *key;
@@ -354,6 +405,9 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         for (std::size_t conditionIndex = 0; conditionIndex < rule.conditions.size(); ++conditionIndex) {
             const LogicBlockDef& condition = rule.conditions[conditionIndex];
             const std::string arg = actionArg(rule.id, conditionIndex);
+            const std::string dropdownId = "condition|" + arg;
+            const bool dropdownOpen = openDropdownId_ == dropdownId && !playing;
+            const Logic::LogicBlockDescriptor* trigger = Logic::findDescriptor(rule.trigger.typeId);
             html += "<div class=\"logic-block\"><div class=\"logic-action-row\">"
                     "<div class=\"logic-action-main\">"
                     "<span class=\"logic-block-label\">Self · Is Grounded</span></div>"
@@ -367,21 +421,56 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             if (playing) html += " disabled";
             html += "\" data-action=\"remove-logic-condition\" data-arg=\"" + escapeRml(arg)
                  + "\" title=\"Delete condition\">" + iconMarkup("&#xeb41;") + "</button></div>";
-            bool expected = true;
-            if (const LogicPropertyDef* p = property(condition, "expected"))
-                if (const auto* v = std::get_if<bool>(&p->value)) expected = *v;
-            html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Expected</span>"
-                    "<button class=\"logic-btn";
-            if (playing) html += " disabled";
-            html += "\" data-action=\"toggle-logic-condition-expected\" data-arg=\"" + escapeRml(arg) + "\">"
-                 + std::string(expected ? "Yes" : "No") + "</button></div>";
+            html += "<div class=\"logic-inline\">"
+                 + dropdownTriggerMarkup(descriptorLabel(condition.typeId), "toggle-logic-dropdown",
+                                       dropdownId, dropdownOpen, playing) + "</div>";
+            if (dropdownOpen) {
+                html += catalogEntries(objectType, trigger, Logic::BlockKind::Condition,
+                                       condition.typeId, dropdownId,
+                                       "change-logic-condition", arg);
+            }
+            if (condition.typeId == Logic::kOtherIsObjectType) {
+                std::string selectedObjectType;
+                if (const LogicPropertyDef* p = property(condition, "objectTypeId"))
+                    if (const auto* v = std::get_if<LogicStringValue>(&p->value)) selectedObjectType = v->value;
+                const std::string objectTypeDropdownId = "collision-type|" + arg;
+                const bool objectTypeOpen = openDropdownId_ == objectTypeDropdownId && !playing;
+                html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Other type</span>"
+                     + dropdownTriggerMarkup(selectedObjectType.empty() ? "Choose Object Type" : selectedObjectType,
+                                               "toggle-logic-dropdown", objectTypeDropdownId,
+                                               objectTypeOpen, playing) + "</div>";
+                if (objectTypeOpen) {
+                    html += "<div class=\"drop-list logic-key-list\">";
+                    for (const ObjectTypeId& id : typeIds) {
+                        html += dropEntry(id, id, id == selectedObjectType, objectTypeDropdownId,
+                                          "set-logic-collision-object-type", arg);
+                    }
+                    html += "</div>";
+                }
+            } else if (condition.typeId == Logic::kIsGrounded) {
+                bool expected = true;
+                if (const LogicPropertyDef* p = property(condition, "expected"))
+                    if (const auto* v = std::get_if<bool>(&p->value)) expected = *v;
+                html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Expected</span>"
+                        "<button class=\"logic-btn";
+                if (playing) html += " disabled";
+                html += "\" data-action=\"toggle-logic-condition-expected\" data-arg=\"" + escapeRml(arg) + "\">"
+                     + std::string(expected ? "Yes" : "No") + "</button></div>";
+            }
             html += "</div>";
         }
         html += "</div>"; // .logic-col-content
+        const std::string addConditionDropdownId = "add-condition|" + rule.id;
+        const bool addConditionOpen = openDropdownId_ == addConditionDropdownId && !playing;
         html += "<div class=\"logic-col-footer\"><button class=\"logic-btn logic-add-action";
         if (playing || rule.conditions.size() >= Logic::kMaxConditionsPerRule) html += " disabled";
-        html += "\" data-action=\"add-logic-condition\" data-arg=\"" + escapeRml(rule.id)
+        html += "\" data-action=\"toggle-logic-dropdown\" data-arg=\"" + escapeRml(addConditionDropdownId)
              + "\">+ Add Condition</button></div>";
+        if (addConditionOpen) {
+            html += catalogEntries(objectType, Logic::findDescriptor(rule.trigger.typeId),
+                                   Logic::BlockKind::Condition, {}, addConditionDropdownId,
+                                   "add-logic-condition-type", rule.id);
+        }
         html += "</div>"; // conditions-col
 
         // ACTIONS — always at least one (enforced by RemoveLogicActionCommand),
@@ -392,13 +481,12 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         for (std::size_t actionIndex = 0; actionIndex < rule.actions.size(); ++actionIndex) {
             const LogicBlockDef& action = rule.actions[actionIndex];
             const std::string arg = actionArg(rule.id, actionIndex);
+            const std::string dropdownId = "action|" + arg;
+            const bool dropdownOpen = openDropdownId_ == dropdownId && !playing;
             html += "<div class=\"logic-block\"><div class=\"logic-action-row\"><div class=\"logic-action-main\">"
-                    "<div class=\"mode-options\">";
-            html += modeOption("Set Visible", Logic::kSetVisible, action.typeId == Logic::kSetVisible,
-                              "change-logic-action", arg, playing);
-            html += modeOption("Set Position", Logic::kSetPosition, action.typeId == Logic::kSetPosition,
-                              "change-logic-action", arg, playing);
-            html += "</div></div><button class=\"logic-icon-btn";
+                 + dropdownTriggerMarkup(descriptorLabel(action.typeId), "toggle-logic-dropdown",
+                                       dropdownId, dropdownOpen, playing)
+                 + "</div><button class=\"logic-icon-btn";
             if (playing || actionIndex == 0) html += " disabled";
             html += "\" data-action=\"move-logic-action-up\" data-arg=\"" + escapeRml(arg) + "\">↑</button>"
                     "<button class=\"logic-icon-btn";
@@ -408,6 +496,11 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             if (playing || rule.actions.size() == 1) html += " disabled";
             html += "\" data-action=\"remove-logic-action\" data-arg=\"" + escapeRml(arg)
                  + "\" title=\"Delete action\">" + iconMarkup("&#xeb41;") + "</button></div>";
+            if (dropdownOpen) {
+                html += catalogEntries(objectType, Logic::findDescriptor(rule.trigger.typeId),
+                                       Logic::BlockKind::Action, action.typeId, dropdownId,
+                                       "change-logic-action", arg);
+            }
             if (action.typeId == Logic::kSetVisible) {
                 bool visible = true;
                 if (const LogicPropertyDef* p = property(action, "visible"))
@@ -434,10 +527,17 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             html += "</div>";
         }
         html += "</div>"; // .logic-col-content
+        const std::string addActionDropdownId = "add-action|" + rule.id;
+        const bool addActionOpen = openDropdownId_ == addActionDropdownId && !playing;
         html += "<div class=\"logic-col-footer\"><button class=\"logic-btn logic-add-action";
         if (playing || rule.actions.size() >= Logic::kMaxActionsPerRule) html += " disabled";
-        html += "\" data-action=\"add-logic-action\" data-arg=\"" + escapeRml(rule.id)
+        html += "\" data-action=\"toggle-logic-dropdown\" data-arg=\"" + escapeRml(addActionDropdownId)
              + "\">+ Add Action</button></div>";
+        if (addActionOpen) {
+            html += catalogEntries(objectType, Logic::findDescriptor(rule.trigger.typeId),
+                                   Logic::BlockKind::Action, {}, addActionDropdownId,
+                                   "add-logic-action-type", rule.id);
+        }
         html += "</div>"; // actions-col
 
         html += "</div>"; // .logic-rule-body

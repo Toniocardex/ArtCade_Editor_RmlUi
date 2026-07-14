@@ -722,7 +722,9 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                 const Logic::LogicJsonResult parsed =
                     Logic::logicBoardFromJson(item["logicBoard"], board);
                 if (!parsed.ok) return DeserializeResult::failure(parsed.error);
-                const auto diagnostics = Logic::validateBoard(id, board);
+                // Object Types are decoded in file order; cross-type references
+                // are checked only after the complete catalog exists below.
+                const auto diagnostics = Logic::validateBoard(id, board, &def);
                 if (!diagnostics.empty()) {
                     return DeserializeResult::failure(
                         diagnostics.front().code + ": " + diagnostics.front().message);
@@ -1021,7 +1023,7 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
 
     for (const auto& [objectTypeId, type] : data.objectTypes) {
         if (!type.logicBoard) continue;
-        const auto diagnostics = Logic::validateBoard(objectTypeId, *type.logicBoard);
+        const auto diagnostics = Logic::validateBoard(objectTypeId, *type.logicBoard, &type, &data);
         if (!diagnostics.empty()) {
             return DeserializeResult::failure(
                 diagnostics.front().code + ": " + diagnostics.front().message);

@@ -27,8 +27,10 @@ bool sameBoard(const LogicBoardDef& a, const LogicBoardDef& b) {
     return Logic::logicBoardToJson(a) == Logic::logicBoardToJson(b);
 }
 
-std::string validationError(const ObjectTypeId& objectTypeId, const LogicBoardDef& board) {
-    const auto diagnostics = Logic::validateBoard(objectTypeId, board);
+std::string validationError(const ProjectDocument& document, const ObjectTypeId& objectTypeId,
+                            const LogicBoardDef& board) {
+    const auto diagnostics = Logic::validateBoard(objectTypeId, board,
+        document.findObjectType(objectTypeId), &document.data());
     return diagnostics.empty() ? std::string{}
                                : diagnostics.front().code + ": " + diagnostics.front().message;
 }
@@ -48,13 +50,28 @@ LogicBlockDef defaultBlock(const std::string& typeId, Logic::BlockKind expected)
     return block;
 }
 
+void assignDefaultCollisionObjectType(const ProjectDocument& document, LogicBlockDef& block) {
+    if (block.typeId != Logic::kOtherIsObjectType) return;
+    const auto property = std::find_if(block.properties.begin(), block.properties.end(),
+        [](const LogicPropertyDef& value) { return value.key == "objectTypeId"; });
+    if (property == block.properties.end()) return;
+    std::vector<ObjectTypeId> ids;
+    ids.reserve(document.data().objectTypes.size());
+    for (const auto& [id, unused] : document.data().objectTypes) {
+        (void)unused;
+        ids.push_back(id);
+    }
+    std::sort(ids.begin(), ids.end());
+    if (!ids.empty()) property->value = LogicStringValue{ids.front()};
+}
+
 } // namespace
 
 #define COMMIT_NEXT_BOARD(nextBoard) do { \
     const LogicBoardDef* currentBoard = boardOf(document, objectTypeId_); \
     if (!currentBoard) return EditorOperationResult::failure("Object Type has no Logic Board"); \
     if (sameBoard(*currentBoard, (nextBoard))) return EditorOperationResult::success(EditorInvalidation::None); \
-    const std::string invalid = validationError(objectTypeId_, (nextBoard)); \
+    const std::string invalid = validationError(document, objectTypeId_, (nextBoard)); \
     if (!invalid.empty()) return EditorOperationResult::failure(invalid); \
     if (!before_) before_ = *currentBoard; \
     if (!document.replaceLogicBoard(objectTypeId_, (nextBoard))) \
@@ -251,7 +268,9 @@ EditorOperationResult AddLogicConditionCommand::apply(ProjectDocument& document)
     LogicRuleDef* rule = ruleOf(next, ruleId_);
     if (!rule || index_ > rule->conditions.size())
         return EditorOperationResult::failure("Invalid Logic condition insertion");
-    rule->conditions.insert(rule->conditions.begin() + static_cast<std::ptrdiff_t>(index_), condition_);
+    LogicBlockDef condition = condition_;
+    assignDefaultCollisionObjectType(document, condition);
+    rule->conditions.insert(rule->conditions.begin() + static_cast<std::ptrdiff_t>(index_), std::move(condition));
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult AddLogicConditionCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
@@ -287,6 +306,25 @@ EditorOperationResult MoveLogicConditionCommand::apply(ProjectDocument& document
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult MoveLogicConditionCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
+
+ChangeLogicConditionTypeCommand::ChangeLogicConditionTypeCommand(
+    ObjectTypeId id, LogicRuleId ruleId, std::size_t index, std::string typeId)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), index_(index),
+      typeId_(std::move(typeId)) {}
+EditorOperationResult ChangeLogicConditionTypeCommand::apply(ProjectDocument& document) {
+    const LogicBoardDef* current = boardOf(document, objectTypeId_);
+    if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
+    LogicBoardDef next = *current;
+    LogicRuleDef* rule = ruleOf(next, ruleId_);
+    if (!rule || index_ >= rule->conditions.size())
+        return EditorOperationResult::failure("Unknown Logic condition");
+    LogicBlockDef replacement = defaultBlock(typeId_, Logic::BlockKind::Condition);
+    if (replacement.typeId.empty()) return EditorOperationResult::failure("Unknown Logic condition type");
+    assignDefaultCollisionObjectType(document, replacement);
+    rule->conditions[index_] = std::move(replacement);
+    COMMIT_NEXT_BOARD(next);
+}
+EditorOperationResult ChangeLogicConditionTypeCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
 SetLogicPropertyCommand::SetLogicPropertyCommand(ObjectTypeId id, LogicRuleId ruleId,
                                                  LogicPropertyTarget target, std::size_t blockIndex,
