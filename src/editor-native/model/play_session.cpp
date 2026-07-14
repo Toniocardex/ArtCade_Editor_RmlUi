@@ -30,6 +30,11 @@ struct PlaySession::LogicHostAdapter final : Logic::ILogicRuntimeHost {
         return true;
     }
 
+    bool isGrounded(EntityId id) override {
+        const RuntimeEntity* entity = owner ? owner->findEntity(id) : nullptr;
+        return entity && entity->platformerController && entity->platformerController->grounded;
+    }
+
     PlaySession* owner = nullptr;
 };
 

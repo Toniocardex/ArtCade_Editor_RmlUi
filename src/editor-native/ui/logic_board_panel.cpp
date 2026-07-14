@@ -198,6 +198,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     for (std::size_t ruleIndex = 0; ruleIndex < board.rules.size(); ++ruleIndex) {
         const LogicRuleDef& rule = board.rules[ruleIndex];
         std::string searchable = lower(rule.id + " " + rule.trigger.typeId);
+        for (const LogicBlockDef& condition : rule.conditions) searchable += " " + lower(condition.typeId);
         for (const LogicBlockDef& action : rule.actions) searchable += " " + lower(action.typeId);
         if (!query.empty() && searchable.find(query) == std::string::npos) continue;
 
@@ -248,6 +249,37 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             }
         }
         html += "</div>";
+
+        for (std::size_t conditionIndex = 0; conditionIndex < rule.conditions.size(); ++conditionIndex) {
+            const LogicBlockDef& condition = rule.conditions[conditionIndex];
+            const std::string arg = actionArg(rule.id, conditionIndex);
+            html += "<div class=\"logic-block condition\"><div class=\"logic-action-row\">"
+                    "<div class=\"logic-action-main\"><span class=\"mode-label\">CONDITION</span>"
+                    "<span class=\"logic-block-label\">Self · Is Grounded</span></div>"
+                    "<button class=\"logic-icon-btn";
+            if (playing || conditionIndex == 0) html += " disabled";
+            html += "\" data-action=\"move-logic-condition-up\" data-arg=\"" + escapeRml(arg) + "\">↑</button>"
+                    "<button class=\"logic-icon-btn";
+            if (playing || conditionIndex + 1 == rule.conditions.size()) html += " disabled";
+            html += "\" data-action=\"move-logic-condition-down\" data-arg=\"" + escapeRml(arg) + "\">↓</button>"
+                    "<button class=\"comp-remove";
+            if (playing) html += " disabled";
+            html += "\" data-action=\"remove-logic-condition\" data-arg=\"" + escapeRml(arg)
+                 + "\" title=\"Delete condition\">" + iconMarkup("&#xeb41;") + "</button></div>";
+            bool expected = true;
+            if (const LogicPropertyDef* p = property(condition, "expected"))
+                if (const auto* v = std::get_if<bool>(&p->value)) expected = *v;
+            html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Expected</span>"
+                    "<button class=\"logic-btn";
+            if (playing) html += " disabled";
+            html += "\" data-action=\"toggle-logic-condition-expected\" data-arg=\"" + escapeRml(arg) + "\">"
+                 + std::string(expected ? "Yes" : "No") + "</button></div>";
+            html += "</div>";
+        }
+        html += "<button class=\"logic-btn logic-add-action";
+        if (playing || rule.conditions.size() >= Logic::kMaxConditionsPerRule) html += " disabled";
+        html += "\" data-action=\"add-logic-condition\" data-arg=\"" + escapeRml(rule.id)
+             + "\">+ Add Condition</button>";
 
         for (std::size_t actionIndex = 0; actionIndex < rule.actions.size(); ++actionIndex) {
             const LogicBlockDef& action = rule.actions[actionIndex];

@@ -119,17 +119,46 @@ private:
     std::optional<LogicBoardDef> before_;
 };
 
-enum class LogicPropertyTarget { Trigger, Action };
+class AddLogicConditionCommand final : public EditorCommand {
+public:
+    AddLogicConditionCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
+                             LogicBlockDef condition, std::size_t index);
+    ARTCADE_LOGIC_BOARD_COMMAND_COMMON(AddLogicCondition)
+private:
+    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; LogicBlockDef condition_; std::size_t index_ = 0;
+    std::optional<LogicBoardDef> before_;
+};
+
+class RemoveLogicConditionCommand final : public EditorCommand {
+public:
+    RemoveLogicConditionCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId, std::size_t index);
+    ARTCADE_LOGIC_BOARD_COMMAND_COMMON(RemoveLogicCondition)
+private:
+    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t index_ = 0;
+    std::optional<LogicBoardDef> before_;
+};
+
+class MoveLogicConditionCommand final : public EditorCommand {
+public:
+    MoveLogicConditionCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
+                              std::size_t from, std::size_t to);
+    ARTCADE_LOGIC_BOARD_COMMAND_COMMON(MoveLogicCondition)
+private:
+    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t from_ = 0, to_ = 0;
+    std::optional<LogicBoardDef> before_;
+};
+
+enum class LogicPropertyTarget { Trigger, Action, Condition };
 
 class SetLogicPropertyCommand final : public EditorCommand {
 public:
     SetLogicPropertyCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
-                            LogicPropertyTarget target, std::size_t actionIndex,
+                            LogicPropertyTarget target, std::size_t blockIndex,
                             std::string propertyKey, LogicValue value);
     ARTCADE_LOGIC_BOARD_COMMAND_COMMON(SetLogicProperty)
 private:
     ObjectTypeId objectTypeId_; LogicRuleId ruleId_; LogicPropertyTarget target_;
-    std::size_t actionIndex_ = 0; std::string propertyKey_; LogicValue value_;
+    std::size_t blockIndex_ = 0; std::string propertyKey_; LogicValue value_;
     std::optional<LogicBoardDef> before_;
 };
 

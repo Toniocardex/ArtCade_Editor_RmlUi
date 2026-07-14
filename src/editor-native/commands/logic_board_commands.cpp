@@ -240,20 +240,77 @@ EditorOperationResult ChangeLogicActionTypeCommand::apply(ProjectDocument& docum
 }
 EditorOperationResult ChangeLogicActionTypeCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
+AddLogicConditionCommand::AddLogicConditionCommand(ObjectTypeId id, LogicRuleId ruleId,
+                                                   LogicBlockDef condition, std::size_t index)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)),
+      condition_(std::move(condition)), index_(index) {}
+EditorOperationResult AddLogicConditionCommand::apply(ProjectDocument& document) {
+    const LogicBoardDef* current = boardOf(document, objectTypeId_);
+    if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
+    LogicBoardDef next = *current;
+    LogicRuleDef* rule = ruleOf(next, ruleId_);
+    if (!rule || index_ > rule->conditions.size())
+        return EditorOperationResult::failure("Invalid Logic condition insertion");
+    rule->conditions.insert(rule->conditions.begin() + static_cast<std::ptrdiff_t>(index_), condition_);
+    COMMIT_NEXT_BOARD(next);
+}
+EditorOperationResult AddLogicConditionCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
+
+RemoveLogicConditionCommand::RemoveLogicConditionCommand(ObjectTypeId id, LogicRuleId ruleId, std::size_t index)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), index_(index) {}
+EditorOperationResult RemoveLogicConditionCommand::apply(ProjectDocument& document) {
+    const LogicBoardDef* current = boardOf(document, objectTypeId_);
+    if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
+    LogicBoardDef next = *current;
+    LogicRuleDef* rule = ruleOf(next, ruleId_);
+    if (!rule || index_ >= rule->conditions.size())
+        return EditorOperationResult::failure("Unknown Logic condition");
+    rule->conditions.erase(rule->conditions.begin() + static_cast<std::ptrdiff_t>(index_));
+    COMMIT_NEXT_BOARD(next);
+}
+EditorOperationResult RemoveLogicConditionCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
+
+MoveLogicConditionCommand::MoveLogicConditionCommand(ObjectTypeId id, LogicRuleId ruleId,
+                                                     std::size_t from, std::size_t to)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), from_(from), to_(to) {}
+EditorOperationResult MoveLogicConditionCommand::apply(ProjectDocument& document) {
+    const LogicBoardDef* current = boardOf(document, objectTypeId_);
+    if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
+    LogicBoardDef next = *current;
+    LogicRuleDef* rule = ruleOf(next, ruleId_);
+    if (!rule || from_ >= rule->conditions.size() || to_ >= rule->conditions.size())
+        return EditorOperationResult::failure("Invalid Logic condition move");
+    if (from_ == to_) return EditorOperationResult::success(EditorInvalidation::None);
+    LogicBlockDef moved = std::move(rule->conditions[from_]);
+    rule->conditions.erase(rule->conditions.begin() + static_cast<std::ptrdiff_t>(from_));
+    rule->conditions.insert(rule->conditions.begin() + static_cast<std::ptrdiff_t>(to_), std::move(moved));
+    COMMIT_NEXT_BOARD(next);
+}
+EditorOperationResult MoveLogicConditionCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
+
 SetLogicPropertyCommand::SetLogicPropertyCommand(ObjectTypeId id, LogicRuleId ruleId,
-                                                 LogicPropertyTarget target, std::size_t actionIndex,
+                                                 LogicPropertyTarget target, std::size_t blockIndex,
                                                  std::string key, LogicValue value)
     : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), target_(target),
-      actionIndex_(actionIndex), propertyKey_(std::move(key)), value_(std::move(value)) {}
+      blockIndex_(blockIndex), propertyKey_(std::move(key)), value_(std::move(value)) {}
 EditorOperationResult SetLogicPropertyCommand::apply(ProjectDocument& document) {
     const LogicBoardDef* current = boardOf(document, objectTypeId_);
     if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
     LogicBoardDef next = *current;
     LogicRuleDef* rule = ruleOf(next, ruleId_);
     if (!rule) return EditorOperationResult::failure("Unknown Logic rule");
-    LogicBlockDef* block = target_ == LogicPropertyTarget::Trigger
-        ? &rule->trigger
-        : (actionIndex_ < rule->actions.size() ? &rule->actions[actionIndex_] : nullptr);
+    LogicBlockDef* block = nullptr;
+    switch (target_) {
+        case LogicPropertyTarget::Trigger:
+            block = &rule->trigger;
+            break;
+        case LogicPropertyTarget::Action:
+            block = blockIndex_ < rule->actions.size() ? &rule->actions[blockIndex_] : nullptr;
+            break;
+        case LogicPropertyTarget::Condition:
+            block = blockIndex_ < rule->conditions.size() ? &rule->conditions[blockIndex_] : nullptr;
+            break;
+    }
     if (!block) return EditorOperationResult::failure("Unknown Logic block");
     auto it = std::find_if(block->properties.begin(), block->properties.end(),
         [&](const LogicPropertyDef& property) { return property.key == propertyKey_; });

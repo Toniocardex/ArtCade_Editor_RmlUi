@@ -232,6 +232,9 @@ private:
     friend class RemoveLogicActionCommand;
     friend class MoveLogicActionCommand;
     friend class ChangeLogicActionTypeCommand;
+    friend class AddLogicConditionCommand;
+    friend class RemoveLogicConditionCommand;
+    friend class MoveLogicConditionCommand;
     friend class SetLogicPropertyCommand;
 
     // ---- Patch (authoring mutations; called by commands) --------------------

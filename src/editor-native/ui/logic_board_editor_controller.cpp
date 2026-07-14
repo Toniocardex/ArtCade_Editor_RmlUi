@@ -122,7 +122,9 @@ bool LogicBoardEditorController::handleAction(
         || action == "remove-logic-action" || action == "move-logic-action-up"
         || action == "move-logic-action-down" || action == "change-logic-action"
         || action == "toggle-logic-visible" || action == "commit-logic-position-x"
-        || action == "commit-logic-position-y";
+        || action == "commit-logic-position-y" || action == "add-logic-condition"
+        || action == "remove-logic-condition" || action == "move-logic-condition-up"
+        || action == "move-logic-condition-down" || action == "toggle-logic-condition-expected";
     if (coordinator_.isPlaying() && authoringAction) return true;
 
     if (action == "create-logic-board") {
@@ -227,6 +229,33 @@ bool LogicBoardEditorController::handleAction(
             else position.y = *parsed;
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, ruleId, LogicPropertyTarget::Action, index, "position", position});
+        }
+    } else if (action == "add-logic-condition") {
+        if (const LogicRuleDef* rule = ruleById(arg)) {
+            coordinator_.execute(AddLogicConditionCommand{
+                objectTypeId, arg, Logic::makeDefaultCondition(), rule->conditions.size()});
+        }
+    } else if (action == "remove-logic-condition" || action == "move-logic-condition-up"
+               || action == "move-logic-condition-down"
+               || action == "toggle-logic-condition-expected") {
+        LogicRuleId ruleId;
+        std::size_t index = 0;
+        if (!parseActionArg(arg, ruleId, index)) return true;
+        const LogicRuleDef* rule = ruleById(ruleId);
+        if (!rule || index >= rule->conditions.size()) return true;
+        if (action == "remove-logic-condition") {
+            coordinator_.execute(RemoveLogicConditionCommand{objectTypeId, ruleId, index});
+        } else if (action == "move-logic-condition-up" || action == "move-logic-condition-down") {
+            const std::size_t destination = action == "move-logic-condition-up"
+                ? (index == 0 ? 0 : index - 1)
+                : std::min(index + 1, rule->conditions.size() - 1);
+            coordinator_.execute(MoveLogicConditionCommand{objectTypeId, ruleId, index, destination});
+        } else {
+            bool expected = true;
+            if (const LogicPropertyDef* p = Logic::findProperty(rule->conditions[index], "expected"))
+                if (const auto* current = std::get_if<bool>(&p->value)) expected = *current;
+            coordinator_.execute(SetLogicPropertyCommand{
+                objectTypeId, ruleId, LogicPropertyTarget::Condition, index, "expected", !expected});
         }
     } else {
         return false;

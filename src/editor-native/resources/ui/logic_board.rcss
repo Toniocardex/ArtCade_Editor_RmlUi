@@ -90,6 +90,7 @@
    already communicated by the block labels (see .comp-badge.override for
    the same "variant, not category" precedent). */
 .logic-block.action { border-left-color: #7aa2e8; }
+.logic-block.condition { border-left-color: #5b8ee0; }
 .logic-block-label { color: #9ca3af; margin-right: 8dp; }
 .logic-inline { display: flex; flex-direction: row; align-items: center; margin-top: 7dp; }
 .logic-inline input { width: 110dp; margin-right: 6dp; }

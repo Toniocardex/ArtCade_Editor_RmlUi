@@ -100,6 +100,132 @@ static void testCommandsAndPersistence() {
     CHECK(!ProjectSerializer::deserialize(malformed).ok);
 }
 
+static void testConditionCommands() {
+    EditorCoordinator coordinator{makeProjectData()};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& empty = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
+
+    CHECK(coordinator.execute(AddLogicConditionCommand{
+        "Hero", rule.id, Logic::makeDefaultCondition(), 0}).ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
+        .conditions.size() == 1);
+
+    for (std::size_t i = 1; i < Logic::kMaxConditionsPerRule; ++i)
+        CHECK(coordinator.execute(AddLogicConditionCommand{
+            "Hero", rule.id, Logic::makeDefaultCondition(), i}).ok);
+    CHECK(!coordinator.execute(AddLogicConditionCommand{
+        "Hero", rule.id, Logic::makeDefaultCondition(), Logic::kMaxConditionsPerRule}).ok);
+
+    CHECK(coordinator.execute(SetLogicPropertyCommand{
+        "Hero", rule.id, LogicPropertyTarget::Condition, 0, "expected", false}).ok);
+    CHECK(std::get<bool>(coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].conditions[0].properties[0].value) == false);
+
+    const auto beforeMove = Logic::logicBoardToJson(
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard);
+    CHECK(coordinator.execute(MoveLogicConditionCommand{"Hero", rule.id, 0, 2}).ok);
+    CHECK(coordinator.undo().ok);
+    CHECK(Logic::logicBoardToJson(
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard) == beforeMove);
+    CHECK(coordinator.redo().ok);
+
+    const std::size_t countBeforeRemove = coordinator.document().data().objectTypes.at("Hero")
+        .logicBoard->rules[0].conditions.size();
+    CHECK(coordinator.execute(RemoveLogicConditionCommand{"Hero", rule.id, 0}).ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
+        .conditions.size() == countBeforeRemove - 1);
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
+        .conditions.size() == countBeforeRemove);
+}
+
+static ProjectDoc makePlatformerProjectData() {
+    ProjectDoc doc;
+    doc.formatVersion = 3;
+    doc.projectName = "Platformer Logic Test";
+    doc.activeSceneId = "s";
+
+    EntityDef hero;
+    hero.name = "Hero";
+    hero.className = "Hero";
+    PlatformerControllerComponent pc;
+    pc.maxSpeed = 180.f; pc.jumpForce = 420.f; pc.customGravity = 1200.f;
+    hero.platformerController = pc;
+    hero.boxCollider2D = BoxCollider2DComponent{{0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Solid};
+    doc.objectTypes.emplace("Hero", hero);
+
+    EntityDef floor;
+    floor.name = "Floor";
+    floor.className = "Floor";
+    floor.boxCollider2D = BoxCollider2DComponent{{0.f, 0.f}, {200.f, 32.f}, true, BoxColliderMode::Solid};
+    doc.objectTypes.emplace("Floor", floor);
+
+    SceneDef scene;
+    scene.id = "s";
+    scene.name = "Scene";
+    scene.worldSize = {4000.f, 4000.f};
+    scene.defaultLayerId = "layer-1";
+    scene.layers.push_back(SceneLayerDef{"layer-1", "Layer 1"});
+
+    SceneInstanceDef heroInstance;
+    heroInstance.id = 1;
+    heroInstance.objectTypeId = "Hero";
+    heroInstance.instanceName = "Hero 1";
+    heroInstance.layerId = "layer-1";
+    heroInstance.transform.position = {0.f, 0.f};
+    scene.instances.push_back(heroInstance);
+    scene.entityIds.push_back(1);
+
+    SceneInstanceDef floorInstance;
+    floorInstance.id = 2;
+    floorInstance.objectTypeId = "Floor";
+    floorInstance.instanceName = "Floor 1";
+    floorInstance.layerId = "layer-1";
+    floorInstance.transform.position = {0.f, 100.f};
+    scene.instances.push_back(floorInstance);
+    scene.entityIds.push_back(2);
+
+    doc.scenes.emplace(scene.id, scene);
+    return doc;
+}
+
+// Floor at y=100 -> top at 84 -> the player settles at y=68 (mirrors the
+// contact math already proven in editor-core-test.cpp's platformer suite).
+static void testConditionGatesRuntimeDispatch() {
+    EditorCoordinator coordinator{makePlatformerProjectData()};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& initial = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+
+    LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(initial));
+    rule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
+    rule.actions[0] = {Logic::kSetVisible, {{"target", LogicEntityReference{}}, {"visible", false}}};
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
+    CHECK(coordinator.execute(AddLogicConditionCommand{
+        "Hero", rule.id, Logic::makeDefaultCondition(), 0}).ok);
+
+    CHECK(coordinator.playCurrentScene().ok);
+    CHECK(coordinator.playSession() != nullptr);
+
+    RuntimeInputSnapshot jump;
+    jump.pressedLogicKeys.push_back(LogicKey::Space);
+
+    // Airborne at Start Play: the condition blocks the action.
+    coordinator.updateRuntime(jump, 1.f / 60.f);
+    CHECK(coordinator.playSession()->findEntity(1)->visible);
+
+    // Settle onto the floor.
+    RuntimeInputSnapshot none;
+    for (int i = 0; i < 300; ++i) coordinator.updateRuntime(none, 0.05f);
+    CHECK(coordinator.playSession()->findEntity(1)->platformerController->grounded);
+
+    // Grounded now: the condition passes and the action fires.
+    coordinator.updateRuntime(jump, 1.f / 60.f);
+    CHECK(!coordinator.playSession()->findEntity(1)->visible);
+    CHECK(coordinator.stopPlaying().ok);
+}
+
 static void testPlayRuntimeIsolation() {
     EditorCoordinator coordinator{makeProjectData()};
     CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
@@ -204,6 +330,8 @@ static void testWorkspaceTargetAndSwitchPolicy() {
 
 int main() {
     testCommandsAndPersistence();
+    testConditionCommands();
+    testConditionGatesRuntimeDispatch();
     testPlayRuntimeIsolation();
     testInvalidPlayIsAtomic();
     testWorkspaceTargetAndSwitchPolicy();
