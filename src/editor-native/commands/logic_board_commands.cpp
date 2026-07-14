@@ -65,6 +65,44 @@ void assignDefaultCollisionObjectType(const ProjectDocument& document, LogicBloc
     if (!ids.empty()) property->value = LogicStringValue{ids.front()};
 }
 
+std::string defaultClipId(const SpriteAnimationAssetDef& asset) {
+    if (!asset.defaultClipId.empty()) {
+        const auto it = std::find_if(asset.clips.begin(), asset.clips.end(),
+            [&](const SpriteAnimationClipDef& clip) { return clip.id == asset.defaultClipId; });
+        if (it != asset.clips.end()) return it->id;
+    }
+    return asset.clips.empty() ? std::string{} : asset.clips.front().id;
+}
+
+void assignDefaultAnimationClip(const ProjectDocument& document, LogicBlockDef& block) {
+    if (block.typeId != Logic::kAnimationPlayClip) return;
+    std::vector<const SpriteAnimationAssetDef*> assets;
+    assets.reserve(document.data().spriteAnimationAssets.size());
+    for (const SpriteAnimationAssetDef& asset : document.data().spriteAnimationAssets) {
+        if (!asset.clips.empty()) assets.push_back(&asset);
+    }
+    std::sort(assets.begin(), assets.end(),
+        [](const SpriteAnimationAssetDef* a, const SpriteAnimationAssetDef* b) {
+            return a->id < b->id;
+        });
+    if (assets.empty()) return;
+    for (LogicPropertyDef& property : block.properties) {
+        if (property.key == "animationAssetId") {
+            const auto* current = std::get_if<LogicAssetReference>(&property.value);
+            if (!current || current->id.empty()) property.value = LogicAssetReference{assets.front()->id};
+        } else if (property.key == "clipId") {
+            const auto* current = std::get_if<LogicStringValue>(&property.value);
+            if (!current || current->value.empty())
+                property.value = LogicStringValue{defaultClipId(*assets.front())};
+        }
+    }
+}
+
+void assignContextualDefaults(const ProjectDocument& document, LogicBlockDef& block) {
+    assignDefaultCollisionObjectType(document, block);
+    assignDefaultAnimationClip(document, block);
+}
+
 } // namespace
 
 #define COMMIT_NEXT_BOARD(nextBoard) do { \
@@ -200,7 +238,9 @@ EditorOperationResult AddLogicActionCommand::apply(ProjectDocument& document) {
     LogicRuleDef* rule = ruleOf(next, ruleId_);
     if (!rule || index_ > rule->actions.size())
         return EditorOperationResult::failure("Invalid Logic action insertion");
-    rule->actions.insert(rule->actions.begin() + static_cast<std::ptrdiff_t>(index_), action_);
+    LogicBlockDef action = action_;
+    assignContextualDefaults(document, action);
+    rule->actions.insert(rule->actions.begin() + static_cast<std::ptrdiff_t>(index_), std::move(action));
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult AddLogicActionCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
@@ -252,6 +292,7 @@ EditorOperationResult ChangeLogicActionTypeCommand::apply(ProjectDocument& docum
         return EditorOperationResult::failure("Unknown Logic action");
     LogicBlockDef replacement = defaultBlock(typeId_, Logic::BlockKind::Action);
     if (replacement.typeId.empty()) return EditorOperationResult::failure("Unknown Logic action type");
+    assignContextualDefaults(document, replacement);
     rule->actions[index_] = std::move(replacement);
     COMMIT_NEXT_BOARD(next);
 }
@@ -269,7 +310,7 @@ EditorOperationResult AddLogicConditionCommand::apply(ProjectDocument& document)
     if (!rule || index_ > rule->conditions.size())
         return EditorOperationResult::failure("Invalid Logic condition insertion");
     LogicBlockDef condition = condition_;
-    assignDefaultCollisionObjectType(document, condition);
+    assignContextualDefaults(document, condition);
     rule->conditions.insert(rule->conditions.begin() + static_cast<std::ptrdiff_t>(index_), std::move(condition));
     COMMIT_NEXT_BOARD(next);
 }
@@ -320,7 +361,7 @@ EditorOperationResult ChangeLogicConditionTypeCommand::apply(ProjectDocument& do
         return EditorOperationResult::failure("Unknown Logic condition");
     LogicBlockDef replacement = defaultBlock(typeId_, Logic::BlockKind::Condition);
     if (replacement.typeId.empty()) return EditorOperationResult::failure("Unknown Logic condition type");
-    assignDefaultCollisionObjectType(document, replacement);
+    assignContextualDefaults(document, replacement);
     rule->conditions[index_] = std::move(replacement);
     COMMIT_NEXT_BOARD(next);
 }
@@ -357,6 +398,40 @@ EditorOperationResult SetLogicPropertyCommand::apply(ProjectDocument& document) 
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult SetLogicPropertyCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
+
+SetLogicAnimationClipCommand::SetLogicAnimationClipCommand(
+    ObjectTypeId id, LogicRuleId ruleId, std::size_t actionIndex,
+    AssetId animationAssetId, std::string clipId)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), actionIndex_(actionIndex),
+      animationAssetId_(std::move(animationAssetId)), clipId_(std::move(clipId)) {}
+
+EditorOperationResult SetLogicAnimationClipCommand::apply(ProjectDocument& document) {
+    const LogicBoardDef* current = boardOf(document, objectTypeId_);
+    if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
+    LogicBoardDef next = *current;
+    LogicRuleDef* rule = ruleOf(next, ruleId_);
+    if (!rule || actionIndex_ >= rule->actions.size())
+        return EditorOperationResult::failure("Unknown Logic action");
+    LogicBlockDef& action = rule->actions[actionIndex_];
+    if (action.typeId != Logic::kAnimationPlayClip)
+        return EditorOperationResult::failure("Logic action is not Play Clip");
+
+    bool changedAsset = false;
+    bool changedClip = false;
+    for (LogicPropertyDef& property : action.properties) {
+        if (property.key == "animationAssetId") {
+            property.value = LogicAssetReference{animationAssetId_};
+            changedAsset = true;
+        } else if (property.key == "clipId") {
+            property.value = LogicStringValue{clipId_};
+            changedClip = true;
+        }
+    }
+    if (!changedAsset || !changedClip)
+        return EditorOperationResult::failure("Play Clip action is missing properties");
+    COMMIT_NEXT_BOARD(next);
+}
+EditorOperationResult SetLogicAnimationClipCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
 LogicRuleId nextLogicRuleId(const LogicBoardDef& board) {
     int maxOrdinal = 0;

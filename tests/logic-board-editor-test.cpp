@@ -209,6 +209,48 @@ static ProjectDoc makePlatformerProjectData() {
     return doc;
 }
 
+static ProjectDoc makeAnimationLogicProjectData() {
+    ProjectDoc doc = makeProjectData();
+    ImageAssetDef heroImage;
+    heroImage.assetId = "img-hero";
+    heroImage.sourcePath = "sprites/hero.ppm";
+    doc.imageAssets.push_back(heroImage);
+    ImageAssetDef altImage;
+    altImage.assetId = "img-alt";
+    altImage.sourcePath = "sprites/alt.ppm";
+    doc.imageAssets.push_back(altImage);
+
+    SpriteAnimationAssetDef heroAnim;
+    heroAnim.id = "hero.anim";
+    heroAnim.name = "Hero Anim";
+    heroAnim.defaultClipId = "idle";
+    SpriteAnimationClipDef idle;
+    idle.id = "idle";
+    idle.name = "Idle";
+    idle.imageId = "img-hero";
+    idle.frames.push_back(SpriteAnimationFrameDef{0, 0, 32, 32});
+    heroAnim.clips.push_back(idle);
+    doc.spriteAnimationAssets.push_back(heroAnim);
+
+    SpriteAnimationAssetDef altAnim;
+    altAnim.id = "alt.anim";
+    altAnim.name = "Alt Anim";
+    altAnim.defaultClipId = "run";
+    SpriteAnimationClipDef run;
+    run.id = "run";
+    run.name = "Run";
+    run.imageId = "img-alt";
+    run.framesPerSecond = 12.f;
+    run.frames.push_back(SpriteAnimationFrameDef{64, 0, 32, 32});
+    altAnim.clips.push_back(run);
+    doc.spriteAnimationAssets.push_back(altAnim);
+
+    EntityDef& hero = doc.objectTypes.at("Hero");
+    hero.spriteRenderer = SpriteRendererComponent{{}, "hero.anim", true};
+    hero.spriteAnimator = SpriteAnimatorComponent{"idle", true, 1.f};
+    return doc;
+}
+
 // Floor at y=100 -> top at 84 -> the player settles at y=68 (mirrors the
 // contact math already proven in editor-core-test.cpp's platformer suite).
 static void testConditionGatesRuntimeDispatch() {
@@ -356,6 +398,87 @@ static void testCollisionEventOtherAndDeferredDestroy() {
     CHECK(coordinator.stopPlaying().ok);
 }
 
+static void testAnimationActions() {
+    EditorCoordinator coordinator{makeAnimationLogicProjectData()};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& empty = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+
+    LogicRuleDef start = Logic::makeDefaultRule(nextLogicRuleId(empty));
+    start.actions.clear();
+    LogicBlockDef play = Logic::makeDefaultBlock(Logic::kAnimationPlayClip, Logic::BlockKind::Action);
+    play.properties[0].value = LogicAssetReference{"alt.anim"};
+    play.properties[1].value = LogicStringValue{"run"};
+    LogicBlockDef speed = Logic::makeDefaultBlock(
+        Logic::kAnimationSetPlaybackSpeed, Logic::BlockKind::Action);
+    speed.properties[0].value = 2.0;
+    start.actions.push_back(play);
+    start.actions.push_back(speed);
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", start, 0}).ok);
+
+    const LogicBoardDef& withStart = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    LogicRuleDef stop = Logic::makeDefaultRule(nextLogicRuleId(withStart));
+    stop.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
+    stop.actions[0] = Logic::makeDefaultBlock(Logic::kAnimationStop, Logic::BlockKind::Action);
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", stop, 1}).ok);
+
+    const auto compiled = Logic::compileProjectLogic(coordinator.document().data());
+    CHECK(compiled.ok());
+    CHECK(!compiled.programs.empty());
+    CHECK(compiled.programs.front().source.find("play_animation_clip") != std::string::npos);
+
+    CHECK(coordinator.playCurrentScene().ok);
+    const RuntimeEntity* hero = coordinator.playSession()
+        ? coordinator.playSession()->findEntity(1) : nullptr;
+    CHECK(hero && hero->sprite);
+    CHECK(hero && hero->spriteAnimator);
+    CHECK(hero && hero->sprite->assetId == "img-alt");
+    CHECK(hero && hero->spriteAnimator->animationAssetId == "alt.anim");
+    CHECK(hero && hero->spriteAnimator->currentClipId == "run");
+    CHECK(hero && hero->spriteAnimator->playbackSpeed == 2.f);
+    CHECK(hero && hero->spriteAnimator->playing);
+    CHECK(coordinator.playSession()->assets().imageAssets.count("img-alt") == 1);
+
+    RuntimeInputSnapshot input;
+    input.pressedLogicKeys.push_back(LogicKey::Space);
+    coordinator.updateRuntime(input, 1.f / 60.f);
+    hero = coordinator.playSession()->findEntity(1);
+    CHECK(hero && hero->spriteAnimator && !hero->spriteAnimator->playing);
+    CHECK(coordinator.stopPlaying().ok);
+
+    CHECK(coordinator.execute(SetLogicAnimationClipCommand{
+        "Hero", start.id, 0, "hero.anim", "idle"}).ok);
+    const LogicBlockDef& changed = coordinator.document().data().objectTypes.at("Hero")
+        .logicBoard->rules[0].actions[0];
+    CHECK(std::get<LogicAssetReference>(changed.properties[0].value).id == "hero.anim");
+    CHECK(std::get<LogicStringValue>(changed.properties[1].value).value == "idle");
+    CHECK(coordinator.undo().ok);
+    const LogicBlockDef& undone = coordinator.document().data().objectTypes.at("Hero")
+        .logicBoard->rules[0].actions[0];
+    CHECK(std::get<LogicAssetReference>(undone.properties[0].value).id == "alt.anim");
+    CHECK(std::get<LogicStringValue>(undone.properties[1].value).value == "run");
+    CHECK(coordinator.redo().ok);
+}
+
+static void testAnimationActionValidation() {
+    ProjectDoc data = makeAnimationLogicProjectData();
+    LogicBoardDef board;
+    board.id = "logic:Hero";
+    LogicRuleDef missingAsset = Logic::makeDefaultRule("rule-1");
+    missingAsset.actions[0] = Logic::makeDefaultBlock(
+        Logic::kAnimationPlayClip, Logic::BlockKind::Action);
+    missingAsset.actions[0].properties[0].value = LogicAssetReference{"missing.anim"};
+    missingAsset.actions[0].properties[1].value = LogicStringValue{"idle"};
+    board.rules.push_back(missingAsset);
+    data.objectTypes.at("Hero").logicBoard = board;
+    CHECK(!ProjectValidator::validate(ProjectDocument{data}).ok);
+
+    ProjectDoc noAnimator = makeProjectData();
+    noAnimator.spriteAnimationAssets = data.spriteAnimationAssets;
+    noAnimator.imageAssets = data.imageAssets;
+    noAnimator.objectTypes.at("Hero").logicBoard = std::move(board);
+    CHECK(!ProjectValidator::validate(ProjectDocument{std::move(noAnimator)}).ok);
+}
+
 static void testInvalidPlayIsAtomic() {
     ProjectDoc data = makeProjectData();
     LogicBoardDef board;
@@ -471,6 +594,8 @@ int main() {
     testConditionGatesRuntimeDispatch();
     testPlayRuntimeIsolation();
     testCollisionEventOtherAndDeferredDestroy();
+    testAnimationActions();
+    testAnimationActionValidation();
     testInvalidPlayIsAtomic();
     testWorkspaceTargetAndSwitchPolicy();
     testPlayNavigationFromLogicBoard();

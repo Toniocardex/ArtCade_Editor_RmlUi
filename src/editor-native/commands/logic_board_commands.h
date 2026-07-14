@@ -172,6 +172,18 @@ private:
     std::optional<LogicBoardDef> before_;
 };
 
+class SetLogicAnimationClipCommand final : public EditorCommand {
+public:
+    SetLogicAnimationClipCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
+                                 std::size_t actionIndex, AssetId animationAssetId,
+                                 std::string clipId);
+    ARTCADE_LOGIC_BOARD_COMMAND_COMMON(SetLogicAnimationClip)
+private:
+    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t actionIndex_ = 0;
+    AssetId animationAssetId_; std::string clipId_;
+    std::optional<LogicBoardDef> before_;
+};
+
 #undef ARTCADE_LOGIC_BOARD_COMMAND_COMMON
 
 LogicRuleId nextLogicRuleId(const LogicBoardDef& board);

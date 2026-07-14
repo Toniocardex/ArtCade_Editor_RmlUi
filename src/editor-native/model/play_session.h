@@ -242,6 +242,10 @@ private:
     void refreshStaticCollider(EntityId owner);
     void dispatchCollisionTransitions();
     void flushPendingDestroys();
+    bool playAnimationClip(EntityId id, const AssetId& animationAssetId,
+                           const std::string& clipId);
+    bool stopAnimation(EntityId id);
+    bool setAnimationPlaybackSpeed(EntityId id, float speed);
 
     RuntimeScene scene_;
     PlayAssetCatalogSnapshot assets_;

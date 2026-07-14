@@ -29,6 +29,15 @@ std::vector<std::string> splitPipe(const std::string& value) {
     return parts;
 }
 
+std::string defaultClipId(const SpriteAnimationAssetDef& asset) {
+    if (!asset.defaultClipId.empty()) {
+        const auto it = std::find_if(asset.clips.begin(), asset.clips.end(),
+            [&](const SpriteAnimationClipDef& clip) { return clip.id == asset.defaultClipId; });
+        if (it != asset.clips.end()) return it->id;
+    }
+    return asset.clips.empty() ? std::string{} : asset.clips.front().id;
+}
+
 } // namespace
 
 LogicBoardEditorController::LogicBoardEditorController(
@@ -111,7 +120,8 @@ bool LogicBoardEditorController::handleAction(
     }
     if (action == "change-logic-trigger" || action == "change-logic-action"
         || action == "change-logic-condition" || action == "add-logic-action-type"
-        || action == "add-logic-condition-type" || action == "set-logic-collision-object-type") {
+        || action == "add-logic-condition-type" || action == "set-logic-collision-object-type"
+        || action == "set-logic-animation-asset" || action == "set-logic-animation-clip") {
         panel_.closeDropdown();
     }
 
@@ -153,7 +163,9 @@ bool LogicBoardEditorController::handleAction(
         || action == "remove-logic-action" || action == "move-logic-action-up"
         || action == "move-logic-action-down" || action == "change-logic-action"
         || action == "toggle-logic-visible" || action == "commit-logic-position-x"
-        || action == "commit-logic-position-y" || action == "add-logic-condition"
+        || action == "commit-logic-position-y" || action == "set-logic-animation-asset"
+        || action == "set-logic-animation-clip" || action == "commit-logic-animation-speed"
+        || action == "add-logic-condition"
         || action == "add-logic-condition-type" || action == "change-logic-condition"
         || action == "remove-logic-condition" || action == "move-logic-condition-up"
         || action == "move-logic-condition-down" || action == "toggle-logic-condition-expected"
@@ -231,7 +243,9 @@ bool LogicBoardEditorController::handleAction(
     } else if (action == "remove-logic-action" || action == "move-logic-action-up"
                || action == "move-logic-action-down" || action == "change-logic-action"
                || action == "toggle-logic-visible" || action == "commit-logic-position-x"
-               || action == "commit-logic-position-y") {
+               || action == "commit-logic-position-y" || action == "set-logic-animation-asset"
+               || action == "set-logic-animation-clip"
+               || action == "commit-logic-animation-speed") {
         LogicRuleId ruleId;
         std::size_t index = 0;
         if (!parseActionArg(arg, ruleId, index)) return true;
@@ -252,7 +266,7 @@ bool LogicBoardEditorController::handleAction(
                 if (const auto* current = std::get_if<bool>(&p->value)) visible = *current;
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, ruleId, LogicPropertyTarget::Action, index, "visible", !visible});
-        } else {
+        } else if (action == "commit-logic-position-x" || action == "commit-logic-position-y") {
             const std::optional<float> parsed = parseNumberField(value);
             if (!parsed) {
                 coordinator_.logError("Logic position must be a finite number");
@@ -265,6 +279,36 @@ bool LogicBoardEditorController::handleAction(
             else position.y = *parsed;
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, ruleId, LogicPropertyTarget::Action, index, "position", position});
+        } else if (action == "set-logic-animation-asset") {
+            const SpriteAnimationAssetDef* asset =
+                coordinator_.document().findSpriteAnimationAsset(value);
+            if (!asset || asset->clips.empty()) {
+                coordinator_.logError("Choose an animation asset with at least one clip");
+                return true;
+            }
+            coordinator_.execute(SetLogicAnimationClipCommand{
+                objectTypeId, ruleId, index, asset->id, defaultClipId(*asset)});
+        } else if (action == "set-logic-animation-clip") {
+            AssetId animationAssetId;
+            if (const LogicPropertyDef* p = Logic::findProperty(rule->actions[index],
+                                                                "animationAssetId"))
+                if (const auto* current = std::get_if<LogicAssetReference>(&p->value))
+                    animationAssetId = current->id;
+            if (animationAssetId.empty()) {
+                coordinator_.logError("Choose an animation asset before choosing a clip");
+                return true;
+            }
+            coordinator_.execute(SetLogicAnimationClipCommand{
+                objectTypeId, ruleId, index, animationAssetId, value});
+        } else if (action == "commit-logic-animation-speed") {
+            const std::optional<float> parsed = parseNumberField(value);
+            if (!parsed || *parsed <= 0.f) {
+                coordinator_.logError("Animation speed must be a positive finite number");
+                return true;
+            }
+            coordinator_.execute(SetLogicPropertyCommand{
+                objectTypeId, ruleId, LogicPropertyTarget::Action, index,
+                "speed", static_cast<double>(*parsed)});
         }
     } else if (action == "add-logic-condition") {
         if (const LogicRuleDef* rule = ruleById(arg)) {

@@ -38,6 +38,13 @@ std::string number(float value) {
     return out.str();
 }
 
+std::string number(double value) {
+    std::ostringstream out;
+    out.precision(7);
+    out << value;
+    return out.str();
+}
+
 std::string actionArg(const LogicRuleId& ruleId, std::size_t index) {
     return ruleId + "|" + std::to_string(index);
 }
@@ -136,6 +143,23 @@ std::string descriptorLabel(const std::string& typeId) {
     if (const Logic::LogicBlockDescriptor* descriptor = Logic::findDescriptor(typeId))
         return descriptor->displayName;
     return typeId.empty() ? "Unknown" : typeId;
+}
+
+std::string animationAssetLabel(const SpriteAnimationAssetDef& asset) {
+    return asset.name.empty() ? asset.id : asset.name;
+}
+
+std::string clipLabel(const SpriteAnimationClipDef& clip) {
+    return clip.name.empty() ? clip.id : clip.name;
+}
+
+std::string defaultClipId(const SpriteAnimationAssetDef& asset) {
+    if (!asset.defaultClipId.empty()) {
+        const auto it = std::find_if(asset.clips.begin(), asset.clips.end(),
+            [&](const SpriteAnimationClipDef& clip) { return clip.id == asset.defaultClipId; });
+        if (it != asset.clips.end()) return it->id;
+    }
+    return asset.clips.empty() ? std::string{} : asset.clips.front().id;
 }
 
 // Derived, read-only projection — never a second source of truth for the
@@ -523,6 +547,72 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                      + "\" value=\"" + number(position.y) + "\"";
                 if (playing) html += " disabled=\"disabled\"";
                 html += "/></div>";
+            } else if (action.typeId == Logic::kAnimationPlayClip) {
+                AssetId selectedAsset;
+                std::string selectedClip;
+                if (const LogicPropertyDef* p = property(action, "animationAssetId"))
+                    if (const auto* v = std::get_if<LogicAssetReference>(&p->value)) selectedAsset = v->id;
+                if (const LogicPropertyDef* p = property(action, "clipId"))
+                    if (const auto* v = std::get_if<LogicStringValue>(&p->value)) selectedClip = v->value;
+                const SpriteAnimationAssetDef* asset = selectedAsset.empty()
+                    ? nullptr : coordinator.document().findSpriteAnimationAsset(selectedAsset);
+
+                const std::string assetDropdownId = "animation-asset|" + arg;
+                const bool assetOpen = openDropdownId_ == assetDropdownId && !playing;
+                html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Animation</span>"
+                     + dropdownTriggerMarkup(asset ? animationAssetLabel(*asset) : "Choose Animation",
+                                             "toggle-logic-dropdown", assetDropdownId,
+                                             assetOpen, playing) + "</div>";
+                if (assetOpen) {
+                    html += "<div class=\"drop-list logic-key-list\">";
+                    std::vector<const SpriteAnimationAssetDef*> assets;
+                    for (const SpriteAnimationAssetDef& candidate :
+                         coordinator.document().data().spriteAnimationAssets) {
+                        if (!candidate.clips.empty()) assets.push_back(&candidate);
+                    }
+                    std::sort(assets.begin(), assets.end(),
+                        [](const SpriteAnimationAssetDef* a, const SpriteAnimationAssetDef* b) {
+                            return a->id < b->id;
+                        });
+                    for (const SpriteAnimationAssetDef* candidate : assets) {
+                        html += dropEntry(animationAssetLabel(*candidate), candidate->id,
+                                          candidate->id == selectedAsset, assetDropdownId,
+                                          "set-logic-animation-asset", arg);
+                    }
+                    html += "</div>";
+                }
+
+                const std::string clipDropdownId = "animation-clip|" + arg;
+                const bool clipOpen = openDropdownId_ == clipDropdownId && !playing;
+                std::string selectedClipLabel = selectedClip.empty() ? "Choose Clip" : selectedClip;
+                if (asset) {
+                    for (const SpriteAnimationClipDef& clip : asset->clips) {
+                        if (clip.id == selectedClip) selectedClipLabel = clipLabel(clip);
+                    }
+                }
+                html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Clip</span>"
+                     + dropdownTriggerMarkup(selectedClipLabel, "toggle-logic-dropdown",
+                                             clipDropdownId, clipOpen, playing || !asset)
+                     + "</div>";
+                if (clipOpen && asset) {
+                    html += "<div class=\"drop-list logic-key-list\">";
+                    for (const SpriteAnimationClipDef& clip : asset->clips) {
+                        html += dropEntry(clipLabel(clip), clip.id, clip.id == selectedClip,
+                                          clipDropdownId, "set-logic-animation-clip", arg);
+                    }
+                    html += "</div>";
+                }
+            } else if (action.typeId == Logic::kAnimationSetPlaybackSpeed) {
+                double speed = 1.0;
+                if (const LogicPropertyDef* p = property(action, "speed"))
+                    if (const auto* v = std::get_if<double>(&p->value)) speed = *v;
+                html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Self - speed</span>"
+                        "<input type=\"text\" data-action=\"commit-logic-animation-speed\" data-arg=\""
+                     + escapeRml(arg) + "\" value=\"" + number(speed) + "\"";
+                if (playing) html += " disabled=\"disabled\"";
+                html += "/></div>";
+            } else if (action.typeId == Logic::kAnimationStop) {
+                html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Self - stop playback</span></div>";
             }
             html += "</div>";
         }

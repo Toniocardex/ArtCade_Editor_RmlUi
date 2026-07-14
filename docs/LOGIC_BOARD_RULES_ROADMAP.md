@@ -10,12 +10,12 @@
 | 2A. Catalog foundation e picker | Completata | Registry descriptor-driven, compatibilitÃ  e picker RmlUi. |
 | 2B. Personaggio controllabile | Completata | Input edge/held e intent riusati dai controller esistenti. |
 | 2C. Collisioni e `EventOther` | Completata | Enter/exit deterministici, filtro per Object Type e `Destroy Self` differito. |
-| 2D. Animazione e audio | In corso | Prerequisito ownership 2D.0 completato; prossima slice 2D.1. |
+| 2D. Animazione e audio | In corso | Action animazione completate; prossima slice 2D.2 audio. |
 | 2D.0A. Schema e migrazione ownership | Completata | Schema v4 type-owned, override sparse, promozione deterministica, round-trip e idempotenza. |
 | 2D.0B. Resolver canonico Edit/Play | Completata | Un solo `resolveSpritePresentation`; Viewport, validazione e `PlaySession` consumano gli stessi valori risolti. |
 | 2D.0C. Command, Inspector e Undo/Redo | Completata | Command distinti per authority, Undo esatto, badge ownership e Reset al default. |
 | 2D.0D. Invarianti e cleanup legacy | Completata | Validator type-owned, guardie Logic Board, asset delete/Undo v4 e rimozione dei Command instance-owned legacy. |
-| 2D.1. Action animazione | Da fare | Sbloccata solo dopo 2D.0D. |
+| 2D.1. Action animazione | Completata | `animation.play_clip`, `animation.stop` e `animation.set_playback_speed` descriptor-driven, validate, compilate e mutate in PlaySession. |
 | 2D.2. Action audio | Da fare | Successiva alle Action animazione. |
 | 2E. Variabili | Da fare | Bloccata dalla decisione di ownership della slice. |
 | 2F. Tempo e messaggi | Da fare | Dopo contratto dedicato. |

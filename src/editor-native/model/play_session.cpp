@@ -56,6 +56,16 @@ struct PlaySession::LogicHostAdapter final : Logic::ILogicRuntimeHost {
         owner->pendingDestroy_.insert(id);
         return true;
     }
+    bool playAnimationClip(EntityId id, const AssetId& animationAssetId,
+                           const std::string& clipId) override {
+        return owner && owner->playAnimationClip(id, animationAssetId, clipId);
+    }
+    bool stopAnimation(EntityId id) override {
+        return owner && owner->stopAnimation(id);
+    }
+    bool setAnimationPlaybackSpeed(EntityId id, float speed) override {
+        return owner && owner->setAnimationPlaybackSpeed(id, speed);
+    }
 
     PlaySession* owner = nullptr;
 };
@@ -286,6 +296,48 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
     // Structural order (SceneDef::instances' own): simulation must never be
     // coupled to the visual layer order (see RuntimeScene::renderOrder below).
     std::unordered_map<EntityId, std::size_t> indexByEntity;
+    auto preloadAnimationAsset = [&](const AssetId& animationAssetId) -> bool {
+        if (session.spriteAnimationAssets_.count(animationAssetId) != 0) return true;
+        const SpriteAnimationAssetDef* animation =
+            findSpriteAnimationAsset(document, animationAssetId);
+        if (!animation) {
+            if (error) *error = "Cannot start Play: animation source is missing";
+            return false;
+        }
+        for (const SpriteAnimationClipDef& clip : animation->clips) {
+            const ImageAssetDef* clipImage = findImageAsset(document, clip.imageId);
+            if (!clipImage) {
+                if (error) {
+                    *error = "Cannot start Play: animation clip references missing image "
+                           + clip.imageId;
+                }
+                return false;
+            }
+            session.assets_.imageAssets.emplace(
+                clipImage->assetId,
+                RuntimeImageAsset{clipImage->assetId, clipImage->sourcePath});
+        }
+        session.spriteAnimationAssets_.emplace(
+            animation->id, materializeSpriteAnimationAsset(*animation));
+        return true;
+    };
+
+    for (const auto& [unused, objectType] : document.data().objectTypes) {
+        (void)unused;
+        if (!objectType.logicBoard) continue;
+        for (const LogicRuleDef& rule : objectType.logicBoard->rules) {
+            for (const LogicBlockDef& action : rule.actions) {
+                if (action.typeId != Logic::kAnimationPlayClip) continue;
+                const LogicPropertyDef* property =
+                    Logic::findProperty(action, "animationAssetId");
+                const auto* ref = property
+                    ? std::get_if<LogicAssetReference>(&property->value) : nullptr;
+                if (ref && !ref->id.empty() && !preloadAnimationAsset(ref->id))
+                    return std::nullopt;
+            }
+        }
+    }
+
     for (const SceneInstanceDef& instance : scene->instances) {
         RuntimeEntity entity;
         entity.id = instance.id;
@@ -364,24 +416,7 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
                 }
                 // Preload every clip's sheet up front so a clip switch never does
                 // file I/O inside the game loop (each clip owns its own image).
-                for (const SpriteAnimationClipDef& c : animation->clips) {
-                    const ImageAssetDef* clipImage = findImageAsset(document, c.imageId);
-                    if (!clipImage) {
-                        if (error) {
-                            *error = "Cannot start Play: animation clip references missing image "
-                                   + c.imageId;
-                        }
-                        return std::nullopt;
-                    }
-                    session.assets_.imageAssets.emplace(
-                        clipImage->assetId,
-                        RuntimeImageAsset{clipImage->assetId, clipImage->sourcePath});
-                }
-                if (session.spriteAnimationAssets_.find(animation->id)
-                    == session.spriteAnimationAssets_.end()) {
-                    session.spriteAnimationAssets_.emplace(
-                        animation->id, materializeSpriteAnimationAsset(*animation));
-                }
+                if (!preloadAnimationAsset(animation->id)) return std::nullopt;
                 RuntimeSpriteAnimatorState animator;
                 animator.animationAssetId = animation->id;
                 animator.currentClipId = clip->id;
@@ -565,6 +600,48 @@ void PlaySession::flushPendingDestroys() {
         }
     }
     pendingDestroy_.clear();
+}
+
+bool PlaySession::playAnimationClip(EntityId id, const AssetId& animationAssetId,
+                                    const std::string& clipId) {
+    RuntimeEntity* entity = findEntityMutable(id);
+    if (!entity || !entity->sprite || !entity->spriteAnimator
+        || animationAssetId.empty() || clipId.empty()) {
+        return false;
+    }
+    const auto assetIt = spriteAnimationAssets_.find(animationAssetId);
+    if (assetIt == spriteAnimationAssets_.end()) return false;
+    const RuntimeSpriteAnimationClip* clip =
+        findRuntimeAnimationClip(assetIt->second, clipId);
+    if (!clip || clip->frames.empty() || clip->framesPerSecond <= 0.f) return false;
+
+    RuntimeSpriteAnimatorState& animator = *entity->spriteAnimator;
+    animator.animationAssetId = animationAssetId;
+    animator.currentClipId = clipId;
+    animator.currentFrameIndex = 0;
+    animator.elapsedSeconds = 0.f;
+    animator.playing = true;
+    animator.finished = false;
+
+    entity->sprite->assetId = clip->imageAssetId;
+    entity->sprite->sourceRect = frameRect(clip->frames.front());
+    entity->sprite->hasSourceRect = true;
+    return true;
+}
+
+bool PlaySession::stopAnimation(EntityId id) {
+    RuntimeEntity* entity = findEntityMutable(id);
+    if (!entity || !entity->spriteAnimator) return false;
+    entity->spriteAnimator->playing = false;
+    return true;
+}
+
+bool PlaySession::setAnimationPlaybackSpeed(EntityId id, float speed) {
+    RuntimeEntity* entity = findEntityMutable(id);
+    if (!entity || !entity->spriteAnimator || !std::isfinite(speed) || speed <= 0.f)
+        return false;
+    entity->spriteAnimator->playbackSpeed = speed;
+    return true;
 }
 
 KinematicMoveResult PlaySession::moveKinematicEntity(RuntimeEntity& entity, Vec2 desiredDelta) {

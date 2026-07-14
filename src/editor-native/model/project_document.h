@@ -69,6 +69,7 @@ class PaintTilemapCellsCommand;
 class SetStartSceneCommand;
 class RenameProjectCommand;
 class ChangeLogicConditionTypeCommand;
+class SetLogicAnimationClipCommand;
 class AddSpriteRendererToObjectTypeCommand;
 class RemoveSpriteRendererFromObjectTypeCommand;
 class SetObjectTypeSpriteSourceCommand;
@@ -254,6 +255,7 @@ private:
     friend class MoveLogicConditionCommand;
     friend class ChangeLogicConditionTypeCommand;
     friend class SetLogicPropertyCommand;
+    friend class SetLogicAnimationClipCommand;
 
     // ---- Patch (authoring mutations; called by commands) --------------------
     bool setProjectName(std::string name);
