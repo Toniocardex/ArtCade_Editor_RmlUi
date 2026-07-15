@@ -416,41 +416,64 @@ bool ProjectSessionController::closeScript(const AssetId& assetId) {
     return ok;
 }
 
-bool ProjectSessionController::validateSavedScriptsForPlay() {
+std::optional<std::vector<Scripts::ScriptProgram>>
+ProjectSessionController::snapshotSavedScriptsForPlay() {
     const std::vector<AssetId> referenced =
         coordinator_.document().referencedScriptAssetIds(true);
-    if (referenced.empty()) return true;
+    if (referenced.empty()) return std::vector<Scripts::ScriptProgram>{};
     if (currentProjectPath_.empty()) {
         coordinator_.logError("Play blocked: save the project before running attached scripts");
-        return false;
+        return std::nullopt;
     }
 
     const ProjectScriptFileService files(currentProjectPath_.parent_path());
-    const std::vector<ScriptDiagnostic> diagnostics = validateReferencedScriptSyntax(
+    SavedScriptSnapshotResult snapshot = snapshotReferencedScripts(
         coordinator_.document(), files, referenced);
     for (const AssetId& assetId : referenced) {
         std::vector<ScriptDiagnostic> perAsset;
-        std::copy_if(diagnostics.begin(), diagnostics.end(), std::back_inserter(perAsset),
+        std::copy_if(snapshot.diagnostics.begin(), snapshot.diagnostics.end(),
+            std::back_inserter(perAsset),
             [&](const ScriptDiagnostic& diagnostic) {
                 return diagnostic.scriptAssetId == assetId;
             });
         coordinator_.reportScriptDiagnostics(assetId, perAsset);
     }
-    if (!diagnostics.empty()) {
+    if (!snapshot.ok()) {
         coordinator_.logError("Play blocked: attached scripts contain errors");
-        return false;
+        return std::nullopt;
     }
-    return true;
+    Scripts::ScriptRuntime runtimeValidator;
+    bool contractFailed = false;
+    for (const Scripts::ScriptProgram& program : snapshot.programs) {
+        std::string runtimeError;
+        if (runtimeValidator.validateProgram(program, &runtimeError)) continue;
+        const int line = Scripts::scriptDiagnosticLine(runtimeError);
+        coordinator_.reportScriptDiagnostics(program.assetId, {
+            ScriptDiagnostic{DiagnosticSeverity::Error, "SCRIPT_CONTRACT",
+                             program.assetId, program.sourcePath, line,
+                             line > 0 ? 1 : 0,
+                             std::nullopt, {}, std::move(runtimeError)}});
+        contractFailed = true;
+    }
+    if (contractFailed) {
+        coordinator_.logError("Play blocked: attached scripts violate the runtime contract");
+        return std::nullopt;
+    }
+    return std::move(snapshot.programs);
 }
 
 bool ProjectSessionController::requestPlayProject() {
-    if (!validateSavedScriptsForPlay()) return false;
-    return coordinator_.playProject().ok;
+    std::optional<std::vector<Scripts::ScriptProgram>> scripts =
+        snapshotSavedScriptsForPlay();
+    if (!scripts) return false;
+    return coordinator_.playProject(*scripts).ok;
 }
 
 bool ProjectSessionController::requestPlayCurrentScene() {
-    if (!validateSavedScriptsForPlay()) return false;
-    return coordinator_.playCurrentScene().ok;
+    std::optional<std::vector<Scripts::ScriptProgram>> scripts =
+        snapshotSavedScriptsForPlay();
+    if (!scripts) return false;
+    return coordinator_.playCurrentScene(*scripts).ok;
 }
 
 } // namespace ArtCade::EditorNative

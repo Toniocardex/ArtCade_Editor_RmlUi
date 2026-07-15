@@ -73,6 +73,7 @@ target_link_libraries(artcade-editor-core PUBLIC
     artcade-core
     artcade-logic-core
     artcade-logic-runtime
+    artcade-script-runtime
     ArtCade::Sfx
     lua54
 )

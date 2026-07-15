@@ -511,6 +511,11 @@ bool EditorCoordinator::canPlayCurrentScene() const {
 }
 
 EditorOperationResult EditorCoordinator::playProject() {
+    return playProject({});
+}
+
+EditorOperationResult EditorCoordinator::playProject(
+    const std::vector<Scripts::ScriptProgram>& scripts) {
     if (isPlaying()) {
         appendConsole(ConsoleMessage::Level::Warning, "Already playing");
         return EditorOperationResult::failure("Already playing");
@@ -521,7 +526,7 @@ EditorOperationResult EditorCoordinator::playProject() {
         return EditorOperationResult::failure("Cannot play project: no valid start scene");
     }
     std::string error;
-    std::optional<PlaySession> session = PlaySession::startProject(document_, &error);
+    std::optional<PlaySession> session = PlaySession::startProject(document_, scripts, &error);
     if (!session.has_value()) {
         const std::string message = error.empty() ? "Cannot start Play" : error;
         appendConsole(ConsoleMessage::Level::Error, message);
@@ -560,6 +565,11 @@ EditorOperationResult EditorCoordinator::playProject() {
 }
 
 EditorOperationResult EditorCoordinator::playCurrentScene() {
+    return playCurrentScene({});
+}
+
+EditorOperationResult EditorCoordinator::playCurrentScene(
+    const std::vector<Scripts::ScriptProgram>& scripts) {
     if (isPlaying()) {
         appendConsole(ConsoleMessage::Level::Warning, "Already playing");
         return EditorOperationResult::failure("Already playing");
@@ -571,7 +581,7 @@ EditorOperationResult EditorCoordinator::playCurrentScene() {
     }
     std::string error;
     std::optional<PlaySession> session =
-        PlaySession::startActiveScene(document_, state_.activeSceneId, &error);
+        PlaySession::startActiveScene(document_, state_.activeSceneId, scripts, &error);
     if (!session.has_value()) {
         const std::string message = error.empty() ? "Cannot start Play" : error;
         appendConsole(ConsoleMessage::Level::Error, message);
@@ -643,7 +653,20 @@ void EditorCoordinator::advanceRuntime(float dt) {
 }
 
 void EditorCoordinator::updateRuntime(const RuntimeInputSnapshot& input, float dt) {
-    if (playSession_) playSession_->update(input, dt);
+    if (!playSession_) return;
+    playSession_->update(input, dt);
+    const std::vector<Scripts::ScriptRuntimeDiagnostic> diagnostics =
+        playSession_->drainScriptDiagnostics();
+    for (const Scripts::ScriptRuntimeDiagnostic& diagnostic : diagnostics) {
+        console_.push_back(ConsoleMessage{
+            ConsoleMessage::Level::Error,
+            diagnostic.sourcePath + " [SCRIPT_RUNTIME/" + diagnostic.callback + "] entity "
+                + std::to_string(diagnostic.owner) + ": " + diagnostic.message,
+            ConsoleMessage::ScriptSource{diagnostic.scriptAssetId,
+                                         diagnostic.sourcePath,
+                                         diagnostic.line, diagnostic.column}});
+    }
+    if (!diagnostics.empty()) accumulate(EditorInvalidation::Console);
 }
 
 std::vector<RuntimeAudioCommand> EditorCoordinator::drainAudioCommands() {

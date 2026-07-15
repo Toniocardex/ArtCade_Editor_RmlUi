@@ -10,7 +10,7 @@ Engineering Gates and ADR-0002.
 | Script 2 — Workspace editor MVP | Completed | Third workspace, static textarea surface, tabs, dirty buffers, Save/Save All, local Undo/Redo, unsaved guard, search/go-to-line, UTF-8 cursor status and Script → Play → Script navigation. Native build, 4,369 core assertions and full test suite green; empty/open-file screenshot smoke checks passed. |
 | Script 3 — Syntax diagnostics | Completed | 400 ms compile-only Lua 5.4 validation, revision-bound diagnostics, Console/source navigation and strict saved-source validation over an explicit referenced set. Activation becomes non-vacuous when Script 4 authors attachments. |
 | Script 4 — Object Type Script Component | Completed | Schema v7 type-owned ordered attachments, Inspector attach/open/enable/reorder/remove, atomic Commands with exact Undo/Redo, delete guard, shared runtime model/parser and strict saved-source Play gate over enabled references. |
-| Script 5 — Runtime base | Planned | Sandboxed runtime, `on_start`/`on_update`, saved snapshot, limits and native/export parity. |
+| Script 5 — Runtime base | Completed | Shared `script-core`/`script-runtime`, isolated strict Lua scopes, `on_start`/`on_update`, exact saved-source snapshot, bounded execution, error isolation and Editor Play/standalone parity. |
 | Script 6 — Gameplay events | Planned | Input/collision/animation/audio, deferred destroy, deterministic Logic → Scripts order. |
 | Script 7 — Apply workflow | Planned | Restart-required banner, Save and Restart, workspace return and cursor preservation. |
 | Script 8 — IDE polish | Planned | Highlighting and editor assistance only after runtime end-to-end is complete. |
@@ -82,17 +82,47 @@ Engineering Gates and ADR-0002.
   reference sets, referenced-delete guard, schema v7 round-trip/migration,
   duplicate/missing/empty validation and native full-suite build gate.
 
+## Script 5 contract
+
+- Authority: `ScriptProgram` in `script-core` is the immutable saved-source
+  snapshot for one Play session. `script-runtime` owns disposable VM state;
+  neither runtime module reads editor buffers, `ProjectDocument` or files.
+- Intent/Command: the application boundary snapshots the exact enabled AssetId
+  set before Start Play. Runtime callbacks do not dispatch authoring Commands
+  and cannot mutate project history.
+- Invariants: one isolated VM per `(entity, attachment)`; API version and return
+  shape validated before materialization; structural entity order then persisted
+  attachment order; generated Logic dispatch precedes manual callbacks; `on_start`
+  is emitted once; late scope installation is rejected.
+- Sandbox: no OS, filesystem, debug, dynamic loader, Raylib, network or threads;
+  controlled standard-library `require`; finite source, scope, memory,
+  instruction and call-depth limits. A callback failure disables only its scope.
+- Shared gameplay API: Logic Board and Script runtime use one
+  `IGameplayRuntimeHost` authority. Slice 5 exposes `ctx.self:set_visible` and
+  `ctx.self:set_position`; the remaining event/gameplay surface belongs to
+  Script 6.
+- Undo/Stop: runtime mutations are Play-only and have no Undo entry. Stop drops
+  all scopes and returns to the untouched authoring document.
+- Play/export: Editor Play reads every linked saved file once, then passes those
+  exact bytes through validation and materialization. Standalone loading uses
+  the same program model, sandbox and lifecycle, with confined bounded reads.
+- Tests: invalid API/shape, forbidden libraries, controlled `require`, exact
+  snapshot bytes, missing/extra programs, isolated VM state, lifecycle order,
+  runtime error isolation, caught limit violations, scope cancellation and
+  `ctx.self` mutation in a materialized PlaySession.
+
 ## Current gate status (2026-07-15)
 
 - `artcade-editor-native.exe`: builds successfully.
-- `editor_core_test`: 4,424 passed, 0 failed.
+- `editor_core_test`: 4,487 passed, 0 failed.
 - CTest: editor core, Logic Board and SFX all passed (3/3).
 - RmlUi smoke: Script empty state and an opened Lua source render without
   parser warnings; the textarea remains a static document element.
-- Slice 4 diff review: no P0/P1 violations found after correcting component
-  Added/Removed/Changed domain semantics. No instance override, direct UI
-  mutation, duplicate attachment store, editor-api bridge, React/Tauri or WASM
-  editor code was introduced.
-- Next authorized slice: Script 5 — Runtime base. Slice 4 still executes no
-  manual Lua; it only establishes and validates the immutable saved-source
-  reference boundary that Script 5 will materialize at Start Play.
+- Slice 5 diff review: no P0/P1 violations after extracting the shared gameplay
+  host and separate `script-core` authority. No direct UI/document access,
+  authoring mutation, duplicate runtime policy, editor-api bridge, React/Tauri
+  or WASM editor code was introduced.
+- Standalone export parity: `runtime-cpp/build/src/app/Debug/game.exe` builds and
+  links with the shared Script modules. The only warning is the pre-existing
+  insecure development asset key, which must not be shipped.
+- Next authorized slice: Script 6 — Gameplay events.

@@ -2,9 +2,11 @@
 
 #include "core/types.h"
 #include "editor-native/app/asset_import.h"
+#include "script-runtime.h"
 
 #include <filesystem>
 #include <optional>
+#include <vector>
 
 namespace ArtCade::EditorNative {
 
@@ -45,7 +47,7 @@ private:
     void requestNewProject();
     void requestOpenProject();
     void requestSaveAs();
-    bool validateSavedScriptsForPlay();
+    std::optional<std::vector<Scripts::ScriptProgram>> snapshotSavedScriptsForPlay();
 
     EditorCoordinator&      coordinator_;
     EditorUi&               ui_;

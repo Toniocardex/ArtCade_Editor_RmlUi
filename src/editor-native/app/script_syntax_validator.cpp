@@ -85,31 +85,44 @@ std::vector<ScriptDiagnostic> validateReferencedScriptSyntax(
     const ProjectDocument& document,
     const ProjectScriptFileService& files,
     const std::vector<AssetId>& referencedScriptAssetIds) {
-    std::vector<ScriptDiagnostic> diagnostics;
+    return snapshotReferencedScripts(document, files, referencedScriptAssetIds).diagnostics;
+}
+
+SavedScriptSnapshotResult snapshotReferencedScripts(
+    const ProjectDocument& document,
+    const ProjectScriptFileService& files,
+    const std::vector<AssetId>& referencedScriptAssetIds) {
+    SavedScriptSnapshotResult result;
     std::unordered_set<AssetId> visited;
     for (const AssetId& assetId : referencedScriptAssetIds) {
         if (!visited.insert(assetId).second) continue;
         const ScriptAssetDef* asset = document.findScriptAsset(assetId);
         if (!asset) {
-            diagnostics.push_back({DiagnosticSeverity::Error,
+            result.diagnostics.push_back({DiagnosticSeverity::Error,
                 "SCRIPT_REFERENCE_UNKNOWN", assetId, {}, 0, 0,
                 std::nullopt, {}, "Referenced script asset does not exist"});
             continue;
         }
         const ScriptFileResult<std::string> source = files.readScript(asset->sourcePath);
         if (!source.ok) {
-            diagnostics.push_back({DiagnosticSeverity::Error,
+            result.diagnostics.push_back({DiagnosticSeverity::Error,
                 "SCRIPT_SOURCE_UNREADABLE", assetId, asset->sourcePath, 0, 0,
                 std::nullopt, {}, source.error});
             continue;
         }
         std::vector<ScriptDiagnostic> sourceDiagnostics =
             validateScriptSyntax(assetId, asset->sourcePath, source.value);
-        diagnostics.insert(diagnostics.end(),
-                           std::make_move_iterator(sourceDiagnostics.begin()),
-                           std::make_move_iterator(sourceDiagnostics.end()));
+        if (sourceDiagnostics.empty()) {
+            result.programs.push_back(
+                Scripts::ScriptProgram{assetId, asset->sourcePath, source.value});
+        } else {
+            result.diagnostics.insert(result.diagnostics.end(),
+                std::make_move_iterator(sourceDiagnostics.begin()),
+                std::make_move_iterator(sourceDiagnostics.end()));
+        }
     }
-    return diagnostics;
+    if (!result.diagnostics.empty()) result.programs.clear();
+    return result;
 }
 
 } // namespace ArtCade::EditorNative

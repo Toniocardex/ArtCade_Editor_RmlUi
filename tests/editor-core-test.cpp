@@ -54,6 +54,7 @@
 #include "editor-native/model/sprite_render_view.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view_camera.h"
+#include "script-runtime.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -3714,9 +3715,22 @@ static void runScriptAssetAndFileServiceTests() {
     CHECK(strictDiagnostics[0].code == "SCRIPT_SYNTAX");
     CHECK(strictDiagnostics[1].code == "SCRIPT_SOURCE_UNREADABLE");
     CHECK(strictDiagnostics[2].code == "SCRIPT_REFERENCE_UNKNOWN");
+
+    const std::string savedRuntimeSource =
+        "artcade.require_api_version(1)\nreturn { on_update = function(ctx, dt) end }\n";
+    CHECK(files.writeScriptAtomically("scripts/player.lua", savedRuntimeSource).ok);
+    SavedScriptSnapshotResult savedSnapshot = snapshotReferencedScripts(
+        gateDocument, files, {"safe"});
+    CHECK(savedSnapshot.ok());
+    CHECK(savedSnapshot.programs.size() == 1);
+    CHECK(savedSnapshot.programs.front().source == savedRuntimeSource);
+    CHECK(files.writeScriptAtomically("scripts/player.lua", "return false\n").ok);
+    Scripts::ScriptRuntime snapshotRuntime;
+    std::string snapshotError;
+    CHECK(snapshotRuntime.validateProgram(savedSnapshot.programs.front(), &snapshotError));
     CHECK(!files.writeScriptAtomically(
         "scripts/player.lua", std::string("return\0{}", 9)).ok);
-    CHECK(files.readScript("scripts/player.lua").value == "return {\n}\n");
+    CHECK(files.readScript("scripts/player.lua").value == "return false\n");
 
     // Metadata Command authority and exact history.
     EditorCoordinator coordinator{makeDoc()};
@@ -3922,6 +3936,221 @@ static void runScriptAssetAndFileServiceTests() {
     CHECK(workspace.execute(RemoveScriptAssetCommand{"player"}).ok);
     CHECK(workspace.state().scriptEditor.buffers.empty());
     CHECK(!workspace.state().scriptEditor.activeAssetId.has_value());
+}
+
+static void runManualScriptRuntimeTests() {
+    using Scripts::ScriptProgram;
+    using Scripts::ScriptRuntime;
+    using Scripts::ScriptRuntimeLimits;
+
+    const ScriptProgram sandboxed{
+        "sandboxed", "scripts/sandboxed.lua", R"lua(
+artcade.require_api_version(1)
+assert(io == nil and os == nil and debug == nil and package == nil)
+assert(dofile == nil and loadfile == nil and load == nil)
+assert(print == nil and warn == nil)
+assert(Raylib == nil)
+local m = require("math")
+assert(m.abs(-3) == 3)
+local ok = pcall(function() require("filesystem") end)
+assert(not ok)
+return {
+  on_start = function(ctx) assert(ctx.entity_id == 42 and ctx.self ~= nil) end,
+  on_update = function(ctx, dt) assert(ctx.entity_id == 42 and dt > 0) end
+}
+)lua"};
+
+    ScriptRuntime validator;
+    std::string error;
+    CHECK(validator.validateProgram(sandboxed, &error));
+    CHECK(!validator.validateProgram(ScriptProgram{
+        "missing-api", "scripts/missing-api.lua", "return {}\n"}, &error));
+    CHECK(error.find("require_api_version") != std::string::npos);
+    CHECK(!validator.validateProgram(ScriptProgram{
+        "future-api", "scripts/future-api.lua",
+        "artcade.require_api_version(2)\nreturn {}\n"}, &error));
+    CHECK(error.find("Unsupported ArtCade script API version") != std::string::npos);
+    CHECK(!validator.validateProgram(ScriptProgram{
+        "bad-return", "scripts/bad-return.lua",
+        "artcade.require_api_version(1)\nreturn 7\n"}, &error));
+    CHECK(error.find("must return a table") != std::string::npos);
+    CHECK(!validator.validateProgram(ScriptProgram{
+        "bad-callback", "scripts/bad-callback.lua",
+        "artcade.require_api_version(1)\nreturn { on_update = true }\n"}, &error));
+    CHECK(error.find("on_update") != std::string::npos);
+
+    ScriptRuntimeLimits tight;
+    tight.maxSourceBytes = 16;
+    ScriptRuntime sourceLimited{tight};
+    CHECK(!sourceLimited.validateProgram(sandboxed, &error));
+    CHECK(error.find("size limit") != std::string::npos);
+
+    ScriptRuntimeLimits instructionLimits;
+    instructionLimits.maxInstructionsPerCallback = 5000;
+    ScriptRuntime instructionLimited{instructionLimits};
+    CHECK(!instructionLimited.validateProgram(ScriptProgram{
+        "load-loop", "scripts/load-loop.lua",
+        "artcade.require_api_version(1)\nwhile true do end\nreturn {}\n"}, &error));
+    CHECK(error.find("instruction budget") != std::string::npos);
+
+    ScriptRuntimeLimits depthLimits;
+    depthLimits.maxCallDepth = 8;
+    ScriptRuntime depthLimited{depthLimits};
+    const ScriptProgram recursive{
+        "recursive", "scripts/recursive.lua", R"lua(
+artcade.require_api_version(1)
+local function recurse(n)
+  if n > 0 then recurse(n - 1); local keep_non_tail = n end
+end
+return { on_update = function(ctx, dt) recurse(100) end }
+)lua"};
+    CHECK(depthLimited.install(recursive, 12, "recursive", &error));
+    depthLimited.dispatchStart();
+    depthLimited.update(1.f / 60.f);
+    CHECK(depthLimited.activeScopeCount() == 0);
+    CHECK(depthLimited.diagnostics().front().message.find("call depth")
+          != std::string::npos);
+
+    ScriptRuntimeLimits memoryLimits;
+    memoryLimits.maxMemoryBytesPerScope = 512u * 1024u;
+    ScriptRuntime memoryLimited{memoryLimits};
+    CHECK(!memoryLimited.validateProgram(ScriptProgram{
+        "memory", "scripts/memory.lua",
+        "artcade.require_api_version(1)\nlocal x = string.rep('x', 1048576)\nreturn {}\n"},
+        &error));
+    CHECK(error.find("memory limit") != std::string::npos);
+    CHECK(!memoryLimited.validateProgram(ScriptProgram{
+        "caught-memory", "scripts/caught-memory.lua", R"lua(
+artcade.require_api_version(1)
+pcall(function() local x = string.rep("x", 1048576) end)
+return {}
+)lua"}, &error));
+    CHECK(error.find("memory limit") != std::string::npos);
+
+    // Each install owns an isolated VM. Both counters reach 1 on frame one and
+    // both independently fail on frame two; a shared VM would fail one scope on
+    // the first frame and violate the per-(instance,attachment) contract.
+    const ScriptProgram isolated{
+        "isolated", "scripts/isolated.lua", R"lua(
+artcade.require_api_version(1)
+local updates = 0
+return {
+  on_update = function(ctx, dt)
+    updates = updates + 1
+    if updates > 1 then error("scope counter reached two") end
+  end
+}
+)lua"};
+    ScriptRuntime scopes{instructionLimits};
+    CHECK(scopes.install(isolated, 10, "script-1", &error));
+    CHECK(scopes.install(isolated, 11, "script-2", &error));
+    CHECK(scopes.scopeCount() == 2);
+    scopes.update(1.f / 60.f);
+    CHECK(scopes.activeScopeCount() == 2);
+    CHECK(scopes.diagnostics().empty());
+    scopes.dispatchStart();
+    scopes.dispatchStart();
+    CHECK(!scopes.install(isolated, 12, "late", &error));
+    CHECK(error.find("after on_start") != std::string::npos);
+    scopes.update(1.f / 60.f);
+    CHECK(scopes.activeScopeCount() == 2);
+    scopes.update(1.f / 60.f);
+    CHECK(scopes.activeScopeCount() == 0);
+    CHECK(scopes.diagnostics().size() == 2);
+    CHECK(scopes.diagnostics()[0].owner == 10);
+    CHECK(scopes.diagnostics()[1].owner == 11);
+
+    const ScriptProgram runawayUpdate{
+        "runaway", "scripts/runaway.lua", R"lua(
+artcade.require_api_version(1)
+return { on_update = function(ctx, dt) while true do end end }
+)lua"};
+    ScriptRuntime isolatedFailure{instructionLimits};
+    CHECK(isolatedFailure.install(sandboxed, 42, "safe", &error));
+    CHECK(isolatedFailure.install(runawayUpdate, 43, "runaway", &error));
+    isolatedFailure.dispatchStart();
+    isolatedFailure.update(1.f / 60.f);
+    CHECK(isolatedFailure.activeScopeCount() == 1);
+    CHECK(isolatedFailure.diagnostics().size() == 1);
+    CHECK(isolatedFailure.diagnostics().front().attachmentId == "runaway");
+    isolatedFailure.cancelOwner(42);
+    CHECK(isolatedFailure.activeScopeCount() == 0);
+
+    const ScriptProgram caughtBudget{
+        "caught-budget", "scripts/caught-budget.lua", R"lua(
+artcade.require_api_version(1)
+return { on_update = function(ctx, dt)
+  pcall(function() while true do end end)
+end }
+)lua"};
+    ScriptRuntime caughtLimit{instructionLimits};
+    CHECK(caughtLimit.install(caughtBudget, 44, "caught", &error));
+    caughtLimit.dispatchStart();
+    caughtLimit.update(1.f / 60.f);
+    CHECK(caughtLimit.activeScopeCount() == 0);
+    CHECK(caughtLimit.diagnostics().front().message.find("instruction budget")
+          != std::string::npos);
+
+    const ScriptProgram startFailure{
+        "start-failure", "scripts/start-failure.lua", R"lua(
+artcade.require_api_version(1)
+return { on_start = function(ctx) error("start failed") end }
+)lua"};
+    const ScriptProgram startOnce{
+        "start-once", "scripts/start-once.lua", R"lua(
+artcade.require_api_version(1)
+local starts = 0
+return { on_start = function(ctx)
+  starts = starts + 1
+  if starts > 1 then error("on_start repeated") end
+end }
+)lua"};
+    ScriptRuntime isolatedStartFailure;
+    CHECK(isolatedStartFailure.install(startFailure, 45, "bad-start", &error));
+    CHECK(isolatedStartFailure.install(startOnce, 46, "good-start", &error));
+    isolatedStartFailure.dispatchStart();
+    isolatedStartFailure.dispatchStart();
+    CHECK(isolatedStartFailure.activeScopeCount() == 1);
+    CHECK(isolatedStartFailure.diagnostics().size() == 1);
+    CHECK(isolatedStartFailure.diagnostics().front().phase
+          == Scripts::ScriptRuntimePhase::Start);
+    CHECK(isolatedStartFailure.diagnostics().front().callback == "on_start");
+    CHECK(isolatedStartFailure.diagnostics().front().line > 0);
+
+    // PlaySession consumes only an exact immutable saved-source snapshot and
+    // materializes enabled attachments in Object-Type order.
+    ProjectDoc doc = makeDoc();
+    EntityDef hero;
+    hero.className = "Hero";
+    hero.name = "Hero";
+    hero.scripts = ScriptComponent{{ScriptAttachmentDef{"script-1", "visibility", true}}};
+    doc.objectTypes.emplace("Hero", std::move(hero));
+    doc.scriptAssets.push_back(
+        ScriptAssetDef{"visibility", "Visibility", "scripts/visibility.lua"});
+    const ScriptProgram visibility{
+        "visibility", "scripts/visibility.lua", R"lua(
+artcade.require_api_version(1)
+return { on_start = function(ctx)
+  ctx.self:set_visible(false)
+  ctx.self:set_position(7, 8)
+end }
+)lua"};
+    const ProjectDocument document{std::move(doc)};
+    CHECK(!PlaySession::startProject(document, &error).has_value());
+    auto play = PlaySession::startProject(document, {visibility}, &error);
+    CHECK(play.has_value());
+    CHECK(play && play->scriptRuntime());
+    CHECK(play && play->scriptRuntime()->scopeCount() == 1);
+    CHECK(play && !play->scene().entities.front().visible);
+    CHECK(play && play->scene().entities.front().transform.position.x == 7.f);
+    CHECK(play && play->scene().entities.front().transform.position.y == 8.f);
+    if (play) {
+        play->update(RuntimeInputSnapshot{}, 1.f / 60.f);
+        CHECK(play->drainScriptDiagnostics().empty());
+    }
+    CHECK(!PlaySession::startProject(document, {ScriptProgram{
+        "sandboxed", "scripts/sandboxed.lua",
+        "artcade.require_api_version(1)\nreturn false\n"}}, &error).has_value());
 }
 
 int main() {
@@ -9832,6 +10061,7 @@ int main() {
     runGeneratedSfxTests();
     runGeneratedSfxMacrosTests();
     runScriptAssetAndFileServiceTests();
+    runManualScriptRuntimeTests();
 
     std::cout << "editor-core-test: " << g_passed << " passed, "
               << g_failed << " failed\n";

@@ -240,6 +240,7 @@ PlaySession::PlaySession(PlaySession&& other) noexcept
       staticColliders_(std::move(other.staticColliders_)),
       logicHost_(std::move(other.logicHost_)),
       logicRuntime_(std::move(other.logicRuntime_)),
+      scriptRuntime_(std::move(other.scriptRuntime_)),
       platformerMoveIntents_(std::move(other.platformerMoveIntents_)),
       platformerJumpIntents_(std::move(other.platformerJumpIntents_)),
       logicScopesByEntity_(std::move(other.logicScopesByEntity_)),
@@ -252,6 +253,7 @@ PlaySession::PlaySession(PlaySession&& other) noexcept
 PlaySession& PlaySession::operator=(PlaySession&& other) noexcept {
     if (this == &other) return *this;
     logicRuntime_.reset();
+    scriptRuntime_.reset();
     logicHost_.reset();
     scene_ = std::move(other.scene_);
     assets_ = std::move(other.assets_);
@@ -259,6 +261,7 @@ PlaySession& PlaySession::operator=(PlaySession&& other) noexcept {
     staticColliders_ = std::move(other.staticColliders_);
     logicHost_ = std::move(other.logicHost_);
     logicRuntime_ = std::move(other.logicRuntime_);
+    scriptRuntime_ = std::move(other.scriptRuntime_);
     platformerMoveIntents_ = std::move(other.platformerMoveIntents_);
     platformerJumpIntents_ = std::move(other.platformerJumpIntents_);
     logicScopesByEntity_ = std::move(other.logicScopesByEntity_);
@@ -271,6 +274,7 @@ PlaySession& PlaySession::operator=(PlaySession&& other) noexcept {
 
 std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& document,
                                                     const SceneId& sceneId,
+                                                    const std::vector<Scripts::ScriptProgram>& scripts,
                                                     std::string* error) {
     // Compile every board before creating any runtime entity. A blocking
     // diagnostic rejects Play atomically and leaves authoring untouched.
@@ -284,6 +288,36 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
             }
         }
         return std::nullopt;
+    }
+
+    std::unordered_map<AssetId, const Scripts::ScriptProgram*> scriptPrograms;
+    if (!scripts.empty()) {
+        Scripts::ScriptRuntime validator;
+        for (const Scripts::ScriptProgram& program : scripts) {
+            if (!scriptPrograms.emplace(program.assetId, &program).second) {
+                if (error) *error = "Cannot start Play: duplicate Script Program snapshot";
+                return std::nullopt;
+            }
+            std::string scriptError;
+            if (!validator.validateProgram(program, &scriptError)) {
+                if (error) {
+                    *error = "Cannot start Play: " + program.sourcePath + ": " + scriptError;
+                }
+                return std::nullopt;
+            }
+        }
+    }
+    const std::vector<AssetId> linkedScriptAssets =
+        document.referencedScriptAssetIds(true);
+    if (scriptPrograms.size() != linkedScriptAssets.size()) {
+        if (error) *error = "Cannot start Play: Script Program snapshot is incomplete";
+        return std::nullopt;
+    }
+    for (const AssetId& linked : linkedScriptAssets) {
+        if (scriptPrograms.count(linked) == 0) {
+            if (error) *error = "Cannot start Play: no saved snapshot for Script Asset " + linked;
+            return std::nullopt;
+        }
     }
 
     const SceneDef* scene = document.findScene(sceneId);
@@ -535,8 +569,10 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
         if (it != indexByEntity.end()) session.scene().renderOrder.push_back(it->second);
     }
 
-    if (!logic.programs.empty()) {
+    if (!logic.programs.empty() || !scriptPrograms.empty()) {
         session.logicHost_ = std::make_unique<LogicHostAdapter>(&session);
+    }
+    if (!logic.programs.empty()) {
         session.logicRuntime_ = std::make_unique<Logic::LogicRuntime>(*session.logicHost_);
         std::string logicError;
         if (!session.logicRuntime_->loadPrograms(logic.programs, &logicError)) {
@@ -553,22 +589,70 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
             }
             session.logicScopesByEntity_.emplace(entity.id, *scope);
         }
+    }
+
+    if (!scriptPrograms.empty()) {
+        session.scriptRuntime_ =
+            std::make_unique<Scripts::ScriptRuntime>(*session.logicHost_);
+        for (const RuntimeEntity& entity : session.scene_.entities) {
+            const auto typeIt = document.data().objectTypes.find(entity.objectTypeId);
+            if (typeIt == document.data().objectTypes.end() || !typeIt->second.scripts) continue;
+            for (const ScriptAttachmentDef& attachment : typeIt->second.scripts->attachments) {
+                if (!attachment.enabled) continue;
+                const auto program = scriptPrograms.find(attachment.scriptAssetId);
+                if (program == scriptPrograms.end()) {
+                    if (error) {
+                        *error = "Cannot start Play: no saved snapshot for Script Asset "
+                               + attachment.scriptAssetId;
+                    }
+                    return std::nullopt;
+                }
+                std::string scriptError;
+                if (!session.scriptRuntime_->install(
+                        *program->second, entity.id, attachment.id, &scriptError)) {
+                    if (error) {
+                        *error = "Cannot start Play: " + program->second->sourcePath
+                               + ": " + scriptError;
+                    }
+                    return std::nullopt;
+                }
+            }
+        }
+    }
+
+    // Deterministic lifecycle order: generated Logic programs first, followed
+    // by manual Script attachments in structural entity + persisted order.
+    if (session.logicRuntime_) {
         session.logicRuntime_->beginFrame();
         session.logicRuntime_->dispatchStart();
     }
+    if (session.scriptRuntime_) session.scriptRuntime_->dispatchStart();
 
     return session;
 }
 
 std::optional<PlaySession> PlaySession::startProject(const ProjectDocument& document,
                                                      std::string* error) {
-    return materialize(document, document.startSceneId(), error);
+    return materialize(document, document.startSceneId(), {}, error);
+}
+
+std::optional<PlaySession> PlaySession::startProject(const ProjectDocument& document,
+                                                     const std::vector<Scripts::ScriptProgram>& scripts,
+                                                     std::string* error) {
+    return materialize(document, document.startSceneId(), scripts, error);
 }
 
 std::optional<PlaySession> PlaySession::startActiveScene(const ProjectDocument& document,
                                                         const SceneId& sceneId,
                                                         std::string* error) {
-    return materialize(document, sceneId, error);
+    return materialize(document, sceneId, {}, error);
+}
+
+std::optional<PlaySession> PlaySession::startActiveScene(const ProjectDocument& document,
+                                                        const SceneId& sceneId,
+                                                        const std::vector<Scripts::ScriptProgram>& scripts,
+                                                        std::string* error) {
+    return materialize(document, sceneId, scripts, error);
 }
 
 const RuntimeEntity* PlaySession::findEntity(EntityId id) const {
@@ -631,6 +715,7 @@ void PlaySession::flushPendingDestroys() {
             const auto scope = logicScopesByEntity_.find(id);
             if (scope != logicScopesByEntity_.end()) logicRuntime_->cancelScope(scope->second);
         }
+        if (scriptRuntime_) scriptRuntime_->cancelOwner(id);
         logicScopesByEntity_.erase(id);
         platformerMoveIntents_.erase(id);
         platformerJumpIntents_.erase(id);
@@ -703,6 +788,12 @@ std::vector<RuntimeAudioCommand> PlaySession::drainAudioCommands() {
     std::vector<RuntimeAudioCommand> drained = std::move(pendingAudioCommands_);
     pendingAudioCommands_.clear();
     return drained;
+}
+
+std::vector<Scripts::ScriptRuntimeDiagnostic> PlaySession::drainScriptDiagnostics() {
+    return scriptRuntime_
+        ? scriptRuntime_->drainDiagnostics()
+        : std::vector<Scripts::ScriptRuntimeDiagnostic>{};
 }
 
 KinematicMoveResult PlaySession::moveKinematicEntity(RuntimeEntity& entity, Vec2 desiredDelta) {
@@ -857,6 +948,9 @@ void PlaySession::update(const RuntimeInputSnapshot& input, float dt) {
     }
     dispatchCollisionTransitions();
     flushPendingDestroys();
+    // Logic Board owns every generated event in this frame. Manual attachments
+    // run only after that phase, in persisted order, and never for destroyed owners.
+    if (scriptRuntime_) scriptRuntime_->update(dt);
 }
 
 } // namespace ArtCade::EditorNative

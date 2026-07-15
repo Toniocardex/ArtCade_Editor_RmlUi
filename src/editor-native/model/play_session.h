@@ -2,6 +2,7 @@
 
 #include "core/types.h"
 #include "logic-runtime.h"
+#include "script-runtime.h"
 
 #include <optional>
 #include <memory>
@@ -213,10 +214,19 @@ public:
 
     static std::optional<PlaySession> startProject(const ProjectDocument& document,
                                                    std::string* error = nullptr);
+    static std::optional<PlaySession> startProject(
+        const ProjectDocument& document,
+        const std::vector<Scripts::ScriptProgram>& scripts,
+        std::string* error = nullptr);
 
     static std::optional<PlaySession> startActiveScene(const ProjectDocument& document,
                                                        const SceneId& sceneId,
                                                        std::string* error = nullptr);
+    static std::optional<PlaySession> startActiveScene(
+        const ProjectDocument& document,
+        const SceneId& sceneId,
+        const std::vector<Scripts::ScriptProgram>& scripts,
+        std::string* error = nullptr);
 
     const SceneId& sceneId() const { return scene_.sourceSceneId; }
     const RuntimeScene& scene() const { return scene_; }
@@ -241,6 +251,8 @@ public:
     // playback via its own Raylib Sound cache — PlaySession stays free of
     // Raylib/RmlUi, same invariant as `update()` above.
     std::vector<RuntimeAudioCommand> drainAudioCommands();
+    std::vector<Scripts::ScriptRuntimeDiagnostic> drainScriptDiagnostics();
+    const Scripts::ScriptRuntime* scriptRuntime() const { return scriptRuntime_.get(); }
 
 private:
     struct LogicHostAdapter;
@@ -248,6 +260,7 @@ private:
     PlaySession() = default;
     static std::optional<PlaySession> materialize(const ProjectDocument& document,
                                                   const SceneId& sceneId,
+                                                  const std::vector<Scripts::ScriptProgram>& scripts,
                                                   std::string* error);
 
     // The one internal entry point for runtime movement: LinearMover (advance),
@@ -285,6 +298,7 @@ private:
     // invalidates the reference retained by LogicRuntime.
     std::unique_ptr<LogicHostAdapter> logicHost_;
     std::unique_ptr<Logic::LogicRuntime> logicRuntime_;
+    std::unique_ptr<Scripts::ScriptRuntime> scriptRuntime_;
     std::unordered_map<EntityId, float> platformerMoveIntents_;
     std::unordered_map<EntityId, bool> platformerJumpIntents_;
     std::unordered_map<EntityId, Logic::ScopeToken> logicScopesByEntity_;

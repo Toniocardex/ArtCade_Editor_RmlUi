@@ -131,7 +131,9 @@ public:
         return playSession_ ? &*playSession_ : nullptr;
     }
     EditorOperationResult playProject();
+    EditorOperationResult playProject(const std::vector<Scripts::ScriptProgram>& scripts);
     EditorOperationResult playCurrentScene();
+    EditorOperationResult playCurrentScene(const std::vector<Scripts::ScriptProgram>& scripts);
     EditorOperationResult stopPlaying();
 
     // Runtime simulation step for the active Play session (authored motion).

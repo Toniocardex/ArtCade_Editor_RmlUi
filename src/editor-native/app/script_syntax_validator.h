@@ -1,6 +1,7 @@
 #pragma once
 
 #include "editor-native/model/script_editor_state.h"
+#include "script-runtime.h"
 
 #include <string>
 #include <vector>
@@ -21,6 +22,19 @@ std::vector<ScriptDiagnostic> validateScriptSyntax(
 // authored reference set; validating every catalog entry would incorrectly
 // make unrelated drafts block Play.
 std::vector<ScriptDiagnostic> validateReferencedScriptSyntax(
+    const ProjectDocument& document,
+    const ProjectScriptFileService& files,
+    const std::vector<AssetId>& referencedScriptAssetIds);
+
+struct SavedScriptSnapshotResult {
+    std::vector<Scripts::ScriptProgram> programs;
+    std::vector<ScriptDiagnostic> diagnostics;
+    bool ok() const { return diagnostics.empty(); }
+};
+
+// Canonical Start-Play boundary: reads every linked file exactly once, compiles
+// those exact bytes, and returns the same immutable bytes the runtime receives.
+SavedScriptSnapshotResult snapshotReferencedScripts(
     const ProjectDocument& document,
     const ProjectScriptFileService& files,
     const std::vector<AssetId>& referencedScriptAssetIds);

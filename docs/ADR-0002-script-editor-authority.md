@@ -33,8 +33,9 @@ Consequences:
 - `ScriptComponent` is type-owned, ordered and has stable attachment IDs;
 - Logic Board programs and manual scripts remain separate Lua programs and
   separate scopes;
-- Start Play will eventually materialize only saved source; it will never read
-  a live editor buffer or query `ProjectDocument` per frame;
+- Start Play materializes only saved source into immutable `ScriptProgram`
+  snapshots; it never reads a live editor buffer or queries `ProjectDocument`
+  per frame;
 - automatic hot reload is not part of the initial implementation.
 
 `CenterWorkspaceMode::Script` is a first-class workspace mode, but not a second
@@ -50,7 +51,7 @@ persistent project authority. RmlUi remains presentation only.
 - instance-owned script overrides are not representable.
 - removing a referenced script asset is rejected atomically.
 - a syntactically incomplete buffer may be saved; Play/export validation is a
-  later strict boundary and must fail atomically.
+  strict boundary and fails atomically.
 - syntax diagnostics are derived from one exact buffer revision and are
   discarded when that revision changes; loading a chunk for diagnostics never
   executes it or opens Lua libraries.
@@ -71,11 +72,12 @@ before a destructive action may continue.
 
 ## Play behaviour
 
-Script 1 and Script 2 do not execute scripts. Play started from Script follows
-the established authoring-workspace navigation policy: it opens Scene for the
-runtime view and Stop returns to the same Script workspace/buffer state. The
-later runtime slice will snapshot saved sources at Start, isolate runtime state
-from authoring and dispose all scopes at Stop.
+Play started from Script follows the established authoring-workspace navigation
+policy: it opens Scene for the runtime view and Stop returns to the same Script
+workspace/buffer state. At Start, the application reads each linked saved source
+once and passes those exact bytes to the shared runtime. One isolated VM is
+created per entity/attachment, generated Logic callbacks run before manual
+scripts, and Stop disposes every scope without changing authoring state.
 
 ## Alternatives rejected
 
@@ -97,4 +99,5 @@ from authoring and dispose all scopes at Stop.
 - RmlUi controller contract without rebuilding the textarea per keystroke;
 - compile-only Lua 5.4 diagnostics, stale-revision rejection and strict
   saved-source validation over the authored reference set;
-- later runtime parity on native and WASM targets.
+- shared `script-core`/`script-runtime` lifecycle, sandbox and gameplay host in
+  native Editor Play and standalone export targets.
