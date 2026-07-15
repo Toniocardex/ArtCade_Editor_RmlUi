@@ -66,6 +66,9 @@ struct PlaySession::LogicHostAdapter final : Logic::ILogicRuntimeHost {
     bool setAnimationPlaybackSpeed(EntityId id, float speed) override {
         return owner && owner->setAnimationPlaybackSpeed(id, speed);
     }
+    bool playSound(EntityId id, const AssetId& audioAssetId, float volume) override {
+        return owner && owner->playSound(id, audioAssetId, volume);
+    }
 
     PlaySession* owner = nullptr;
 };
@@ -241,7 +244,8 @@ PlaySession::PlaySession(PlaySession&& other) noexcept
       platformerJumpIntents_(std::move(other.platformerJumpIntents_)),
       logicScopesByEntity_(std::move(other.logicScopesByEntity_)),
       activeCollisionPairs_(std::move(other.activeCollisionPairs_)),
-      pendingDestroy_(std::move(other.pendingDestroy_)) {
+      pendingDestroy_(std::move(other.pendingDestroy_)),
+      pendingAudioCommands_(std::move(other.pendingAudioCommands_)) {
     if (logicHost_) logicHost_->owner = this;
 }
 
@@ -260,6 +264,7 @@ PlaySession& PlaySession::operator=(PlaySession&& other) noexcept {
     logicScopesByEntity_ = std::move(other.logicScopesByEntity_);
     activeCollisionPairs_ = std::move(other.activeCollisionPairs_);
     pendingDestroy_ = std::move(other.pendingDestroy_);
+    pendingAudioCommands_ = std::move(other.pendingAudioCommands_);
     if (logicHost_) logicHost_->owner = this;
     return *this;
 }
@@ -333,6 +338,44 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
                 const auto* ref = property
                     ? std::get_if<LogicAssetReference>(&property->value) : nullptr;
                 if (ref && !ref->id.empty() && !preloadAnimationAsset(ref->id))
+                    return std::nullopt;
+            }
+        }
+    }
+
+    // Referenced audio assets are resolved and cached up front, same as
+    // animation sheets above — Play Sound must never do file I/O when a rule
+    // actually fires, and a missing/non-static asset fails Play atomically
+    // rather than surfacing only once the rule happens to run.
+    auto preloadAudioAsset = [&](const AssetId& audioAssetId) -> bool {
+        if (session.assets_.audioAssets.count(audioAssetId) != 0) return true;
+        const AudioAssetDef* audio = document.findAudioAsset(audioAssetId);
+        if (!audio) {
+            if (error) *error = "Cannot start Play: audio asset is missing " + audioAssetId;
+            return false;
+        }
+        if (audio->loadMode != AudioLoadMode::StaticSound) {
+            if (error) {
+                *error = "Cannot start Play: Play Sound requires a static audio asset "
+                       + audioAssetId;
+            }
+            return false;
+        }
+        session.assets_.audioAssets.emplace(
+            audio->assetId, RuntimeAudioAsset{audio->assetId, audio->sourcePath, audio->loadMode});
+        return true;
+    };
+
+    for (const auto& [unused, objectType] : document.data().objectTypes) {
+        (void)unused;
+        if (!objectType.logicBoard) continue;
+        for (const LogicRuleDef& rule : objectType.logicBoard->rules) {
+            for (const LogicBlockDef& action : rule.actions) {
+                if (action.typeId != Logic::kAudioPlaySound) continue;
+                const LogicPropertyDef* property = Logic::findProperty(action, "audioAssetId");
+                const auto* ref = property
+                    ? std::get_if<LogicAssetReference>(&property->value) : nullptr;
+                if (ref && !ref->id.empty() && !preloadAudioAsset(ref->id))
                     return std::nullopt;
             }
         }
@@ -642,6 +685,24 @@ bool PlaySession::setAnimationPlaybackSpeed(EntityId id, float speed) {
         return false;
     entity->spriteAnimator->playbackSpeed = speed;
     return true;
+}
+
+// Queues rather than plays: PlaySession stays free of Raylib (see the class
+// comment), so the actual sound only starts once EditorApp drains this queue
+// after update() and pushes it through its own Sound cache.
+bool PlaySession::playSound(EntityId id, const AssetId& audioAssetId, float volume) {
+    const RuntimeEntity* entity = findEntity(id);
+    if (!entity || entity->destroyed || audioAssetId.empty() || !std::isfinite(volume)) return false;
+    if (assets_.audioAssets.count(audioAssetId) == 0) return false;
+    pendingAudioCommands_.push_back(RuntimeAudioCommand{
+        RuntimeAudioCommand::Type::PlayOneShot, id, audioAssetId, std::clamp(volume, 0.f, 1.f)});
+    return true;
+}
+
+std::vector<RuntimeAudioCommand> PlaySession::drainAudioCommands() {
+    std::vector<RuntimeAudioCommand> drained = std::move(pendingAudioCommands_);
+    pendingAudioCommands_.clear();
+    return drained;
 }
 
 KinematicMoveResult PlaySession::moveKinematicEntity(RuntimeEntity& entity, Vec2 desiredDelta) {

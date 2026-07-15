@@ -565,6 +565,10 @@ void EditorCoordinator::updateRuntime(const RuntimeInputSnapshot& input, float d
     if (playSession_) playSession_->update(input, dt);
 }
 
+std::vector<RuntimeAudioCommand> EditorCoordinator::drainAudioCommands() {
+    return playSession_ ? playSession_->drainAudioCommands() : std::vector<RuntimeAudioCommand>{};
+}
+
 // ----------------------------------------------------------------------------
 // Intent path — workspace state only; never the ProjectDocument, never undo.
 // ----------------------------------------------------------------------------

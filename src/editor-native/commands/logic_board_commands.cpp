@@ -98,9 +98,33 @@ void assignDefaultAnimationClip(const ProjectDocument& document, LogicBlockDef& 
     }
 }
 
+// Deterministic, not "whatever an unordered_map happens to iterate first":
+// the first StaticSound audio asset by sorted AssetId, or left empty (with a
+// visible validator diagnostic) if the project has none yet.
+void assignDefaultAudioAsset(const ProjectDocument& document, LogicBlockDef& block) {
+    if (block.typeId != Logic::kAudioPlaySound) return;
+    std::vector<const AudioAssetDef*> assets;
+    assets.reserve(document.data().audioAssets.size());
+    for (const AudioAssetDef& asset : document.data().audioAssets) {
+        if (asset.loadMode == AudioLoadMode::StaticSound) assets.push_back(&asset);
+    }
+    std::sort(assets.begin(), assets.end(),
+        [](const AudioAssetDef* a, const AudioAssetDef* b) {
+            return a->assetId < b->assetId;
+        });
+    if (assets.empty()) return;
+    for (LogicPropertyDef& property : block.properties) {
+        if (property.key != "audioAssetId") continue;
+        const auto* current = std::get_if<LogicAssetReference>(&property.value);
+        if (!current || current->id.empty())
+            property.value = LogicAssetReference{assets.front()->assetId};
+    }
+}
+
 void assignContextualDefaults(const ProjectDocument& document, LogicBlockDef& block) {
     assignDefaultCollisionObjectType(document, block);
     assignDefaultAnimationClip(document, block);
+    assignDefaultAudioAsset(document, block);
 }
 
 } // namespace

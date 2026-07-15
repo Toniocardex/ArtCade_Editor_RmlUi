@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <map>
 #include <sstream>
 
 namespace ArtCade::EditorNative {
@@ -98,40 +99,70 @@ std::string categoryLabel(const Logic::LogicCategoryId& categoryId) {
     return label;
 }
 
+// Fixed display order for the catalog picker's category headers. A category
+// not listed here (a future addition not yet slotted in) still renders —
+// appended after, in first-seen registry order — rather than being dropped.
+const std::vector<Logic::LogicCategoryId>& catalogCategoryOrder() {
+    static const std::vector<Logic::LogicCategoryId> order{
+        "system", "input", "collision", "entity", "platformer",
+        "animation", "audio", "variables", "time", "messages",
+    };
+    return order;
+}
+
 std::string catalogEntries(const EntityDef& owner, const Logic::LogicBlockDescriptor* trigger,
                            Logic::BlockKind kind, const std::string& currentTypeId,
                            const std::string& dropdownId, const char* selectAction,
                            const std::string& selectArg) {
-    std::string html = "<div class=\"drop-list logic-catalog-list\">";
-    std::string previousCategory;
+    // Group by category first, then render — Logic::registry() is ordered by
+    // declaration, not by category, so a category whose descriptors aren't
+    // contiguous there (e.g. "entity" split by "platformer"/"collision"
+    // entries registered in between) would otherwise get a duplicate header
+    // if emitted every time categoryId changes during a single linear pass.
+    std::map<Logic::LogicCategoryId, std::vector<const Logic::LogicBlockDescriptor*>> byCategory;
+    std::vector<Logic::LogicCategoryId> firstSeenOrder;
     for (const Logic::LogicBlockDescriptor& descriptor : Logic::registry()) {
         if (descriptor.kind != kind) continue;
-        if (descriptor.categoryId != previousCategory) {
-            previousCategory = descriptor.categoryId;
-            html += "<div class=\"logic-catalog-category\">"
-                 + escapeRml(categoryLabel(descriptor.categoryId)) + "</div>";
+        auto [it, inserted] = byCategory.try_emplace(descriptor.categoryId);
+        if (inserted) firstSeenOrder.push_back(descriptor.categoryId);
+        it->second.push_back(&descriptor);
+    }
+
+    std::vector<Logic::LogicCategoryId> renderOrder;
+    for (const Logic::LogicCategoryId& categoryId : catalogCategoryOrder())
+        if (byCategory.count(categoryId)) renderOrder.push_back(categoryId);
+    for (const Logic::LogicCategoryId& categoryId : firstSeenOrder)
+        if (std::find(renderOrder.begin(), renderOrder.end(), categoryId) == renderOrder.end())
+            renderOrder.push_back(categoryId);
+
+    std::string html = "<div class=\"drop-list logic-catalog-list\">";
+    for (const Logic::LogicCategoryId& categoryId : renderOrder) {
+        html += "<div class=\"logic-catalog-category\">"
+             + escapeRml(categoryLabel(categoryId)) + "</div>";
+        for (const Logic::LogicBlockDescriptor* descriptorPtr : byCategory.at(categoryId)) {
+            const Logic::LogicBlockDescriptor& descriptor = *descriptorPtr;
+            const bool current = descriptor.typeId == currentTypeId;
+            const Logic::LogicBlockAvailability availability =
+                Logic::blockAvailability(owner, descriptor, trigger);
+            html += "<button class=\"drop-entry logic-catalog-entry";
+            if (current) html += " selected";
+            if (!availability.compatible) html += " disabled";
+            html += "\"";
+            if (current) {
+                html += " data-action=\"toggle-logic-dropdown\" data-arg=\""
+                     + escapeRml(dropdownId) + "\"";
+            } else if (availability.compatible) {
+                html += " data-action=\"" + std::string(selectAction) + "\" data-arg=\""
+                     + escapeRml(selectArg) + "\" data-value=\""
+                     + escapeRml(descriptor.typeId) + "\"";
+            } else {
+                html += " disabled=\"disabled\" title=\"" + escapeRml(availability.reason) + "\"";
+            }
+            html += "><span class=\"logic-catalog-name\">" + escapeRml(descriptor.displayName)
+                 + "</span><span class=\"logic-catalog-description\">"
+                 + escapeRml(availability.compatible ? descriptor.description : availability.reason)
+                 + "</span></button>";
         }
-        const bool current = descriptor.typeId == currentTypeId;
-        const Logic::LogicBlockAvailability availability =
-            Logic::blockAvailability(owner, descriptor, trigger);
-        html += "<button class=\"drop-entry logic-catalog-entry";
-        if (current) html += " selected";
-        if (!availability.compatible) html += " disabled";
-        html += "\"";
-        if (current) {
-            html += " data-action=\"toggle-logic-dropdown\" data-arg=\""
-                 + escapeRml(dropdownId) + "\"";
-        } else if (availability.compatible) {
-            html += " data-action=\"" + std::string(selectAction) + "\" data-arg=\""
-                 + escapeRml(selectArg) + "\" data-value=\""
-                 + escapeRml(descriptor.typeId) + "\"";
-        } else {
-            html += " disabled=\"disabled\" title=\"" + escapeRml(availability.reason) + "\"";
-        }
-        html += "><span class=\"logic-catalog-name\">" + escapeRml(descriptor.displayName)
-             + "</span><span class=\"logic-catalog-description\">"
-             + escapeRml(availability.compatible ? descriptor.description : availability.reason)
-             + "</span></button>";
     }
     return html + "</div>";
 }
@@ -147,6 +178,10 @@ std::string descriptorLabel(const std::string& typeId) {
 
 std::string animationAssetLabel(const SpriteAnimationAssetDef& asset) {
     return asset.name.empty() ? asset.id : asset.name;
+}
+
+std::string audioAssetLabel(const AudioAssetDef& asset) {
+    return asset.name.empty() ? asset.assetId : asset.name;
 }
 
 std::string clipLabel(const SpriteAnimationClipDef& clip) {
@@ -613,6 +648,53 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 html += "/></div>";
             } else if (action.typeId == Logic::kAnimationStop) {
                 html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Self - stop playback</span></div>";
+            } else if (action.typeId == Logic::kAudioPlaySound) {
+                AssetId selectedAudio;
+                if (const LogicPropertyDef* p = property(action, "audioAssetId"))
+                    if (const auto* v = std::get_if<LogicAssetReference>(&p->value)) selectedAudio = v->id;
+                const AudioAssetDef* audio = selectedAudio.empty()
+                    ? nullptr : coordinator.document().findAudioAsset(selectedAudio);
+
+                const std::string audioDropdownId = "audio-asset|" + arg;
+                const bool audioOpen = openDropdownId_ == audioDropdownId && !playing;
+                html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Sound</span>"
+                     + dropdownTriggerMarkup(audio ? audioAssetLabel(*audio) : "Choose Sound",
+                                             "toggle-logic-dropdown", audioDropdownId,
+                                             audioOpen, playing) + "</div>";
+                if (audioOpen) {
+                    html += "<div class=\"drop-list logic-key-list\">";
+                    // Only StaticSound assets are playable here (LB_AUDIO_REQUIRES_STATIC) —
+                    // Stream (music) gets its own action family later.
+                    std::vector<const AudioAssetDef*> assets;
+                    for (const AudioAssetDef& candidate : coordinator.document().data().audioAssets) {
+                        if (candidate.loadMode == AudioLoadMode::StaticSound) assets.push_back(&candidate);
+                    }
+                    std::sort(assets.begin(), assets.end(),
+                        [](const AudioAssetDef* a, const AudioAssetDef* b) {
+                            return a->assetId < b->assetId;
+                        });
+                    if (assets.empty()) {
+                        html += "<div class=\"logic-col-empty\">No audio assets available"
+                                "<div class=\"logic-col-empty-sub\">"
+                                "Import audio or generate an SFX first.</div></div>";
+                    } else {
+                        for (const AudioAssetDef* candidate : assets) {
+                            html += dropEntry(audioAssetLabel(*candidate), candidate->assetId,
+                                              candidate->assetId == selectedAudio, audioDropdownId,
+                                              "set-logic-audio-asset", arg);
+                        }
+                    }
+                    html += "</div>";
+                }
+
+                double volume = 1.0;
+                if (const LogicPropertyDef* p = property(action, "volume"))
+                    if (const auto* v = std::get_if<double>(&p->value)) volume = *v;
+                html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Volume</span>"
+                        "<input type=\"text\" data-action=\"commit-logic-audio-volume\" data-arg=\""
+                     + escapeRml(arg) + "\" value=\"" + number(volume) + "\"";
+                if (playing) html += " disabled=\"disabled\"";
+                html += "/></div>";
             }
             html += "</div>";
         }

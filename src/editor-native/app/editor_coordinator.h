@@ -133,6 +133,11 @@ public:
     // advanceRuntime; no-op when not playing.
     void updateRuntime(const RuntimeInputSnapshot& input, float dt);
 
+    // Moves out every Play Sound request queued since the last call. The
+    // caller (EditorApp) is responsible for actual playback (PlaySession
+    // stays free of Raylib); returns empty when not playing.
+    std::vector<RuntimeAudioCommand> drainAudioCommands();
+
     // Per-frame step of the Sprite Animation Editor clip preview. Workspace
     // state only (previewElapsed/previewFrameIndex), mirroring advanceRuntime:
     // never a Command, never the document, never revision/dirty/history. No-op

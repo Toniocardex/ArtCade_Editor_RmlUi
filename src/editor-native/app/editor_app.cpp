@@ -335,6 +335,10 @@ int EditorApp::run(int argc, char** argv) {
     artcade::sfx::RaylibPreview sfxPreview;
     bool ownsSfxAudioDevice = false;
     std::optional<std::future<SfxJobResult>> sfxJob;
+    // Play Sound's Raylib-side cache: loaded once per referenced audio asset,
+    // reused for every subsequent firing this Play session. Keyed by AssetId,
+    // matching RuntimeAudioCommand/PlayAssetCatalogSnapshot::audioAssets.
+    std::unordered_map<AssetId, Sound> playSoundCache;
 
     const auto startSfxJob = [&](SfxJobKind kind, const std::string& id) {
         if (coordinator.isPlaying()) {
@@ -941,6 +945,15 @@ int EditorApp::run(int argc, char** argv) {
         // Keyboard ownership is a durable Scene View state, not a side effect
         // of the cursor's current position. Play started from Scene acquires it;
         // any explicit UI/text/window/popup transition releases it.
+        // A fresh Play always re-resolves audio from disk (same "re-validate at
+        // every Play start" convention materialize() already applies to every
+        // other asset kind) — otherwise a Generated SFX regenerated between two
+        // Play sessions would keep playing back whatever was cached from the
+        // first one.
+        if (playing && !previousPlaying) {
+            for (auto& [unused, sound] : playSoundCache) { (void)unused; UnloadSound(sound); }
+            playSoundCache.clear();
+        }
         if (playing && !previousPlaying) gameplayInputFocused = !logicWorkspace;
         if (!playing || logicWorkspace || rml.textFocus || !IsWindowFocused() || popupOpen
             || animationEditorOpen || tilesetEditorOpen)
@@ -979,6 +992,35 @@ int EditorApp::run(int argc, char** argv) {
                 collectLogicKeyPresses(input);
             }
             coordinator.updateRuntime(input, dt);         // input-driven (TopDownController)
+
+            // Play Sound: PlaySession only queues (it stays Raylib-free); actual
+            // playback happens here, the one place this loop already owns Raylib
+            // audio resources (see sfxPreview/ownsSfxAudioDevice above).
+            const std::vector<RuntimeAudioCommand> audioCommands = coordinator.drainAudioCommands();
+            if (!audioCommands.empty()) {
+                if (!IsAudioDeviceReady()) {
+                    InitAudioDevice();
+                    ownsSfxAudioDevice = IsAudioDeviceReady();
+                }
+                const std::filesystem::path audioAssetRoot = projectSession.assetRoot(resourceRoot);
+                const auto& runtimeAudioAssets = coordinator.playSession()->assets().audioAssets;
+                for (const RuntimeAudioCommand& command : audioCommands) {
+                    const auto assetIt = runtimeAudioAssets.find(command.audioAssetId);
+                    if (assetIt == runtimeAudioAssets.end()) continue;
+                    auto cacheIt = playSoundCache.find(command.audioAssetId);
+                    if (cacheIt == playSoundCache.end()) {
+                        const PathConfinementResult resolved = resolvePathInsideRoot(
+                            audioAssetRoot, std::filesystem::u8path(assetIt->second.sourcePath));
+                        if (!resolved.ok) continue;
+                        const std::string resolvedPath = resolved.value.string();
+                        if (!FileExists(resolvedPath.c_str())) continue;
+                        cacheIt = playSoundCache.emplace(
+                            command.audioAssetId, LoadSound(resolvedPath.c_str())).first;
+                    }
+                    SetSoundVolume(cacheIt->second, command.volume);
+                    PlaySound(cacheIt->second);
+                }
+            }
         } else if (!animationEditorOpen && !tilesetEditorOpen && !logicWorkspace) {
             // First time this scene is active in Edit mode: frame it once. The
             // flag lives in the scene's view state, so it shares the sceneViews
@@ -1446,6 +1488,8 @@ int EditorApp::run(int argc, char** argv) {
         sfxJob.reset();
     }
     sfxPreview.unload();
+    for (auto& [unused, sound] : playSoundCache) { (void)unused; UnloadSound(sound); }
+    playSoundCache.clear();
     if (ownsSfxAudioDevice && IsAudioDeviceReady()) CloseAudioDevice();
     textureCache.clear();
     unloadCanvasFont(canvasFont);   // GPU atlas: released before CloseWindow

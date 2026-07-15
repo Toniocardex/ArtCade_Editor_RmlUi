@@ -178,8 +178,27 @@ struct RuntimeSpriteAnimationAsset {
     std::vector<RuntimeSpriteAnimationClip> clips;
 };
 
+struct RuntimeAudioAsset {
+    AssetId id;
+    std::string sourcePath;
+    AudioLoadMode loadMode = AudioLoadMode::StaticSound;
+};
+
 struct PlayAssetCatalogSnapshot {
     std::unordered_map<AssetId, RuntimeImageAsset> imageAssets;
+    std::unordered_map<AssetId, RuntimeAudioAsset> audioAssets;
+};
+
+// One queued Play Sound request per Logic Board action invocation. Played back
+// by the owner (EditorApp) via drainAudioCommands() — PlaySession itself never
+// touches Raylib (see the class comment below).
+struct RuntimeAudioCommand {
+    enum class Type { PlayOneShot };
+
+    Type type = Type::PlayOneShot;
+    EntityId owner = INVALID_ENTITY;
+    AssetId audioAssetId;
+    float volume = 1.f;
 };
 
 // Runtime side of Play/Stop. It is built once from ProjectDocument at Start
@@ -217,6 +236,12 @@ public:
     // inputs cancel; non-finite or non-positive dt is a no-op.
     void update(const RuntimeInputSnapshot& input, float dt);
 
+    // Moves out every RuntimeAudioCommand queued by Play Sound actions since
+    // the last drain. The caller (EditorApp) owns turning these into actual
+    // playback via its own Raylib Sound cache — PlaySession stays free of
+    // Raylib/RmlUi, same invariant as `update()` above.
+    std::vector<RuntimeAudioCommand> drainAudioCommands();
+
 private:
     struct LogicHostAdapter;
 
@@ -246,9 +271,11 @@ private:
                            const std::string& clipId);
     bool stopAnimation(EntityId id);
     bool setAnimationPlaybackSpeed(EntityId id, float speed);
+    bool playSound(EntityId id, const AssetId& audioAssetId, float volume);
 
     RuntimeScene scene_;
     PlayAssetCatalogSnapshot assets_;
+    std::vector<RuntimeAudioCommand> pendingAudioCommands_;
     std::unordered_map<AssetId, RuntimeSpriteAnimationAsset> spriteAnimationAssets_;
     // Obstacle colliders frozen at materialize: enabled Solid / OneWayPlatform
     // colliders on non-movers (mover-vs-mover is out of scope). Trigger is

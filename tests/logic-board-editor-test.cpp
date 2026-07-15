@@ -251,6 +251,23 @@ static ProjectDoc makeAnimationLogicProjectData() {
     return doc;
 }
 
+static ProjectDoc makeAudioLogicProjectData() {
+    ProjectDoc doc = makeProjectData();
+    AudioAssetDef jump;
+    jump.assetId = "jump.wav";
+    jump.name = "Jump";
+    jump.sourcePath = "audio/jump.wav";
+    jump.loadMode = AudioLoadMode::StaticSound;
+    doc.audioAssets.push_back(jump);
+    AudioAssetDef theme;
+    theme.assetId = "theme.ogg";
+    theme.name = "Theme";
+    theme.sourcePath = "audio/theme.ogg";
+    theme.loadMode = AudioLoadMode::Stream;
+    doc.audioAssets.push_back(theme);
+    return doc;
+}
+
 // Floor at y=100 -> top at 84 -> the player settles at y=68 (mirrors the
 // contact math already proven in editor-core-test.cpp's platformer suite).
 static void testConditionGatesRuntimeDispatch() {
@@ -479,6 +496,94 @@ static void testAnimationActionValidation() {
     CHECK(!ProjectValidator::validate(ProjectDocument{std::move(noAnimator)}).ok);
 }
 
+static void testPlaySoundAction() {
+    EditorCoordinator coordinator{makeAudioLogicProjectData()};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& empty = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+
+    LogicRuleDef start = Logic::makeDefaultRule(nextLogicRuleId(empty));
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", start, 0}).ok);
+
+    // Deterministic default: the only StaticSound asset in the project is
+    // picked automatically the moment the action is added (see
+    // assignDefaultAudioAsset in logic_board_commands.cpp) — never left to
+    // depend on unordered_map iteration order.
+    CHECK(coordinator.execute(AddLogicActionCommand{
+        "Hero", start.id,
+        Logic::makeDefaultBlock(Logic::kAudioPlaySound, Logic::BlockKind::Action), 0}).ok);
+    const LogicBlockDef* added = &coordinator.document().data().objectTypes.at("Hero")
+        .logicBoard->rules[0].actions[0];
+    CHECK(added->typeId == Logic::kAudioPlaySound);
+    const LogicPropertyDef* defaultAsset = Logic::findProperty(*added, "audioAssetId");
+    CHECK(defaultAsset && std::get<LogicAssetReference>(defaultAsset->value).id == "jump.wav");
+
+    // Same commands the UI's set-logic-audio-asset / commit-logic-audio-volume
+    // actions dispatch (logic_board_editor_controller.cpp).
+    CHECK(coordinator.execute(SetLogicPropertyCommand{
+        "Hero", start.id, LogicPropertyTarget::Action, 0,
+        "audioAssetId", LogicAssetReference{"jump.wav"}}).ok);
+    CHECK(coordinator.execute(SetLogicPropertyCommand{
+        "Hero", start.id, LogicPropertyTarget::Action, 0, "volume", 0.5}).ok);
+
+    const auto compiled = Logic::compileProjectLogic(coordinator.document().data());
+    CHECK(compiled.ok());
+    CHECK(compiled.programs.front().source.find("play_sound(\"jump.wav\", 0.5)") != std::string::npos);
+
+    CHECK(coordinator.playCurrentScene().ok);
+    const auto queued = coordinator.drainAudioCommands();
+    CHECK(queued.size() == 1);
+    CHECK(!queued.empty() && queued.front().audioAssetId == "jump.wav");
+    CHECK(!queued.empty() && queued.front().volume == 0.5f);
+    CHECK(!queued.empty() && queued.front().owner == 1);
+    // A queue, not a state snapshot: draining again with no new firing is empty.
+    CHECK(coordinator.drainAudioCommands().empty());
+    CHECK(coordinator.stopPlaying().ok);
+    // No PlaySession after Stop -> nothing left to drain either.
+    CHECK(coordinator.drainAudioCommands().empty());
+
+    CHECK(coordinator.execute(SetLogicPropertyCommand{
+        "Hero", start.id, LogicPropertyTarget::Action, 0, "volume", 0.9}).ok);
+    CHECK(coordinator.undo().ok);
+    const LogicBlockDef& undone = coordinator.document().data().objectTypes.at("Hero")
+        .logicBoard->rules[0].actions[0];
+    CHECK(std::get<double>(Logic::findProperty(undone, "volume")->value) == 0.5);
+}
+
+static void testPlaySoundActionValidation() {
+    const ProjectDoc data = makeAudioLogicProjectData();
+
+    ProjectDoc missing = data;
+    LogicBoardDef missingBoard;
+    missingBoard.id = "logic:Hero";
+    LogicRuleDef missingRule = Logic::makeDefaultRule("rule-1");
+    missingRule.actions[0] = Logic::makeDefaultBlock(Logic::kAudioPlaySound, Logic::BlockKind::Action);
+    missingRule.actions[0].properties[0].value = LogicAssetReference{"missing.wav"};
+    missingBoard.rules.push_back(missingRule);
+    missing.objectTypes.at("Hero").logicBoard = missingBoard;
+    CHECK(!ProjectValidator::validate(ProjectDocument{missing}).ok);
+
+    ProjectDoc stream = data;
+    LogicBoardDef streamBoard;
+    streamBoard.id = "logic:Hero";
+    LogicRuleDef streamRule = Logic::makeDefaultRule("rule-1");
+    streamRule.actions[0] = Logic::makeDefaultBlock(Logic::kAudioPlaySound, Logic::BlockKind::Action);
+    streamRule.actions[0].properties[0].value = LogicAssetReference{"theme.ogg"};
+    streamBoard.rules.push_back(streamRule);
+    stream.objectTypes.at("Hero").logicBoard = streamBoard;
+    CHECK(!ProjectValidator::validate(ProjectDocument{stream}).ok);
+
+    ProjectDoc badVolume = data;
+    LogicBoardDef volumeBoard;
+    volumeBoard.id = "logic:Hero";
+    LogicRuleDef volumeRule = Logic::makeDefaultRule("rule-1");
+    volumeRule.actions[0] = Logic::makeDefaultBlock(Logic::kAudioPlaySound, Logic::BlockKind::Action);
+    volumeRule.actions[0].properties[0].value = LogicAssetReference{"jump.wav"};
+    volumeRule.actions[0].properties[1].value = 1.5;
+    volumeBoard.rules.push_back(volumeRule);
+    badVolume.objectTypes.at("Hero").logicBoard = volumeBoard;
+    CHECK(!ProjectValidator::validate(ProjectDocument{badVolume}).ok);
+}
+
 static void testInvalidPlayIsAtomic() {
     ProjectDoc data = makeProjectData();
     LogicBoardDef board;
@@ -596,6 +701,8 @@ int main() {
     testCollisionEventOtherAndDeferredDestroy();
     testAnimationActions();
     testAnimationActionValidation();
+    testPlaySoundAction();
+    testPlaySoundActionValidation();
     testInvalidPlayIsAtomic();
     testWorkspaceTargetAndSwitchPolicy();
     testPlayNavigationFromLogicBoard();

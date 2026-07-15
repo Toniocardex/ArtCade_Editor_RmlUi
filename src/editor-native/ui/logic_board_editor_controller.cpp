@@ -165,6 +165,7 @@ bool LogicBoardEditorController::handleAction(
         || action == "toggle-logic-visible" || action == "commit-logic-position-x"
         || action == "commit-logic-position-y" || action == "set-logic-animation-asset"
         || action == "set-logic-animation-clip" || action == "commit-logic-animation-speed"
+        || action == "set-logic-audio-asset" || action == "commit-logic-audio-volume"
         || action == "add-logic-condition"
         || action == "add-logic-condition-type" || action == "change-logic-condition"
         || action == "remove-logic-condition" || action == "move-logic-condition-up"
@@ -245,7 +246,8 @@ bool LogicBoardEditorController::handleAction(
                || action == "toggle-logic-visible" || action == "commit-logic-position-x"
                || action == "commit-logic-position-y" || action == "set-logic-animation-asset"
                || action == "set-logic-animation-clip"
-               || action == "commit-logic-animation-speed") {
+               || action == "commit-logic-animation-speed"
+               || action == "set-logic-audio-asset" || action == "commit-logic-audio-volume") {
         LogicRuleId ruleId;
         std::size_t index = 0;
         if (!parseActionArg(arg, ruleId, index)) return true;
@@ -309,6 +311,24 @@ bool LogicBoardEditorController::handleAction(
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, ruleId, LogicPropertyTarget::Action, index,
                 "speed", static_cast<double>(*parsed)});
+        } else if (action == "set-logic-audio-asset") {
+            const AudioAssetDef* audio = coordinator_.document().findAudioAsset(value);
+            if (!audio || audio->loadMode != AudioLoadMode::StaticSound) {
+                coordinator_.logError("Choose a static audio asset");
+                return true;
+            }
+            coordinator_.execute(SetLogicPropertyCommand{
+                objectTypeId, ruleId, LogicPropertyTarget::Action, index,
+                "audioAssetId", LogicAssetReference{value}});
+        } else if (action == "commit-logic-audio-volume") {
+            const std::optional<float> parsed = parseNumberField(value);
+            if (!parsed || *parsed < 0.f || *parsed > 1.f) {
+                coordinator_.logError("Volume must be between 0 and 1");
+                return true;
+            }
+            coordinator_.execute(SetLogicPropertyCommand{
+                objectTypeId, ruleId, LogicPropertyTarget::Action, index,
+                "volume", static_cast<double>(*parsed)});
         }
     } else if (action == "add-logic-condition") {
         if (const LogicRuleDef* rule = ruleById(arg)) {
