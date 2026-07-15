@@ -11,7 +11,7 @@ Engineering Gates and ADR-0002.
 | Script 3 — Syntax diagnostics | Completed | 400 ms compile-only Lua 5.4 validation, revision-bound diagnostics, Console/source navigation and strict saved-source validation over an explicit referenced set. Activation becomes non-vacuous when Script 4 authors attachments. |
 | Script 4 — Object Type Script Component | Completed | Schema v7 type-owned ordered attachments, Inspector attach/open/enable/reorder/remove, atomic Commands with exact Undo/Redo, delete guard, shared runtime model/parser and strict saved-source Play gate over enabled references. |
 | Script 5 — Runtime base | Completed | Shared `script-core`/`script-runtime`, isolated strict Lua scopes, `on_start`/`on_update`, exact saved-source snapshot, bounded execution, error isolation and Editor Play/standalone parity. |
-| Script 6 — Gameplay events | Planned | Input/collision/animation/audio, deferred destroy, deterministic Logic → Scripts order. |
+| Script 6 — Gameplay events | Completed | Canonical input and collision callbacks, shared gameplay API, immutable event snapshots, deferred destroy, error isolation and deterministic Logic → Scripts order in Editor Play and standalone. |
 | Script 7 — Apply workflow | Planned | Restart-required banner, Save and Restart, workspace return and cursor preservation. |
 | Script 8 — IDE polish | Planned | Highlighting and editor assistance only after runtime end-to-end is complete. |
 
@@ -111,18 +111,58 @@ Engineering Gates and ADR-0002.
   runtime error isolation, caught limit violations, scope cancellation and
   `ctx.self` mutation in a materialized PlaySession.
 
+## Script 6 contract
+
+- Authority: the existing runtime input source and collision world produce one
+  immutable frame/edge projection; `ScriptRuntime` consumes that projection and
+  `IGameplayRuntimeHost` remains the sole authority for gameplay mutations.
+  Scripts never read `ProjectDocument`, editor buffers, RmlUi or files in a
+  callback.
+- Intent/Command: gameplay callbacks are Play-only runtime events. They do not
+  create authoring Intents or Commands, cannot advance project revision and do
+  not enter either project or script-buffer Undo history.
+- Callbacks: `on_key_pressed`, `on_key_released`, `on_key_held`,
+  `on_collision_enter` and `on_collision_exit` are optional and type-validated.
+  Input keys are canonicalized, filtered, sorted and deduplicated before
+  dispatch; collision callbacks receive the same `other` both as argument and
+  as `ctx.event.other`.
+- Shared gameplay API: `ctx.self` exposes visibility, absolute/relative
+  position and deferred destruction; `ctx.platformer` exposes move, jump and
+  grounded state; `ctx.animation` exposes play/stop/speed; `ctx.audio` exposes
+  bounded one-shot playback; `ctx.input` exposes down/pressed/released queries.
+  All operations delegate to the same host used by generated Logic Board code.
+- Ordering and lifetime: generated Logic consumes the complete immutable input
+  or collision snapshot before manual scopes. Manual scopes then run in scene
+  structural entity order and persisted attachment order. Destruction commits
+  only after every scope in that dispatch phase has run; one callback failure
+  disables only its `(entity, attachment)` scope and records source, entity and
+  exact callback.
+- Undo/Stop: runtime mutations remain disposable and have no Undo entry. Stop,
+  scene replacement and entity destruction cancel their owned scopes and clear
+  cached collision/input state deterministically.
+- Play/export: Editor materialization snapshots the registered animation and
+  static-audio catalogs before callbacks can run; runtime callbacks perform no
+  document or file lookup. Standalone uses the same `script-core`, Lua host,
+  callback contract and `script-runtime` implementation.
+- Tests: callback shape and canonical input queries, all shared API families,
+  invalid-key and invalid-volume isolation, Logic-before-Script ordering,
+  PlaySession input/update, collision `other`, deferred destroy across ordered
+  attachments, standalone linkage and native runtime regression coverage.
+
 ## Current gate status (2026-07-15)
 
 - `artcade-editor-native.exe`: builds successfully.
-- `editor_core_test`: 4,487 passed, 0 failed.
+- `editor_core_test`: 4,520 passed, 0 failed.
 - CTest: editor core, Logic Board and SFX all passed (3/3).
 - RmlUi smoke: Script empty state and an opened Lua source render without
   parser warnings; the textarea remains a static document element.
-- Slice 5 diff review: no P0/P1 violations after extracting the shared gameplay
-  host and separate `script-core` authority. No direct UI/document access,
-  authoring mutation, duplicate runtime policy, editor-api bridge, React/Tauri
-  or WASM editor code was introduced.
+- Slice 6 diff review: no open P0/P1 violations. The shared Lua boundary owns
+  key and numeric validation; the volume range is identical in Editor and
+  standalone; platformer operations validate the same component contract; no
+  direct UI/document access, authoring mutation, duplicate script runtime,
+  editor-api bridge, React/Tauri or WASM editor code was introduced.
 - Standalone export parity: `runtime-cpp/build/src/app/Debug/game.exe` builds and
-  links with the shared Script modules. The only warning is the pre-existing
-  insecure development asset key, which must not be shipped.
-- Next authorized slice: Script 6 — Gameplay events.
+  links with the shared Script modules; native `logic_board_test` passes 111/111.
+  The only warning is the pre-existing insecure development asset key, which
+  must not be shipped.
+- Next authorized slice: Script 7 — Apply workflow.

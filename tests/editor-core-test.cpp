@@ -3943,6 +3943,45 @@ static void runManualScriptRuntimeTests() {
     using Scripts::ScriptRuntime;
     using Scripts::ScriptRuntimeLimits;
 
+    struct GameplayHost final : IGameplayRuntimeHost {
+        bool visible = true;
+        Vec2 position{};
+        bool grounded = true;
+        float moveAxis = 0.f;
+        bool jumpRequested = false;
+        bool destroyRequested = false;
+        AssetId animationAsset;
+        std::string animationClip;
+        float animationSpeed = 1.f;
+        bool animationPlaying = false;
+        AssetId audioAsset;
+        float audioVolume = 0.f;
+
+        bool setVisible(EntityId, bool value) override { visible = value; return true; }
+        bool setPosition(EntityId, Vec2 value) override { position = value; return true; }
+        bool translate(EntityId, Vec2 delta) override {
+            position.x += delta.x; position.y += delta.y; return true;
+        }
+        bool isGrounded(EntityId) override { return grounded; }
+        bool requestPlatformerMove(EntityId, float axis) override {
+            moveAxis = axis; return true;
+        }
+        bool requestPlatformerJump(EntityId) override { jumpRequested = true; return true; }
+        bool isObjectType(EntityId, const ObjectTypeId&) override { return false; }
+        bool requestDestroy(EntityId) override { destroyRequested = true; return true; }
+        bool playAnimationClip(EntityId, const AssetId& asset,
+                               const std::string& clip) override {
+            animationAsset = asset; animationClip = clip; animationPlaying = true; return true;
+        }
+        bool stopAnimation(EntityId) override { animationPlaying = false; return true; }
+        bool setAnimationPlaybackSpeed(EntityId, float speed) override {
+            animationSpeed = speed; return true;
+        }
+        bool playSound(EntityId, const AssetId& asset, float volume) override {
+            audioAsset = asset; audioVolume = volume; return true;
+        }
+    };
+
     const ScriptProgram sandboxed{
         "sandboxed", "scripts/sandboxed.lua", R"lua(
 artcade.require_api_version(1)
@@ -3978,6 +4017,10 @@ return {
         "bad-callback", "scripts/bad-callback.lua",
         "artcade.require_api_version(1)\nreturn { on_update = true }\n"}, &error));
     CHECK(error.find("on_update") != std::string::npos);
+    CHECK(!validator.validateProgram(ScriptProgram{
+        "bad-event-callback", "scripts/bad-event-callback.lua",
+        "artcade.require_api_version(1)\nreturn { on_collision_enter = 4 }\n"}, &error));
+    CHECK(error.find("on_collision_enter") != std::string::npos);
 
     ScriptRuntimeLimits tight;
     tight.maxSourceBytes = 16;
@@ -4117,12 +4160,120 @@ end }
     CHECK(isolatedStartFailure.diagnostics().front().callback == "on_start");
     CHECK(isolatedStartFailure.diagnostics().front().line > 0);
 
+    const ScriptProgram gameplay{
+        "gameplay", "scripts/gameplay.lua", R"lua(
+artcade.require_api_version(1)
+return {
+  on_key_pressed = function(ctx, key)
+    assert(key == "A" and ctx.input:is_key_pressed("A"))
+    assert(ctx.input:is_key_down("A"))
+    ctx.self:translate(1, 0)
+    ctx.platformer:move(0.5)
+    ctx.platformer:jump()
+    ctx.audio:play("audio-hit", 0.4)
+  end,
+  on_key_released = function(ctx, key)
+    assert(key == "B" and ctx.input:is_key_released("B"))
+    ctx.self:translate(0, 1)
+  end,
+  on_key_held = function(ctx, key)
+    assert(key == "A" and ctx.input:is_key_down("A"))
+    ctx.self:translate(2, 0)
+  end,
+  on_update = function(ctx, dt)
+    assert(dt > 0 and ctx.input:is_key_down("A"))
+    assert(ctx.platformer:is_grounded())
+    ctx.self:set_position(7, 8)
+    ctx.animation:play("hero.anim", "run")
+    ctx.animation:set_speed(1.5)
+    ctx.animation:stop()
+  end,
+  on_collision_enter = function(ctx, other)
+    assert(other == 99 and ctx.event.other == 99)
+    ctx.self:set_visible(false)
+    ctx.self:destroy()
+  end,
+  on_collision_exit = function(ctx, other)
+    assert(other == 99 and ctx.event.other == 99)
+    ctx.self:set_visible(true)
+  end
+}
+)lua"};
+    GameplayHost gameplayHost;
+    ScriptRuntime gameplayRuntime{gameplayHost};
+    CHECK(gameplayRuntime.install(gameplay, 42, "gameplay-attachment", &error));
+    gameplayRuntime.dispatchStart();
+    gameplayRuntime.dispatchInput(Scripts::ScriptInputSnapshot{
+        {LogicKey::A, LogicKey::A}, {LogicKey::B}, {LogicKey::A, LogicKey::A}});
+    CHECK(gameplayHost.position.x == 3.f && gameplayHost.position.y == 1.f);
+    CHECK(gameplayHost.moveAxis == 0.5f);
+    CHECK(gameplayHost.jumpRequested);
+    CHECK(gameplayHost.audioAsset == "audio-hit");
+    CHECK(gameplayHost.audioVolume == 0.4f);
+    gameplayRuntime.update(1.f / 60.f);
+    CHECK(gameplayHost.position.x == 7.f && gameplayHost.position.y == 8.f);
+    CHECK(gameplayHost.animationAsset == "hero.anim");
+    CHECK(gameplayHost.animationClip == "run");
+    CHECK(gameplayHost.animationSpeed == 1.5f);
+    CHECK(!gameplayHost.animationPlaying);
+    gameplayRuntime.dispatchCollisionEnter(42, 99);
+    CHECK(!gameplayHost.visible);
+    CHECK(gameplayHost.destroyRequested);
+    // The runtime boundary, not ScriptRuntime, applies deferred destruction.
+    // Therefore every callback in the immutable collision snapshot may finish.
+    gameplayRuntime.dispatchCollisionExit(42, 99);
+    CHECK(gameplayHost.visible);
+    CHECK(gameplayRuntime.diagnostics().empty());
+
+    const ScriptProgram invalidKey{
+        "invalid-key", "scripts/invalid-key.lua", R"lua(
+artcade.require_api_version(1)
+return { on_key_pressed = function(ctx, key)
+  ctx.input:is_key_down("NotAKey")
+end }
+)lua"};
+    ScriptRuntime invalidKeyRuntime{gameplayHost};
+    CHECK(invalidKeyRuntime.install(invalidKey, 42, "invalid-key", &error));
+    invalidKeyRuntime.dispatchStart();
+    invalidKeyRuntime.dispatchInput(Scripts::ScriptInputSnapshot{{LogicKey::A}, {}, {}});
+    CHECK(invalidKeyRuntime.activeScopeCount() == 0);
+    CHECK(invalidKeyRuntime.diagnostics().front().callback == "on_key_pressed");
+    CHECK(invalidKeyRuntime.diagnostics().front().message.find("Unknown ArtCade input key")
+          != std::string::npos);
+
+    const ScriptProgram invalidVolume{
+        "invalid-volume", "scripts/invalid-volume.lua", R"lua(
+artcade.require_api_version(1)
+return { on_start = function(ctx)
+  ctx.audio:play("audio-hit", 1.5)
+end }
+)lua"};
+    ScriptRuntime invalidVolumeRuntime{gameplayHost};
+    CHECK(invalidVolumeRuntime.install(invalidVolume, 42, "invalid-volume", &error));
+    invalidVolumeRuntime.dispatchStart();
+    CHECK(invalidVolumeRuntime.activeScopeCount() == 0);
+    CHECK(invalidVolumeRuntime.diagnostics().front().callback == "on_start");
+    CHECK(invalidVolumeRuntime.diagnostics().front().message.find("ctx.audio:play failed")
+          != std::string::npos);
+
     // PlaySession consumes only an exact immutable saved-source snapshot and
     // materializes enabled attachments in Object-Type order.
     ProjectDoc doc = makeDoc();
     EntityDef hero;
     hero.className = "Hero";
     hero.name = "Hero";
+    LogicBoardDef board;
+    board.id = "hero-board";
+    LogicRuleDef startRule;
+    startRule.id = "logic-before-script";
+    startRule.trigger = Logic::makeDefaultBlock(Logic::kOnStart, Logic::BlockKind::Trigger);
+    LogicBlockDef setPosition =
+        Logic::makeDefaultBlock(Logic::kSetPosition, Logic::BlockKind::Action);
+    for (LogicPropertyDef& property : setPosition.properties)
+        if (property.key == "position") property.value = Vec2{1.f, 2.f};
+    startRule.actions.push_back(std::move(setPosition));
+    board.rules.push_back(std::move(startRule));
+    hero.logicBoard = std::move(board);
     hero.scripts = ScriptComponent{{ScriptAttachmentDef{"script-1", "visibility", true}}};
     doc.objectTypes.emplace("Hero", std::move(hero));
     doc.scriptAssets.push_back(
@@ -4132,7 +4283,13 @@ end }
 artcade.require_api_version(1)
 return { on_start = function(ctx)
   ctx.self:set_visible(false)
-  ctx.self:set_position(7, 8)
+  ctx.self:translate(6, 6)
+end,
+on_key_pressed = function(ctx, key)
+  if key == "A" then ctx.self:translate(1, 0) end
+end,
+on_update = function(ctx, dt)
+  if ctx.input:is_key_down("A") then ctx.self:translate(0, 1) end
 end }
 )lua"};
     const ProjectDocument document{std::move(doc)};
@@ -4145,12 +4302,75 @@ end }
     CHECK(play && play->scene().entities.front().transform.position.x == 7.f);
     CHECK(play && play->scene().entities.front().transform.position.y == 8.f);
     if (play) {
-        play->update(RuntimeInputSnapshot{}, 1.f / 60.f);
+        RuntimeInputSnapshot input;
+        input.pressedLogicKeys = {LogicKey::A};
+        input.heldLogicKeys = {LogicKey::A};
+        play->update(input, 1.f / 60.f);
+        CHECK(play->scene().entities.front().transform.position.x == 8.f);
+        CHECK(play->scene().entities.front().transform.position.y == 9.f);
         CHECK(play->drainScriptDiagnostics().empty());
     }
     CHECK(!PlaySession::startProject(document, {ScriptProgram{
         "sandboxed", "scripts/sandboxed.lua",
         "artcade.require_api_version(1)\nreturn false\n"}}, &error).has_value());
+
+    // Collision destruction is applied only after every attachment for the
+    // immutable edge snapshot ran: the second scope still queues its audio.
+    ProjectDoc collisionDoc = makeDoc();
+    EntityDef collisionHero;
+    collisionHero.className = "Hero";
+    collisionHero.name = "Hero";
+    collisionHero.boxCollider2D = BoxCollider2DComponent{
+        {0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Trigger};
+    collisionHero.scripts = ScriptComponent{{
+        ScriptAttachmentDef{"destroy", "destroy-on-contact", true},
+        ScriptAttachmentDef{"sound", "sound-on-contact", true}}};
+    collisionDoc.objectTypes.emplace("Hero", std::move(collisionHero));
+    EntityDef enemy;
+    enemy.className = "Enemy";
+    enemy.name = "Enemy";
+    enemy.boxCollider2D = BoxCollider2DComponent{
+        {0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Trigger};
+    collisionDoc.objectTypes.emplace("Enemy", std::move(enemy));
+    SceneInstanceDef enemyInstance;
+    enemyInstance.id = 99;
+    enemyInstance.objectTypeId = "Enemy";
+    enemyInstance.instanceName = "Enemy";
+    enemyInstance.transform.position = {10.f, 20.f};
+    collisionDoc.scenes.at(kSceneA).instances.push_back(enemyInstance);
+    collisionDoc.scriptAssets.push_back(
+        ScriptAssetDef{"destroy-on-contact", "Destroy", "scripts/destroy.lua"});
+    collisionDoc.scriptAssets.push_back(
+        ScriptAssetDef{"sound-on-contact", "Sound", "scripts/sound.lua"});
+    collisionDoc.audioAssets.push_back(
+        AudioAssetDef{"hit", "Hit", "audio/hit.wav", AudioLoadMode::StaticSound});
+    const ScriptProgram destroyOnContact{
+        "destroy-on-contact", "scripts/destroy.lua", R"lua(
+artcade.require_api_version(1)
+return { on_collision_enter = function(ctx, other)
+  if other == 99 then ctx.self:destroy() end
+end }
+)lua"};
+    const ScriptProgram soundOnContact{
+        "sound-on-contact", "scripts/sound.lua", R"lua(
+artcade.require_api_version(1)
+return { on_collision_enter = function(ctx, other)
+  if other == 99 then ctx.audio:play("hit", 0.25) end
+end }
+)lua"};
+    auto collisionPlay = PlaySession::startProject(
+        ProjectDocument{std::move(collisionDoc)},
+        {destroyOnContact, soundOnContact}, &error);
+    CHECK(collisionPlay.has_value());
+    if (collisionPlay) {
+        collisionPlay->update(RuntimeInputSnapshot{}, 1.f / 60.f);
+        CHECK(collisionPlay->findEntity(kHero) == nullptr);
+        CHECK(collisionPlay->findEntity(99) != nullptr);
+        const std::vector<RuntimeAudioCommand> audio = collisionPlay->drainAudioCommands();
+        CHECK(audio.size() == 1);
+        CHECK(!audio.empty() && audio.front().owner == kHero);
+        CHECK(!audio.empty() && audio.front().audioAssetId == "hit");
+    }
 }
 
 int main() {

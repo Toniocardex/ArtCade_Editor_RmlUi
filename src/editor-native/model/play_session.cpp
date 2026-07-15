@@ -30,6 +30,15 @@ struct PlaySession::LogicHostAdapter final : Logic::ILogicRuntimeHost {
         return true;
     }
 
+    bool translate(EntityId id, Vec2 delta) override {
+        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
+        if (!entity || !std::isfinite(delta.x) || !std::isfinite(delta.y)) return false;
+        entity->transform.position.x += delta.x;
+        entity->transform.position.y += delta.y;
+        owner->refreshStaticCollider(id);
+        return true;
+    }
+
     bool isGrounded(EntityId id) override {
         const RuntimeEntity* entity = owner ? owner->findEntity(id) : nullptr;
         return entity && entity->platformerController && entity->platformerController->grounded;
@@ -377,6 +386,16 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
         }
     }
 
+    // Manual code resolves assets dynamically by AssetId, so its immutable Play
+    // catalog must contain every registered animation rather than attempting
+    // document/file lookup from a callback.
+    if (!scriptPrograms.empty()) {
+        for (const SpriteAnimationAssetDef& animation :
+             document.data().spriteAnimationAssets) {
+            if (!preloadAnimationAsset(animation.id)) return std::nullopt;
+        }
+    }
+
     // Referenced audio assets are resolved and cached up front, same as
     // animation sheets above — Play Sound must never do file I/O when a rule
     // actually fires, and a missing/non-static asset fails Play atomically
@@ -412,6 +431,13 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
                 if (ref && !ref->id.empty() && !preloadAudioAsset(ref->id))
                     return std::nullopt;
             }
+        }
+    }
+
+    if (!scriptPrograms.empty()) {
+        for (const AudioAssetDef& audio : document.data().audioAssets) {
+            if (audio.loadMode == AudioLoadMode::StaticSound
+                && !preloadAudioAsset(audio.assetId)) return std::nullopt;
         }
     }
 
@@ -678,7 +704,7 @@ void PlaySession::refreshStaticCollider(EntityId owner) {
 }
 
 void PlaySession::dispatchCollisionTransitions() {
-    if (!logicRuntime_) return;
+    if (!logicRuntime_ && !scriptRuntime_) return;
     std::set<std::pair<EntityId, EntityId>> current;
     for (std::size_t i = 0; i < scene_.entities.size(); ++i) {
         const RuntimeEntity& a = scene_.entities[i];
@@ -690,15 +716,41 @@ void PlaySession::dispatchCollisionTransitions() {
             if (overlaps(aBounds, runtimeColliderBounds(b))) current.insert(collisionPair(a.id, b.id));
         }
     }
-    for (const auto& pair : current) {
-        if (activeCollisionPairs_.count(pair) != 0) continue;
-        logicRuntime_->dispatchCollisionEnter(pair.first, pair.second);
-        logicRuntime_->dispatchCollisionEnter(pair.second, pair.first);
+    std::set<std::pair<EntityId, EntityId>> entered;
+    std::set<std::pair<EntityId, EntityId>> exited;
+    for (const auto& pair : current)
+        if (activeCollisionPairs_.count(pair) == 0) entered.insert(pair);
+    for (const auto& pair : activeCollisionPairs_)
+        if (current.count(pair) == 0) exited.insert(pair);
+
+    const auto dispatch = [&](const auto& edges, auto invoke) {
+        for (const RuntimeEntity& entity : scene_.entities) {
+            if (entity.destroyed) continue;
+            for (const auto& pair : edges) {
+                EntityId other = INVALID_ENTITY;
+                if (pair.first == entity.id) other = pair.second;
+                else if (pair.second == entity.id) other = pair.first;
+                if (other != INVALID_ENTITY) invoke(entity.id, other);
+            }
+        }
+    };
+    if (logicRuntime_) {
+        dispatch(entered, [&](EntityId owner, EntityId other) {
+            logicRuntime_->dispatchCollisionEnter(owner, other);
+        });
+        dispatch(exited, [&](EntityId owner, EntityId other) {
+            logicRuntime_->dispatchCollisionExit(owner, other);
+        });
     }
-    for (const auto& pair : activeCollisionPairs_) {
-        if (current.count(pair) != 0) continue;
-        logicRuntime_->dispatchCollisionExit(pair.first, pair.second);
-        logicRuntime_->dispatchCollisionExit(pair.second, pair.first);
+    // Generated Logic consumes the complete immutable edge snapshot first;
+    // manual scopes then receive the same ordered pairs.
+    if (scriptRuntime_) {
+        dispatch(entered, [&](EntityId owner, EntityId other) {
+            scriptRuntime_->dispatchCollisionEnter(owner, other);
+        });
+        dispatch(exited, [&](EntityId owner, EntityId other) {
+            scriptRuntime_->dispatchCollisionExit(owner, other);
+        });
     }
     activeCollisionPairs_ = std::move(current);
 }
@@ -930,16 +982,24 @@ void PlaySession::updatePlatformer(RuntimeEntity& entity, const RuntimeInputSnap
 }
 
 void PlaySession::update(const RuntimeInputSnapshot& input, float dt) {
+    platformerMoveIntents_.clear();
+    platformerJumpIntents_.clear();
     if (logicRuntime_) {
-        platformerMoveIntents_.clear();
-        platformerJumpIntents_.clear();
         logicRuntime_->beginFrame();
         for (LogicKey key : input.pressedLogicKeys) logicRuntime_->dispatchKeyPressed(key);
         for (LogicKey key : input.releasedLogicKeys) logicRuntime_->dispatchKeyReleased(key);
         for (LogicKey key : input.heldLogicKeys) logicRuntime_->dispatchKeyHeld(key);
-        flushPendingDestroys();
     }
+    if (scriptRuntime_) {
+        scriptRuntime_->dispatchInput(Scripts::ScriptInputSnapshot{
+            input.pressedLogicKeys, input.releasedLogicKeys, input.heldLogicKeys});
+    }
+    // Destruction requested by either language remains deferred until every
+    // scope has consumed the same input snapshot.
+    flushPendingDestroys();
     if (!std::isfinite(dt) || dt <= 0.f) return;
+    if (scriptRuntime_) scriptRuntime_->update(dt);
+    flushPendingDestroys();
     // One movement writer per entity (enforced at authoring): dispatch by driver.
     for (RuntimeEntity& entity : scene_.entities) {
         if (entity.destroyed) continue;
@@ -948,9 +1008,6 @@ void PlaySession::update(const RuntimeInputSnapshot& input, float dt) {
     }
     dispatchCollisionTransitions();
     flushPendingDestroys();
-    // Logic Board owns every generated event in this frame. Manual attachments
-    // run only after that phase, in persisted order, and never for destroyed owners.
-    if (scriptRuntime_) scriptRuntime_->update(dt);
 }
 
 } // namespace ArtCade::EditorNative

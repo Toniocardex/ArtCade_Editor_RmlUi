@@ -79,6 +79,14 @@ once and passes those exact bytes to the shared runtime. One isolated VM is
 created per entity/attachment, generated Logic callbacks run before manual
 scripts, and Stop disposes every scope without changing authoring state.
 
+Gameplay input and collision callbacks consume immutable projections produced
+by the existing runtime input/collision authorities. Generated Logic consumes a
+projection before manual attachments; attachments retain persisted order, and
+entity destruction remains deferred until the whole dispatch phase completes.
+Both languages mutate runtime state only through `IGameplayRuntimeHost`, so the
+Editor Play adapter and standalone adapter implement one shared semantic
+contract rather than parallel script APIs.
+
 ## Alternatives rejected
 
 - Store Lua source inside project JSON: mixes metadata and text-file history.
