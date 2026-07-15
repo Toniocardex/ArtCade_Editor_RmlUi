@@ -2,6 +2,7 @@
 
 #include "editor-native/model/project_document.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace ArtCade::EditorNative {
@@ -44,6 +45,11 @@ RemoveScriptAssetCommand::RemoveScriptAssetCommand(AssetId assetId)
 EditorOperationResult RemoveScriptAssetCommand::apply(ProjectDocument& document) {
     const ScriptAssetDef* current = document.findScriptAsset(assetId_);
     if (!current) return EditorOperationResult::failure("Unknown script asset: " + assetId_);
+    const std::vector<AssetId> referenced = document.referencedScriptAssetIds(false);
+    if (std::find(referenced.begin(), referenced.end(), assetId_) != referenced.end()) {
+        return EditorOperationResult::failure(
+            "Cannot remove Script Asset while it is attached to an Object Type");
+    }
     if (!captured_) {
         removed_ = *current;
         captured_ = true;
@@ -91,4 +97,3 @@ EditorOperationResult RenameScriptAssetCommand::undo(ProjectDocument& document) 
 }
 
 } // namespace ArtCade::EditorNative
-

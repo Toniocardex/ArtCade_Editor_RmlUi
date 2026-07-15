@@ -33,6 +33,7 @@ enum class ComponentKind {
     TopDownController,
     PlatformerController,
     Tilemap,
+    Scripts,
 };
 
 struct DomainChange {

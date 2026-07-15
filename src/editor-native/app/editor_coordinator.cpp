@@ -712,6 +712,13 @@ void EditorCoordinator::logError(std::string text) {
     appendConsole(ConsoleMessage::Level::Error, std::move(text));
 }
 
+void EditorCoordinator::reportScriptDiagnostics(
+    const AssetId& scriptAssetId,
+    const std::vector<ScriptDiagnostic>& diagnostics) {
+    replaceScriptDiagnostics(scriptAssetId, diagnostics);
+    accumulate(EditorInvalidation::Console);
+}
+
 void EditorCoordinator::clearConsole() {
     console_.clear();
     accumulate(EditorInvalidation::Console);

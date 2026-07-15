@@ -8,6 +8,7 @@
 #include "editor-native/app/project_load.h"
 #include "editor-native/app/project_script_file_service.h"
 #include "editor-native/app/script_asset_workflow.h"
+#include "editor-native/app/script_syntax_validator.h"
 #include "editor-native/app/unsaved_guard.h"
 #include "editor-native/model/path_confinement.h"
 #include "editor-native/ui/editor_ui.h"
@@ -15,7 +16,9 @@
 
 #include <raylib.h>
 
+#include <algorithm>
 #include <filesystem>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <vector>
@@ -130,6 +133,9 @@ void ProjectSessionController::bindUi() {
         [this]() { requestOpenProject(); },
         [this]() { saveCurrent(); },
         [this]() { requestSaveAs(); });
+    ui_.setPlayHandlers(
+        [this]() { requestPlayProject(); },
+        [this]() { requestPlayCurrentScene(); });
     ui_.setImportHandler([this](AssetKind kind) { importAssetOfKind(kind); });
     ui_.setCreateScriptHandler([this]() { createScript(); });
     ui_.setScriptEditorHandlers(
@@ -408,6 +414,43 @@ bool ProjectSessionController::closeScript(const AssetId& assetId) {
     const bool ok = coordinator_.apply(CloseScriptBufferIntent{assetId}).ok;
     refreshWindowTitleIfNeeded();
     return ok;
+}
+
+bool ProjectSessionController::validateSavedScriptsForPlay() {
+    const std::vector<AssetId> referenced =
+        coordinator_.document().referencedScriptAssetIds(true);
+    if (referenced.empty()) return true;
+    if (currentProjectPath_.empty()) {
+        coordinator_.logError("Play blocked: save the project before running attached scripts");
+        return false;
+    }
+
+    const ProjectScriptFileService files(currentProjectPath_.parent_path());
+    const std::vector<ScriptDiagnostic> diagnostics = validateReferencedScriptSyntax(
+        coordinator_.document(), files, referenced);
+    for (const AssetId& assetId : referenced) {
+        std::vector<ScriptDiagnostic> perAsset;
+        std::copy_if(diagnostics.begin(), diagnostics.end(), std::back_inserter(perAsset),
+            [&](const ScriptDiagnostic& diagnostic) {
+                return diagnostic.scriptAssetId == assetId;
+            });
+        coordinator_.reportScriptDiagnostics(assetId, perAsset);
+    }
+    if (!diagnostics.empty()) {
+        coordinator_.logError("Play blocked: attached scripts contain errors");
+        return false;
+    }
+    return true;
+}
+
+bool ProjectSessionController::requestPlayProject() {
+    if (!validateSavedScriptsForPlay()) return false;
+    return coordinator_.playProject().ok;
+}
+
+bool ProjectSessionController::requestPlayCurrentScene() {
+    if (!validateSavedScriptsForPlay()) return false;
+    return coordinator_.playCurrentScene().ok;
 }
 
 } // namespace ArtCade::EditorNative

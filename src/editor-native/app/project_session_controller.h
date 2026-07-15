@@ -34,6 +34,8 @@ public:
     bool saveScript(const AssetId& assetId);
     bool saveAllScripts();
     bool closeScript(const AssetId& assetId);
+    bool requestPlayProject();
+    bool requestPlayCurrentScene();
 
     void refreshWindowTitle();
     void refreshWindowTitleIfNeeded();
@@ -43,6 +45,7 @@ private:
     void requestNewProject();
     void requestOpenProject();
     void requestSaveAs();
+    bool validateSavedScriptsForPlay();
 
     EditorCoordinator&      coordinator_;
     EditorUi&               ui_;

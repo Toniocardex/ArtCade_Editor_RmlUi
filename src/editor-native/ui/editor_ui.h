@@ -78,6 +78,8 @@ public:
                                 ProjectFileRequest open,
                                 ProjectFileRequest save,
                                 ProjectFileRequest saveAs);
+    void setPlayHandlers(ProjectFileRequest playProject,
+                         ProjectFileRequest playCurrentScene);
     // Import copies a file into the project via the canonical importAsset
     // pipeline; it needs the filesystem and a saved project, so it lives in the
     // application. Every kind converges on this one handler.
@@ -280,6 +282,8 @@ private:
     ProjectFileRequest                  openProjectRequest_;
     ProjectFileRequest                  saveProjectRequest_;
     ProjectFileRequest                  saveProjectAsRequest_;
+    ProjectFileRequest                  playProjectRequest_;
+    ProjectFileRequest                  playCurrentSceneRequest_;
     ImportAssetRequest                  importAssetRequest_;
     ProjectFileRequest                  createScriptRequest_;
     ScriptAssetRequest                  openScriptRequest_;

@@ -30,6 +30,7 @@
 #include "editor-native/commands/generated_sfx_macros.h"
 #include "editor-native/commands/font_asset_commands.h"
 #include "editor-native/commands/script_asset_commands.h"
+#include "editor-native/commands/script_attachment_commands.h"
 #include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/tilemap_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
@@ -3427,7 +3428,7 @@ static void runGeneratedSfxTests() {
     CHECK(serialized.value.find("\"generatorVersion\": 2") != std::string::npos);
     const DeserializeResult decoded = ProjectSerializer::deserialize(serialized.value);
     CHECK(decoded.ok);
-        CHECK(decoded.value.data().formatVersion == 6);
+        CHECK(decoded.value.data().formatVersion == 7);
     CHECK(ProjectValidator::validate(decoded.value).ok);
     CHECK(generatedSfxRecipesEqual(
         decoded.value.findGeneratedSfx("sfx-jump")->recipe, recipe));
@@ -3737,13 +3738,78 @@ static void runScriptAssetAndFileServiceTests() {
 
     const auto serialized = ProjectSerializer::serialize(coordinator.document());
     CHECK(serialized.ok);
-    CHECK(serialized.value.find("\"formatVersion\": 6") != std::string::npos);
+    CHECK(serialized.value.find("\"formatVersion\": 7") != std::string::npos);
     CHECK(serialized.value.find("\"scriptAssets\"") != std::string::npos);
     const auto decoded = ProjectSerializer::deserialize(serialized.value);
     CHECK(decoded.ok);
     CHECK(ProjectValidator::validate(ProjectDocument{decoded.value.data()}).ok);
     CHECK(decoded.value.findScriptAsset("player") != nullptr);
     CHECK(decoded.value.findScriptAsset("player")->sourcePath == "scripts/player.lua");
+
+    // Slice 4: Script attachments are ordered Object-Type data. All mutations
+    // cross one Command boundary and Undo restores the exact optional component.
+    ProjectDoc attachmentDoc = makeDoc();
+    EntityDef heroType;
+    heroType.className = "Hero";
+    heroType.name = "Hero";
+    attachmentDoc.objectTypes.emplace("Hero", std::move(heroType));
+    EditorCoordinator attachments{std::move(attachmentDoc)};
+    CHECK(attachments.execute(AddScriptAssetCommand{
+        "player", "Player", "scripts/player.lua"}).ok);
+    CHECK(attachments.execute(AddScriptAssetCommand{
+        "camera", "Camera", "scripts/camera.lua"}).ok);
+    CHECK(attachments.execute(AddScriptAttachmentCommand{
+        "Hero", ScriptAttachmentDef{"script-1", "player", true}, 0}).ok);
+    CHECK(attachments.execute(AddScriptAttachmentCommand{
+        "Hero", ScriptAttachmentDef{"script-2", "camera", true}, 1}).ok);
+    const std::uint64_t beforeRejectedAttachment = attachments.document().revision();
+    CHECK(!attachments.execute(AddScriptAttachmentCommand{
+        "Hero", ScriptAttachmentDef{"script-1", "camera", true}, 2}).ok);
+    CHECK(attachments.document().revision() == beforeRejectedAttachment);
+    CHECK(attachments.execute(MoveScriptAttachmentCommand{
+        "Hero", "script-1", 1}).ok);
+    CHECK(attachments.document().findObjectType("Hero")->scripts->attachments[0].id
+          == "script-2");
+    CHECK(attachments.execute(SetScriptAttachmentEnabledCommand{
+        "Hero", "script-1", false}).ok);
+    CHECK(attachments.document().referencedScriptAssetIds(true)
+          == std::vector<AssetId>{"camera"});
+    CHECK(attachments.document().referencedScriptAssetIds(false)
+          == (std::vector<AssetId>{"camera", "player"}));
+    const std::uint64_t beforeGuardedDelete = attachments.document().revision();
+    CHECK(!attachments.execute(RemoveScriptAssetCommand{"player"}).ok);
+    CHECK(attachments.document().revision() == beforeGuardedDelete);
+    CHECK(attachments.execute(RemoveScriptAttachmentCommand{
+        "Hero", "script-2"}).ok);
+    CHECK(attachments.document().findObjectType("Hero")->scripts->attachments.size() == 1);
+    CHECK(attachments.undo().ok);
+    CHECK(attachments.document().findObjectType("Hero")->scripts->attachments[0].id
+          == "script-2");
+    CHECK(attachments.redo().ok);
+    CHECK(attachments.undo().ok);
+
+    const auto attachmentJson = ProjectSerializer::serialize(attachments.document());
+    CHECK(attachmentJson.ok);
+    CHECK(attachmentJson.value.find("\"scripts\"") != std::string::npos);
+    const auto attachmentRoundTrip = ProjectSerializer::deserialize(attachmentJson.value);
+    CHECK(attachmentRoundTrip.ok);
+    CHECK(ProjectValidator::validate(attachmentRoundTrip.value).ok);
+    const auto& roundTripAttachments = attachmentRoundTrip.value
+        .findObjectType("Hero")->scripts->attachments;
+    CHECK(roundTripAttachments.size() == 2);
+    CHECK(roundTripAttachments[0].id == "script-2");
+    CHECK(roundTripAttachments[1].id == "script-1");
+    CHECK(!roundTripAttachments[1].enabled);
+
+    ProjectDoc invalidAttachments = attachmentRoundTrip.value.data();
+    invalidAttachments.objectTypes.at("Hero").scripts->attachments[1].id = "script-2";
+    CHECK(!ProjectValidator::validate(ProjectDocument{invalidAttachments}).ok);
+    invalidAttachments = attachmentRoundTrip.value.data();
+    invalidAttachments.objectTypes.at("Hero").scripts->attachments[1].scriptAssetId = "missing";
+    CHECK(!ProjectValidator::validate(ProjectDocument{invalidAttachments}).ok);
+    invalidAttachments = attachmentRoundTrip.value.data();
+    invalidAttachments.objectTypes.at("Hero").scripts->attachments.clear();
+    CHECK(!ProjectValidator::validate(ProjectDocument{invalidAttachments}).ok);
 
     ProjectDoc duplicatePath = makeDoc();
     duplicatePath.scriptAssets = {
@@ -4259,7 +4325,7 @@ int main() {
         CHECK(decoded.ok);
         DeserializeResult migrated = ProjectMigration::migrate(std::move(decoded.value));
         CHECK(migrated.ok);
-        CHECK(migrated.value.data().formatVersion == 6);
+        CHECK(migrated.value.data().formatVersion == 7);
 
         const EntityDef& type = migrated.value.data().objectTypes.at("Hero");
         CHECK(type.spriteRenderer && type.spriteRenderer->imageAssetId == "blue");

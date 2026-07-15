@@ -230,6 +230,10 @@ public:
     void logInfo(std::string text);
     void logWarning(std::string text);
     void logError(std::string text);
+    // Saved-source diagnostics produced at the application Play boundary.
+    // Derived console state only; never mutates ProjectDocument or Undo.
+    void reportScriptDiagnostics(const AssetId& scriptAssetId,
+                                 const std::vector<ScriptDiagnostic>& diagnostics);
     // Diagnostic output only: not authoring, not undoable. Same category as
     // logInfo/logWarning/logError above, so clearing it is a direct mutator
     // rather than a Command or Intent.

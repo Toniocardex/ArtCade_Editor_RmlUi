@@ -50,6 +50,10 @@ class RemoveFontAssetCommand;
 class AddScriptAssetCommand;
 class RemoveScriptAssetCommand;
 class RenameScriptAssetCommand;
+class AddScriptAttachmentCommand;
+class RemoveScriptAttachmentCommand;
+class MoveScriptAttachmentCommand;
+class SetScriptAttachmentEnabledCommand;
 class SetBoxColliderOffsetCommand;
 class SetBoxColliderSizeCommand;
 class SetBoxColliderModeCommand;
@@ -141,6 +145,9 @@ public:
     const FontAssetDef*      findFontAsset(const AssetId& id) const;
     bool                     hasScriptAsset(const AssetId& id) const;
     const ScriptAssetDef*    findScriptAsset(const AssetId& id) const;
+    /** Deterministic unique Script Asset ids referenced by Object Types.
+     *  Disabled attachments are omitted when @p enabledOnly is true. */
+    std::vector<AssetId>     referencedScriptAssetIds(bool enabledOnly) const;
     bool                     hasTilesetAsset(const AssetId& id) const;
     const TilesetAsset*      findTilesetAsset(const AssetId& id) const;
     /** @p instance's effective layer: its layerId if it names a real layer of
@@ -223,6 +230,10 @@ private:
     friend class AddScriptAssetCommand;
     friend class RemoveScriptAssetCommand;
     friend class RenameScriptAssetCommand;
+    friend class AddScriptAttachmentCommand;
+    friend class RemoveScriptAttachmentCommand;
+    friend class MoveScriptAttachmentCommand;
+    friend class SetScriptAttachmentEnabledCommand;
     friend class RenameSceneCommand;
     friend class SetSceneSizeCommand;
     friend class SetSceneBackgroundCommand;
@@ -365,6 +376,8 @@ private:
     bool addScriptAsset(ScriptAssetDef asset);
     bool removeScriptAsset(const AssetId& assetId);
     bool setScriptAssetName(const AssetId& assetId, std::string name);
+    bool replaceScriptComponent(const ObjectTypeId& objectTypeId,
+                                std::optional<ScriptComponent> scripts);
     // Tileset asset catalog (Slice 1: data model only, no TilemapComponent
     // references it yet). Add rejects a duplicate assetId. setTilesetSlicing
     // takes both the new slicing config and the new tiles together, since a

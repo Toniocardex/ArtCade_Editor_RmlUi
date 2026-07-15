@@ -39,6 +39,7 @@ add_library(artcade-editor-core STATIC
     editor-native/commands/generated_sfx_macros.cpp
     editor-native/commands/font_asset_commands.cpp
     editor-native/commands/script_asset_commands.cpp
+    editor-native/commands/script_attachment_commands.cpp
     editor-native/commands/tileset_commands.cpp
     editor-native/commands/tilemap_commands.cpp
     editor-native/commands/sprite_animation_commands.cpp

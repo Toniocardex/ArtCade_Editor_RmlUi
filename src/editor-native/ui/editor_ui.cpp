@@ -15,6 +15,7 @@
 #include "artcade/sfx/presets.hpp"
 #include "editor-native/commands/font_asset_commands.h"
 #include "editor-native/commands/script_asset_commands.h"
+#include "editor-native/commands/script_attachment_commands.h"
 #include "editor-native/commands/tilemap_commands.h"
 #include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/project_commands.h"
@@ -617,6 +618,12 @@ void EditorUi::setProjectFileHandlers(ProjectFileRequest newProject,
     openProjectRequest_   = std::move(open);
     saveProjectRequest_   = std::move(save);
     saveProjectAsRequest_ = std::move(saveAs);
+}
+
+void EditorUi::setPlayHandlers(ProjectFileRequest playProject,
+                               ProjectFileRequest playCurrentScene) {
+    playProjectRequest_ = std::move(playProject);
+    playCurrentSceneRequest_ = std::move(playCurrentScene);
 }
 
 void EditorUi::setImportHandler(ImportAssetRequest importAsset) {
@@ -1674,7 +1681,8 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         return;
     }
     if (action == "set-entity-layer" || action == "set-sprite-asset"
-        || action == "set-sprite-animation" || action == "set-tilemap-tileset") {
+        || action == "set-sprite-animation" || action == "set-tilemap-tileset"
+        || action == "attach-script") {
         inspector_.closeDropdowns();   // then fall through to execute the pick
     }
 
@@ -1820,6 +1828,55 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         if (inst) {
             coordinator_.execute(
                 RemoveSpriteAnimatorFromObjectTypeCommand{inst->objectTypeId});
+        }
+    } else if (action == "attach-script") {
+        const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
+            coordinator_.state().activeSceneId, selected);
+        const EntityDef* type = inst
+            ? coordinator_.document().findObjectType(inst->objectTypeId) : nullptr;
+        if (!inst || !type) {
+            coordinator_.logError("No selected Object Type");
+        } else {
+            const ScriptComponent current = type->scripts.value_or(ScriptComponent{});
+            coordinator_.execute(AddScriptAttachmentCommand{
+                inst->objectTypeId,
+                ScriptAttachmentDef{nextScriptAttachmentId(current), arg, true},
+                current.attachments.size()});
+        }
+    } else if (action == "remove-script-attachment"
+               || action == "toggle-script-attachment"
+               || action == "move-script-attachment-up"
+               || action == "move-script-attachment-down") {
+        const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
+            coordinator_.state().activeSceneId, selected);
+        const EntityDef* type = inst
+            ? coordinator_.document().findObjectType(inst->objectTypeId) : nullptr;
+        if (!inst || !type || !type->scripts) {
+            coordinator_.logError("Object Type has no Script attachments");
+        } else if (action == "remove-script-attachment") {
+            coordinator_.execute(
+                RemoveScriptAttachmentCommand{inst->objectTypeId, arg});
+        } else {
+            const auto found = std::find_if(
+                type->scripts->attachments.begin(), type->scripts->attachments.end(),
+                [&](const ScriptAttachmentDef& attachment) { return attachment.id == arg; });
+            if (found == type->scripts->attachments.end()) {
+                coordinator_.logError("Unknown Script attachment");
+            } else if (action == "toggle-script-attachment") {
+                coordinator_.execute(SetScriptAttachmentEnabledCommand{
+                    inst->objectTypeId, arg, !found->enabled});
+            } else {
+                const std::size_t index = static_cast<std::size_t>(
+                    found - type->scripts->attachments.begin());
+                if (action == "move-script-attachment-up" && index > 0) {
+                    coordinator_.execute(MoveScriptAttachmentCommand{
+                        inst->objectTypeId, arg, index - 1});
+                } else if (action == "move-script-attachment-down"
+                           && index + 1 < type->scripts->attachments.size()) {
+                    coordinator_.execute(MoveScriptAttachmentCommand{
+                        inst->objectTypeId, arg, index + 1});
+                }
+            }
         }
     } else if (action == "bring-entity-into-scene") {
         bringSelectedEntityIntoScene(coordinator_);
@@ -2088,9 +2145,9 @@ bool EditorUi::handleToolbarAction(const std::string& action, const std::string&
         const float factor = (action == "zoom-in") ? 1.2f : (1.0f / 1.2f);
         coordinator_.apply(SetViewportZoomIntent{active, current * factor});
     } else if (action == "play-project") {
-        coordinator_.playProject();        // guarded; no-op without a valid start scene
+        if (playProjectRequest_) playProjectRequest_();
     } else if (action == "play-current-scene") {
-        coordinator_.playCurrentScene();   // guarded; no-op without an active scene
+        if (playCurrentSceneRequest_) playCurrentSceneRequest_();
     } else if (action == "stop") {
         coordinator_.stopPlaying();
     } else {

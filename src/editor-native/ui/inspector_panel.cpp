@@ -150,7 +150,7 @@ bool knownSection(std::string_view id) {
     static constexpr std::string_view ids[] = {
         "project", "general", "world-bounds", "layers", "diagnostics",
         "identity", "transform", "sprite-renderer", "sprite-animator",
-        "tilemap", "box-collider", "linear-mover", "top-down-controller",
+        "tilemap", "scripts", "box-collider", "linear-mover", "top-down-controller",
         "platformer-controller",
     };
     for (std::string_view known : ids) if (known == id) return true;
@@ -975,6 +975,66 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                       + std::to_string(i + 1) + "</span> - " + escapeRml(*selectedTileId) + "</div>";
                 break;
             }
+        }
+    }
+
+    // -- Scripts (Object-Type owned; every instance inherits this order) -------
+    if (type) {
+        html += header("scripts", isSectionCollapsed("scripts"),
+                       "&#xf1b7;", "Scripts", "OBJECT TYPE", "", "", playing);
+        html += typeOwnedLockNote;
+        const ScriptComponent emptyScripts;
+        const ScriptComponent& scripts = type->scripts ? *type->scripts : emptyScripts;
+        if (scripts.attachments.empty()) {
+            html += "<div class=\"type-owned-note\">No scripts attached.</div>";
+        }
+        for (std::size_t index = 0; index < scripts.attachments.size(); ++index) {
+            const ScriptAttachmentDef& attachment = scripts.attachments[index];
+            const ScriptAssetDef* asset =
+                coordinator.document().findScriptAsset(attachment.scriptAssetId);
+            const std::string label = asset
+                ? assetDisplayName(asset->name, asset->assetId)
+                : std::string("(missing)");
+            html += "<div class=\"script-attachment-row\"><button class=\"panel-btn";
+            if (playing) html += " disabled";
+            html += "\" data-action=\"toggle-script-attachment\" data-arg=\""
+                  + escapeRml(attachment.id) + "\">"
+                  + (attachment.enabled ? std::string("On") : std::string("Off"))
+                  + "</button><button class=\"script-attachment-name\" data-action=\"open-script\" data-arg=\""
+                  + escapeRml(attachment.scriptAssetId) + "\">"
+                  + escapeRml(label) + "</button>";
+            const auto actionButton = [&](const char* action, const char* glyph, bool disabled) {
+                html += "<button class=\"script-attachment-action";
+                if (disabled || playing) html += " disabled";
+                html += "\" data-action=\"";
+                html += action;
+                html += "\" data-arg=\"" + escapeRml(attachment.id) + "\">";
+                html += glyph;
+                html += "</button>";
+            };
+            actionButton("move-script-attachment-up", "&#x2191;", index == 0);
+            actionButton("move-script-attachment-down", "&#x2193;",
+                         index + 1 == scripts.attachments.size());
+            actionButton("remove-script-attachment", "&#x00d7;", false);
+            html += "</div>";
+        }
+        if (!coordinator.document().data().scriptAssets.empty()) {
+            const bool attachOpen = openDropdownId_ == "script-attach" && !playing;
+            html += dropdownTrigger("Attach", "script-attach", "Choose Script...",
+                                    attachOpen, playing);
+            if (attachOpen) {
+                html += "<div class=\"drop-list\">";
+                for (const ScriptAssetDef& asset : coordinator.document().data().scriptAssets) {
+                    html += "<div class=\"drop-entry\" data-action=\"attach-script\" data-arg=\""
+                          + escapeRml(asset.assetId) + "\">"
+                          + escapeRml(assetDisplayName(asset.name, asset.assetId)) + "</div>";
+                }
+                html += "</div>";
+            }
+        } else {
+            html += "<button class=\"panel-btn";
+            if (playing) html += " disabled";
+            html += "\" data-action=\"create-script\">Create Script Asset</button>";
         }
     }
 

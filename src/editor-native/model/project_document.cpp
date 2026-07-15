@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <unordered_set>
 #include <utility>
 
 namespace ArtCade::EditorNative {
@@ -766,6 +767,16 @@ bool ProjectDocument::hasAudioAsset(const AssetId& id) const {
     return findAudioAsset(id) != nullptr;
 }
 
+bool ProjectDocument::replaceScriptComponent(
+    const ObjectTypeId& objectTypeId,
+    std::optional<ScriptComponent> scripts) {
+    const auto it = doc_.objectTypes.find(objectTypeId);
+    if (it == doc_.objectTypes.end()) return false;
+    it->second.scripts = std::move(scripts);
+    markDirty();
+    return true;
+}
+
 const AudioAssetDef* ProjectDocument::findAudioAsset(const AssetId& id) const {
     for (const AudioAssetDef& asset : doc_.audioAssets) {
         if (asset.assetId == id) return &asset;
@@ -845,6 +856,29 @@ const ScriptAssetDef* ProjectDocument::findScriptAsset(const AssetId& id) const 
     return nullptr;
 }
 
+std::vector<AssetId> ProjectDocument::referencedScriptAssetIds(bool enabledOnly) const {
+    std::vector<ObjectTypeId> objectTypeIds;
+    objectTypeIds.reserve(doc_.objectTypes.size());
+    for (const auto& [id, unused] : doc_.objectTypes) {
+        (void)unused;
+        objectTypeIds.push_back(id);
+    }
+    std::sort(objectTypeIds.begin(), objectTypeIds.end());
+
+    std::vector<AssetId> result;
+    std::unordered_set<AssetId> seen;
+    for (const ObjectTypeId& id : objectTypeIds) {
+        const EntityDef& type = doc_.objectTypes.at(id);
+        if (!type.scripts) continue;
+        for (const ScriptAttachmentDef& attachment : type.scripts->attachments) {
+            if (enabledOnly && !attachment.enabled) continue;
+            if (seen.insert(attachment.scriptAssetId).second)
+                result.push_back(attachment.scriptAssetId);
+        }
+    }
+    return result;
+}
+
 bool ProjectDocument::addScriptAsset(ScriptAssetDef asset) {
     if (asset.assetId.empty() || asset.name.empty() || hasScriptAsset(asset.assetId)
         || !isSafeProjectRelativePath(std::filesystem::u8path(asset.sourcePath))
@@ -860,6 +894,14 @@ bool ProjectDocument::addScriptAsset(ScriptAssetDef asset) {
 }
 
 bool ProjectDocument::removeScriptAsset(const AssetId& assetId) {
+    for (const auto& [unused, type] : doc_.objectTypes) {
+        (void)unused;
+        if (!type.scripts) continue;
+        if (std::any_of(type.scripts->attachments.begin(), type.scripts->attachments.end(),
+                [&](const ScriptAttachmentDef& attachment) {
+                    return attachment.scriptAssetId == assetId;
+                })) return false;
+    }
     for (auto it = doc_.scriptAssets.begin(); it != doc_.scriptAssets.end(); ++it) {
         if (it->assetId != assetId) continue;
         doc_.scriptAssets.erase(it);

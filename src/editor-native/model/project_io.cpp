@@ -26,9 +26,9 @@ namespace ArtCade::EditorNative {
 
 namespace {
 
-// v6: external manual Lua source catalog. Project JSON stores metadata only;
-// source text remains in project-relative .lua files.
-constexpr int kCurrentSchemaVersion = 6;
+// v7: Object-Type-owned ordered Script attachments. Project JSON still stores
+// metadata only; source text remains in project-relative .lua files.
+constexpr int kCurrentSchemaVersion = 7;
 
 class JsonReadError final : public std::runtime_error {
 public:
@@ -648,6 +648,19 @@ nlohmann::json objectTypeToJson(const std::string& id, const EntityDef& def) {
             {"gravity", def.platformerController->customGravity},
         };
     }
+    if (def.scripts.has_value()) {
+        nlohmann::json attachments = nlohmann::json::array();
+        for (const ScriptAttachmentDef& attachment : def.scripts->attachments) {
+            attachments.push_back(nlohmann::json{
+                {"id", attachment.id},
+                {"scriptAssetId", attachment.scriptAssetId},
+                {"enabled", attachment.enabled},
+            });
+        }
+        json["scripts"] = nlohmann::json{
+            {"attachments", std::move(attachments)},
+        };
+    }
     if (def.logicBoard.has_value()) {
         json["logicBoard"] = Logic::logicBoardToJson(*def.logicBoard);
     }
@@ -960,6 +973,26 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                 component.jumpForce = readFloat(p, "jumpSpeed", component.jumpForce);
                 component.customGravity = readFloat(p, "gravity", component.customGravity);
                 def.platformerController = component;
+            }
+            if (const nlohmann::json* scriptsValue = optionalObject(
+                    item, "scripts", "objectTypes[].scripts")) {
+                ScriptComponent component;
+                if (const nlohmann::json* attachments = optionalArray(
+                        *scriptsValue, "attachments", "objectTypes[].scripts.attachments")) {
+                    for (const auto& attachmentValue : *attachments) {
+                        requireObject(
+                            attachmentValue, "objectTypes[].scripts.attachments[]");
+                        ScriptAttachmentDef attachment;
+                        attachment.id = readString(attachmentValue, "id", nullptr);
+                        attachment.scriptAssetId = readString(
+                            attachmentValue, "scriptAssetId", "script_asset_id");
+                        attachment.enabled = readBool(
+                            attachmentValue, "enabled", true,
+                            "objectTypes[].scripts.attachments[].enabled");
+                        component.attachments.push_back(std::move(attachment));
+                    }
+                }
+                def.scripts = std::move(component);
             }
             if (item.contains("logicBoard")) {
                 LogicBoardDef board;
@@ -1540,6 +1573,30 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
             [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         if (!scriptSourcePaths.insert(std::move(normalizedPath)).second) {
             return DeserializeResult::failure("Duplicate script asset source path");
+        }
+    }
+
+    for (const auto& [objectTypeId, type] : data.objectTypes) {
+        if (!type.scripts) continue;
+        if (type.scripts->attachments.empty()) {
+            return DeserializeResult::failure(
+                "Object Type Script component cannot be empty");
+        }
+        std::unordered_set<ScriptAttachmentId> attachmentIds;
+        for (const ScriptAttachmentDef& attachment : type.scripts->attachments) {
+            if (attachment.id.empty()) {
+                return DeserializeResult::failure(
+                    "Script attachment id cannot be empty");
+            }
+            if (!attachmentIds.insert(attachment.id).second) {
+                return DeserializeResult::failure(
+                    "Duplicate Script attachment id within Object Type " + objectTypeId);
+            }
+            if (attachment.scriptAssetId.empty()
+                || scriptAssetIds.count(attachment.scriptAssetId) == 0) {
+                return DeserializeResult::failure(
+                    "Script attachment references an unknown Script Asset");
+            }
         }
     }
 
