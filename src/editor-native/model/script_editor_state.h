@@ -10,6 +10,28 @@
 
 namespace ArtCade::EditorNative {
 
+enum class DiagnosticSeverity { Info, Warning, Error };
+
+struct ScriptDiagnostic {
+    DiagnosticSeverity severity = DiagnosticSeverity::Error;
+    std::string code;
+    AssetId scriptAssetId;
+    std::string path;
+    int line = 0;
+    int column = 0;
+    std::optional<EntityId> entityId;
+    std::string callback;
+    std::string message;
+
+    bool operator==(const ScriptDiagnostic& other) const {
+        return severity == other.severity && code == other.code
+            && scriptAssetId == other.scriptAssetId && path == other.path
+            && line == other.line && column == other.column
+            && entityId == other.entityId && callback == other.callback
+            && message == other.message;
+    }
+};
+
 struct ScriptTextSnapshot {
     std::string   text;
     std::size_t   cursorOffset = 0;
@@ -27,6 +49,9 @@ struct ScriptEditorBuffer {
     float scrollTop = 0.f;
     std::vector<ScriptTextSnapshot> undoHistory;
     std::vector<ScriptTextSnapshot> redoHistory;
+    std::vector<ScriptDiagnostic> diagnostics;
+    std::optional<std::uint64_t> validatedRevision;
+    bool validationPending = true;
 
     bool dirty() const { return revision != savedRevision; }
     bool canUndo() const { return !undoHistory.empty(); }
@@ -36,6 +61,7 @@ struct ScriptEditorBuffer {
     bool undo();
     bool redo();
     void markSaved(std::string persistedText);
+    void invalidateDiagnostics();
 };
 
 struct ScriptEditorState {

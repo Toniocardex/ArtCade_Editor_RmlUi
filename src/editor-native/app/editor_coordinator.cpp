@@ -373,6 +373,15 @@ EditorInvalidation EditorCoordinator::reconcileWorkspace() {
             extra |= EditorInvalidation::ScriptEditor | EditorInvalidation::Toolbar;
         }
     }
+    const auto firstDanglingDiagnostic = std::remove_if(
+        console_.begin(), console_.end(), [&](const ConsoleMessage& message) {
+            return message.scriptSource
+                && !document_.hasScriptAsset(message.scriptSource->scriptAssetId);
+        });
+    if (firstDanglingDiagnostic != console_.end()) {
+        console_.erase(firstDanglingDiagnostic, console_.end());
+        extra |= EditorInvalidation::Console;
+    }
 
     // Last: with the selection/scene/layer state above now fully valid, bring
     // the tool/gesture/tile-selection context back in line with it - covers
@@ -665,8 +674,32 @@ std::string formatConsoleMessageForClipboard(const ConsoleMessage& message) {
 }
 
 void EditorCoordinator::appendConsole(ConsoleMessage::Level level, std::string text) {
-    console_.push_back(ConsoleMessage{level, std::move(text)});
+    console_.push_back(ConsoleMessage{level, std::move(text), std::nullopt});
     accumulate(EditorInvalidation::Console);
+}
+
+void EditorCoordinator::replaceScriptDiagnostics(
+    const AssetId& scriptAssetId,
+    const std::vector<ScriptDiagnostic>& diagnostics) {
+    console_.erase(std::remove_if(console_.begin(), console_.end(),
+        [&](const ConsoleMessage& message) {
+            return message.scriptSource
+                && message.scriptSource->scriptAssetId == scriptAssetId;
+        }), console_.end());
+    for (const ScriptDiagnostic& diagnostic : diagnostics) {
+        ConsoleMessage::Level level = ConsoleMessage::Level::Error;
+        if (diagnostic.severity == DiagnosticSeverity::Info)
+            level = ConsoleMessage::Level::Info;
+        else if (diagnostic.severity == DiagnosticSeverity::Warning)
+            level = ConsoleMessage::Level::Warning;
+        const std::string location = diagnostic.path
+            + (diagnostic.line > 0 ? ":" + std::to_string(diagnostic.line) : std::string{})
+            + (diagnostic.column > 0 ? ":" + std::to_string(diagnostic.column) : std::string{});
+        console_.push_back(ConsoleMessage{
+            level, location + " [" + diagnostic.code + "] " + diagnostic.message,
+            ConsoleMessage::ScriptSource{diagnostic.scriptAssetId, diagnostic.path,
+                                         diagnostic.line, diagnostic.column}});
+    }
 }
 
 void EditorCoordinator::logInfo(std::string text) {

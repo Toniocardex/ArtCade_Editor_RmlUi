@@ -151,6 +151,7 @@ void ConsolePanel::refresh(Rml::ElementDocument* document,
         row += levelClass(message.level);
         if (selected_ && *selected_ == i) row += " selected";
         row += "\" data-action=\"select-console\" data-arg=\"" + std::to_string(i) + "\">";
+        if (message.scriptSource) row += "<span class=\"console-source-link\">&#xeb47;</span> ";
         row += escapeRml(message.text) + "</div>";
         html = row + html;   // prepend: keep chronological order in the list
         ++shown;

@@ -454,6 +454,7 @@ void EditorUi::detach() {
 
 void EditorUi::processFrame() {
     if (!listener_ || !document_) return;
+    scriptEditor_.processFrame();
     applyInvalidations(coordinator_.consumeInvalidations());
     // Deferred context menus: shown here, after the application's
     // outside-click check for this frame has already run.
@@ -2049,7 +2050,9 @@ bool EditorUi::handleToolbarAction(const std::string& action, const std::string&
     } else if (action == "find-script" || action == "commit-script-search") {
         scriptEditor_.findNext(value);
     } else if (action == "goto-script-line" || action == "commit-script-line") {
-        scriptEditor_.goToLine(value);
+        scriptEditor_.goToLine(arg.empty() ? value : arg);
+    } else if (action == "validate-script") {
+        scriptEditor_.validateActive();
     } else if (action == "reset-zoom") {
         coordinator_.apply(SetViewportZoomIntent{currentViewSceneId(), 1.0f});   // target unchanged
     } else if (action == "toggle-grid-visible") {
@@ -2476,8 +2479,17 @@ bool EditorUi::handleGeneratedSfxAction(const std::string& action, const std::st
 bool EditorUi::handleConsoleAction(const std::string& action, const std::string& arg,
                                    const std::string& value) {
     if (action == "select-console") {
-        console_.select(static_cast<std::size_t>(std::strtoul(arg.c_str(), nullptr, 10)),
-                        document_, coordinator_);
+        const std::size_t index = static_cast<std::size_t>(
+            std::strtoul(arg.c_str(), nullptr, 10));
+        console_.select(index, document_, coordinator_);
+        const ConsoleMessage* message = coordinator_.consoleMessage(index);
+        if (message && message->scriptSource && openScriptRequest_) {
+            const ConsoleMessage::ScriptSource source = *message->scriptSource;
+            openScriptRequest_(source.scriptAssetId);
+            scriptEditor_.refresh();
+            if (source.line > 0)
+                scriptEditor_.goToLocation(source.line, std::max(1, source.column));
+        }
     } else if (action == "copy-console") {
         copySelectedConsoleMessage();
     } else if (action == "clear-console") {

@@ -13,6 +13,7 @@
 #include "editor-native/app/project_file.h"
 #include "editor-native/app/project_load.h"
 #include "editor-native/app/project_script_file_service.h"
+#include "editor-native/app/script_syntax_validator.h"
 #include "editor-native/app/script_asset_workflow.h"
 #include "editor-native/app/unsaved_guard.h"
 #include "editor-native/app/pending_edit.h"
@@ -3680,6 +3681,38 @@ static void runScriptAssetAndFileServiceTests() {
     invalidUtf8.push_back(static_cast<char>(0xff));
     CHECK(!files.writeScriptAtomically("scripts/player.lua", invalidUtf8).ok);
     CHECK(files.readScript("scripts/player.lua").value == "return {\n}\n");
+
+    // Saving invalid source is intentionally allowed; diagnostics compile the
+    // exact bytes but never execute the produced chunk or open Lua libraries.
+    const std::string invalidLua = "return {\n  on_start = function(\n}\n";
+    CHECK(files.writeScriptAtomically("scripts/invalid.lua", invalidLua).ok);
+    const auto syntaxErrors = validateScriptSyntax(
+        "invalid", "scripts/invalid.lua", invalidLua);
+    CHECK(syntaxErrors.size() == 1);
+    CHECK(syntaxErrors.front().code == "SCRIPT_SYNTAX");
+    CHECK(syntaxErrors.front().scriptAssetId == "invalid");
+    CHECK(syntaxErrors.front().path == "scripts/invalid.lua");
+    CHECK(syntaxErrors.front().line > 0);
+    CHECK(syntaxErrors.front().column == 1);
+    CHECK(validateScriptSyntax("safe", "scripts/safe.lua",
+        "error('this chunk must never execute')\nreturn {}\n").empty());
+
+    ProjectDoc gateDoc = makeDoc();
+    gateDoc.scriptAssets = {
+        ScriptAssetDef{"safe", "Safe", "scripts/player.lua"},
+        ScriptAssetDef{"invalid", "Invalid", "scripts/invalid.lua"},
+        ScriptAssetDef{"unreadable", "Unreadable", "scripts/missing.lua"},
+    };
+    const ProjectDocument gateDocument{std::move(gateDoc)};
+    CHECK(validateReferencedScriptSyntax(
+        gateDocument, files, {"safe"}).empty());
+    const auto strictDiagnostics = validateReferencedScriptSyntax(
+        gateDocument, files,
+        {"safe", "invalid", "unreadable", "unknown", "invalid"});
+    CHECK(strictDiagnostics.size() == 3);
+    CHECK(strictDiagnostics[0].code == "SCRIPT_SYNTAX");
+    CHECK(strictDiagnostics[1].code == "SCRIPT_SOURCE_UNREADABLE");
+    CHECK(strictDiagnostics[2].code == "SCRIPT_REFERENCE_UNKNOWN");
     CHECK(!files.writeScriptAtomically(
         "scripts/player.lua", std::string("return\0{}", 9)).ok);
     CHECK(files.readScript("scripts/player.lua").value == "return {\n}\n");
@@ -3772,6 +3805,30 @@ static void runScriptAssetAndFileServiceTests() {
     CHECK(workspace.apply(MarkScriptBufferSavedIntent{
         "player", workspace.state().scriptEditor.active()->text}).ok);
     CHECK(!workspace.state().scriptEditor.active()->dirty());
+
+    ScriptDiagnostic playerDiagnostic = syntaxErrors.front();
+    playerDiagnostic.scriptAssetId = "player";
+    playerDiagnostic.path = "scripts/player.lua";
+    const std::uint64_t editedRevision = workspace.state().scriptEditor.active()->revision;
+    CHECK(workspace.apply(SetScriptDiagnosticsIntent{
+        "player", editedRevision, {playerDiagnostic}}).ok);
+    CHECK(!workspace.state().scriptEditor.active()->validationPending);
+    CHECK(workspace.state().scriptEditor.active()->diagnostics.size() == 1);
+    CHECK(!workspace.consoleLog().empty());
+    CHECK(workspace.consoleLog().back().scriptSource.has_value());
+    CHECK(workspace.consoleLog().back().scriptSource->scriptAssetId == "player");
+    // A newer edit invalidates the derived result. A late result for the old
+    // revision is dropped without console noise or state replacement.
+    CHECK(workspace.apply(EditScriptBufferIntent{
+        "player", "return {}\n-- newer\n", 10}).ok);
+    const std::size_t consoleBeforeStale = workspace.consoleLog().size();
+    CHECK(workspace.apply(SetScriptDiagnosticsIntent{
+        "player", editedRevision, {playerDiagnostic}}).ok);
+    CHECK(workspace.state().scriptEditor.active()->validationPending);
+    CHECK(workspace.state().scriptEditor.active()->diagnostics.empty());
+    CHECK(workspace.consoleLog().size() == consoleBeforeStale);
+    CHECK(workspace.apply(MarkScriptBufferSavedIntent{
+        "player", workspace.state().scriptEditor.active()->text}).ok);
     CHECK(workspace.apply(SetScriptCursorIntent{"player", 9, 36.f}).ok);
 
     CHECK(workspace.playProject().ok);

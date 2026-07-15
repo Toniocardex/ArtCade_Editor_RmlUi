@@ -51,6 +51,9 @@ persistent project authority. RmlUi remains presentation only.
 - removing a referenced script asset is rejected atomically.
 - a syntactically incomplete buffer may be saved; Play/export validation is a
   later strict boundary and must fail atomically.
+- syntax diagnostics are derived from one exact buffer revision and are
+  discarded when that revision changes; loading a chunk for diagnostics never
+  executes it or opens Lua libraries.
 
 ## Intent and Command boundary
 
@@ -92,4 +95,6 @@ from authoring and dispose all scopes at Stop.
 - metadata Command apply/Undo/Redo and delete-reference guard;
 - buffer dirty/save/undo routing and unsaved guard;
 - RmlUi controller contract without rebuilding the textarea per keystroke;
+- compile-only Lua 5.4 diagnostics, stale-revision rejection and strict
+  saved-source validation over the authored reference set;
 - later runtime parity on native and WASM targets.

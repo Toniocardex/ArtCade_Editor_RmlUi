@@ -3,9 +3,11 @@
 #include "core/types.h"
 
 #include <cstddef>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <utility>
+#include <unordered_map>
 
 namespace Rml {
 class ElementDocument;
@@ -38,6 +40,8 @@ public:
                            Rml::ElementDocument* document);
     void detach();
     void refresh();
+    void processFrame();
+    void validateActive();
 
     void textChanged(const std::string& text);
     void cursorChanged();
@@ -47,18 +51,27 @@ public:
     void insertSpacesForTab();
     void findNext(const std::string& query);
     void goToLine(const std::string& lineText);
+    void goToLocation(int line, int column);
 
 private:
     void refreshTabs();
     void refreshLineNumbers();
     void refreshStatus();
+    void refreshDiagnostics();
     void syncSurfaceFromActiveBuffer();
+    void validate(const AssetId& assetId, std::uint64_t revision);
+
+    struct PendingValidation {
+        std::uint64_t revision = 0;
+        std::chrono::steady_clock::time_point due;
+    };
 
     EditorCoordinator& coordinator_;
     Rml::ElementDocument* document_ = nullptr;
     std::unique_ptr<ICodeEditorSurface> surface_;
     AssetId renderedAssetId_;
     std::uint64_t renderedRevision_ = 0;
+    std::unordered_map<AssetId, PendingValidation> pendingValidation_;
 };
 
 } // namespace ArtCade::EditorNative

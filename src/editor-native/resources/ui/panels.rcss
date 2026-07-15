@@ -219,6 +219,7 @@
 }
 .console-counts .count-err  { color: #e5706b; font-weight: 600; }
 .console-counts .count-warn { color: #d8b44a; font-weight: 600; }
+.console-source-link { color: #60a5fa; }
 
 /* Console toolbar — level toggles, search, Clear. Local visual state only:
    nothing here is authoring, so a click is a plain Intent, not a Command. */

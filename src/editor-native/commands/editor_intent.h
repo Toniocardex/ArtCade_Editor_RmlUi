@@ -120,6 +120,15 @@ struct SetScriptSearchIntent {
     std::string search;
 };
 
+// Derived compile-only result for one exact source revision. The Coordinator
+// silently drops a stale result; debounced validation can never overwrite
+// diagnostics for newer text.
+struct SetScriptDiagnosticsIntent {
+    AssetId scriptAssetId;
+    std::uint64_t sourceRevision = 0;
+    std::vector<ScriptDiagnostic> diagnostics;
+};
+
 struct SetViewportZoomIntent {
     SceneId sceneId;
     float   zoom = 1.0f;

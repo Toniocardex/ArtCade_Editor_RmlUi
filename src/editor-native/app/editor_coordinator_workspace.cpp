@@ -183,13 +183,16 @@ EditorOperationResult EditorCoordinator::apply(const ActivateScriptBufferIntent&
 EditorOperationResult EditorCoordinator::apply(const EditScriptBufferIntent& intent) {
     ScriptEditorBuffer* buffer = state_.scriptEditor.find(intent.scriptAssetId);
     if (!buffer) return finishIntent(EditorOperationResult::failure("Script buffer is not open"));
+    const bool hadDiagnostics = !buffer->diagnostics.empty();
     const bool changed = buffer->edit(intent.text, intent.cursorOffset);
     if (!changed) return EditorOperationResult::success(EditorInvalidation::None);
     // The static textarea already owns the native editing gesture and the
     // controller updates only line numbers/status. Do not invalidate and
     // rebuild the Script panel for every character; Toolbar is enough to
     // refresh derived dirty/history affordances and the global status bar.
-    const EditorInvalidation invalidation = EditorInvalidation::Toolbar;
+    if (hadDiagnostics) replaceScriptDiagnostics(intent.scriptAssetId, {});
+    const EditorInvalidation invalidation = EditorInvalidation::Toolbar
+        | (hadDiagnostics ? EditorInvalidation::Console : EditorInvalidation::None);
     accumulate(invalidation);
     return EditorOperationResult::success(invalidation);
 }
@@ -210,9 +213,14 @@ EditorOperationResult EditorCoordinator::apply(const SetScriptEditorFocusIntent&
 EditorOperationResult EditorCoordinator::apply(const MarkScriptBufferSavedIntent& intent) {
     ScriptEditorBuffer* buffer = state_.scriptEditor.find(intent.scriptAssetId);
     if (!buffer) return finishIntent(EditorOperationResult::failure("Script buffer is not open"));
+    const bool hadDiagnostics = !buffer->diagnostics.empty();
+    const std::uint64_t previousRevision = buffer->revision;
     buffer->markSaved(intent.persistedText);
-    const EditorInvalidation invalidation =
-        EditorInvalidation::ScriptEditor | EditorInvalidation::Toolbar;
+    const bool invalidatedDiagnostics = hadDiagnostics && buffer->revision != previousRevision;
+    if (invalidatedDiagnostics) replaceScriptDiagnostics(intent.scriptAssetId, {});
+    const EditorInvalidation invalidation = EditorInvalidation::ScriptEditor
+        | EditorInvalidation::Toolbar
+        | (invalidatedDiagnostics ? EditorInvalidation::Console : EditorInvalidation::None);
     accumulate(invalidation);
     return EditorOperationResult::success(invalidation);
 }
@@ -229,18 +237,24 @@ EditorOperationResult EditorCoordinator::apply(const CloseScriptBufferIntent& in
 
 EditorOperationResult EditorCoordinator::apply(const UndoScriptBufferIntent&) {
     ScriptEditorBuffer* buffer = state_.scriptEditor.active();
+    const bool hadDiagnostics = buffer && !buffer->diagnostics.empty();
     if (!buffer || !buffer->undo()) return EditorOperationResult::success(EditorInvalidation::None);
-    const EditorInvalidation invalidation =
-        EditorInvalidation::ScriptEditor | EditorInvalidation::Toolbar;
+    if (hadDiagnostics) replaceScriptDiagnostics(buffer->scriptAssetId, {});
+    const EditorInvalidation invalidation = EditorInvalidation::ScriptEditor
+        | EditorInvalidation::Toolbar
+        | (hadDiagnostics ? EditorInvalidation::Console : EditorInvalidation::None);
     accumulate(invalidation);
     return EditorOperationResult::success(invalidation);
 }
 
 EditorOperationResult EditorCoordinator::apply(const RedoScriptBufferIntent&) {
     ScriptEditorBuffer* buffer = state_.scriptEditor.active();
+    const bool hadDiagnostics = buffer && !buffer->diagnostics.empty();
     if (!buffer || !buffer->redo()) return EditorOperationResult::success(EditorInvalidation::None);
-    const EditorInvalidation invalidation =
-        EditorInvalidation::ScriptEditor | EditorInvalidation::Toolbar;
+    if (hadDiagnostics) replaceScriptDiagnostics(buffer->scriptAssetId, {});
+    const EditorInvalidation invalidation = EditorInvalidation::ScriptEditor
+        | EditorInvalidation::Toolbar
+        | (hadDiagnostics ? EditorInvalidation::Console : EditorInvalidation::None);
     accumulate(invalidation);
     return EditorOperationResult::success(invalidation);
 }
@@ -251,6 +265,38 @@ EditorOperationResult EditorCoordinator::apply(const SetScriptSearchIntent& inte
     state_.scriptEditor.search = intent.search;
     accumulate(EditorInvalidation::ScriptEditor);
     return EditorOperationResult::success(EditorInvalidation::ScriptEditor);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetScriptDiagnosticsIntent& intent) {
+    ScriptEditorBuffer* buffer = state_.scriptEditor.find(intent.scriptAssetId);
+    if (!buffer) return EditorOperationResult::success(EditorInvalidation::None);
+    // Debounced work is allowed to finish after a newer edit. A stale result is
+    // expected control flow, not a warning and never replaces current state.
+    if (buffer->revision != intent.sourceRevision)
+        return EditorOperationResult::success(EditorInvalidation::None);
+    const ScriptAssetDef* asset = document_.findScriptAsset(intent.scriptAssetId);
+    if (!asset) return finishIntent(EditorOperationResult::failure("Unknown script asset"));
+    for (const ScriptDiagnostic& diagnostic : intent.diagnostics) {
+        if (diagnostic.scriptAssetId != intent.scriptAssetId
+            || diagnostic.path != asset->sourcePath) {
+            return finishIntent(EditorOperationResult::failure(
+                "Script diagnostic source does not match its asset"));
+        }
+    }
+
+    const bool changed = buffer->diagnostics != intent.diagnostics
+        || buffer->validatedRevision != intent.sourceRevision
+        || buffer->validationPending;
+    buffer->diagnostics = intent.diagnostics;
+    buffer->validatedRevision = intent.sourceRevision;
+    buffer->validationPending = false;
+    if (!changed) return EditorOperationResult::success(EditorInvalidation::None);
+
+    replaceScriptDiagnostics(intent.scriptAssetId, buffer->diagnostics);
+    const EditorInvalidation invalidation =
+        EditorInvalidation::ScriptEditor | EditorInvalidation::Console;
+    accumulate(invalidation);
+    return EditorOperationResult::success(invalidation);
 }
 
 EditorOperationResult EditorCoordinator::apply(const SetViewportZoomIntent& intent) {

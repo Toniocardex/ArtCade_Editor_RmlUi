@@ -58,6 +58,7 @@ add_library(artcade-editor-core STATIC
     editor-native/app/pending_edit.cpp
     editor-native/app/project_file.cpp
     editor-native/app/project_script_file_service.cpp
+    editor-native/app/script_syntax_validator.cpp
     editor-native/app/script_asset_workflow.cpp
     editor-native/app/project_load.cpp
     editor-native/app/new_project_transaction.cpp
@@ -72,6 +73,7 @@ target_link_libraries(artcade-editor-core PUBLIC
     artcade-logic-core
     artcade-logic-runtime
     ArtCade::Sfx
+    lua54
 )
 
 # ----------------------------------------------------------------------------

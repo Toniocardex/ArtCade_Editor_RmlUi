@@ -21,8 +21,15 @@ namespace ArtCade::EditorNative {
 
 struct ConsoleMessage {
     enum class Level { Info, Warning, Error };
+    struct ScriptSource {
+        AssetId scriptAssetId;
+        std::string path;
+        int line = 0;
+        int column = 0;
+    };
     Level       level = Level::Info;
     std::string text;
+    std::optional<ScriptSource> scriptSource;
 };
 
 // Runtime/editor navigation only: never serialized, undoable, or visible to
@@ -168,6 +175,7 @@ public:
     EditorOperationResult apply(const UndoScriptBufferIntent& intent);
     EditorOperationResult apply(const RedoScriptBufferIntent& intent);
     EditorOperationResult apply(const SetScriptSearchIntent& intent);
+    EditorOperationResult apply(const SetScriptDiagnosticsIntent& intent);
     EditorOperationResult apply(const SetViewportZoomIntent& intent);
     EditorOperationResult apply(const PanViewportIntent& intent);
     EditorOperationResult apply(const SetSceneGridVisibilityIntent& intent);
@@ -240,6 +248,8 @@ private:
     EditorOperationResult finishIntent(EditorOperationResult result);
     void accumulate(EditorInvalidation invalidation) { pending_ |= invalidation; }
     void appendConsole(ConsoleMessage::Level level, std::string text);
+    void replaceScriptDiagnostics(const AssetId& scriptAssetId,
+                                  const std::vector<ScriptDiagnostic>& diagnostics);
 
     // After a structural command (or its undo) mutates the document, the
     // workspace may reference a scene or entity that no longer exists. This

@@ -1,6 +1,7 @@
 #include "editor-native/ui/script_editor_controller.h"
 
 #include "editor-native/app/editor_coordinator.h"
+#include "editor-native/app/script_syntax_validator.h"
 #include "editor-native/commands/editor_intent.h"
 #include "editor-native/model/script_editor_state.h"
 #include "editor-native/ui/ui_markup.h"
@@ -14,6 +15,7 @@
 #include <cstdlib>
 #include <limits>
 #include <string>
+#include <vector>
 
 namespace ArtCade::EditorNative {
 namespace {
@@ -104,6 +106,7 @@ ScriptEditorController::ScriptEditorController(EditorCoordinator& coordinator,
       surface_(std::make_unique<RmlTextareaCodeEditorSurface>(document)) {}
 
 void ScriptEditorController::detach() {
+    pendingValidation_.clear();
     surface_.reset();
     document_ = nullptr;
 }
@@ -114,11 +117,64 @@ void ScriptEditorController::refresh() {
     syncSurfaceFromActiveBuffer();
     refreshLineNumbers();
     refreshStatus();
+    refreshDiagnostics();
     const bool hasBuffer = coordinator_.state().scriptEditor.active() != nullptr;
     if (Rml::Element* empty = document_->GetElementById("script-editor-empty"))
         empty->SetClass("hidden", hasBuffer);
     if (Rml::Element* body = document_->GetElementById("script-editor-body"))
         body->SetClass("hidden", !hasBuffer);
+}
+
+void ScriptEditorController::processFrame() {
+    using namespace std::chrono_literals;
+    const auto now = std::chrono::steady_clock::now();
+    const ScriptEditorState& state = coordinator_.state().scriptEditor;
+    for (auto it = pendingValidation_.begin(); it != pendingValidation_.end(); ) {
+        if (!state.find(it->first)) it = pendingValidation_.erase(it);
+        else ++it;
+    }
+    for (const ScriptEditorBuffer& buffer : state.buffers) {
+        if (!buffer.validationPending) {
+            pendingValidation_.erase(buffer.scriptAssetId);
+            continue;
+        }
+        auto [it, inserted] = pendingValidation_.try_emplace(
+            buffer.scriptAssetId,
+            PendingValidation{buffer.revision, now + 400ms});
+        if (!inserted && it->second.revision != buffer.revision)
+            it->second = PendingValidation{buffer.revision, now + 400ms};
+    }
+
+    std::vector<std::pair<AssetId, std::uint64_t>> ready;
+    for (const auto& [assetId, pending] : pendingValidation_) {
+        if (pending.due <= now) ready.emplace_back(assetId, pending.revision);
+    }
+    for (const auto& [assetId, revision] : ready) {
+        pendingValidation_.erase(assetId);
+        validate(assetId, revision);
+    }
+}
+
+void ScriptEditorController::validateActive() {
+    const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.active();
+    if (!buffer) return;
+    pendingValidation_.erase(buffer->scriptAssetId);
+    validate(buffer->scriptAssetId, buffer->revision);
+    if (const ScriptEditorBuffer* validated =
+            coordinator_.state().scriptEditor.find(buffer->scriptAssetId)) {
+        if (validated->diagnostics.empty())
+            coordinator_.logInfo("No Lua syntax errors in "
+                                 + scriptName(coordinator_, validated->scriptAssetId));
+    }
+}
+
+void ScriptEditorController::validate(const AssetId& assetId, std::uint64_t revision) {
+    const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.find(assetId);
+    const ScriptAssetDef* asset = coordinator_.document().findScriptAsset(assetId);
+    if (!buffer || !asset || buffer->revision != revision) return;
+    coordinator_.apply(SetScriptDiagnosticsIntent{
+        assetId, revision,
+        validateScriptSyntax(assetId, asset->sourcePath, buffer->text)});
 }
 
 void ScriptEditorController::refreshTabs() {
@@ -173,10 +229,37 @@ void ScriptEditorController::refreshStatus() {
         ? scriptCursorPosition(buffer->text, buffer->cursorOffset)
         : ScriptCursorPosition{};
     if (Rml::Element* status = document_->GetElementById("script-cursor-status")) {
-        status->SetInnerRML("Lua  &#xb7;  Ln " + std::to_string(cursor.line)
+        std::string validation;
+        if (buffer && buffer->validationPending) validation = "  &#xb7;  Checking...";
+        else if (buffer && buffer->diagnostics.empty()) validation = "  &#xb7;  No problems";
+        else if (buffer) validation = "  &#xb7;  "
+            + std::to_string(buffer->diagnostics.size())
+            + (buffer->diagnostics.size() == 1 ? " problem" : " problems");
+        status->SetInnerRML("Lua 5.4  &#xb7;  Ln " + std::to_string(cursor.line)
                             + ", Col " + std::to_string(cursor.column)
-                            + "  &#xb7;  Spaces: 4");
+                            + "  &#xb7;  Spaces: 4" + validation);
     }
+}
+
+void ScriptEditorController::refreshDiagnostics() {
+    Rml::Element* list = document_ ? document_->GetElementById("script-diagnostics") : nullptr;
+    const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.active();
+    if (!list) return;
+    if (!buffer || buffer->validationPending || buffer->diagnostics.empty()) {
+        list->SetInnerRML({});
+        list->SetClass("hidden", true);
+        return;
+    }
+    std::string rml;
+    for (const ScriptDiagnostic& diagnostic : buffer->diagnostics) {
+        rml += "<button class=\"script-diagnostic\" data-action=\"goto-script-line\" data-arg=\""
+            + std::to_string(std::max(1, diagnostic.line)) + "\">"
+            + escapeRml(diagnostic.path) + ":" + std::to_string(diagnostic.line)
+            + ":" + std::to_string(diagnostic.column) + "  "
+            + escapeRml(diagnostic.message) + "</button>";
+    }
+    list->SetInnerRML(rml);
+    list->SetClass("hidden", false);
 }
 
 void ScriptEditorController::textChanged(const std::string& text) {
@@ -261,6 +344,40 @@ void ScriptEditorController::goToLine(const std::string& lineText) {
         ++line;
     }
     surface_->setSelection(offset, offset);
+    surface_->focus();
+    cursorChanged();
+}
+
+void ScriptEditorController::goToLocation(int requestedLine, int requestedColumn) {
+    const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.active();
+    if (!buffer || !surface_ || requestedLine <= 0) return;
+    std::size_t offset = 0;
+    int line = 1;
+    while (line < requestedLine && offset < buffer->text.size()) {
+        const std::size_t next = buffer->text.find('\n', offset);
+        if (next == std::string::npos) { offset = buffer->text.size(); break; }
+        offset = next + 1;
+        ++line;
+    }
+    int column = 1;
+    while (column < std::max(1, requestedColumn) && offset < buffer->text.size()
+           && buffer->text[offset] != '\n') {
+        ++offset;
+        while (offset < buffer->text.size()
+               && (static_cast<unsigned char>(buffer->text[offset]) & 0xc0u) == 0x80u) {
+            ++offset;
+        }
+        ++column;
+    }
+    std::size_t highlightEnd = offset;
+    if (highlightEnd < buffer->text.size() && buffer->text[highlightEnd] != '\n') {
+        ++highlightEnd;
+        while (highlightEnd < buffer->text.size()
+               && (static_cast<unsigned char>(buffer->text[highlightEnd]) & 0xc0u) == 0x80u) {
+            ++highlightEnd;
+        }
+    }
+    surface_->setSelection(offset, highlightEnd);
     surface_->focus();
     cursorChanged();
 }

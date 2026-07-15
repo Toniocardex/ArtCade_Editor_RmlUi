@@ -26,6 +26,7 @@ bool ScriptEditorBuffer::edit(std::string nextText, std::size_t nextCursorOffset
     text = std::move(nextText);
     cursorOffset = nextCursorOffset;
     revision = ++revisionHighWater;
+    invalidateDiagnostics();
     return true;
 }
 
@@ -37,6 +38,7 @@ bool ScriptEditorBuffer::undo() {
     text = std::move(previous.text);
     cursorOffset = clampScriptCursorOffset(text, previous.cursorOffset);
     revision = previous.revision;
+    invalidateDiagnostics();
     return true;
 }
 
@@ -49,6 +51,7 @@ bool ScriptEditorBuffer::redo() {
     cursorOffset = clampScriptCursorOffset(text, next.cursorOffset);
     revision = next.revision;
     revisionHighWater = std::max(revisionHighWater, revision);
+    invalidateDiagnostics();
     return true;
 }
 
@@ -57,9 +60,16 @@ void ScriptEditorBuffer::markSaved(std::string persistedText) {
         text = std::move(persistedText);
         cursorOffset = clampScriptCursorOffset(text, cursorOffset);
         revision = ++revisionHighWater;
+        invalidateDiagnostics();
     }
     savedText = text;
     savedRevision = revision;
+}
+
+void ScriptEditorBuffer::invalidateDiagnostics() {
+    diagnostics.clear();
+    validatedRevision.reset();
+    validationPending = true;
 }
 
 ScriptEditorBuffer* ScriptEditorState::find(const AssetId& assetId) {

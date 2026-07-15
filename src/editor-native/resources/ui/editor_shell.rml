@@ -127,7 +127,7 @@
                 <input id="script-toolbar-line" type="text" data-action="commit-script-line"/>
             </div>
             <span class="tool-sep"></span>
-            <button class="tool-btn disabled" title="Available in Script 3">Validate</button>
+            <button id="btn-script-validate" class="tool-btn" data-action="validate-script">Validate</button>
         </div>
     </div>
 
@@ -188,6 +188,7 @@
                         <textarea id="script-editor-textarea" class="script-editor-textarea"
                                   data-action="edit-script-buffer" wrap="off"></textarea>
                     </div>
+                    <div id="script-diagnostics" class="script-diagnostics hidden"></div>
                     <div class="script-editor-status">
                         <span id="script-cursor-status">Lua  &#xb7;  Ln 1, Col 1  &#xb7;  Spaces: 4</span>
                     </div>
