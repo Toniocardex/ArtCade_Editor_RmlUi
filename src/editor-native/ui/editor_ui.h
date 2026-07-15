@@ -8,6 +8,7 @@
 #include "editor-native/ui/hierarchy_panel.h"
 #include "editor-native/ui/inspector_panel.h"
 #include "editor-native/ui/logic_board_editor_controller.h"
+#include "editor-native/ui/script_editor_controller.h"
 #include "editor-native/ui/sprite_animation_editor_controller.h"
 #include "editor-native/ui/tileset_editor_controller.h"
 #include "editor-native/ui/ui_markup.h"
@@ -31,7 +32,7 @@ struct ViewportPointerReadout;
 enum class HierarchyMenuKind { Scene, Entity };
 
 // Target kind of the Assets row menu ("⌄" affordance on an asset row).
-enum class AssetMenuKind { Image, Animation, Tileset, GeneratedSfx, Audio, Font };
+enum class AssetMenuKind { Image, Animation, Tileset, GeneratedSfx, Audio, Font, Script };
 // Parses the kind tag carried by open-asset-menu args ("image", "anim", ...).
 std::optional<AssetMenuKind> parseAssetMenuKind(const std::string& tag);
 
@@ -82,6 +83,13 @@ public:
     // application. Every kind converges on this one handler.
     using ImportAssetRequest = std::function<void(AssetKind)>;
     void setImportHandler(ImportAssetRequest importAsset);
+    void setCreateScriptHandler(ProjectFileRequest createScript);
+    using ScriptAssetRequest = std::function<void(const AssetId&)>;
+    using ScriptCloseRequest = std::function<bool(const AssetId&)>;
+    void setScriptEditorHandlers(ScriptAssetRequest openScript,
+                                 ScriptAssetRequest saveScript,
+                                 ProjectFileRequest saveAllScripts,
+                                 ScriptCloseRequest closeScript);
     // Import an image straight from the Sprite Animation Editor, reusing the same
     // importAsset pipeline. Returns the new image id (nullopt when cancelled or on
     // failure) so the editor can start a new animation on it in one gesture.
@@ -195,6 +203,13 @@ public:
     void handleSfxMacroChange(const std::string& macroId, float value);
     void commitSfxMacroDrag();
 
+    // Static textarea event bridge. Text remains authoritative in
+    // ScriptEditorState; these calls never create EditorCommands.
+    void handleScriptTextChanged(const std::string& value);
+    void handleScriptCursorChanged();
+    void setScriptEditorFocused(bool focused);
+    void handleScriptEditorShortcut(int key, bool control, bool shift);
+
 private:
     class Listener;   // defined in editor_ui.cpp
 
@@ -255,6 +270,7 @@ private:
     SpriteAnimationEditorController     spriteAnimationEditor_;
     TilesetEditorController             tilesetEditor_;
     LogicBoardEditorController          logicBoardEditor_;
+    ScriptEditorController              scriptEditor_;
     HierarchyPanel                      hierarchy_;
     InspectorPanel                      inspector_;
     ConsolePanel                        console_;
@@ -265,6 +281,11 @@ private:
     ProjectFileRequest                  saveProjectRequest_;
     ProjectFileRequest                  saveProjectAsRequest_;
     ImportAssetRequest                  importAssetRequest_;
+    ProjectFileRequest                  createScriptRequest_;
+    ScriptAssetRequest                  openScriptRequest_;
+    ScriptAssetRequest                  saveScriptRequest_;
+    WorkspaceRequest                    saveAllScriptsRequest_;
+    ScriptCloseRequest                  closeScriptRequest_;
     EntityPlacementRequest              addEntityRequest_;
     EntityPlacementRequest              addInstanceRequest_;
     EntityPlacementRequest              createEntityHereRequest_;

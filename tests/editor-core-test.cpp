@@ -12,6 +12,8 @@
 #include "editor-native/app/asset_import.h"
 #include "editor-native/app/project_file.h"
 #include "editor-native/app/project_load.h"
+#include "editor-native/app/project_script_file_service.h"
+#include "editor-native/app/script_asset_workflow.h"
 #include "editor-native/app/unsaved_guard.h"
 #include "editor-native/app/pending_edit.h"
 #include "editor-native/app/inspector_actions.h"
@@ -26,6 +28,7 @@
 #include "editor-native/commands/generated_sfx_commands.h"
 #include "editor-native/commands/generated_sfx_macros.h"
 #include "editor-native/commands/font_asset_commands.h"
+#include "editor-native/commands/script_asset_commands.h"
 #include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/tilemap_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
@@ -3423,7 +3426,7 @@ static void runGeneratedSfxTests() {
     CHECK(serialized.value.find("\"generatorVersion\": 2") != std::string::npos);
     const DeserializeResult decoded = ProjectSerializer::deserialize(serialized.value);
     CHECK(decoded.ok);
-    CHECK(decoded.value.data().formatVersion == 5);
+        CHECK(decoded.value.data().formatVersion == 6);
     CHECK(ProjectValidator::validate(decoded.value).ok);
     CHECK(generatedSfxRecipesEqual(
         decoded.value.findGeneratedSfx("sfx-jump")->recipe, recipe));
@@ -3632,6 +3635,172 @@ static void runGeneratedSfxMacrosTests() {
     }
 }
 
+static void runScriptAssetAndFileServiceTests() {
+    const std::filesystem::path root = testTempDir() / "script-project";
+    std::error_code ec;
+    std::filesystem::create_directories(root, ec);
+    CHECK(!ec);
+    ProjectScriptFileService files{root};
+    CHECK(!ProjectScriptFileService{"relative-project"}
+        .readScript("scripts/player.lua").ok);
+
+    // File service: one confined UTF-8/LF/atomic boundary.
+    const std::string withBomAndWindowsNewlines =
+        std::string("\xef\xbb\xbf") + "return {\r\n}\r";
+    const auto written = files.writeScriptAtomically(
+        "scripts/player.lua", withBomAndWindowsNewlines);
+    CHECK(written.ok);
+    const auto loaded = files.readScript("scripts/player.lua");
+    CHECK(loaded.ok);
+    CHECK(loaded.value == "return {\n}\n");
+    const auto firstFingerprint = files.fingerprint("scripts/player.lua");
+    CHECK(firstFingerprint.ok);
+    CHECK(firstFingerprint.value.size == loaded.value.size());
+    CHECK(!files.writeScriptAtomically("../escape.lua", "return {}\n").ok);
+    CHECK(!files.writeScriptAtomically("scripts/not-lua.txt", "return {}\n").ok);
+    CHECK(!files.readImportSource("relative.lua").ok);
+
+    const std::filesystem::path scriptOutside = root.parent_path() / "script-outside";
+    std::filesystem::create_directories(scriptOutside, ec);
+    CHECK(!ec);
+    writeTextFile(scriptOutside / "secret.lua", "return {}\n");
+    const std::filesystem::path scriptEscapeLink = root / "scripts" / "external-link";
+    ec.clear();
+    std::filesystem::create_directory_symlink(scriptOutside, scriptEscapeLink, ec);
+    if (!ec) {
+        CHECK(!files.readScript("scripts/external-link/secret.lua").ok);
+        CHECK(!files.writeScriptAtomically(
+            "scripts/external-link/overwrite.lua", "return {}\n").ok);
+    } else {
+        CHECK(!std::filesystem::exists(scriptEscapeLink));
+    }
+
+    // A rejected write never replaces the previous valid file.
+    std::string invalidUtf8 = "return ";
+    invalidUtf8.push_back(static_cast<char>(0xff));
+    CHECK(!files.writeScriptAtomically("scripts/player.lua", invalidUtf8).ok);
+    CHECK(files.readScript("scripts/player.lua").value == "return {\n}\n");
+    CHECK(!files.writeScriptAtomically(
+        "scripts/player.lua", std::string("return\0{}", 9)).ok);
+    CHECK(files.readScript("scripts/player.lua").value == "return {\n}\n");
+
+    // Metadata Command authority and exact history.
+    EditorCoordinator coordinator{makeDoc()};
+    CHECK(coordinator.execute(AddScriptAssetCommand{
+        "player", "Player", "scripts/player.lua"}).ok);
+    CHECK(coordinator.document().hasScriptAsset("player"));
+    CHECK(!coordinator.execute(AddScriptAssetCommand{
+        "player", "Duplicate", "scripts/other.lua"}).ok);
+    CHECK(!coordinator.execute(AddScriptAssetCommand{
+        "other", "Other", "SCRIPTS/PLAYER.LUA"}).ok);
+    CHECK(!coordinator.execute(AddScriptAssetCommand{
+        "bad", "Bad", "../bad.lua"}).ok);
+    CHECK(coordinator.execute(RenameScriptAssetCommand{"player", "Player Logic"}).ok);
+    CHECK(coordinator.document().findScriptAsset("player")->name == "Player Logic");
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().findScriptAsset("player")->name == "Player");
+    CHECK(coordinator.redo().ok);
+    CHECK(coordinator.document().findScriptAsset("player")->name == "Player Logic");
+
+    const auto serialized = ProjectSerializer::serialize(coordinator.document());
+    CHECK(serialized.ok);
+    CHECK(serialized.value.find("\"formatVersion\": 6") != std::string::npos);
+    CHECK(serialized.value.find("\"scriptAssets\"") != std::string::npos);
+    const auto decoded = ProjectSerializer::deserialize(serialized.value);
+    CHECK(decoded.ok);
+    CHECK(ProjectValidator::validate(ProjectDocument{decoded.value.data()}).ok);
+    CHECK(decoded.value.findScriptAsset("player") != nullptr);
+    CHECK(decoded.value.findScriptAsset("player")->sourcePath == "scripts/player.lua");
+
+    ProjectDoc duplicatePath = makeDoc();
+    duplicatePath.scriptAssets = {
+        ScriptAssetDef{"one", "One", "scripts/a.lua"},
+        ScriptAssetDef{"two", "Two", "SCRIPTS/A.LUA"},
+    };
+    CHECK(!ProjectValidator::validate(ProjectDocument{duplicatePath}).ok);
+    duplicatePath.scriptAssets = {ScriptAssetDef{"one", "One", "scripts/a.txt"}};
+    CHECK(!ProjectValidator::validate(ProjectDocument{duplicatePath}).ok);
+
+    // Create/import is file first + one metadata Command, with normalized text.
+    EditorCoordinator workflows{makeDoc()};
+    const auto created = createScriptAsset(workflows, root);
+    CHECK(created.ok);
+    CHECK(workflows.document().hasScriptAsset(created.assetId));
+    const ScriptAssetDef* createdAsset = workflows.document().findScriptAsset(created.assetId);
+    CHECK(createdAsset != nullptr);
+    CHECK(createdAsset && files.readScript(createdAsset->sourcePath).ok);
+    const std::string createdSourcePath = createdAsset ? createdAsset->sourcePath : std::string{};
+    CHECK(workflows.undo().ok);
+    CHECK(!workflows.document().hasScriptAsset(created.assetId));
+    CHECK(!createdSourcePath.empty() && std::filesystem::exists(root / createdSourcePath));
+    CHECK(workflows.redo().ok);
+
+    const std::filesystem::path importSource = root / "external.lua";
+    writeTextFile(importSource, withBomAndWindowsNewlines);
+    const auto imported = importScriptAsset(workflows, root, importSource);
+    CHECK(imported.ok);
+    const ScriptAssetDef* importedAsset = workflows.document().findScriptAsset(imported.assetId);
+    CHECK(importedAsset != nullptr);
+    CHECK(importedAsset && files.readScript(importedAsset->sourcePath).value == "return {\n}\n");
+
+    // Script workspace is a separate, non-document authority with local
+    // history. Play temporarily reveals Scene and restores the exact workspace.
+    ProjectDoc workspaceDoc = makeDoc();
+    workspaceDoc.scriptAssets.push_back(
+        ScriptAssetDef{"player", "Player.lua", "scripts/player.lua"});
+    EditorCoordinator workspace{std::move(workspaceDoc)};
+    const std::uint64_t documentRevision = workspace.document().revision();
+    CHECK(workspace.apply(OpenScriptBufferIntent{
+        "player", "return {\n}\n"}).ok);
+    CHECK(workspace.state().centerWorkspaceMode == CenterWorkspaceMode::Script);
+    CHECK(workspace.state().scriptEditor.activeAssetId == std::optional<AssetId>{"player"});
+    CHECK(!workspace.state().scriptEditor.anyDirty());
+    workspace.consumeInvalidations();
+    const EditorOperationResult textEdit = workspace.apply(EditScriptBufferIntent{
+        "player", "return { on_start = function(ctx) end }\n", 16});
+    CHECK(textEdit.ok);
+    CHECK(textEdit.invalidation == EditorInvalidation::Toolbar);
+    CHECK(!has(textEdit.invalidation, EditorInvalidation::ScriptEditor));
+    CHECK(workspace.state().scriptEditor.active()->dirty());
+    CHECK(workspace.document().revision() == documentRevision);
+    CHECK(!workspace.document().isDirty());
+    CHECK(workspace.apply(UndoScriptBufferIntent{}).ok);
+    CHECK(workspace.state().scriptEditor.active()->text == "return {\n}\n");
+    CHECK(!workspace.state().scriptEditor.active()->dirty());
+    CHECK(workspace.apply(RedoScriptBufferIntent{}).ok);
+    CHECK(workspace.state().scriptEditor.active()->dirty());
+    CHECK(workspace.apply(MarkScriptBufferSavedIntent{
+        "player", workspace.state().scriptEditor.active()->text}).ok);
+    CHECK(!workspace.state().scriptEditor.active()->dirty());
+    CHECK(workspace.apply(SetScriptCursorIntent{"player", 9, 36.f}).ok);
+
+    CHECK(workspace.playProject().ok);
+    CHECK(workspace.state().centerWorkspaceMode == CenterWorkspaceMode::Scene);
+    CHECK(workspace.stopPlaying().ok);
+    CHECK(workspace.state().centerWorkspaceMode == CenterWorkspaceMode::Script);
+    CHECK(workspace.state().scriptEditor.activeAssetId == std::optional<AssetId>{"player"});
+    CHECK(workspace.state().scriptEditor.active()->cursorOffset == 9);
+    CHECK(workspace.state().scriptEditor.active()->scrollTop == 36.f);
+
+    const std::string utf8CursorText = std::string("\xc3\xa0") + "b\nc";
+    CHECK(clampScriptCursorOffset(utf8CursorText, 1) == 0);
+    const ScriptCursorPosition utf8Cursor = scriptCursorPosition(utf8CursorText, 3);
+    CHECK(utf8Cursor.line == 1);
+    CHECK(utf8Cursor.column == 3);
+
+    // Explicit navigation during Play disarms the automatic return.
+    CHECK(workspace.playProject().ok);
+    CHECK(workspace.apply(SwitchCenterWorkspaceIntent{CenterWorkspaceMode::Scene}).ok);
+    CHECK(workspace.stopPlaying().ok);
+    CHECK(workspace.state().centerWorkspaceMode == CenterWorkspaceMode::Scene);
+
+    // Metadata removal reconciles dangling workspace buffers in the same
+    // command path (the UI guard runs before this for dirty buffers).
+    CHECK(workspace.execute(RemoveScriptAssetCommand{"player"}).ok);
+    CHECK(workspace.state().scriptEditor.buffers.empty());
+    CHECK(!workspace.state().scriptEditor.activeAssetId.has_value());
+}
+
 int main() {
     // -- §24.1  A command modifies a single authority --------------------------
     {
@@ -3743,7 +3912,9 @@ int main() {
         CHECK(r.change.kind == DomainChangeKind::ProjectReplaced);
         CHECK(r.invalidation == (EditorInvalidation::Hierarchy | EditorInvalidation::Inspector
                                  | EditorInvalidation::Viewport | EditorInvalidation::Assets
-                                 | EditorInvalidation::Toolbar | EditorInvalidation::Project));
+                                 | EditorInvalidation::Toolbar | EditorInvalidation::Project
+                                 | EditorInvalidation::ScriptEditor
+                                 | EditorInvalidation::Layout));
         CHECK(c.document().data().projectName == "replacement");
         CHECK(c.state().activeSceneId == "scene-replacement");
         CHECK(c.selection().primaryEntity == INVALID_ENTITY);
@@ -4031,7 +4202,7 @@ int main() {
         CHECK(decoded.ok);
         DeserializeResult migrated = ProjectMigration::migrate(std::move(decoded.value));
         CHECK(migrated.ok);
-        CHECK(migrated.value.data().formatVersion == 5);
+        CHECK(migrated.value.data().formatVersion == 6);
 
         const EntityDef& type = migrated.value.data().objectTypes.at("Hero");
         CHECK(type.spriteRenderer && type.spriteRenderer->imageAssetId == "blue");
@@ -9537,6 +9708,7 @@ int main() {
     runTilemapPlaySessionTests();
     runGeneratedSfxTests();
     runGeneratedSfxMacrosTests();
+    runScriptAssetAndFileServiceTests();
 
     std::cout << "editor-core-test: " << g_passed << " passed, "
               << g_failed << " failed\n";

@@ -47,6 +47,9 @@ class RemoveGeneratedSfxCommand;
 class RegisterGeneratedSfxOutputCommand;
 class AddFontAssetCommand;
 class RemoveFontAssetCommand;
+class AddScriptAssetCommand;
+class RemoveScriptAssetCommand;
+class RenameScriptAssetCommand;
 class SetBoxColliderOffsetCommand;
 class SetBoxColliderSizeCommand;
 class SetBoxColliderModeCommand;
@@ -136,6 +139,8 @@ public:
     const artcade::sfx::GeneratedSfxDef* findGeneratedSfx(const std::string& id) const;
     bool                     hasFontAsset(const AssetId& id) const;
     const FontAssetDef*      findFontAsset(const AssetId& id) const;
+    bool                     hasScriptAsset(const AssetId& id) const;
+    const ScriptAssetDef*    findScriptAsset(const AssetId& id) const;
     bool                     hasTilesetAsset(const AssetId& id) const;
     const TilesetAsset*      findTilesetAsset(const AssetId& id) const;
     /** @p instance's effective layer: its layerId if it names a real layer of
@@ -215,6 +220,9 @@ private:
     friend class RegisterGeneratedSfxOutputCommand;
     friend class AddFontAssetCommand;
     friend class RemoveFontAssetCommand;
+    friend class AddScriptAssetCommand;
+    friend class RemoveScriptAssetCommand;
+    friend class RenameScriptAssetCommand;
     friend class RenameSceneCommand;
     friend class SetSceneSizeCommand;
     friend class SetSceneBackgroundCommand;
@@ -354,6 +362,9 @@ private:
     bool removeAudioAsset(const AssetId& assetId);
     bool addFontAsset(FontAssetDef asset);
     bool removeFontAsset(const AssetId& assetId);
+    bool addScriptAsset(ScriptAssetDef asset);
+    bool removeScriptAsset(const AssetId& assetId);
+    bool setScriptAssetName(const AssetId& assetId, std::string name);
     // Tileset asset catalog (Slice 1: data model only, no TilemapComponent
     // references it yet). Add rejects a duplicate assetId. setTilesetSlicing
     // takes both the new slicing config and the new tiles together, since a

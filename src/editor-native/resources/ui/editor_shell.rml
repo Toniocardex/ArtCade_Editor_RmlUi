@@ -6,6 +6,7 @@
     <link type="text/rcss" href="panels.rcss"/>
     <link type="text/rcss" href="controls.rcss"/>
     <link type="text/rcss" href="logic_board.rcss"/>
+    <link type="text/rcss" href="script_editor.rcss"/>
     <link type="text/rcss" href="sfx_editor.rcss"/>
 </head>
 <body>
@@ -110,6 +111,24 @@
                 <button id="btn-logic-validate" class="tool-btn" data-action="validate-logic-board">Validate</button>
             </div>
         </div>
+        <div id="script-context-tools" class="contextual-tools hidden">
+            <div class="tool-group">
+                <button class="tool-btn" data-action="create-script">New Script</button>
+                <button id="btn-script-save" class="tool-btn" data-action="save-script">Save</button>
+                <button id="btn-script-save-all" class="tool-btn" data-action="save-all-scripts">Save All</button>
+            </div>
+            <span class="tool-sep"></span>
+            <div class="script-toolbar-field">
+                <span>Find</span>
+                <input id="script-toolbar-search" type="text" data-action="commit-script-search"/>
+            </div>
+            <div class="script-toolbar-field script-goto-field">
+                <span>Line</span>
+                <input id="script-toolbar-line" type="text" data-action="commit-script-line"/>
+            </div>
+            <span class="tool-sep"></span>
+            <button class="tool-btn disabled" title="Available in Script 3">Validate</button>
+        </div>
     </div>
 
     <div id="workspace">
@@ -144,6 +163,7 @@
             <div id="center-modebar">
                 <button id="center-tab-scene" class="center-mode-tab active" data-action="open-scene-workspace">Scene</button>
                 <button id="center-tab-logic" class="center-mode-tab" data-action="open-logic-workspace">Logic</button>
+                <button id="center-tab-script" class="center-mode-tab" data-action="open-script-workspace">Script</button>
             </div>
             <div id="center-content">
                 <div id="viewport">
@@ -156,6 +176,22 @@
                     </div>
                 </div>
                 <div id="logic-board-panel" class="logic-board-panel hidden"></div>
+                <div id="script-editor-panel" class="script-editor-panel hidden">
+                    <div id="script-editor-tabs" class="script-editor-tabs"></div>
+                    <div id="script-editor-empty" class="script-editor-empty">
+                        <div class="script-editor-empty-title">No script open</div>
+                        <div>Double-click a script in Assets or create a new Lua script.</div>
+                        <button class="panel-btn" data-action="create-script">New Script</button>
+                    </div>
+                    <div id="script-editor-body" class="script-editor-body hidden">
+                        <div id="script-line-numbers" class="script-line-numbers">1</div>
+                        <textarea id="script-editor-textarea" class="script-editor-textarea"
+                                  data-action="edit-script-buffer" wrap="off"></textarea>
+                    </div>
+                    <div class="script-editor-status">
+                        <span id="script-cursor-status">Lua  &#xb7;  Ln 1, Col 1  &#xb7;  Spaces: 4</span>
+                    </div>
+                </div>
             </div>
         </div>
 

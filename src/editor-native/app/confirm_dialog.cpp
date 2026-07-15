@@ -16,6 +16,32 @@ namespace ArtCade::EditorNative {
 
 #if defined(_WIN32)
 
+namespace {
+std::wstring widenAsciiUtf8(const std::string& text) {
+    if (text.empty()) return {};
+    const int count = MultiByteToWideChar(CP_UTF8, 0, text.data(),
+                                           static_cast<int>(text.size()), nullptr, 0);
+    if (count <= 0) return {};
+    std::wstring out(static_cast<std::size_t>(count), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
+                        out.data(), count);
+    return out;
+}
+
+UnsavedChoice showUnsavedPrompt(const std::wstring& detail) {
+    const std::wstring message = L"There are unsaved changes:\n\n" + detail
+        + L"\n\nSave them before continuing?";
+    const int result = MessageBoxW(
+        GetActiveWindow(), message.c_str(), L"ArtCade Studio",
+        MB_YESNOCANCEL | MB_ICONWARNING | MB_DEFBUTTON1);
+    switch (result) {
+        case IDYES: return UnsavedChoice::Save;
+        case IDNO:  return UnsavedChoice::Discard;
+        default:    return UnsavedChoice::Cancel;
+    }
+}
+} // namespace
+
 UnsavedChoice confirmUnsavedChanges() {
     // Yes = Save, No = Discard, Cancel = abort — the standard Windows convention
     // for an unsaved-changes prompt.
@@ -29,6 +55,10 @@ UnsavedChoice confirmUnsavedChanges() {
         case IDNO:  return UnsavedChoice::Discard;
         default:    return UnsavedChoice::Cancel;   // IDCANCEL / dialog dismissed
     }
+}
+
+UnsavedChoice confirmUnsavedChanges(const std::string& detail) {
+    return showUnsavedPrompt(widenAsciiUtf8(detail));
 }
 
 UnsavedChoice confirmTilesetUnappliedChanges() {
@@ -61,6 +91,7 @@ bool confirmTilesetResliceImpact(int removedReferencedTiles, int orphanedCells,
 #else  // non-Windows: abort is the safe default (never silently lose changes).
 
 UnsavedChoice confirmUnsavedChanges() { return UnsavedChoice::Cancel; }
+UnsavedChoice confirmUnsavedChanges(const std::string&) { return UnsavedChoice::Cancel; }
 
 UnsavedChoice confirmTilesetUnappliedChanges() { return UnsavedChoice::Cancel; }
 

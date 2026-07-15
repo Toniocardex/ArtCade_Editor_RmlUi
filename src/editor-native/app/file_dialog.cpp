@@ -37,6 +37,10 @@ constexpr wchar_t kFontFilter[] =
     L"Fonts (*.ttf;*.otf)\0*.ttf;*.otf\0"
     L"All Files (*.*)\0*.*\0";
 
+constexpr wchar_t kScriptFilter[] =
+    L"Lua Scripts (*.lua)\0*.lua\0"
+    L"All Files (*.*)\0*.*\0";
+
 std::optional<std::filesystem::path> openImportDialog(const wchar_t* filter,
                                                       const wchar_t* defExt) {
     wchar_t buffer[MAX_PATH] = {0};
@@ -94,6 +98,9 @@ std::optional<std::filesystem::path> openAudioFileDialog() {
 std::optional<std::filesystem::path> openFontFileDialog() {
     return openImportDialog(kFontFilter, L"ttf");
 }
+std::optional<std::filesystem::path> openScriptFileDialog() {
+    return openImportDialog(kScriptFilter, L"lua");
+}
 
 #else  // non-Windows: the native editor is Windows-first; no picker yet.
 
@@ -103,6 +110,7 @@ std::optional<std::filesystem::path> saveProjectFileDialog(
 std::optional<std::filesystem::path> openImageFileDialog() { return std::nullopt; }
 std::optional<std::filesystem::path> openAudioFileDialog() { return std::nullopt; }
 std::optional<std::filesystem::path> openFontFileDialog() { return std::nullopt; }
+std::optional<std::filesystem::path> openScriptFileDialog() { return std::nullopt; }
 
 #endif
 

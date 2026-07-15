@@ -2,12 +2,15 @@
 
 #include "editor-native/app/unsaved_guard.h"
 
+#include <string>
+
 namespace ArtCade::EditorNative {
 
 // Modal native prompt shown before a destructive action when the project has
 // unsaved changes. Returns Save / Discard / Cancel. Platform glue only — no
 // project, coordinator or renderer knowledge.
 UnsavedChoice confirmUnsavedChanges();
+UnsavedChoice confirmUnsavedChanges(const std::string& detail);
 
 // Closing the Tileset Editor with an unapplied slicing config. Same
 // Save/Discard/Cancel shape (Save = apply the pending slicing); the decision

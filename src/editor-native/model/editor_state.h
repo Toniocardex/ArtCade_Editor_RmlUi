@@ -1,5 +1,7 @@
 #pragma once
 
+#include "editor-native/model/script_editor_state.h"
+
 #include "core/types.h"
 #include "editor-native/model/selection_state.h"
 #include "editor-native/model/tilemap_cell_access.h"
@@ -82,11 +84,10 @@ struct TilesetEditorState {
     std::optional<std::string> selectedTileId;
 };
 
-enum class CenterWorkspaceMode { Scene, Logic };
+enum class CenterWorkspaceMode { Scene, Logic, Script };
 enum class LogicBoardTab { Rules, GeneratedLua };
 
 struct LogicBoardEditorState {
-    CenterWorkspaceMode mode = CenterWorkspaceMode::Scene;
     std::optional<ObjectTypeId> objectTypeId;
     LogicBoardTab tab = LogicBoardTab::Rules;
     std::string search;
@@ -209,11 +210,13 @@ struct EditorState {
     SceneId activeSceneId;
     SelectionState selection;
     EditorTool activeTool = EditorTool::Select;
+    CenterWorkspaceMode centerWorkspaceMode = CenterWorkspaceMode::Scene;
     std::unordered_map<SceneId, EditorSceneViewState> sceneViews;
     SpriteAnimationEditorState spriteAnimationEditor;
     TilesetEditorState tilesetEditor;
     TilemapEditorState tilemapEditor;
     LogicBoardEditorState logicBoardEditor;
+    ScriptEditorState scriptEditor;
 };
 
 inline float clampZoom(float v) {

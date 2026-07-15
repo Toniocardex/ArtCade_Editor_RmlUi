@@ -3,9 +3,29 @@
 #include "editor-native/model/path_confinement.h"
 
 #include <algorithm>
+#include <cctype>
 #include <utility>
 
 namespace ArtCade::EditorNative {
+
+namespace {
+
+std::string normalizedScriptPath(const std::string& sourcePath) {
+    std::string normalized = std::filesystem::u8path(sourcePath)
+        .lexically_normal().generic_u8string();
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return normalized;
+}
+
+bool isLuaSourcePath(const std::string& sourcePath) {
+    std::string extension = std::filesystem::u8path(sourcePath).extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return extension == ".lua";
+}
+
+} // namespace
 
 ProjectDocument::ProjectDocument(ProjectDoc doc)
     : doc_(std::move(doc)) {}
@@ -810,6 +830,53 @@ bool ProjectDocument::removeFontAsset(const AssetId& assetId) {
             markDirty();
             return true;
         }
+    }
+    return false;
+}
+
+bool ProjectDocument::hasScriptAsset(const AssetId& id) const {
+    return findScriptAsset(id) != nullptr;
+}
+
+const ScriptAssetDef* ProjectDocument::findScriptAsset(const AssetId& id) const {
+    for (const ScriptAssetDef& asset : doc_.scriptAssets) {
+        if (asset.assetId == id) return &asset;
+    }
+    return nullptr;
+}
+
+bool ProjectDocument::addScriptAsset(ScriptAssetDef asset) {
+    if (asset.assetId.empty() || asset.name.empty() || hasScriptAsset(asset.assetId)
+        || !isSafeProjectRelativePath(std::filesystem::u8path(asset.sourcePath))
+        || !isLuaSourcePath(asset.sourcePath)) return false;
+    const std::string candidatePath = normalizedScriptPath(asset.sourcePath);
+    if (std::any_of(doc_.scriptAssets.begin(), doc_.scriptAssets.end(),
+            [&](const ScriptAssetDef& current) {
+                return normalizedScriptPath(current.sourcePath) == candidatePath;
+            })) return false;
+    doc_.scriptAssets.push_back(std::move(asset));
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::removeScriptAsset(const AssetId& assetId) {
+    for (auto it = doc_.scriptAssets.begin(); it != doc_.scriptAssets.end(); ++it) {
+        if (it->assetId != assetId) continue;
+        doc_.scriptAssets.erase(it);
+        markDirty();
+        return true;
+    }
+    return false;
+}
+
+bool ProjectDocument::setScriptAssetName(const AssetId& assetId, std::string name) {
+    if (name.empty()) return false;
+    for (ScriptAssetDef& asset : doc_.scriptAssets) {
+        if (asset.assetId != assetId) continue;
+        if (asset.name == name) return false;
+        asset.name = std::move(name);
+        markDirty();
+        return true;
     }
     return false;
 }

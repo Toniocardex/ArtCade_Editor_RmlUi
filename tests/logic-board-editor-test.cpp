@@ -70,7 +70,7 @@ static void testCommandsAndPersistence() {
 
     const auto serialized = ProjectSerializer::serialize(coordinator.document());
     CHECK(serialized.ok);
-    CHECK(serialized.value.find("\"formatVersion\": 5") != std::string::npos);
+    CHECK(serialized.value.find("\"formatVersion\": 6") != std::string::npos);
     const auto loaded = ProjectSerializer::deserialize(serialized.value);
     CHECK(loaded.ok);
     CHECK(loaded.value.data().objectTypes.at("Hero").logicBoard.has_value());
@@ -90,7 +90,7 @@ static void testCommandsAndPersistence() {
         while (end < v2.size() && (v2[end] == '\r' || v2[end] == '\n')) ++end;
         v2.erase(boardAt, end - boardAt);
     }
-    const std::string currentVersion = "\"formatVersion\": 5";
+    const std::string currentVersion = "\"formatVersion\": 6";
     const std::size_t version = v2.find(currentVersion);
     if (version != std::string::npos) {
         v2.replace(version, currentVersion.size(), "\"formatVersion\": 2");
@@ -99,7 +99,7 @@ static void testCommandsAndPersistence() {
     CHECK(migratedRaw.ok);
     auto migrated = ProjectMigration::migrate(std::move(migratedRaw.value));
     CHECK(migrated.ok);
-    CHECK(migrated.value.data().formatVersion == 5);
+    CHECK(migrated.value.data().formatVersion == 6);
     CHECK(!migrated.value.data().objectTypes.at("Hero").logicBoard.has_value());
 
     std::string malformed = serialized.value;
@@ -764,7 +764,7 @@ static void testWorkspaceTargetAndSwitchPolicy() {
 
     auto opened = coordinator.apply(OpenLogicBoardIntent{"Hero"});
     CHECK(opened.ok);
-    CHECK(coordinator.state().logicBoardEditor.mode == CenterWorkspaceMode::Logic);
+    CHECK(coordinator.state().centerWorkspaceMode == CenterWorkspaceMode::Logic);
     CHECK(coordinator.state().logicBoardEditor.objectTypeId == std::optional<ObjectTypeId>{"Hero"});
     CHECK(has(opened.invalidation, EditorInvalidation::Layout));
     CHECK(has(opened.invalidation, EditorInvalidation::Toolbar));
@@ -808,10 +808,10 @@ static void testPlayNavigationFromLogicBoard() {
     // transient coordinator state for Stop.
     CHECK(coordinator.playCurrentScene().ok);
     CHECK(coordinator.isPlaying());
-    CHECK(coordinator.state().logicBoardEditor.mode == CenterWorkspaceMode::Scene);
+    CHECK(coordinator.state().centerWorkspaceMode == CenterWorkspaceMode::Scene);
     CHECK(coordinator.stopPlaying().ok);
     CHECK(!coordinator.isPlaying());
-    CHECK(coordinator.state().logicBoardEditor.mode == CenterWorkspaceMode::Logic);
+    CHECK(coordinator.state().centerWorkspaceMode == CenterWorkspaceMode::Logic);
     CHECK(coordinator.state().logicBoardEditor.objectTypeId == std::optional<ObjectTypeId>{"Hero"});
     CHECK(coordinator.state().logicBoardEditor.tab == LogicBoardTab::GeneratedLua);
     CHECK(coordinator.state().logicBoardEditor.search == "hero rule");
@@ -821,7 +821,7 @@ static void testPlayNavigationFromLogicBoard() {
     CHECK(coordinator.playCurrentScene().ok);
     CHECK(coordinator.apply(SwitchCenterWorkspaceIntent{CenterWorkspaceMode::Scene}).ok);
     CHECK(coordinator.stopPlaying().ok);
-    CHECK(coordinator.state().logicBoardEditor.mode == CenterWorkspaceMode::Scene);
+    CHECK(coordinator.state().centerWorkspaceMode == CenterWorkspaceMode::Scene);
 
     ProjectDoc invalid = makeProjectData();
     LogicBoardDef invalidBoard;
@@ -834,7 +834,7 @@ static void testPlayNavigationFromLogicBoard() {
     CHECK(rejected.apply(OpenLogicBoardIntent{"Hero"}).ok);
     CHECK(!rejected.playCurrentScene().ok);
     CHECK(!rejected.isPlaying());
-    CHECK(rejected.state().logicBoardEditor.mode == CenterWorkspaceMode::Logic);
+    CHECK(rejected.state().centerWorkspaceMode == CenterWorkspaceMode::Logic);
 }
 
 int main() {

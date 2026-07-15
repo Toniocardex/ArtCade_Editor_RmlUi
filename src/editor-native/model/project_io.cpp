@@ -26,9 +26,9 @@ namespace ArtCade::EditorNative {
 
 namespace {
 
-// v5: persistent authoring-only Generated SFX recipes. Runtime consumers still
-// see only the linked AudioAssetDef.
-constexpr int kCurrentSchemaVersion = 5;
+// v6: external manual Lua source catalog. Project JSON stores metadata only;
+// source text remains in project-relative .lua files.
+constexpr int kCurrentSchemaVersion = 6;
 
 class JsonReadError final : public std::runtime_error {
 public:
@@ -1154,6 +1154,20 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
         }
     }
 
+    if (const nlohmann::json* scriptAssets = optionalArray(
+            root, "scriptAssets", "scriptAssets")) {
+        for (const auto& item : *scriptAssets) {
+            requireObject(item, "scriptAssets[]");
+            std::string assetId = readString(item, "assetId", "asset_id");
+            if (assetId.empty()) assetId = readString(item, "id", nullptr);
+            ScriptAssetDef asset;
+            asset.assetId = assetId;
+            asset.name = readString(item, "name", nullptr, assetId);
+            asset.sourcePath = readAssetPath(item);
+            doc.scriptAssets.push_back(std::move(asset));
+        }
+    }
+
     return DeserializeResult::success(ProjectDocument{std::move(doc)});
     } catch (const JsonReadError& error) {
         return DeserializeResult::failure(error.what());
@@ -1265,6 +1279,15 @@ SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
         });
     }
 
+    nlohmann::json scriptAssets = nlohmann::json::array();
+    for (const ScriptAssetDef& asset : doc.scriptAssets) {
+        scriptAssets.push_back(nlohmann::json{
+            {"assetId", asset.assetId},
+            {"name", asset.name.empty() ? asset.assetId : asset.name},
+            {"sourcePath", asset.sourcePath},
+        });
+    }
+
     nlohmann::json root{
         {"schemaVersion", kCurrentSchemaVersion},
         {"formatVersion", kCurrentSchemaVersion},
@@ -1281,6 +1304,7 @@ SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
         {"audioAssets", std::move(audioAssets)},
         {"generatedSfx", std::move(generatedSfx)},
         {"fontAssets", std::move(fontAssets)},
+        {"scriptAssets", std::move(scriptAssets)},
     };
     return SerializeResult::success(root.dump(2));
 }
@@ -1489,6 +1513,33 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
         }
         if (asset.defaultPixelSize <= 0) {
             return DeserializeResult::failure("Font default pixel size must be positive");
+        }
+    }
+
+    std::unordered_set<AssetId> scriptAssetIds;
+    std::unordered_set<std::string> scriptSourcePaths;
+    for (const ScriptAssetDef& asset : data.scriptAssets) {
+        if (asset.assetId.empty() || asset.name.empty()) {
+            return DeserializeResult::failure("Script asset id and name cannot be empty");
+        }
+        if (!scriptAssetIds.insert(asset.assetId).second) {
+            return DeserializeResult::failure("Duplicate script asset id");
+        }
+        if (!isPortableAssetPath(asset.sourcePath)) {
+            return DeserializeResult::failure("Script asset path must be relative");
+        }
+        std::string extension = std::filesystem::u8path(asset.sourcePath).extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (extension != ".lua") {
+            return DeserializeResult::failure("Script asset source must be a .lua file");
+        }
+        std::string normalizedPath = std::filesystem::u8path(asset.sourcePath)
+            .lexically_normal().generic_u8string();
+        std::transform(normalizedPath.begin(), normalizedPath.end(), normalizedPath.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (!scriptSourcePaths.insert(std::move(normalizedPath)).second) {
+            return DeserializeResult::failure("Duplicate script asset source path");
         }
     }
 

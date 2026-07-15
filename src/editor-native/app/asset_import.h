@@ -16,7 +16,7 @@ class EditorCoordinator;
 // authoring mutation still goes through a typed command (AddImageAssetCommand,
 // and later AddAudioAssetCommand / AddFontAssetCommand): the single entry point
 // is about the operation, not about erasing the per-kind domain.
-enum class AssetKind { Image, Audio, Font };
+enum class AssetKind { Image, Audio, Font, Script };
 
 struct ImportAssetRequest {
     AssetKind             kind = AssetKind::Image;

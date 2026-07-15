@@ -76,13 +76,14 @@ EditorOperationResult EditorCoordinator::apply(const SwitchCenterWorkspaceIntent
     // explicit click on the already-visible Scene tab is still respected.
     if (isPlaying() && playNavigation_ && playNavigation_->returnToOriginArmed)
         playNavigation_->returnToOriginArmed = false;
-    LogicBoardEditorState& logicState = state_.logicBoardEditor;
-    if (logicState.mode == intent.mode) return EditorOperationResult::success(EditorInvalidation::None);
+    if (state_.centerWorkspaceMode == intent.mode)
+        return EditorOperationResult::success(EditorInvalidation::None);
     // A scene gesture cannot survive after its surface has been hidden. This
     // clears only workspace preview state; no Command, revision or dirty state.
     cancelPendingTilemapGesture();
-    logicState.mode = intent.mode;
+    state_.centerWorkspaceMode = intent.mode;
     if (intent.mode == CenterWorkspaceMode::Logic) {
+        LogicBoardEditorState& logicState = state_.logicBoardEditor;
         // Preserve the explicitly opened board. A deterministic first type is
         // only a bootstrap for entering Logic before any board was ever opened;
         // the current scene selection is deliberately not consulted here.
@@ -97,6 +98,7 @@ EditorOperationResult EditorCoordinator::apply(const SwitchCenterWorkspaceIntent
     }
 
     const EditorInvalidation inv = EditorInvalidation::LogicBoard
+                                 | EditorInvalidation::ScriptEditor
                                  | EditorInvalidation::Viewport
                                  | EditorInvalidation::Toolbar
                                  | EditorInvalidation::Layout;
@@ -110,13 +112,13 @@ EditorOperationResult EditorCoordinator::apply(const OpenLogicBoardIntent& inten
     if (isPlaying() && playNavigation_ && playNavigation_->returnToOriginArmed)
         playNavigation_->returnToOriginArmed = false;
     LogicBoardEditorState& logicState = state_.logicBoardEditor;
-    if (logicState.mode == CenterWorkspaceMode::Logic
+    if (state_.centerWorkspaceMode == CenterWorkspaceMode::Logic
         && logicState.objectTypeId == intent.objectTypeId)
         return EditorOperationResult::success(EditorInvalidation::None);
-    const bool enteringLogic = logicState.mode != CenterWorkspaceMode::Logic;
+    const bool enteringLogic = state_.centerWorkspaceMode != CenterWorkspaceMode::Logic;
     cancelPendingTilemapGesture();
     logicState.objectTypeId = intent.objectTypeId;
-    logicState.mode = CenterWorkspaceMode::Logic;
+    state_.centerWorkspaceMode = CenterWorkspaceMode::Logic;
     EditorInvalidation inv = EditorInvalidation::LogicBoard | EditorInvalidation::Toolbar;
     if (enteringLogic) inv |= EditorInvalidation::Viewport | EditorInvalidation::Layout;
     accumulate(inv);
@@ -138,6 +140,117 @@ EditorOperationResult EditorCoordinator::apply(const SetLogicBoardSearchIntent& 
     state_.logicBoardEditor.search = intent.search;
     accumulate(EditorInvalidation::LogicBoard);
     return EditorOperationResult::success(EditorInvalidation::LogicBoard);
+}
+
+EditorOperationResult EditorCoordinator::apply(const OpenScriptBufferIntent& intent) {
+    if (!document_.hasScriptAsset(intent.scriptAssetId)) {
+        return finishIntent(EditorOperationResult::failure("Unknown script asset"));
+    }
+    if (isPlaying() && playNavigation_ && playNavigation_->returnToOriginArmed)
+        playNavigation_->returnToOriginArmed = false;
+    const bool enteringScript = state_.centerWorkspaceMode != CenterWorkspaceMode::Script;
+    state_.scriptEditor.open(intent.scriptAssetId, intent.savedText);
+    state_.centerWorkspaceMode = CenterWorkspaceMode::Script;
+    EditorInvalidation invalidation =
+        EditorInvalidation::ScriptEditor | EditorInvalidation::Toolbar;
+    if (enteringScript) {
+        cancelPendingTilemapGesture();
+        invalidation |= EditorInvalidation::Viewport | EditorInvalidation::Layout;
+    }
+    accumulate(invalidation);
+    return EditorOperationResult::success(invalidation);
+}
+
+EditorOperationResult EditorCoordinator::apply(const ActivateScriptBufferIntent& intent) {
+    if (!state_.scriptEditor.find(intent.scriptAssetId)) {
+        return finishIntent(EditorOperationResult::failure("Script buffer is not open"));
+    }
+    if (isPlaying() && playNavigation_ && playNavigation_->returnToOriginArmed)
+        playNavigation_->returnToOriginArmed = false;
+    if (state_.scriptEditor.activeAssetId == intent.scriptAssetId
+        && state_.centerWorkspaceMode == CenterWorkspaceMode::Script) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+    state_.scriptEditor.activeAssetId = intent.scriptAssetId;
+    state_.centerWorkspaceMode = CenterWorkspaceMode::Script;
+    const EditorInvalidation invalidation =
+        EditorInvalidation::ScriptEditor | EditorInvalidation::Toolbar
+        | EditorInvalidation::Viewport | EditorInvalidation::Layout;
+    accumulate(invalidation);
+    return EditorOperationResult::success(invalidation);
+}
+
+EditorOperationResult EditorCoordinator::apply(const EditScriptBufferIntent& intent) {
+    ScriptEditorBuffer* buffer = state_.scriptEditor.find(intent.scriptAssetId);
+    if (!buffer) return finishIntent(EditorOperationResult::failure("Script buffer is not open"));
+    const bool changed = buffer->edit(intent.text, intent.cursorOffset);
+    if (!changed) return EditorOperationResult::success(EditorInvalidation::None);
+    // The static textarea already owns the native editing gesture and the
+    // controller updates only line numbers/status. Do not invalidate and
+    // rebuild the Script panel for every character; Toolbar is enough to
+    // refresh derived dirty/history affordances and the global status bar.
+    const EditorInvalidation invalidation = EditorInvalidation::Toolbar;
+    accumulate(invalidation);
+    return EditorOperationResult::success(invalidation);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetScriptCursorIntent& intent) {
+    ScriptEditorBuffer* buffer = state_.scriptEditor.find(intent.scriptAssetId);
+    if (!buffer) return finishIntent(EditorOperationResult::failure("Script buffer is not open"));
+    buffer->cursorOffset = clampScriptCursorOffset(buffer->text, intent.cursorOffset);
+    buffer->scrollTop = std::max(0.f, intent.scrollTop);
+    return EditorOperationResult::success(EditorInvalidation::None);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetScriptEditorFocusIntent& intent) {
+    state_.scriptEditor.editorFocused = intent.focused;
+    return EditorOperationResult::success(EditorInvalidation::None);
+}
+
+EditorOperationResult EditorCoordinator::apply(const MarkScriptBufferSavedIntent& intent) {
+    ScriptEditorBuffer* buffer = state_.scriptEditor.find(intent.scriptAssetId);
+    if (!buffer) return finishIntent(EditorOperationResult::failure("Script buffer is not open"));
+    buffer->markSaved(intent.persistedText);
+    const EditorInvalidation invalidation =
+        EditorInvalidation::ScriptEditor | EditorInvalidation::Toolbar;
+    accumulate(invalidation);
+    return EditorOperationResult::success(invalidation);
+}
+
+EditorOperationResult EditorCoordinator::apply(const CloseScriptBufferIntent& intent) {
+    if (!state_.scriptEditor.close(intent.scriptAssetId)) {
+        return finishIntent(EditorOperationResult::failure("Script buffer is not open"));
+    }
+    const EditorInvalidation invalidation =
+        EditorInvalidation::ScriptEditor | EditorInvalidation::Toolbar;
+    accumulate(invalidation);
+    return EditorOperationResult::success(invalidation);
+}
+
+EditorOperationResult EditorCoordinator::apply(const UndoScriptBufferIntent&) {
+    ScriptEditorBuffer* buffer = state_.scriptEditor.active();
+    if (!buffer || !buffer->undo()) return EditorOperationResult::success(EditorInvalidation::None);
+    const EditorInvalidation invalidation =
+        EditorInvalidation::ScriptEditor | EditorInvalidation::Toolbar;
+    accumulate(invalidation);
+    return EditorOperationResult::success(invalidation);
+}
+
+EditorOperationResult EditorCoordinator::apply(const RedoScriptBufferIntent&) {
+    ScriptEditorBuffer* buffer = state_.scriptEditor.active();
+    if (!buffer || !buffer->redo()) return EditorOperationResult::success(EditorInvalidation::None);
+    const EditorInvalidation invalidation =
+        EditorInvalidation::ScriptEditor | EditorInvalidation::Toolbar;
+    accumulate(invalidation);
+    return EditorOperationResult::success(invalidation);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetScriptSearchIntent& intent) {
+    if (state_.scriptEditor.search == intent.search)
+        return EditorOperationResult::success(EditorInvalidation::None);
+    state_.scriptEditor.search = intent.search;
+    accumulate(EditorInvalidation::ScriptEditor);
+    return EditorOperationResult::success(EditorInvalidation::ScriptEditor);
 }
 
 EditorOperationResult EditorCoordinator::apply(const SetViewportZoomIntent& intent) {

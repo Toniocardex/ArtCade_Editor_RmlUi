@@ -11,6 +11,7 @@ add_library(artcade-editor-core STATIC
     editor-native/model/project_document.cpp
     editor-native/model/project_io.cpp
     editor-native/model/path_confinement.cpp
+    editor-native/model/script_editor_state.cpp
     editor-native/model/play_session.cpp
     editor-native/model/box_collider_geometry.cpp
     editor-native/model/box_collider_view.cpp
@@ -37,6 +38,7 @@ add_library(artcade-editor-core STATIC
     editor-native/commands/generated_sfx_commands.cpp
     editor-native/commands/generated_sfx_macros.cpp
     editor-native/commands/font_asset_commands.cpp
+    editor-native/commands/script_asset_commands.cpp
     editor-native/commands/tileset_commands.cpp
     editor-native/commands/tilemap_commands.cpp
     editor-native/commands/sprite_animation_commands.cpp
@@ -55,6 +57,8 @@ add_library(artcade-editor-core STATIC
     editor-native/app/inspector_commit.cpp
     editor-native/app/pending_edit.cpp
     editor-native/app/project_file.cpp
+    editor-native/app/project_script_file_service.cpp
+    editor-native/app/script_asset_workflow.cpp
     editor-native/app/project_load.cpp
     editor-native/app/new_project_transaction.cpp
 )
@@ -143,6 +147,7 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/ui/ui_markup.cpp
     editor-native/ui/editor_ui.cpp
     editor-native/ui/logic_board_editor_controller.cpp
+    editor-native/ui/script_editor_controller.cpp
     editor-native/ui/sprite_animation_editor_controller.cpp
     editor-native/ui/tileset_editor_controller.cpp
     editor-native/ui/editor_fonts.cpp

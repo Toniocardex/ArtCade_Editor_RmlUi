@@ -17,7 +17,8 @@ namespace {
 constexpr EditorInvalidation kProjectReplaceInvalidation =
     EditorInvalidation::Hierarchy | EditorInvalidation::Inspector
     | EditorInvalidation::Viewport | EditorInvalidation::Assets
-    | EditorInvalidation::Toolbar | EditorInvalidation::Project;
+    | EditorInvalidation::Toolbar | EditorInvalidation::Project
+    | EditorInvalidation::ScriptEditor | EditorInvalidation::Layout;
 
 // Start/Stop Play re-renders every panel whose controls must freeze (disabled)
 // while Play runs and re-enable on Stop: Toolbar (play/undo/redo), Inspector,
@@ -26,7 +27,8 @@ constexpr EditorInvalidation kProjectReplaceInvalidation =
 constexpr EditorInvalidation kPlayToggleInvalidation =
     EditorInvalidation::Toolbar | EditorInvalidation::Viewport
     | EditorInvalidation::Inspector | EditorInvalidation::Hierarchy
-    | EditorInvalidation::Assets | EditorInvalidation::LogicBoard;
+    | EditorInvalidation::Assets | EditorInvalidation::LogicBoard
+    | EditorInvalidation::ScriptEditor;
 
 constexpr EditorInvalidation kPlayNavigationInvalidation =
     kPlayToggleInvalidation | EditorInvalidation::Layout;
@@ -360,6 +362,18 @@ EditorInvalidation EditorCoordinator::reconcileWorkspace() {
         extra |= EditorInvalidation::LogicBoard;
     }
 
+    // An asset metadata command can remove a script while its workspace buffer
+    // is open. Buffers never outlive their authoritative ScriptAssetDef: close
+    // those dangling tabs here so execute/undo/redo/project replacement all
+    // converge on the same reconciliation path.
+    for (std::size_t i = state_.scriptEditor.buffers.size(); i > 0; --i) {
+        const AssetId assetId = state_.scriptEditor.buffers[i - 1].scriptAssetId;
+        if (!document_.hasScriptAsset(assetId)) {
+            state_.scriptEditor.close(assetId);
+            extra |= EditorInvalidation::ScriptEditor | EditorInvalidation::Toolbar;
+        }
+    }
+
     // Last: with the selection/scene/layer state above now fully valid, bring
     // the tool/gesture/tile-selection context back in line with it - covers
     // every Command that could change what the selected instance's tilemap
@@ -450,11 +464,13 @@ EditorOperationResult EditorCoordinator::replaceProject(ProjectDocument replacem
     state_.activeSceneId = normalizedSceneId(document_);
     state_.selection.clear();
     state_.activeTool = EditorTool::Select;
+    state_.centerWorkspaceMode = CenterWorkspaceMode::Scene;
     state_.sceneViews.clear();
     state_.spriteAnimationEditor = SpriteAnimationEditorState{};
     state_.tilesetEditor = TilesetEditorState{};
     state_.tilemapEditor = TilemapEditorState{};
     state_.logicBoardEditor = LogicBoardEditorState{};
+    state_.scriptEditor.clear();
     uiState_.inspectorRevealRequest.reset();
     if (!state_.activeSceneId.empty()) {
         state_.sceneViews.try_emplace(state_.activeSceneId);
@@ -502,10 +518,11 @@ EditorOperationResult EditorCoordinator::playProject() {
         appendConsole(ConsoleMessage::Level::Error, message);
         return EditorOperationResult::failure(message);
     }
-    const bool fromLogic = state_.logicBoardEditor.mode == CenterWorkspaceMode::Logic;
+    const CenterWorkspaceMode originWorkspace = state_.centerWorkspaceMode;
+    const bool fromAuthoringWorkspace = originWorkspace != CenterWorkspaceMode::Scene;
     PlayNavigationState navigation;
-    if (fromLogic) {
-        navigation.originWorkspace = CenterWorkspaceMode::Logic;
+    if (fromAuthoringWorkspace) {
+        navigation.originWorkspace = originWorkspace;
         navigation.originObjectTypeId = state_.logicBoardEditor.objectTypeId;
         navigation.originLogicTab = state_.logicBoardEditor.tab;
         navigation.originLogicSearch = state_.logicBoardEditor.search;
@@ -514,10 +531,12 @@ EditorOperationResult EditorCoordinator::playProject() {
     }
     playSession_.emplace(std::move(*session));
     state_.spriteAnimationEditor = SpriteAnimationEditorState{};
-    if (fromLogic) {
-        state_.logicBoardEditor.mode = CenterWorkspaceMode::Scene;
+    if (fromAuthoringWorkspace) {
+        state_.centerWorkspaceMode = CenterWorkspaceMode::Scene;
         playNavigation_ = std::move(navigation);
-        logInfo("Play project started - Scene runtime opened; Stop returns to Logic Board");
+        logInfo(originWorkspace == CenterWorkspaceMode::Logic
+            ? "Play project started - Scene runtime opened; Stop returns to Logic Board"
+            : "Play project started - Scene runtime opened; Stop returns to Script Editor");
     } else {
         playNavigation_.reset();
         logInfo("Play project started (document untouched)");
@@ -525,7 +544,7 @@ EditorOperationResult EditorCoordinator::playProject() {
     // A Play/Stop toggle re-renders every authoring-affordance panel so their
     // controls switch to the frozen (disabled) state and back: Inspector fields,
     // Hierarchy create/delete buttons and Assets import/remove buttons.
-    const EditorInvalidation invalidation = fromLogic
+    const EditorInvalidation invalidation = fromAuthoringWorkspace
         ? kPlayNavigationInvalidation : kPlayToggleInvalidation;
     accumulate(invalidation);
     return EditorOperationResult::success(invalidation);
@@ -549,10 +568,11 @@ EditorOperationResult EditorCoordinator::playCurrentScene() {
         appendConsole(ConsoleMessage::Level::Error, message);
         return EditorOperationResult::failure(message);
     }
-    const bool fromLogic = state_.logicBoardEditor.mode == CenterWorkspaceMode::Logic;
+    const CenterWorkspaceMode originWorkspace = state_.centerWorkspaceMode;
+    const bool fromAuthoringWorkspace = originWorkspace != CenterWorkspaceMode::Scene;
     PlayNavigationState navigation;
-    if (fromLogic) {
-        navigation.originWorkspace = CenterWorkspaceMode::Logic;
+    if (fromAuthoringWorkspace) {
+        navigation.originWorkspace = originWorkspace;
         navigation.originObjectTypeId = state_.logicBoardEditor.objectTypeId;
         navigation.originLogicTab = state_.logicBoardEditor.tab;
         navigation.originLogicSearch = state_.logicBoardEditor.search;
@@ -561,10 +581,12 @@ EditorOperationResult EditorCoordinator::playCurrentScene() {
     }
     playSession_.emplace(std::move(*session));
     state_.spriteAnimationEditor = SpriteAnimationEditorState{};
-    if (fromLogic) {
-        state_.logicBoardEditor.mode = CenterWorkspaceMode::Scene;
+    if (fromAuthoringWorkspace) {
+        state_.centerWorkspaceMode = CenterWorkspaceMode::Scene;
         playNavigation_ = std::move(navigation);
-        logInfo("Play current scene started - Scene runtime opened; Stop returns to Logic Board");
+        logInfo(originWorkspace == CenterWorkspaceMode::Logic
+            ? "Play current scene started - Scene runtime opened; Stop returns to Logic Board"
+            : "Play current scene started - Scene runtime opened; Stop returns to Script Editor");
     } else {
         playNavigation_.reset();
         logInfo("Play current scene started (document untouched)");
@@ -572,7 +594,7 @@ EditorOperationResult EditorCoordinator::playCurrentScene() {
     // A Play/Stop toggle re-renders every authoring-affordance panel so their
     // controls switch to the frozen (disabled) state and back: Inspector fields,
     // Hierarchy create/delete buttons and Assets import/remove buttons.
-    const EditorInvalidation invalidation = fromLogic
+    const EditorInvalidation invalidation = fromAuthoringWorkspace
         ? kPlayNavigationInvalidation : kPlayToggleInvalidation;
     accumulate(invalidation);
     return EditorOperationResult::success(invalidation);
@@ -585,14 +607,17 @@ EditorOperationResult EditorCoordinator::stopPlaying() {
     }
     playSession_.reset();   // RAII: back to the untouched authoring document
     EditorInvalidation invalidation = kPlayToggleInvalidation;
-    if (playNavigation_ && playNavigation_->returnToOriginArmed
-        && playNavigation_->originWorkspace == CenterWorkspaceMode::Logic) {
-        state_.logicBoardEditor.mode = CenterWorkspaceMode::Logic;
-        state_.logicBoardEditor.objectTypeId = playNavigation_->originObjectTypeId;
-        state_.logicBoardEditor.tab = playNavigation_->originLogicTab;
-        state_.logicBoardEditor.search = playNavigation_->originLogicSearch;
+    if (playNavigation_ && playNavigation_->returnToOriginArmed) {
+        state_.centerWorkspaceMode = playNavigation_->originWorkspace;
+        if (playNavigation_->originWorkspace == CenterWorkspaceMode::Logic) {
+            state_.logicBoardEditor.objectTypeId = playNavigation_->originObjectTypeId;
+            state_.logicBoardEditor.tab = playNavigation_->originLogicTab;
+            state_.logicBoardEditor.search = playNavigation_->originLogicSearch;
+        }
         invalidation |= EditorInvalidation::Layout;
-        logInfo("Stopped - returned to Logic Board");
+        logInfo(playNavigation_->originWorkspace == CenterWorkspaceMode::Logic
+            ? "Stopped - returned to Logic Board"
+            : "Stopped - returned to Script Editor");
     } else {
         logInfo("Stopped - back to authoring document");
     }

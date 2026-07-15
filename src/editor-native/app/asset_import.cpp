@@ -5,6 +5,7 @@
 #include "editor-native/commands/font_asset_commands.h"
 #include "editor-native/commands/image_asset_commands.h"
 #include "editor-native/model/path_confinement.h"
+#include "editor-native/app/script_asset_workflow.h"
 
 #include <algorithm>
 #include <array>
@@ -178,6 +179,12 @@ ImportAssetResult importAsset(EditorCoordinator& coordinator,
                                     request.audioMode);
         case AssetKind::Font:
             return importFontAsset(coordinator, projectRoot, request.sourcePath);
+        case AssetKind::Script: {
+            const ScriptAssetWorkflowResult result =
+                importScriptAsset(coordinator, projectRoot, request.sourcePath);
+            return result.ok ? ImportAssetResult::success(result.assetId)
+                             : ImportAssetResult::failure(result.error);
+        }
     }
     return ImportAssetResult::failure("Unknown asset kind");
 }

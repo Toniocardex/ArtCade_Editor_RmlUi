@@ -6,6 +6,8 @@
 #include "editor-native/app/new_project_transaction.h"
 #include "editor-native/app/project_file.h"
 #include "editor-native/app/project_load.h"
+#include "editor-native/app/project_script_file_service.h"
+#include "editor-native/app/script_asset_workflow.h"
 #include "editor-native/app/unsaved_guard.h"
 #include "editor-native/model/path_confinement.h"
 #include "editor-native/ui/editor_ui.h"
@@ -16,6 +18,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <vector>
 #include <system_error>
 #include <utility>
 
@@ -44,21 +47,21 @@ std::filesystem::path suggestedProjectSavePath(const ProjectDoc& doc) {
     return std::filesystem::path(stem + ".artcade-project");
 }
 
-bool copyAssetsForSaveAs(const std::filesystem::path& previousRoot,
-                         const std::filesystem::path& nextRoot,
-                         std::string& error) {
-    if (previousRoot.empty() || previousRoot == nextRoot) return true;
-
-    const PathConfinementResult sourceResult = resolvePathInsideRoot(previousRoot, "assets");
+bool copyConfinedProjectTree(const std::filesystem::path& previousRoot,
+                             const std::filesystem::path& nextRoot,
+                             const std::filesystem::path& relativeTree,
+                             std::string& error) {
+    const PathConfinementResult sourceResult =
+        resolvePathInsideRoot(previousRoot, relativeTree);
     if (!sourceResult.ok) {
-        error = "Could not resolve existing assets folder: " + sourceResult.error;
+        error = "Could not resolve existing project folder: " + sourceResult.error;
         return false;
     }
     const std::filesystem::path& source = sourceResult.value;
     std::error_code ec;
     if (!std::filesystem::exists(source, ec)) return true;
     if (ec) {
-        error = "Could not inspect existing assets folder: " + ec.message();
+        error = "Could not inspect existing project folder: " + ec.message();
         return false;
     }
 
@@ -66,19 +69,19 @@ bool copyAssetsForSaveAs(const std::filesystem::path& previousRoot,
         source, std::filesystem::directory_options::none, ec};
     const std::filesystem::recursive_directory_iterator end;
     if (ec) {
-        error = "Could not inspect existing assets tree: " + ec.message();
+        error = "Could not inspect existing project tree: " + ec.message();
         return false;
     }
     for (; it != end;) {
         const std::filesystem::path relative = it->path().lexically_relative(previousRoot);
         const PathConfinementResult entry = resolvePathInsideRoot(previousRoot, relative);
         if (!entry.ok) {
-            error = "Assets tree contains an unsafe path: " + entry.error;
+            error = "Project tree contains an unsafe path: " + entry.error;
             return false;
         }
         it.increment(ec);
         if (ec) {
-            error = "Could not inspect existing assets tree: " + ec.message();
+            error = "Could not inspect existing project tree: " + ec.message();
             return false;
         }
     }
@@ -88,9 +91,10 @@ bool copyAssetsForSaveAs(const std::filesystem::path& previousRoot,
         error = "Could not create project folder: " + ec.message();
         return false;
     }
-    const PathConfinementResult destinationResult = resolvePathInsideRoot(nextRoot, "assets");
+    const PathConfinementResult destinationResult =
+        resolvePathInsideRoot(nextRoot, relativeTree);
     if (!destinationResult.ok) {
-        error = "Could not resolve destination assets folder: " + destinationResult.error;
+        error = "Could not resolve destination project folder: " + destinationResult.error;
         return false;
     }
     std::filesystem::copy(
@@ -100,10 +104,18 @@ bool copyAssetsForSaveAs(const std::filesystem::path& previousRoot,
             | std::filesystem::copy_options::overwrite_existing,
         ec);
     if (ec) {
-        error = "Could not copy assets folder: " + ec.message();
+        error = "Could not copy project folder: " + ec.message();
         return false;
     }
     return true;
+}
+
+bool copyProjectFilesForSaveAs(const std::filesystem::path& previousRoot,
+                               const std::filesystem::path& nextRoot,
+                               std::string& error) {
+    if (previousRoot.empty() || previousRoot == nextRoot) return true;
+    return copyConfinedProjectTree(previousRoot, nextRoot, "assets", error)
+        && copyConfinedProjectTree(previousRoot, nextRoot, "scripts", error);
 }
 
 } // namespace
@@ -119,6 +131,12 @@ void ProjectSessionController::bindUi() {
         [this]() { saveCurrent(); },
         [this]() { requestSaveAs(); });
     ui_.setImportHandler([this](AssetKind kind) { importAssetOfKind(kind); });
+    ui_.setCreateScriptHandler([this]() { createScript(); });
+    ui_.setScriptEditorHandlers(
+        [this](const AssetId& id) { openScript(id); },
+        [this](const AssetId& id) { saveScript(id); },
+        [this]() { saveAllScripts(); },
+        [this](const AssetId& id) { return closeScript(id); });
     ui_.setImportImageForAnimationHandler(
         [this]() { return importAssetOfKind(AssetKind::Image); });
 }
@@ -136,16 +154,22 @@ void ProjectSessionController::setCurrentProjectPath(std::filesystem::path path)
 void ProjectSessionController::refreshWindowTitle() {
     const std::string name = currentProjectPath_.empty()
         ? std::string("Untitled") : currentProjectPath_.stem().string();
-    titleShowsDirty_ = coordinator_.document().isDirty();
+    titleShowsDirty_ = coordinator_.document().isDirty()
+        || coordinator_.state().scriptEditor.anyDirty();
     SetWindowTitle(("ArtCade Studio - " + name
                     + (titleShowsDirty_ ? " \xe2\x80\xa2" : "")).c_str());
 }
 
 void ProjectSessionController::refreshWindowTitleIfNeeded() {
-    if (coordinator_.document().isDirty() != titleShowsDirty_) refreshWindowTitle();
+    const bool dirty = coordinator_.document().isDirty()
+        || coordinator_.state().scriptEditor.anyDirty();
+    if (dirty != titleShowsDirty_) refreshWindowTitle();
 }
 
 bool ProjectSessionController::saveTo(const std::filesystem::path& path) {
+    // Source buffers belong to the existing project root. Persist them there
+    // before Save As copies the confined scripts tree to its new root.
+    if (!currentProjectPath_.empty() && !saveAllScripts()) return false;
     const std::filesystem::path destination = normalizeProjectSavePath(path);
     std::error_code ec;
     std::filesystem::create_directories(destination.parent_path(), ec);
@@ -156,7 +180,7 @@ bool ProjectSessionController::saveTo(const std::filesystem::path& path) {
     const std::filesystem::path previousRoot = currentProjectPath_.empty()
         ? std::filesystem::path{} : currentProjectPath_.parent_path();
     std::string copyError;
-    if (!copyAssetsForSaveAs(previousRoot, destination.parent_path(), copyError)) {
+    if (!copyProjectFilesForSaveAs(previousRoot, destination.parent_path(), copyError)) {
         coordinator_.logError("Save failed: " + copyError);
         return false;
     }
@@ -182,8 +206,18 @@ bool ProjectSessionController::saveCurrent() {
 
 bool ProjectSessionController::resolveUnsavedChanges() {
     if (!ui_.resolvePendingEdits().resolved()) return false;
-    if (!coordinator_.document().isDirty()) return true;
-    const UnsavedChoice choice = confirmUnsavedChanges();
+    const bool projectDirty = coordinator_.document().isDirty();
+    const bool scriptsDirty = coordinator_.state().scriptEditor.anyDirty();
+    if (!projectDirty && !scriptsDirty) return true;
+    std::string detail;
+    if (projectDirty) detail = "Project";
+    for (const ScriptEditorBuffer& buffer : coordinator_.state().scriptEditor.buffers) {
+        if (!buffer.dirty()) continue;
+        if (!detail.empty()) detail += "\n";
+        const ScriptAssetDef* asset = coordinator_.document().findScriptAsset(buffer.scriptAssetId);
+        detail += asset && !asset->name.empty() ? asset->name : buffer.scriptAssetId;
+    }
+    const UnsavedChoice choice = confirmUnsavedChanges(detail);
     const bool saveOk = choice == UnsavedChoice::Save ? saveCurrent() : false;
     return resolveUnsavedGuard(true, choice, saveOk) == GuardOutcome::Proceed;
 }
@@ -243,6 +277,7 @@ std::optional<AssetId> ProjectSessionController::importAssetOfKind(AssetKind kin
         case AssetKind::Image: picked = openImageFileDialog(); break;
         case AssetKind::Audio: picked = openAudioFileDialog(); break;
         case AssetKind::Font:  picked = openFontFileDialog(); break;
+        case AssetKind::Script: picked = openScriptFileDialog(); break;
     }
     if (!picked) return std::nullopt;
     bool savedForImport = false;
@@ -268,7 +303,111 @@ std::optional<AssetId> ProjectSessionController::importAssetOfKind(AssetKind kin
     if (savedForImport && !saveCurrent()) {
         coordinator_.logWarning("Imported asset is not saved in the project file yet");
     }
+    if (kind == AssetKind::Script) openScript(result.assetId);
     return result.assetId;
+}
+
+std::optional<AssetId> ProjectSessionController::createScript() {
+    bool savedForCreate = false;
+    if (currentProjectPath_.empty()) {
+        coordinator_.logInfo(
+            "Scripts live inside the project folder - choose where to save the project");
+        if (!saveCurrent()) {
+            coordinator_.logWarning("Script creation cancelled: the project was not saved");
+            return std::nullopt;
+        }
+        savedForCreate = true;
+    }
+    const ScriptAssetWorkflowResult result = createScriptAsset(
+        coordinator_, currentProjectPath_.parent_path());
+    if (!result.ok) {
+        coordinator_.logError(result.error);
+        return std::nullopt;
+    }
+    coordinator_.logInfo("Created " + result.assetId + ".lua");
+    if (savedForCreate && !saveCurrent()) {
+        coordinator_.logWarning("Created script is not saved in the project file yet");
+    }
+    openScript(result.assetId);
+    return result.assetId;
+}
+
+bool ProjectSessionController::openScript(const AssetId& assetId) {
+    const ScriptAssetDef* asset = coordinator_.document().findScriptAsset(assetId);
+    if (!asset) {
+        coordinator_.logError("Open script failed: unknown script asset");
+        return false;
+    }
+    if (const ScriptEditorBuffer* open = coordinator_.state().scriptEditor.find(assetId)) {
+        (void)open;
+        return coordinator_.apply(ActivateScriptBufferIntent{assetId}).ok;
+    }
+    if (currentProjectPath_.empty()) {
+        coordinator_.logError("Open script failed: save the project first");
+        return false;
+    }
+    ProjectScriptFileService files(currentProjectPath_.parent_path());
+    const ScriptFileResult<std::string> source = files.readScript(asset->sourcePath);
+    if (!source.ok) {
+        coordinator_.logError("Open script failed: " + source.error);
+        return false;
+    }
+    const bool ok = coordinator_.apply(OpenScriptBufferIntent{assetId, source.value}).ok;
+    if (ok) coordinator_.logInfo("Opened script " + asset->name);
+    return ok;
+}
+
+bool ProjectSessionController::saveScript(const AssetId& assetId) {
+    const ScriptAssetDef* asset = coordinator_.document().findScriptAsset(assetId);
+    const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.find(assetId);
+    if (!asset || !buffer) {
+        coordinator_.logError("Save script failed: script is not open");
+        return false;
+    }
+    if (currentProjectPath_.empty()) {
+        coordinator_.logError("Save script failed: save the project first");
+        return false;
+    }
+    const std::string source = buffer->text;
+    ProjectScriptFileService files(currentProjectPath_.parent_path());
+    const ScriptFileResult<std::filesystem::path> written =
+        files.writeScriptAtomically(asset->sourcePath, source);
+    if (!written.ok) {
+        coordinator_.logError("Save script failed: " + written.error);
+        return false;
+    }
+    const ScriptFileResult<std::string> persisted = files.readScript(asset->sourcePath);
+    if (!persisted.ok) {
+        coordinator_.logError("Save script verification failed: " + persisted.error);
+        return false;
+    }
+    coordinator_.apply(MarkScriptBufferSavedIntent{assetId, persisted.value});
+    coordinator_.logInfo("Saved script " + asset->name);
+    refreshWindowTitleIfNeeded();
+    return true;
+}
+
+bool ProjectSessionController::saveAllScripts() {
+    std::vector<AssetId> dirty;
+    for (const ScriptEditorBuffer& buffer : coordinator_.state().scriptEditor.buffers)
+        if (buffer.dirty()) dirty.push_back(buffer.scriptAssetId);
+    for (const AssetId& id : dirty) if (!saveScript(id)) return false;
+    return true;
+}
+
+bool ProjectSessionController::closeScript(const AssetId& assetId) {
+    const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.find(assetId);
+    if (!buffer) return true;
+    if (buffer->dirty()) {
+        const ScriptAssetDef* asset = coordinator_.document().findScriptAsset(assetId);
+        const std::string name = asset && !asset->name.empty() ? asset->name : assetId;
+        const UnsavedChoice choice = confirmUnsavedChanges(name);
+        if (choice == UnsavedChoice::Cancel) return false;
+        if (choice == UnsavedChoice::Save && !saveScript(assetId)) return false;
+    }
+    const bool ok = coordinator_.apply(CloseScriptBufferIntent{assetId}).ok;
+    refreshWindowTitleIfNeeded();
+    return ok;
 }
 
 } // namespace ArtCade::EditorNative

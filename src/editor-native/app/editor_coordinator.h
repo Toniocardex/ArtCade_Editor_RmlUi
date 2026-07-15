@@ -26,7 +26,9 @@ struct ConsoleMessage {
 };
 
 // Runtime/editor navigation only: never serialized, undoable, or visible to
-// PlaySession. It remembers the Logic Board context that initiated a test.
+// PlaySession. It remembers the non-Scene workspace that initiated a test;
+// Logic carries extra board context while Script state already remains alive
+// in EditorState and needs only its workspace mode restored.
 struct PlayNavigationState {
     CenterWorkspaceMode originWorkspace = CenterWorkspaceMode::Scene;
     std::optional<ObjectTypeId> originObjectTypeId;
@@ -156,6 +158,16 @@ public:
     EditorOperationResult apply(const ChangeLogicActionTypeIntent& intent);
     EditorOperationResult apply(const AddLogicConditionTypeIntent& intent);
     EditorOperationResult apply(const ChangeLogicConditionTypeIntent& intent);
+    EditorOperationResult apply(const OpenScriptBufferIntent& intent);
+    EditorOperationResult apply(const ActivateScriptBufferIntent& intent);
+    EditorOperationResult apply(const EditScriptBufferIntent& intent);
+    EditorOperationResult apply(const SetScriptCursorIntent& intent);
+    EditorOperationResult apply(const SetScriptEditorFocusIntent& intent);
+    EditorOperationResult apply(const MarkScriptBufferSavedIntent& intent);
+    EditorOperationResult apply(const CloseScriptBufferIntent& intent);
+    EditorOperationResult apply(const UndoScriptBufferIntent& intent);
+    EditorOperationResult apply(const RedoScriptBufferIntent& intent);
+    EditorOperationResult apply(const SetScriptSearchIntent& intent);
     EditorOperationResult apply(const SetViewportZoomIntent& intent);
     EditorOperationResult apply(const PanViewportIntent& intent);
     EditorOperationResult apply(const SetSceneGridVisibilityIntent& intent);

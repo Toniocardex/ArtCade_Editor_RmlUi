@@ -24,6 +24,7 @@ enum class EditorInvalidation : uint32_t {
     Project   = 1u << 6,
     Layout    = 1u << 7,
     LogicBoard = 1u << 8,
+    ScriptEditor = 1u << 9,
 };
 
 constexpr EditorInvalidation operator|(EditorInvalidation a, EditorInvalidation b) {

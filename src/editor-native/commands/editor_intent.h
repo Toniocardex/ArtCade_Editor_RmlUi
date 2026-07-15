@@ -79,6 +79,47 @@ struct ChangeLogicConditionTypeIntent {
     std::string  typeId;
 };
 
+struct OpenScriptBufferIntent {
+    AssetId scriptAssetId;
+    std::string savedText;
+};
+
+struct ActivateScriptBufferIntent {
+    AssetId scriptAssetId;
+};
+
+struct EditScriptBufferIntent {
+    AssetId scriptAssetId;
+    std::string text;
+    std::size_t cursorOffset = 0;
+};
+
+struct SetScriptCursorIntent {
+    AssetId scriptAssetId;
+    std::size_t cursorOffset = 0;
+    float scrollTop = 0.f;
+};
+
+struct SetScriptEditorFocusIntent {
+    bool focused = false;
+};
+
+struct MarkScriptBufferSavedIntent {
+    AssetId scriptAssetId;
+    std::string persistedText;
+};
+
+struct CloseScriptBufferIntent {
+    AssetId scriptAssetId;
+};
+
+struct UndoScriptBufferIntent {};
+struct RedoScriptBufferIntent {};
+
+struct SetScriptSearchIntent {
+    std::string search;
+};
+
 struct SetViewportZoomIntent {
     SceneId sceneId;
     float   zoom = 1.0f;

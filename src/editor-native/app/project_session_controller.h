@@ -29,6 +29,11 @@ public:
     bool saveTo(const std::filesystem::path& path);
     bool resolveUnsavedChanges();
     std::optional<AssetId> importAssetOfKind(AssetKind kind);
+    std::optional<AssetId> createScript();
+    bool openScript(const AssetId& assetId);
+    bool saveScript(const AssetId& assetId);
+    bool saveAllScripts();
+    bool closeScript(const AssetId& assetId);
 
     void refreshWindowTitle();
     void refreshWindowTitleIfNeeded();

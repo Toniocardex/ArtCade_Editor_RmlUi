@@ -182,6 +182,7 @@ int EditorApp::run(int argc, char** argv) {
     bool shotAnimation = false;
     bool shotTileset = false;   // open the Tileset Editor (creating from the first image if none)
     bool shotLogic = false;     // open the Logic workspace for shell/layout smoke checks
+    bool shotScript = false;    // open the Script workspace for shell/layout smoke checks
     bool shotSfx = false;       // create and open the native Generated SFX editor
     int shotSliceColumns = 0;   // > 0: slice the open clip into N frames for the shot
     bool shotSliceAll = false;  // slice every animation asset in turn (overwrite repro)
@@ -198,6 +199,7 @@ int EditorApp::run(int argc, char** argv) {
         else if (std::strcmp(argv[i], "--shot-anim") == 0) shotAnimation = true;
         else if (std::strcmp(argv[i], "--shot-tileset") == 0) shotTileset = true;
         else if (std::strcmp(argv[i], "--shot-logic") == 0) shotLogic = true;
+        else if (std::strcmp(argv[i], "--shot-script") == 0) shotScript = true;
         else if (std::strcmp(argv[i], "--shot-sfx") == 0) shotSfx = true;
         else if (std::strcmp(argv[i], "--shot-slice") == 0 && i + 1 < argc)
             shotSliceColumns = std::atoi(argv[i + 1]);
@@ -828,6 +830,14 @@ int EditorApp::run(int argc, char** argv) {
     if (!shotPath.empty() && shotLogic) {
         ui.handleAction("open-logic-workspace", "", "");
     }
+    if (!shotPath.empty() && shotScript) {
+        ui.handleAction("open-script-workspace", "", "");
+        if (!coordinator.document().data().scriptAssets.empty()) {
+            projectSession.openScript(
+                coordinator.document().data().scriptAssets.front().assetId);
+            ui.processFrame();
+        }
+    }
     if (!shotPath.empty() && shotSfx) {
         ui.handleAction("create-generated-sfx", "", "");
         ui.processFrame();
@@ -839,7 +849,7 @@ int EditorApp::run(int argc, char** argv) {
     float lastDpi     = hostDpi;
     int   sizeStableFrames = 0;
     bool  prevTextFocus = false;   // last frame's RmlUi text focus (see Tileset keys)
-    CenterWorkspaceMode previousWorkspaceMode = coordinator.state().logicBoardEditor.mode;
+    CenterWorkspaceMode previousWorkspaceMode = coordinator.state().centerWorkspaceMode;
     bool gameplayInputFocused = false;
     bool previousPlaying = false;
     // Tile Palette Picker-sync: the tile last scrolled into view, so a
@@ -877,9 +887,9 @@ int EditorApp::run(int argc, char** argv) {
         if (IsKeyPressed(KEY_F8)) host.toggleDebugger();
 
         const RmlInputResult rml = pumpRmlInput(host.context());
-        const bool logicWorkspace = coordinator.state().logicBoardEditor.mode
-            == CenterWorkspaceMode::Logic;
-        if (coordinator.state().logicBoardEditor.mode != previousWorkspaceMode) {
+        const bool nonSceneWorkspace = coordinator.state().centerWorkspaceMode
+            != CenterWorkspaceMode::Scene;
+        if (coordinator.state().centerWorkspaceMode != previousWorkspaceMode) {
             // Local presentation gestures belong to the surface that started
             // them. Never let a hidden Scene drag/context click complete after
             // switching to Logic (or vice versa).
@@ -887,7 +897,7 @@ int EditorApp::run(int argc, char** argv) {
             contextClick = ViewportContextClick{};
             pendingContextSpawn.reset();
             ui.hideContextMenus();
-            previousWorkspaceMode = coordinator.state().logicBoardEditor.mode;
+            previousWorkspaceMode = coordinator.state().centerWorkspaceMode;
         }
 
         // Undo/redo keyboard shortcuts share the single coordinator entry points
@@ -910,19 +920,19 @@ int EditorApp::run(int argc, char** argv) {
                 // keeps its own Ctrl+C (guarded by textFocus above); with no
                 // selection this is a no-op.
                 ui.copySelectedConsoleMessage();
-            } else if (!logicWorkspace && shift && IsKeyPressed(KEY_D)) {
+            } else if (!nonSceneWorkspace && shift && IsKeyPressed(KEY_D)) {
                 addInstanceOfSelectedType(coordinator);
-            } else if (!logicWorkspace && IsKeyPressed(KEY_D)) {
+            } else if (!nonSceneWorkspace && IsKeyPressed(KEY_D)) {
                 cloneSelectedEntity(coordinator);
             }
         }
-        if (!logicWorkspace && !rml.textFocus && !coordinator.isPlaying() && IsKeyPressed(KEY_F2)) {
+        if (!nonSceneWorkspace && !rml.textFocus && !coordinator.isPlaying() && IsKeyPressed(KEY_F2)) {
             ui.beginActiveSceneLayerRename();
         }
         // Tilemap tool shortcuts only switch tools between strokes/rectangles -
         // mid-operation, only Escape (handled inside routeViewportTilemapPaint,
         // which needs the operation's context) may interrupt.
-        if (!logicWorkspace && !rml.textFocus && !coordinator.isPlaying()
+        if (!nonSceneWorkspace && !rml.textFocus && !coordinator.isPlaying()
             && !coordinator.state().tilemapEditor.pendingStroke
             && !coordinator.state().tilemapEditor.pendingRectangle) {
             if (IsKeyPressed(KEY_B)) coordinator.apply(SetActiveToolIntent{EditorTool::Brush});
@@ -935,7 +945,7 @@ int EditorApp::run(int argc, char** argv) {
         // (editor_input.cpp), but only takes effect there while a field has
         // focus; textFocus is false in exactly the complementary case, so the
         // two never fire on the same keypress.
-        if (!logicWorkspace && !rml.textFocus && IsKeyPressed(KEY_DELETE)) {
+        if (!nonSceneWorkspace && !rml.textFocus && IsKeyPressed(KEY_DELETE)) {
             deleteSelectedEntity(coordinator);
         }
         const ViewportRect rect = viewportRectFromDocument(host.document());
@@ -961,12 +971,12 @@ int EditorApp::run(int argc, char** argv) {
         // handles. Clear on both boundaries: Stop releases resources now;
         // Start also guarantees a fresh projection after project/asset changes.
         if (playing != previousPlaying) clearPlaySoundCache();
-        if (playing && !previousPlaying) gameplayInputFocused = !logicWorkspace;
-        if (!playing || logicWorkspace || rml.textFocus || !IsWindowFocused() || popupOpen
+        if (playing && !previousPlaying) gameplayInputFocused = !nonSceneWorkspace;
+        if (!playing || nonSceneWorkspace || rml.textFocus || !IsWindowFocused() || popupOpen
             || animationEditorOpen || tilesetEditorOpen)
             gameplayInputFocused = false;
         if (playing && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            gameplayInputFocused = !logicWorkspace && !rml.textFocus && !popupOpen
+            gameplayInputFocused = !nonSceneWorkspace && !rml.textFocus && !popupOpen
                 && !contextMenuHit && rect.contains(GetMouseX(), GetMouseY());
         }
         previousPlaying = playing;
@@ -976,7 +986,7 @@ int EditorApp::run(int argc, char** argv) {
         const ViewportRect tilesetInputRect = tilesetEditorOpen
             ? resolveTilesetEditorCanvasContentRect(tilesetDocument)
             : ViewportRect{};
-        if (!animationEditorOpen && !tilesetEditorOpen && !logicWorkspace) {
+        if (!animationEditorOpen && !tilesetEditorOpen && !nonSceneWorkspace) {
             routeViewportInput(coordinator, rect, rml, contextMenuHit);
         }
         if (playing) {
@@ -987,7 +997,7 @@ int EditorApp::run(int argc, char** argv) {
             // deliberately irrelevant here.
             RuntimeInputSnapshot input;
             if (shouldForwardGameplayKeyboardInput({
-                    !logicWorkspace, gameplayInputFocused, IsWindowFocused(),
+                    !nonSceneWorkspace, gameplayInputFocused, IsWindowFocused(),
                     rml.textFocus, popupOpen})) {
                 input.moveLeft  = IsKeyDown(KEY_LEFT)  || IsKeyDown(KEY_A);
                 input.moveRight = IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D);
@@ -1028,7 +1038,7 @@ int EditorApp::run(int argc, char** argv) {
                     PlaySound(cacheIt->second);
                 }
             }
-        } else if (!animationEditorOpen && !tilesetEditorOpen && !logicWorkspace) {
+        } else if (!animationEditorOpen && !tilesetEditorOpen && !nonSceneWorkspace) {
             // First time this scene is active in Edit mode: frame it once. The
             // flag lives in the scene's view state, so it shares the sceneViews
             // lifecycle (cleared/pruned with the scene). Mark only after a real
@@ -1049,7 +1059,7 @@ int EditorApp::run(int argc, char** argv) {
         {
             ViewportPointerReadout pointerReadout;
             if (!coordinator.isPlaying() && !animationEditorOpen && !tilesetEditorOpen
-                && !logicWorkspace
+                && !nonSceneWorkspace
                 && rect.contains(GetMouseX(), GetMouseY())) {
                 const SceneId& active = coordinator.state().activeSceneId;
                 if (const SceneDef* scene = coordinator.document().findScene(active)) {
@@ -1273,7 +1283,7 @@ int EditorApp::run(int argc, char** argv) {
         // Logic owns an opaque RmlUi surface. Do not collect a graphical scene
         // snapshot, prepare textures, render overlays, or paint an asset editor
         // behind/over it. PlaySession ticking above remains independent.
-        if (!logicWorkspace) {
+        if (!nonSceneWorkspace) {
             const SceneId active = playSession ? playSession->sceneId()
                                                : coordinator.state().activeSceneId;
             SceneFrameSnapshot snapshot = playSession

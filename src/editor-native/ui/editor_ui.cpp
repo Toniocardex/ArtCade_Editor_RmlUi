@@ -14,6 +14,7 @@
 #include "editor-native/commands/generated_sfx_macros.h"
 #include "artcade/sfx/presets.hpp"
 #include "editor-native/commands/font_asset_commands.h"
+#include "editor-native/commands/script_asset_commands.h"
 #include "editor-native/commands/tilemap_commands.h"
 #include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/project_commands.h"
@@ -28,6 +29,7 @@
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/Elements/ElementFormControl.h>
+#include <RmlUi/Core/Elements/ElementFormControlTextArea.h>
 #include <RmlUi/Core/Event.h>
 #include <RmlUi/Core/EventListener.h>
 #include <RmlUi/Core/Input.h>
@@ -56,6 +58,7 @@ std::optional<AssetMenuKind> parseAssetMenuKind(const std::string& tag) {
     if (tag == "sfx")     return AssetMenuKind::GeneratedSfx;
     if (tag == "audio")   return AssetMenuKind::Audio;
     if (tag == "font")    return AssetMenuKind::Font;
+    if (tag == "script")  return AssetMenuKind::Script;
     return std::nullopt;
 }
 
@@ -128,7 +131,8 @@ bool actionRequiresPendingEditGate(const std::string& action) {
         "open-sprite-animation", "close-sprite-animation",
         "open-tileset-editor", "close-tileset-editor",
         "open-generated-sfx", "close-generated-sfx",
-        "open-scene-workspace", "open-logic-workspace",
+        "open-scene-workspace", "open-logic-workspace", "open-script-workspace",
+        "open-script", "activate-script", "close-script",
         "toggle-inspector-section",
         "toggle-logic-rule-collapsed", "collapse-all-logic-rules", "expand-all-logic-rules",
         "toggle-sfx-mode", "toggle-sfx-section",
@@ -153,6 +157,33 @@ public:
                 arg = attribute(e, "data-arg");
                 actionElement = e;
                 break;
+            }
+        }
+        if (action == "edit-script-buffer") {
+            if (type == "focus") { ui_.setScriptEditorFocused(true); return; }
+            if (type == "blur") { ui_.setScriptEditorFocused(false); return; }
+            if (type == "change") {
+                ui_.handleScriptTextChanged(formValue(actionElement, event));
+                return;
+            }
+            if (type == "click") { ui_.handleScriptCursorChanged(); return; }
+            if (type == "keyup" || type == "scroll") {
+                ui_.handleScriptCursorChanged();
+                return;
+            }
+            if (type == "keydown") {
+                const int key = event.GetParameter<int>("key_identifier", 0);
+                const bool control = event.GetParameter<int>("ctrl_key", 0) != 0;
+                const bool shift = event.GetParameter<int>("shift_key", 0) != 0;
+                if (key == Rml::Input::KI_TAB || (control && (key == Rml::Input::KI_S
+                    || key == Rml::Input::KI_F || key == Rml::Input::KI_Z
+                    || key == Rml::Input::KI_Y))) {
+                    ui_.handleScriptEditorShortcut(key, control, shift);
+                    event.StopImmediatePropagation();
+                    return;
+                }
+                ui_.handleScriptCursorChanged();
+                return;
             }
         }
         // Baseline of the field being edited, captured at focus time. The live
@@ -324,7 +355,8 @@ EditorUi::EditorUi(EditorCoordinator& coordinator, Rml::ElementDocument* documen
       tilesetDocument_(tilesetDocument),
       spriteAnimationEditor_(coordinator, animationDocument),
       tilesetEditor_(coordinator, tilesetDocument),
-      logicBoardEditor_(coordinator, document) {}
+      logicBoardEditor_(coordinator, document),
+      scriptEditor_(coordinator, document) {}
 
 EditorUi::~EditorUi() { detach(); }
 
@@ -341,6 +373,8 @@ void EditorUi::bind() {
         doc->AddEventListener("focus", listener_.get(), true);
         doc->AddEventListener("blur", listener_.get(), true);
         doc->AddEventListener("keydown", listener_.get(), true);
+        doc->AddEventListener("keyup", listener_.get());
+        doc->AddEventListener("scroll", listener_.get());
         doc->AddEventListener("change", listener_.get());
         doc->AddEventListener("drag", listener_.get());
         doc->AddEventListener("dragstart", listener_.get());
@@ -355,7 +389,7 @@ void EditorUi::bind() {
     applyInvalidations(EditorInvalidation::Hierarchy | EditorInvalidation::Inspector
                        | EditorInvalidation::Console  | EditorInvalidation::Toolbar
                        | EditorInvalidation::Assets   | EditorInvalidation::Layout
-                       | EditorInvalidation::LogicBoard);
+                       | EditorInvalidation::LogicBoard | EditorInvalidation::ScriptEditor);
     updateZoomReadout();   // initial paint (zoom % is Viewport-driven, not in the set)
 }
 
@@ -368,6 +402,8 @@ void EditorUi::detach() {
             doc->RemoveEventListener("focus", listener_.get(), true);
             doc->RemoveEventListener("blur", listener_.get(), true);
             doc->RemoveEventListener("keydown", listener_.get(), true);
+            doc->RemoveEventListener("keyup", listener_.get());
+            doc->RemoveEventListener("scroll", listener_.get());
             doc->RemoveEventListener("change", listener_.get());
             doc->RemoveEventListener("drag", listener_.get());
             doc->RemoveEventListener("dragstart", listener_.get());
@@ -391,6 +427,11 @@ void EditorUi::detach() {
     saveProjectRequest_ = {};
     saveProjectAsRequest_ = {};
     importAssetRequest_ = {};
+    createScriptRequest_ = {};
+    openScriptRequest_ = {};
+    saveScriptRequest_ = {};
+    saveAllScriptsRequest_ = {};
+    closeScriptRequest_ = {};
     addEntityRequest_ = {};
     addInstanceRequest_ = {};
     createEntityHereRequest_ = {};
@@ -402,6 +443,7 @@ void EditorUi::detach() {
     spriteAnimationEditor_.detach();
     tilesetEditor_.detach();
     logicBoardEditor_.detach();
+    scriptEditor_.detach();
 
     // These are non-owning and become invalid as soon as the host unloads its
     // documents. Null them even when bind never succeeded (missing document).
@@ -485,6 +527,8 @@ void EditorUi::applyInvalidations(EditorInvalidation flags) {
         refreshGeneratedSfxEditor();
     if (has(flags, EditorInvalidation::LogicBoard) || has(flags, EditorInvalidation::Project))
         logicBoardEditor_.refresh();
+    if (has(flags, EditorInvalidation::ScriptEditor) || has(flags, EditorInvalidation::Project))
+        scriptEditor_.refresh();
     if (has(flags, EditorInvalidation::Viewport) || has(flags, EditorInvalidation::Assets)
         || has(flags, EditorInvalidation::Project)) {
         spriteAnimationEditor_.refresh();
@@ -493,7 +537,8 @@ void EditorUi::applyInvalidations(EditorInvalidation flags) {
     if (has(flags, EditorInvalidation::Toolbar))
         refreshToolbar();
     if (has(flags, EditorInvalidation::Toolbar) || has(flags, EditorInvalidation::Project)
-        || has(flags, EditorInvalidation::LogicBoard))
+        || has(flags, EditorInvalidation::LogicBoard)
+        || has(flags, EditorInvalidation::ScriptEditor))
         refreshStatusBar();
     if (has(flags, EditorInvalidation::Viewport)) {
         updateZoomReadout();
@@ -502,24 +547,31 @@ void EditorUi::applyInvalidations(EditorInvalidation flags) {
     if (has(flags, EditorInvalidation::Layout))
         refreshLayout();
     if (has(flags, EditorInvalidation::LogicBoard) || has(flags, EditorInvalidation::Viewport)
-        || has(flags, EditorInvalidation::Project))
+        || has(flags, EditorInvalidation::Project)
+        || has(flags, EditorInvalidation::ScriptEditor))
         refreshCenterWorkspace();
 }
 
 void EditorUi::refreshCenterWorkspace() {
     if (!document_) return;
-    const bool logic = coordinator_.state().logicBoardEditor.mode == CenterWorkspaceMode::Logic;
-    if (Rml::Element* el = document_->GetElementById("viewport")) el->SetClass("hidden", logic);
+    const CenterWorkspaceMode mode = coordinator_.state().centerWorkspaceMode;
+    const bool scene = mode == CenterWorkspaceMode::Scene;
+    const bool logic = mode == CenterWorkspaceMode::Logic;
+    const bool script = mode == CenterWorkspaceMode::Script;
+    if (Rml::Element* el = document_->GetElementById("viewport")) el->SetClass("hidden", !scene);
     if (Rml::Element* el = document_->GetElementById("logic-board-panel")) el->SetClass("hidden", !logic);
-    if (Rml::Element* el = document_->GetElementById("center-tab-scene")) el->SetClass("active", !logic);
+    if (Rml::Element* el = document_->GetElementById("script-editor-panel")) el->SetClass("hidden", !script);
+    if (Rml::Element* el = document_->GetElementById("center-tab-scene")) el->SetClass("active", scene);
     if (Rml::Element* el = document_->GetElementById("center-tab-logic")) el->SetClass("active", logic);
-    if (Rml::Element* el = document_->GetElementById("scene-context-tools")) el->SetClass("hidden", logic);
+    if (Rml::Element* el = document_->GetElementById("center-tab-script")) el->SetClass("active", script);
+    if (Rml::Element* el = document_->GetElementById("scene-context-tools")) el->SetClass("hidden", !scene);
     if (Rml::Element* el = document_->GetElementById("logic-context-tools")) el->SetClass("hidden", !logic);
+    if (Rml::Element* el = document_->GetElementById("script-context-tools")) el->SetClass("hidden", !script);
     // Rules are edited inline in the board. Keeping the entity Inspector visible
     // would present a second, unrelated target (instance vs owning Object Type).
     // Its inline width remains untouched and is restored automatically in Scene.
-    if (Rml::Element* el = document_->GetElementById("split-right")) el->SetClass("hidden", logic);
-    if (Rml::Element* el = document_->GetElementById("right-col")) el->SetClass("hidden", logic);
+    if (Rml::Element* el = document_->GetElementById("split-right")) el->SetClass("hidden", !scene);
+    if (Rml::Element* el = document_->GetElementById("right-col")) el->SetClass("hidden", !scene);
 }
 
 void EditorUi::refreshLayout() {
@@ -568,6 +620,20 @@ void EditorUi::setProjectFileHandlers(ProjectFileRequest newProject,
 
 void EditorUi::setImportHandler(ImportAssetRequest importAsset) {
     importAssetRequest_ = std::move(importAsset);
+}
+
+void EditorUi::setCreateScriptHandler(ProjectFileRequest createScript) {
+    createScriptRequest_ = std::move(createScript);
+}
+
+void EditorUi::setScriptEditorHandlers(ScriptAssetRequest openScript,
+                                       ScriptAssetRequest saveScript,
+                                       ProjectFileRequest saveAllScripts,
+                                       ScriptCloseRequest closeScript) {
+    openScriptRequest_ = std::move(openScript);
+    saveScriptRequest_ = std::move(saveScript);
+    saveAllScriptsRequest_ = std::move(saveAllScripts);
+    closeScriptRequest_ = std::move(closeScript);
 }
 
 void EditorUi::setImportImageForAnimationHandler(ImportImageRequest importImage) {
@@ -704,6 +770,9 @@ void EditorUi::showPendingAssetMenu() {
             for (const FontAssetDef& asset : doc.fontAssets)
                 if (asset.assetId == request.assetId) { exists = true; break; }
             break;
+        case AssetMenuKind::Script:
+            exists = coordinator_.document().hasScriptAsset(request.assetId);
+            break;
     }
     if (!exists) return;
 
@@ -738,7 +807,8 @@ void EditorUi::showPendingAssetMenu() {
       : isTileset ? "remove-tileset"
       : isGeneratedSfx ? "remove-generated-sfx"
       : request.kind == AssetMenuKind::Audio ? "remove-audio-asset"
-                                             : "remove-font-asset";
+      : request.kind == AssetMenuKind::Font ? "remove-font-asset"
+                                            : "remove-script-asset";
     setEntry("actx-delete", true, removeAction, request.assetId);
 
     menu->SetProperty("left", std::to_string(request.x) + "px");
@@ -1287,7 +1357,11 @@ void EditorUi::refreshToolbar() {
     if (!document_) return;
     const bool playing = coordinator_.isPlaying();
     const bool logicWorkspace =
-        coordinator_.state().logicBoardEditor.mode == CenterWorkspaceMode::Logic;
+        coordinator_.state().centerWorkspaceMode == CenterWorkspaceMode::Logic;
+    const bool scriptWorkspace =
+        coordinator_.state().centerWorkspaceMode == CenterWorkspaceMode::Script;
+    const bool sceneWorkspace =
+        coordinator_.state().centerWorkspaceMode == CenterWorkspaceMode::Scene;
     // Entering Play freezes authoring: an open context menu must not linger.
     if (playing) hideContextMenus();
 
@@ -1338,15 +1412,25 @@ void EditorUi::refreshToolbar() {
     setEnabled("btn-play-project", !playing && coordinator_.canPlayProject());
     setEnabled("btn-play-scene",   !playing && coordinator_.canPlayCurrentScene());
     setEnabled("btn-stop",         playing);
-    // Undo/Redo are derived affordances: available only with history and outside Play.
-    setEnabledBoth("btn-undo", "menu-undo", !playing && coordinator_.canUndo());
-    setEnabledBoth("btn-redo", "menu-redo", !playing && coordinator_.canRedo());
+    const ScriptEditorBuffer* scriptBuffer = coordinator_.state().scriptEditor.active();
+    // In Script workspace the global toolbar/menu is the visible editor
+    // history affordance. A click necessarily blurs the textarea before this
+    // handler runs, so route it by workspace; keyboard routing remains strictly
+    // focus-based in the listener/application input path.
+    const bool scriptUndoRoute = scriptWorkspace && scriptBuffer;
+    setEnabledBoth("btn-undo", "menu-undo", scriptUndoRoute
+        ? scriptBuffer->canUndo() : (!playing && coordinator_.canUndo()));
+    setEnabledBoth("btn-redo", "menu-redo", scriptUndoRoute
+        ? scriptBuffer->canRedo() : (!playing && coordinator_.canRedo()));
+    setEnabled("btn-script-save", scriptWorkspace && scriptBuffer && scriptBuffer->dirty());
+    setEnabled("btn-script-save-all", scriptWorkspace
+        && coordinator_.state().scriptEditor.anyDirty());
     // Select/Pan are always present, unlike the Tilemap tools (Brush/Eraser/
     // Picker/Rectangle/Fill), which only render inside a selected tilemap's
     // own Inspector section - both read and write the same EditorState
     // ::activeTool, no second local state.
     {
-        const bool toolActionable = !playing && !logicWorkspace
+        const bool toolActionable = !playing && sceneWorkspace
             && coordinator_.document().findScene(coordinator_.state().activeSceneId) != nullptr;
         const EditorTool activeTool = coordinator_.state().activeTool;
         setEnabled("btn-tool-select", toolActionable);
@@ -1375,21 +1459,21 @@ void EditorUi::refreshToolbar() {
     // with no scene there is nothing to frame or draw a grid over, so a click
     // would be a no-op the coordinator now also rejects (defence in depth,
     // not just a greyed-out button).
-    const bool gridActionable = !playing && !logicWorkspace && hasScene;
+    const bool gridActionable = !playing && sceneWorkspace && hasScene;
     setEnabledBoth("btn-fit-view",     "menu-fit-view",     gridActionable);
     setEnabledBoth("btn-grid-visible", "menu-grid-visible", gridActionable);
     // Zoom, unlike Grid/Snap/Fit, tracks the PlaySession's scene while
     // playing (see the zoom-in/out and reset-zoom handlers) — Play always has
     // a real scene, so it stays available then. Only truly nothing-to-zoom
     // (no scene, not playing) disables it.
-    const bool canZoom = !logicWorkspace && (playing || hasScene);
+    const bool canZoom = sceneWorkspace && (playing || hasScene);
     setEnabledBoth("btn-zoom-in",  "menu-zoom-in",   canZoom);
     setEnabledBoth("btn-zoom-out", "menu-zoom-out",  canZoom);
     setEnabledBoth("toolbar-zoom", "menu-reset-zoom", canZoom);
 
     // Central Scene View empty state: shown only when no scene exists to edit.
     if (Rml::Element* empty = document_->GetElementById("viewport-empty")) {
-        empty->SetClass("hidden", hasScene || playing || logicWorkspace);
+        empty->SetClass("hidden", hasScene || playing || !sceneWorkspace);
     }
 
     const EditorSceneViewState& view = coordinator_.sceneView(currentViewSceneId());
@@ -1449,7 +1533,9 @@ void EditorUi::refreshStatusBar() {
     if (!document_) return;
     const bool playing = coordinator_.isPlaying();
     const bool logicWorkspace =
-        coordinator_.state().logicBoardEditor.mode == CenterWorkspaceMode::Logic;
+        coordinator_.state().centerWorkspaceMode == CenterWorkspaceMode::Logic;
+    const bool scriptWorkspace =
+        coordinator_.state().centerWorkspaceMode == CenterWorkspaceMode::Script;
 
     std::string contextText = playing ? "Play" : "Edit";
     if (logicWorkspace) {
@@ -1457,6 +1543,14 @@ void EditorUi::refreshStatusBar() {
         if (coordinator_.state().logicBoardEditor.objectTypeId)
             contextText += "  |  " + *coordinator_.state().logicBoardEditor.objectTypeId;
         if (playing) contextText += " (read-only)";
+    } else if (scriptWorkspace) {
+        contextText += "  |  Script";
+        if (const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.active()) {
+            if (const ScriptAssetDef* asset = coordinator_.document().findScriptAsset(
+                    buffer->scriptAssetId)) {
+                contextText += "  |  " + (asset->name.empty() ? asset->assetId : asset->name);
+            }
+        }
     } else {
         const SceneDef* scene = nullptr;
         if (playing && coordinator_.playSession()) {
@@ -1481,7 +1575,8 @@ void EditorUi::refreshStatusBar() {
 
     std::string projectName = coordinator_.document().data().projectName;
     if (projectName.empty()) projectName = "Untitled";
-    const bool dirty = coordinator_.document().isDirty();
+    const bool dirty = coordinator_.document().isDirty()
+        || coordinator_.state().scriptEditor.anyDirty();
     if (dirty) projectName += "  *";
     if (Rml::Element* project = document_->GetElementById("status-project")) {
         project->SetInnerRML(escapeRml(projectName));
@@ -1932,9 +2027,29 @@ bool EditorUi::handleToolbarAction(const std::string& action, const std::string&
     if (action == "fit-view-to-bounds") {
         if (fitViewRequest_) fitViewRequest_();   // workspace-only (camera), no command
     } else if (action == "undo") {
-        coordinator_.undo();
+        if (coordinator_.state().centerWorkspaceMode == CenterWorkspaceMode::Script
+            && coordinator_.state().scriptEditor.active()) scriptEditor_.undo();
+        else coordinator_.undo();
     } else if (action == "redo") {
-        coordinator_.redo();
+        if (coordinator_.state().centerWorkspaceMode == CenterWorkspaceMode::Script
+            && coordinator_.state().scriptEditor.active()) scriptEditor_.redo();
+        else coordinator_.redo();
+    } else if (action == "open-script-workspace") {
+        coordinator_.apply(SwitchCenterWorkspaceIntent{CenterWorkspaceMode::Script});
+    } else if (action == "activate-script") {
+        coordinator_.apply(ActivateScriptBufferIntent{arg});
+    } else if (action == "save-script") {
+        if (const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.active()) {
+            if (saveScriptRequest_) saveScriptRequest_(buffer->scriptAssetId);
+        }
+    } else if (action == "save-all-scripts") {
+        if (saveAllScriptsRequest_) saveAllScriptsRequest_();
+    } else if (action == "close-script") {
+        if (closeScriptRequest_) closeScriptRequest_(arg);
+    } else if (action == "find-script" || action == "commit-script-search") {
+        scriptEditor_.findNext(value);
+    } else if (action == "goto-script-line" || action == "commit-script-line") {
+        scriptEditor_.goToLine(value);
     } else if (action == "reset-zoom") {
         coordinator_.apply(SetViewportZoomIntent{currentViewSceneId(), 1.0f});   // target unchanged
     } else if (action == "toggle-grid-visible") {
@@ -1987,7 +2102,7 @@ bool EditorUi::handleHierarchyAction(const std::string& action, const std::strin
                                      const std::string& value, EntityId selected) {
     if (action == "select-entity") {
         const EntityId entityId = static_cast<EntityId>(std::strtoul(arg.c_str(), nullptr, 10));
-        const bool logicWorkspace = coordinator_.state().logicBoardEditor.mode
+        const bool logicWorkspace = coordinator_.state().centerWorkspaceMode
             == CenterWorkspaceMode::Logic;
         const EditorOperationResult selectedResult = coordinator_.apply(SelectEntityIntent{entityId});
         // Hierarchy navigation in Logic explicitly retargets the board once.
@@ -2093,6 +2208,8 @@ bool EditorUi::handleAssetsAction(const std::string& action, const std::string& 
                                   const std::string& value) {
     if (action == "set-asset-filter") {
         coordinator_.apply(SetAssetFilterIntent{value});
+    } else if (action == "open-script") {
+        if (openScriptRequest_) openScriptRequest_(arg);
     } else if (action == "import-image") {
         if (coordinator_.isPlaying()) {
             coordinator_.logWarning("Stop Play before importing assets");
@@ -2111,16 +2228,63 @@ bool EditorUi::handleAssetsAction(const std::string& action, const std::string& 
             return true;
         }
         if (importAssetRequest_) importAssetRequest_(AssetKind::Font);
+    } else if (action == "import-script") {
+        if (coordinator_.isPlaying()) {
+            coordinator_.logWarning("Stop Play before importing scripts");
+            return true;
+        }
+        if (importAssetRequest_) importAssetRequest_(AssetKind::Script);
+    } else if (action == "create-script") {
+        if (coordinator_.isPlaying()) {
+            coordinator_.logWarning("Stop Play before creating scripts");
+            return true;
+        }
+        if (createScriptRequest_) createScriptRequest_();
     } else if (action == "remove-image-asset") {
         if (!arg.empty()) coordinator_.execute(RemoveImageAssetCommand{arg});
     } else if (action == "remove-audio-asset") {
         if (!arg.empty()) coordinator_.execute(RemoveAudioAssetCommand{arg});
     } else if (action == "remove-font-asset") {
         if (!arg.empty()) coordinator_.execute(RemoveFontAssetCommand{arg});
+    } else if (action == "remove-script-asset") {
+        if (!arg.empty() && (!closeScriptRequest_ || closeScriptRequest_(arg)))
+            coordinator_.execute(RemoveScriptAssetCommand{arg});
     } else {
         return false;
     }
     return true;
+}
+
+void EditorUi::handleScriptTextChanged(const std::string& value) {
+    scriptEditor_.textChanged(value);
+}
+
+void EditorUi::handleScriptCursorChanged() {
+    scriptEditor_.cursorChanged();
+}
+
+void EditorUi::setScriptEditorFocused(bool focused) {
+    scriptEditor_.setFocused(focused);
+    refreshToolbar();
+}
+
+void EditorUi::handleScriptEditorShortcut(int key, bool control, bool shift) {
+    if (key == Rml::Input::KI_TAB) {
+        scriptEditor_.insertSpacesForTab();
+    } else if (control && key == Rml::Input::KI_S) {
+        if (const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.active()) {
+            if (saveScriptRequest_) saveScriptRequest_(buffer->scriptAssetId);
+        }
+    } else if (control && key == Rml::Input::KI_F) {
+        if (document_) {
+            if (Rml::Element* search = document_->GetElementById("script-toolbar-search"))
+                search->Focus(true);
+        }
+    } else if (control && (key == Rml::Input::KI_Y || (shift && key == Rml::Input::KI_Z))) {
+        scriptEditor_.redo();
+    } else if (control && key == Rml::Input::KI_Z) {
+        scriptEditor_.undo();
+    }
 }
 
 bool EditorUi::handleGeneratedSfxAction(const std::string& action, const std::string& arg,

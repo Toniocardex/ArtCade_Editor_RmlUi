@@ -38,6 +38,8 @@ std::string importMenu(bool disabled) {
          + entry("import-image", "Image")
          + entry("import-audio", "Audio")
          + entry("import-font",  "Font")
+         + entry("import-script", "Lua Script")
+         + entry("create-script", "Create Lua Script")
          + entry("create-generated-sfx", "Generated SFX")
          + "</div></div>";
 }
@@ -215,6 +217,18 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
                                "<span class=\"asset-meta\">"
                                    + std::to_string(asset.defaultPixelSize) + "px</span>",
                                menuAffordance("font", asset.assetId));
+            ++shown;
+        }
+    }
+
+    // -- Scripts: external authoring source metadata ---------------------------
+    groups += groupTitle("Scripts", doc.scriptAssets.size());
+    for (const ScriptAssetDef& asset : doc.scriptAssets) {
+        if (matchesAssetFilter(filter, {asset.name, asset.assetId, "Scripts",
+                                        asset.sourcePath})) {
+            groups += assetRow("&#xf2d2;", assetDisplayName(asset.name, asset.assetId),
+                               asset.sourcePath, "open-script", asset.assetId, "",
+                               menuAffordance("script", asset.assetId));
             ++shown;
         }
     }

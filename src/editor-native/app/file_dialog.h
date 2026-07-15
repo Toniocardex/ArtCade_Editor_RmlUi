@@ -16,5 +16,6 @@ std::optional<std::filesystem::path> saveProjectFileDialog(
 std::optional<std::filesystem::path> openImageFileDialog();
 std::optional<std::filesystem::path> openAudioFileDialog();
 std::optional<std::filesystem::path> openFontFileDialog();
+std::optional<std::filesystem::path> openScriptFileDialog();
 
 } // namespace ArtCade::EditorNative
