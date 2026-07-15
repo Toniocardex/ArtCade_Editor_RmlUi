@@ -1,6 +1,8 @@
 #include "editor-native/app/editor_coordinator.h"
 
+#include "editor-native/commands/logic_board_commands.h"
 #include "editor-native/view/scene_grid.h"
+#include "logic-core.h"
 
 #include <cassert>
 #include <algorithm>
@@ -38,6 +40,17 @@ SceneId normalizedSceneId(const ProjectDocument& document) {
     }
     return {};
 }
+
+const LogicRuleDef* findLogicRule(const ProjectDocument& document,
+                                  const ObjectTypeId& objectTypeId,
+                                  const LogicRuleId& ruleId) {
+    const EntityDef* objectType = document.findObjectType(objectTypeId);
+    if (!objectType || !objectType->logicBoard) return nullptr;
+    const auto rule = std::find_if(
+        objectType->logicBoard->rules.begin(), objectType->logicBoard->rules.end(),
+        [&](const LogicRuleDef& candidate) { return candidate.id == ruleId; });
+    return rule == objectType->logicBoard->rules.end() ? nullptr : &*rule;
+}
 } // namespace
 
 EditorCoordinator::EditorCoordinator(ProjectDoc doc)
@@ -46,6 +59,40 @@ EditorCoordinator::EditorCoordinator(ProjectDoc doc)
     if (state_.activeSceneId.empty() && !document_.data().scenes.empty()) {
         state_.activeSceneId = document_.data().scenes.begin()->first;
     }
+}
+
+EditorOperationResult EditorCoordinator::apply(const ChangeLogicTriggerTypeIntent& intent) {
+    return execute(ReplaceLogicTriggerCommand{
+        intent.objectTypeId, intent.ruleId,
+        Logic::makeDefaultBlock(intent.typeId, Logic::BlockKind::Trigger)});
+}
+
+EditorOperationResult EditorCoordinator::apply(const AddLogicActionTypeIntent& intent) {
+    const LogicRuleDef* rule = findLogicRule(document_, intent.objectTypeId, intent.ruleId);
+    const std::size_t insertionIndex = rule ? rule->actions.size() : 0;
+    return execute(AddLogicActionCommand{
+        intent.objectTypeId, intent.ruleId,
+        Logic::makeDefaultBlock(intent.typeId, Logic::BlockKind::Action),
+        insertionIndex});
+}
+
+EditorOperationResult EditorCoordinator::apply(const ChangeLogicActionTypeIntent& intent) {
+    return execute(ChangeLogicActionTypeCommand{
+        intent.objectTypeId, intent.ruleId, intent.actionIndex, intent.typeId});
+}
+
+EditorOperationResult EditorCoordinator::apply(const AddLogicConditionTypeIntent& intent) {
+    const LogicRuleDef* rule = findLogicRule(document_, intent.objectTypeId, intent.ruleId);
+    const std::size_t insertionIndex = rule ? rule->conditions.size() : 0;
+    return execute(AddLogicConditionCommand{
+        intent.objectTypeId, intent.ruleId,
+        Logic::makeDefaultBlock(intent.typeId, Logic::BlockKind::Condition),
+        insertionIndex});
+}
+
+EditorOperationResult EditorCoordinator::apply(const ChangeLogicConditionTypeIntent& intent) {
+    return execute(ChangeLogicConditionTypeCommand{
+        intent.objectTypeId, intent.ruleId, intent.conditionIndex, intent.typeId});
 }
 
 const EditorSceneViewState& EditorCoordinator::sceneView(const SceneId& id) const {

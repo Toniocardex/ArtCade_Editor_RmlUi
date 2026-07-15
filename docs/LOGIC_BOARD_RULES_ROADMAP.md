@@ -10,13 +10,15 @@
 | 2A. Catalog foundation e picker | Completata | Registry descriptor-driven, compatibilitÃ  e picker RmlUi. |
 | 2B. Personaggio controllabile | Completata | Input edge/held e intent riusati dai controller esistenti. |
 | 2C. Collisioni e `EventOther` | Completata | Enter/exit deterministici, filtro per Object Type e `Destroy Self` differito. |
-| 2D. Animazione e audio | In corso | Action animazione completate; prossima slice 2D.2 audio. |
+| 2D. Animazione e audio | Completata | Action animazione/audio complete in Editor Play e runtime esportato; parità host verificata nativa e WASM. |
 | 2D.0A. Schema e migrazione ownership | Completata | Schema v4 type-owned, override sparse, promozione deterministica, round-trip e idempotenza. |
 | 2D.0B. Resolver canonico Edit/Play | Completata | Un solo `resolveSpritePresentation`; Viewport, validazione e `PlaySession` consumano gli stessi valori risolti. |
 | 2D.0C. Command, Inspector e Undo/Redo | Completata | Command distinti per authority, Undo esatto, badge ownership e Reset al default. |
 | 2D.0D. Invarianti e cleanup legacy | Completata | Validator type-owned, guardie Logic Board, asset delete/Undo v4 e rimozione dei Command instance-owned legacy. |
 | 2D.1. Action animazione | Completata | `animation.play_clip`, `animation.stop` e `animation.set_playback_speed` descriptor-driven, validate, compilate e mutate in PlaySession. |
-| 2D.2. Action audio | Da fare | Successiva alle Action animazione. |
+| 2D.2. Action audio | Completata | `audio.play_sound` usa solo `AudioAssetDef` statici; la policy core Authoring/Executable rende i draft salvabili ma non eseguibili, e la cache Raylib play-scoped viene rilasciata su Stop. |
+| 2D.X. Runtime Logic Host parity | Completata | Adapter non astratto, destroy differito con scope cleanup, animazione asset-scoped, audio risolto; target game nativo/WASM verdi. |
+| 2D.3. Entity utilities | Da fare | Prossima slice: contratto dedicato per `Translate` e `Is Visible`. |
 | 2E. Variabili | Da fare | Bloccata dalla decisione di ownership della slice. |
 | 2F. Tempo e messaggi | Da fare | Dopo contratto dedicato. |
 
@@ -172,6 +174,37 @@ esattamente l'assenza tramite il solo flag migration-only `capabilityEnabled`.
 
 **Demo/DoD:** salto → Jump + clip + suono; round-trip di tutti gli ID; asset/clip mancanti, replace e Stop non lasciano handle o callback residue.
 
+#### 2D.2 — Chiusura gate authoring/audio
+
+- `logic-core` è l'unica autorità della validazione: `ValidationMode::Authoring`
+  classifica come warning soltanto una selezione asset esplicitamente vuota;
+  ID non vuoti ma mancanti, asset Stream e valori invalidi restano errori.
+- Command, Save e Load consumano la policy Authoring senza filtrare codici
+  diagnostici; compiler, Play ed export usano sempre la policy Executable.
+- Le conferme dei picker Add/Change attraversano Intent semantici e un solo
+  Command atomico; Undo/Redo, revision e dirty restano quelli del Command.
+- Il percorso coperto è lineare: selezione senza asset → modifica volume →
+  Save/Load draft → import StaticSound → scelta asset → Save → Play.
+- La cache `Sound` dell'Editor Play è posseduta dall'applicazione ma ha lifetime
+  play-scoped: viene svuotata sia su Start sia su Stop e allo shutdown.
+
+#### 2D.X — Runtime Logic Host parity (completata)
+
+- `RuntimeLogicHostAdapter` è un boundary sottile e implementa `isObjectType`,
+  `requestDestroy`, le tre operazioni Animation e `playSound`; una
+  `static_assert` localizza immediatamente ogni futura divergenza
+  dall'interfaccia condivisa.
+- Il `World` materializzato è l'autorità per esistenza/tipo, destroy differito
+  e stato animation. Le clip sono identificate dalla coppia stabile
+  `(animationAssetId, clipId)` e la velocità è per-entità.
+- L'Audio manager mantiene una proiezione runtime di `AudioAssetDef` e rifiuta
+  entità inattive, asset mancanti/stream, path vuoti e volumi fuori range.
+- La rimozione strutturale cancella lo scope Logic associato e pulisce lo stato
+  animation senza invalidare il dispatch corrente.
+- Verifiche: build `game` nativa e WASM; test host parity, animator, lifecycle
+  destroy e smoke combinato Key Pressed → Is Grounded → Jump → Play Clip →
+  Play Sound.
+
 ### 2E. Variabili
 
 **Obiettivo:** introdurre stato gameplay mutabile con ownership e scope espliciti. È una slice autonoma, non un'aggiunta al catalogo precedente.
@@ -224,7 +257,9 @@ Una famiglia è considerata completata solo quando percorre integralmente descri
         ↓
 2C Collisioni + EventOther         → pickup/hazard
         ↓
-2D Animazione + audio              → feedback gameplay
+2D Animazione + audio + parity     → feedback gameplay coerente con export
+        ↓
+2D.3 Entity utilities              → Translate / Is Visible
         ↓
 2E Variabili                        → stato gameplay
         ↓

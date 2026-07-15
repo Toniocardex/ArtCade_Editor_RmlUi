@@ -10,6 +10,7 @@
 #include "editor-native/ui/logic_board_editor_controller.h"
 #include "editor-native/ui/sprite_animation_editor_controller.h"
 #include "editor-native/ui/tileset_editor_controller.h"
+#include "editor-native/ui/ui_markup.h"
 
 #include <cstddef>
 #include <functional>
@@ -33,9 +34,6 @@ enum class HierarchyMenuKind { Scene, Entity };
 enum class AssetMenuKind { Image, Animation, Tileset, GeneratedSfx, Audio, Font };
 // Parses the kind tag carried by open-asset-menu args ("image", "anim", ...).
 std::optional<AssetMenuKind> parseAssetMenuKind(const std::string& tag);
-
-/** Escape &, <, > so authored names are safe inside generated RML. */
-std::string escapeRml(const std::string& text);
 
 // Presentation name of an asset: the authored name (id fallback) minus the
 // ".anim"/".tileset" suffix that generated ids historically embed — group

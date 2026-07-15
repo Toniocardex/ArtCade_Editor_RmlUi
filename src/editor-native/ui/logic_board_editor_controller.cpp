@@ -158,15 +158,13 @@ bool LogicBoardEditorController::handleAction(
         || action == "add-logic-rule" || action == "remove-logic-rule"
         || action == "move-logic-rule-up" || action == "move-logic-rule-down"
         || action == "toggle-logic-rule" || action == "change-logic-trigger"
-        || action == "set-logic-key" || action == "add-logic-action"
-        || action == "add-logic-action-type"
+        || action == "set-logic-key" || action == "add-logic-action-type"
         || action == "remove-logic-action" || action == "move-logic-action-up"
         || action == "move-logic-action-down" || action == "change-logic-action"
         || action == "toggle-logic-visible" || action == "commit-logic-position-x"
         || action == "commit-logic-position-y" || action == "set-logic-animation-asset"
         || action == "set-logic-animation-clip" || action == "commit-logic-animation-speed"
         || action == "set-logic-audio-asset" || action == "commit-logic-audio-volume"
-        || action == "add-logic-condition"
         || action == "add-logic-condition-type" || action == "change-logic-condition"
         || action == "remove-logic-condition" || action == "move-logic-condition-up"
         || action == "move-logic-condition-down" || action == "toggle-logic-condition-expected"
@@ -222,25 +220,14 @@ bool LogicBoardEditorController::handleAction(
         if (const LogicRuleDef* rule = ruleById(arg))
             coordinator_.execute(SetLogicRuleEnabledCommand{objectTypeId, arg, !rule->enabled});
     } else if (action == "change-logic-trigger") {
-        LogicBlockDef trigger = Logic::makeDefaultBlock(value, Logic::BlockKind::Trigger);
-        if (!trigger.typeId.empty())
-            coordinator_.execute(ReplaceLogicTriggerCommand{objectTypeId, arg, std::move(trigger)});
+        coordinator_.apply(ChangeLogicTriggerTypeIntent{objectTypeId, arg, value});
     } else if (action == "set-logic-key") {
         if (const auto key = Logic::logicKeyFromName(value)) {
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, arg, LogicPropertyTarget::Trigger, 0, "key", *key});
         }
-    } else if (action == "add-logic-action") {
-        if (const LogicRuleDef* rule = ruleById(arg)) {
-            coordinator_.execute(AddLogicActionCommand{
-                objectTypeId, arg, Logic::makeDefaultAction(), rule->actions.size()});
-        }
     } else if (action == "add-logic-action-type") {
-        if (const LogicRuleDef* rule = ruleById(arg)) {
-            LogicBlockDef action = Logic::makeDefaultBlock(value, Logic::BlockKind::Action);
-            if (!action.typeId.empty()) coordinator_.execute(AddLogicActionCommand{
-                objectTypeId, arg, std::move(action), rule->actions.size()});
-        }
+        coordinator_.apply(AddLogicActionTypeIntent{objectTypeId, arg, value});
     } else if (action == "remove-logic-action" || action == "move-logic-action-up"
                || action == "move-logic-action-down" || action == "change-logic-action"
                || action == "toggle-logic-visible" || action == "commit-logic-position-x"
@@ -261,7 +248,8 @@ bool LogicBoardEditorController::handleAction(
                 : std::min(index + 1, rule->actions.size() - 1);
             coordinator_.execute(MoveLogicActionCommand{objectTypeId, ruleId, index, destination});
         } else if (action == "change-logic-action") {
-            coordinator_.execute(ChangeLogicActionTypeCommand{objectTypeId, ruleId, index, value});
+            coordinator_.apply(ChangeLogicActionTypeIntent{
+                objectTypeId, ruleId, index, value});
         } else if (action == "toggle-logic-visible") {
             bool visible = true;
             if (const LogicPropertyDef* p = Logic::findProperty(rule->actions[index], "visible"))
@@ -330,17 +318,8 @@ bool LogicBoardEditorController::handleAction(
                 objectTypeId, ruleId, LogicPropertyTarget::Action, index,
                 "volume", static_cast<double>(*parsed)});
         }
-    } else if (action == "add-logic-condition") {
-        if (const LogicRuleDef* rule = ruleById(arg)) {
-            coordinator_.execute(AddLogicConditionCommand{
-                objectTypeId, arg, Logic::makeDefaultCondition(), rule->conditions.size()});
-        }
     } else if (action == "add-logic-condition-type") {
-        if (const LogicRuleDef* rule = ruleById(arg)) {
-            LogicBlockDef condition = Logic::makeDefaultBlock(value, Logic::BlockKind::Condition);
-            if (!condition.typeId.empty()) coordinator_.execute(AddLogicConditionCommand{
-                objectTypeId, arg, std::move(condition), rule->conditions.size()});
-        }
+        coordinator_.apply(AddLogicConditionTypeIntent{objectTypeId, arg, value});
     } else if (action == "remove-logic-condition" || action == "move-logic-condition-up"
                || action == "move-logic-condition-down"
                || action == "toggle-logic-condition-expected"
@@ -359,7 +338,8 @@ bool LogicBoardEditorController::handleAction(
                 : std::min(index + 1, rule->conditions.size() - 1);
             coordinator_.execute(MoveLogicConditionCommand{objectTypeId, ruleId, index, destination});
         } else if (action == "change-logic-condition") {
-            coordinator_.execute(ChangeLogicConditionTypeCommand{objectTypeId, ruleId, index, value});
+            coordinator_.apply(ChangeLogicConditionTypeIntent{
+                objectTypeId, ruleId, index, value});
         } else if (action == "set-logic-collision-object-type") {
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, ruleId, LogicPropertyTarget::Condition, index,

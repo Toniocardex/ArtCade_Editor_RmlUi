@@ -151,6 +151,11 @@ public:
     EditorOperationResult apply(const OpenLogicBoardIntent& intent);
     EditorOperationResult apply(const SetLogicBoardTabIntent& intent);
     EditorOperationResult apply(const SetLogicBoardSearchIntent& intent);
+    EditorOperationResult apply(const ChangeLogicTriggerTypeIntent& intent);
+    EditorOperationResult apply(const AddLogicActionTypeIntent& intent);
+    EditorOperationResult apply(const ChangeLogicActionTypeIntent& intent);
+    EditorOperationResult apply(const AddLogicConditionTypeIntent& intent);
+    EditorOperationResult apply(const ChangeLogicConditionTypeIntent& intent);
     EditorOperationResult apply(const SetViewportZoomIntent& intent);
     EditorOperationResult apply(const PanViewportIntent& intent);
     EditorOperationResult apply(const SetSceneGridVisibilityIntent& intent);
@@ -217,12 +222,9 @@ public:
 
 private:
     EditorOperationResult executeOwned(std::unique_ptr<EditorCommand> command);
-    // Every apply(SomeIntent) overload funnels its result through here before
-    // returning, exactly as executeOwned() does for commands: a rejected
-    // intent is still a real error and must be visible (contract: "ogni
-    // errore deve essere... non silenzioso"), not just a return value the
-    // caller happens to discard. Warning, not Error - an intent is workspace
-    // -only, never a rejected authoring mutation like a failed command.
+    // Workspace-only apply(SomeIntent) overloads funnel their result through
+    // here. Authoring intents delegate to executeOwned() through one concrete
+    // Command, which already reports rejected mutations as errors.
     EditorOperationResult finishIntent(EditorOperationResult result);
     void accumulate(EditorInvalidation invalidation) { pending_ |= invalidation; }
     void appendConsole(ConsoleMessage::Level level, std::string text);

@@ -339,6 +339,13 @@ int EditorApp::run(int argc, char** argv) {
     // reused for every subsequent firing this Play session. Keyed by AssetId,
     // matching RuntimeAudioCommand/PlayAssetCatalogSnapshot::audioAssets.
     std::unordered_map<AssetId, Sound> playSoundCache;
+    const auto clearPlaySoundCache = [&] {
+        for (auto& [unused, sound] : playSoundCache) {
+            (void)unused;
+            UnloadSound(sound);
+        }
+        playSoundCache.clear();
+    };
 
     const auto startSfxJob = [&](SfxJobKind kind, const std::string& id) {
         if (coordinator.isPlaying()) {
@@ -950,10 +957,10 @@ int EditorApp::run(int argc, char** argv) {
         // other asset kind) — otherwise a Generated SFX regenerated between two
         // Play sessions would keep playing back whatever was cached from the
         // first one.
-        if (playing && !previousPlaying) {
-            for (auto& [unused, sound] : playSoundCache) { (void)unused; UnloadSound(sound); }
-            playSoundCache.clear();
-        }
+        // The cache is Play-scoped even though EditorApp owns the Raylib
+        // handles. Clear on both boundaries: Stop releases resources now;
+        // Start also guarantees a fresh projection after project/asset changes.
+        if (playing != previousPlaying) clearPlaySoundCache();
         if (playing && !previousPlaying) gameplayInputFocused = !logicWorkspace;
         if (!playing || logicWorkspace || rml.textFocus || !IsWindowFocused() || popupOpen
             || animationEditorOpen || tilesetEditorOpen)
@@ -1488,8 +1495,7 @@ int EditorApp::run(int argc, char** argv) {
         sfxJob.reset();
     }
     sfxPreview.unload();
-    for (auto& [unused, sound] : playSoundCache) { (void)unused; UnloadSound(sound); }
-    playSoundCache.clear();
+    clearPlaySoundCache();
     if (ownsSfxAudioDevice && IsAudioDeviceReady()) CloseAudioDevice();
     textureCache.clear();
     unloadCanvasFont(canvasFont);   // GPU atlas: released before CloseWindow

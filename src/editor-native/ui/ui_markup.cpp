@@ -4,6 +4,21 @@
 
 namespace ArtCade::EditorNative {
 
+std::string escapeRml(const std::string& text) {
+    std::string out;
+    out.reserve(text.size());
+    for (const char c : text) {
+        switch (c) {
+            case '&': out += "&amp;";  break;
+            case '<': out += "&lt;";   break;
+            case '>': out += "&gt;";   break;
+            case '"': out += "&quot;"; break;
+            default:  out += c;        break;
+        }
+    }
+    return out;
+}
+
 std::string iconMarkup(const char* codepoint) {
     return std::string("<span class=\"icon\">") + codepoint + "</span>";
 }

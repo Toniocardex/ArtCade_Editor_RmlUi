@@ -968,10 +968,16 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                 if (!parsed.ok) return DeserializeResult::failure(parsed.error);
                 // Object Types are decoded in file order; cross-type references
                 // are checked only after the complete catalog exists below.
-                const auto diagnostics = Logic::validateBoard(id, board, &def);
-                if (!diagnostics.empty()) {
+                const auto diagnostics = Logic::validateBoard(
+                    id, board, &def, nullptr, Logic::ValidationMode::Authoring);
+                const auto error = std::find_if(
+                    diagnostics.begin(), diagnostics.end(),
+                    [](const Logic::LogicDiagnostic& diagnostic) {
+                        return diagnostic.severity == Logic::DiagnosticSeverity::Error;
+                    });
+                if (error != diagnostics.end()) {
                     return DeserializeResult::failure(
-                        diagnostics.front().code + ": " + diagnostics.front().message);
+                        error->code + ": " + error->message);
                 }
                 def.logicBoard = std::move(board);
             }
@@ -1299,10 +1305,16 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
     for (const auto& [objectTypeId, type] : data.objectTypes) {
         if (type.logicBoard) {
             const auto diagnostics =
-                Logic::validateBoard(objectTypeId, *type.logicBoard, &type, &data);
-            if (!diagnostics.empty()) {
+                Logic::validateBoard(objectTypeId, *type.logicBoard, &type, &data,
+                                     Logic::ValidationMode::Authoring);
+            const auto error = std::find_if(
+                diagnostics.begin(), diagnostics.end(),
+                [](const Logic::LogicDiagnostic& diagnostic) {
+                    return diagnostic.severity == Logic::DiagnosticSeverity::Error;
+                });
+            if (error != diagnostics.end()) {
                 return DeserializeResult::failure(
-                    diagnostics.front().code + ": " + diagnostics.front().message);
+                    error->code + ": " + error->message);
             }
         }
         if (type.spriteRenderer) {

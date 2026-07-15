@@ -4,6 +4,9 @@
 
 namespace ArtCade::EditorNative {
 
+// Escapes user/project text before inserting it into generated RML markup.
+std::string escapeRml(const std::string& text);
+
 // Small, panel-agnostic RML markup fragments shared across panels. Nothing
 // here knows about any specific panel's wrapper markup or action names —
 // callers own their own wrapping (a `.prop-row`, a bare `<div>`, ...) and

@@ -49,21 +49,6 @@
 
 namespace ArtCade::EditorNative {
 
-std::string escapeRml(const std::string& text) {
-    std::string out;
-    out.reserve(text.size());
-    for (const char c : text) {
-        switch (c) {
-            case '&': out += "&amp;";  break;
-            case '<': out += "&lt;";   break;
-            case '>': out += "&gt;";   break;
-            case '"': out += "&quot;"; break;
-            default:  out += c;        break;
-        }
-    }
-    return out;
-}
-
 std::optional<AssetMenuKind> parseAssetMenuKind(const std::string& tag) {
     if (tag == "image")   return AssetMenuKind::Image;
     if (tag == "anim")    return AssetMenuKind::Animation;

@@ -30,9 +30,13 @@ bool sameBoard(const LogicBoardDef& a, const LogicBoardDef& b) {
 std::string validationError(const ProjectDocument& document, const ObjectTypeId& objectTypeId,
                             const LogicBoardDef& board) {
     const auto diagnostics = Logic::validateBoard(objectTypeId, board,
-        document.findObjectType(objectTypeId), &document.data());
-    return diagnostics.empty() ? std::string{}
-                               : diagnostics.front().code + ": " + diagnostics.front().message;
+        document.findObjectType(objectTypeId), &document.data(),
+        Logic::ValidationMode::Authoring);
+    for (const Logic::LogicDiagnostic& diagnostic : diagnostics) {
+        if (diagnostic.severity != Logic::DiagnosticSeverity::Error) continue;
+        return diagnostic.code + ": " + diagnostic.message;
+    }
+    return {};
 }
 
 EditorOperationResult changed(const ObjectTypeId& id) {
@@ -471,4 +475,3 @@ LogicRuleId nextLogicRuleId(const LogicBoardDef& board) {
 #undef UNDO_BOARD
 
 } // namespace ArtCade::EditorNative
-

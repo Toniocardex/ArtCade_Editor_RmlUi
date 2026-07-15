@@ -1,8 +1,13 @@
 #include "editor-native/app/editor_coordinator.h"
+#include "editor-native/app/project_file.h"
+#include "editor-native/commands/audio_asset_commands.h"
 #include "editor-native/commands/logic_board_commands.h"
 #include "editor-native/model/project_io.h"
+#include "editor-native/ui/logic_board_editor_controller.h"
 #include "logic-core.h"
 
+#include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <string>
 
@@ -494,6 +499,17 @@ static void testAnimationActionValidation() {
     noAnimator.imageAssets = data.imageAssets;
     noAnimator.objectTypes.at("Hero").logicBoard = std::move(board);
     CHECK(!ProjectValidator::validate(ProjectDocument{std::move(noAnimator)}).ok);
+
+    ProjectDoc draft = makeAnimationLogicProjectData();
+    LogicBoardDef draftBoard;
+    draftBoard.id = "logic:Hero";
+    LogicRuleDef draftRule = Logic::makeDefaultRule("rule-1");
+    draftRule.actions[0] = Logic::makeDefaultBlock(
+        Logic::kAnimationPlayClip, Logic::BlockKind::Action);
+    draftBoard.rules.push_back(draftRule);
+    draft.objectTypes.at("Hero").logicBoard = draftBoard;
+    CHECK(ProjectValidator::validate(ProjectDocument{draft}).ok);
+    CHECK(!Logic::compileProjectLogic(draft).ok());
 }
 
 static void testPlaySoundAction() {
@@ -547,6 +563,135 @@ static void testPlaySoundAction() {
     const LogicBlockDef& undone = coordinator.document().data().objectTypes.at("Hero")
         .logicBoard->rules[0].actions[0];
     CHECK(std::get<double>(Logic::findProperty(undone, "volume")->value) == 0.5);
+}
+
+static void testPlaySoundCanBeSelectedBeforeImportingAudio() {
+    EditorCoordinator coordinator{makeProjectData()};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& empty = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicRuleDef start = Logic::makeDefaultRule(nextLogicRuleId(empty));
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", start, 0}).ok);
+    CHECK(coordinator.apply(OpenLogicBoardIntent{"Hero"}).ok);
+    LogicBoardEditorController controller{coordinator, nullptr};
+
+    // Exercise the exact RmlUi action -> Controller -> Intent -> Coordinator ->
+    // Command path used by the picker, not merely the Command in isolation.
+    const uint64_t revisionBefore = coordinator.document().revision();
+    CHECK(controller.handleAction(
+        "change-logic-action", start.id + "|0", Logic::kAudioPlaySound, {}));
+    CHECK(coordinator.document().revision() == revisionBefore + 1);
+    CHECK(coordinator.document().isDirty());
+    const LogicBlockDef& selected = coordinator.document().data().objectTypes.at("Hero")
+        .logicBoard->rules[0].actions[0];
+    CHECK(selected.typeId == Logic::kAudioPlaySound);
+    const LogicPropertyDef* audioAsset = Logic::findProperty(selected, "audioAssetId");
+    CHECK(audioAsset && std::get<LogicAssetReference>(audioAsset->value).id.empty());
+    CHECK(ProjectValidator::validate(ProjectDocument{coordinator.document().data()}).ok);
+    CHECK(!Logic::compileProjectLogic(coordinator.document().data()).ok());
+    CHECK(!coordinator.playCurrentScene().ok);
+
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].actions[0].typeId == Logic::kSetVisible);
+    CHECK(coordinator.redo().ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].actions[0].typeId == Logic::kAudioPlaySound);
+
+    // Other edits remain linear while the draft is incomplete: no Command
+    // locally reinterprets the core diagnostic policy.
+    CHECK(controller.handleAction(
+        "commit-logic-audio-volume", start.id + "|0", "0.4", {}));
+    CHECK(std::abs(std::get<double>(Logic::findProperty(
+        coordinator.document().data().objectTypes.at("Hero").logicBoard
+            ->rules[0].actions[0], "volume")->value) - 0.4) < 1e-6);
+
+    // Drafts are real authoring states: Save/Load preserves them, while the
+    // executable validator above continues to block Play.
+    const std::filesystem::path draftPath =
+        std::filesystem::temp_directory_path() / "artcade-logic-audio-draft.artcade-project";
+    std::error_code cleanupError;
+    std::filesystem::remove(draftPath, cleanupError);
+    CHECK(saveProjectToFile(coordinator, draftPath).ok);
+    CHECK(!coordinator.document().isDirty());
+    EditorCoordinator reloaded;
+    CHECK(loadProjectFromFile(reloaded, draftPath).ok);
+    const LogicBlockDef& reloadedDraft = reloaded.document().data().objectTypes.at("Hero")
+        .logicBoard->rules[0].actions[0];
+    CHECK(reloadedDraft.typeId == Logic::kAudioPlaySound);
+    CHECK(std::get<LogicAssetReference>(
+        Logic::findProperty(reloadedDraft, "audioAssetId")->value).id.empty());
+    CHECK(std::abs(std::get<double>(
+        Logic::findProperty(reloadedDraft, "volume")->value) - 0.4) < 1e-6);
+
+    // Complete the same loaded draft through normal authoring Commands, then
+    // Save and Play successfully.
+    CHECK(reloaded.execute(AddAudioAssetCommand{
+        "jump.wav", "audio/jump.wav", AudioLoadMode::StaticSound}).ok);
+    CHECK(reloaded.apply(OpenLogicBoardIntent{"Hero"}).ok);
+    LogicBoardEditorController reloadedController{reloaded, nullptr};
+    CHECK(reloadedController.handleAction(
+        "set-logic-audio-asset", start.id + "|0", "jump.wav", {}));
+    CHECK(Logic::compileProjectLogic(reloaded.document().data()).ok());
+    CHECK(saveProjectToFile(reloaded, draftPath).ok);
+    CHECK(reloaded.playCurrentScene().ok);
+    CHECK(reloaded.drainAudioCommands().size() == 1);
+    CHECK(reloaded.stopPlaying().ok);
+    std::filesystem::remove(draftPath, cleanupError);
+
+    // The same policy applies to the "+ Add Action" catalog path.
+    EditorCoordinator addCoordinator{makeProjectData()};
+    CHECK(addCoordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& addEmpty =
+        *addCoordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicRuleDef addRule = Logic::makeDefaultRule(nextLogicRuleId(addEmpty));
+    CHECK(addCoordinator.execute(AddLogicRuleCommand{"Hero", addRule, 0}).ok);
+    CHECK(addCoordinator.apply(OpenLogicBoardIntent{"Hero"}).ok);
+    LogicBoardEditorController addController{addCoordinator, nullptr};
+    CHECK(addController.handleAction(
+        "add-logic-action-type", addRule.id, Logic::kAudioPlaySound, {}));
+    CHECK(addCoordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].actions[1].typeId == Logic::kAudioPlaySound);
+}
+
+static void testCatalogPickersShareIntentCommandPath() {
+    ProjectDoc project = makeProjectData();
+    project.objectTypes.at("Hero").platformerController = PlatformerControllerComponent{};
+    EditorCoordinator coordinator{std::move(project)};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& empty = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
+    CHECK(coordinator.apply(OpenLogicBoardIntent{"Hero"}).ok);
+    LogicBoardEditorController controller{coordinator, nullptr};
+
+    const uint64_t beforeTrigger = coordinator.document().revision();
+    CHECK(controller.handleAction(
+        "change-logic-trigger", rule.id, Logic::kKeyPressed, {}));
+    CHECK(coordinator.document().revision() == beforeTrigger + 1);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].trigger.typeId == Logic::kKeyPressed);
+
+    const uint64_t beforeCondition = coordinator.document().revision();
+    CHECK(controller.handleAction(
+        "add-logic-condition-type", rule.id, Logic::kIsGrounded, {}));
+    CHECK(coordinator.document().revision() == beforeCondition + 1);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].conditions[0].typeId == Logic::kIsGrounded);
+
+    // There is currently one condition type compatible with a key trigger;
+    // selecting it again still exercises the Change picker path and remains a
+    // canonical Command no-op (no artificial revision).
+    const uint64_t beforeNoOp = coordinator.document().revision();
+    CHECK(controller.handleAction(
+        "change-logic-condition", rule.id + "|0", Logic::kIsGrounded, {}));
+    CHECK(coordinator.document().revision() == beforeNoOp);
+
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].conditions.empty());
+    CHECK(coordinator.redo().ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].conditions.size() == 1);
 }
 
 static void testPlaySoundActionValidation() {
@@ -702,6 +847,8 @@ int main() {
     testAnimationActions();
     testAnimationActionValidation();
     testPlaySoundAction();
+    testPlaySoundCanBeSelectedBeforeImportingAudio();
+    testCatalogPickersShareIntentCommandPath();
     testPlaySoundActionValidation();
     testInvalidPlayIsAtomic();
     testWorkspaceTargetAndSwitchPolicy();

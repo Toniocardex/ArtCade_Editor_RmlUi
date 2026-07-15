@@ -11,9 +11,10 @@
 namespace ArtCade::EditorNative {
 
 // =============================================================================
-// EditorIntent — changes only the workspace/editor state, never the project,
-// never the undo stack (prompt §4). Plain value structs; the coordinator has a
-// typed apply() overload for each.
+// EditorIntent — semantic user requests. Workspace intents change only
+// EditorState and never enter Undo; explicitly authoring intents are resolved
+// by the Coordinator into exactly one EditorCommand. Plain value structs; no
+// UI pointers.
 // =============================================================================
 
 struct SelectEntityIntent {
@@ -41,6 +42,41 @@ struct SetLogicBoardTabIntent {
 
 struct SetLogicBoardSearchIntent {
     std::string search;
+};
+
+// Picker confirmations are semantic authoring requests: the controller carries
+// stable IDs only, while the Coordinator resolves append position/defaults and
+// dispatches exactly one undoable Command.
+struct ChangeLogicTriggerTypeIntent {
+    ObjectTypeId objectTypeId;
+    LogicRuleId  ruleId;
+    std::string  typeId;
+};
+
+struct AddLogicActionTypeIntent {
+    ObjectTypeId objectTypeId;
+    LogicRuleId  ruleId;
+    std::string  typeId;
+};
+
+struct ChangeLogicActionTypeIntent {
+    ObjectTypeId objectTypeId;
+    LogicRuleId  ruleId;
+    std::size_t  actionIndex = 0;
+    std::string  typeId;
+};
+
+struct AddLogicConditionTypeIntent {
+    ObjectTypeId objectTypeId;
+    LogicRuleId  ruleId;
+    std::string  typeId;
+};
+
+struct ChangeLogicConditionTypeIntent {
+    ObjectTypeId objectTypeId;
+    LogicRuleId  ruleId;
+    std::size_t  conditionIndex = 0;
+    std::string  typeId;
 };
 
 struct SetViewportZoomIntent {
