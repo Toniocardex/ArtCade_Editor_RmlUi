@@ -87,6 +87,16 @@ Both languages mutate runtime state only through `IGameplayRuntimeHost`, so the
 Editor Play adapter and standalone adapter implement one shared semantic
 contract rather than parallel script APIs.
 
+Saving source while Play is active never mutates or hot-reloads the current
+runtime. The Coordinator compares content fingerprints against the exact source
+snapshot materialized at Start and exposes one derived restart-required state
+only for linked assets. `Restart & Apply` first reads and validates all enabled
+saved sources at the application boundary, then materializes a replacement
+session while the old one remains alive. Only a complete replacement is swapped
+in. Current Scene restarts remain pinned to their original Scene ID; restarting
+from Script re-arms the established Scene preview → Stop → Script navigation
+without replacing editor buffers or their cursor/scroll state.
+
 ## Alternatives rejected
 
 - Store Lua source inside project JSON: mixes metadata and text-file history.

@@ -433,6 +433,7 @@ void EditorUi::detach() {
     saveScriptRequest_ = {};
     saveAllScriptsRequest_ = {};
     closeScriptRequest_ = {};
+    restartScriptsRequest_ = {};
     addEntityRequest_ = {};
     addInstanceRequest_ = {};
     createEntityHereRequest_ = {};
@@ -637,11 +638,13 @@ void EditorUi::setCreateScriptHandler(ProjectFileRequest createScript) {
 void EditorUi::setScriptEditorHandlers(ScriptAssetRequest openScript,
                                        ScriptAssetRequest saveScript,
                                        ProjectFileRequest saveAllScripts,
-                                       ScriptCloseRequest closeScript) {
+                                       ScriptCloseRequest closeScript,
+                                       ProjectFileRequest restartAndApplyScripts) {
     openScriptRequest_ = std::move(openScript);
     saveScriptRequest_ = std::move(saveScript);
     saveAllScriptsRequest_ = std::move(saveAllScripts);
     closeScriptRequest_ = std::move(closeScript);
+    restartScriptsRequest_ = std::move(restartAndApplyScripts);
 }
 
 void EditorUi::setImportImageForAnimationHandler(ImportImageRequest importImage) {
@@ -2110,6 +2113,8 @@ bool EditorUi::handleToolbarAction(const std::string& action, const std::string&
         scriptEditor_.goToLine(arg.empty() ? value : arg);
     } else if (action == "validate-script") {
         scriptEditor_.validateActive();
+    } else if (action == "restart-script-play") {
+        if (restartScriptsRequest_) restartScriptsRequest_();
     } else if (action == "reset-zoom") {
         coordinator_.apply(SetViewportZoomIntent{currentViewSceneId(), 1.0f});   // target unchanged
     } else if (action == "toggle-grid-visible") {

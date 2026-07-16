@@ -91,7 +91,8 @@ public:
     void setScriptEditorHandlers(ScriptAssetRequest openScript,
                                  ScriptAssetRequest saveScript,
                                  ProjectFileRequest saveAllScripts,
-                                 ScriptCloseRequest closeScript);
+                                 ScriptCloseRequest closeScript,
+                                 ProjectFileRequest restartAndApplyScripts);
     // Import an image straight from the Sprite Animation Editor, reusing the same
     // importAsset pipeline. Returns the new image id (nullopt when cancelled or on
     // failure) so the editor can start a new animation on it in one gesture.
@@ -290,6 +291,7 @@ private:
     ScriptAssetRequest                  saveScriptRequest_;
     WorkspaceRequest                    saveAllScriptsRequest_;
     ScriptCloseRequest                  closeScriptRequest_;
+    ProjectFileRequest                  restartScriptsRequest_;
     EntityPlacementRequest              addEntityRequest_;
     EntityPlacementRequest              addInstanceRequest_;
     EntityPlacementRequest              createEntityHereRequest_;

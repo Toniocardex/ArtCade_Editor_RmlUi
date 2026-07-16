@@ -1,6 +1,7 @@
 #include "editor-native/app/project_script_file_service.h"
 
 #include "editor-native/app/project_file.h"
+#include "editor-native/model/script_source_stamp.h"
 
 #include <algorithm>
 #include <cctype>
@@ -84,15 +85,6 @@ ScriptFileResult<std::string> readLuaFile(const std::filesystem::path& path) {
     return ProjectScriptFileService::normalizeUtf8Lua(std::move(bytes));
 }
 
-std::uint64_t fnv1a(const std::string& text) {
-    std::uint64_t hash = 14695981039346656037ull;
-    for (const unsigned char byte : text) {
-        hash ^= byte;
-        hash *= 1099511628211ull;
-    }
-    return hash;
-}
-
 } // namespace
 
 PathConfinementResult ProjectScriptFileService::resolveProjectRelativePath(
@@ -170,7 +162,7 @@ ScriptFileResult<ScriptFileFingerprint> ProjectScriptFileService::fingerprint(
             "Could not inspect script modification time");
     }
     ScriptFileFingerprint result;
-    result.hash = fnv1a(source.value);
+    result.hash = scriptSourceStamp(source.value).hash;
     result.size = source.value.size();
     result.modified = modified;
     return ScriptFileResult<ScriptFileFingerprint>::success(result);

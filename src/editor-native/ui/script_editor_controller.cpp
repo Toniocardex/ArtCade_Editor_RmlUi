@@ -118,6 +118,7 @@ void ScriptEditorController::refresh() {
     refreshLineNumbers();
     refreshStatus();
     refreshDiagnostics();
+    refreshApplyBanner();
     const bool hasBuffer = coordinator_.state().scriptEditor.active() != nullptr;
     if (Rml::Element* empty = document_->GetElementById("script-editor-empty"))
         empty->SetClass("hidden", hasBuffer);
@@ -260,6 +261,13 @@ void ScriptEditorController::refreshDiagnostics() {
     }
     list->SetInnerRML(rml);
     list->SetClass("hidden", false);
+}
+
+void ScriptEditorController::refreshApplyBanner() {
+    Rml::Element* banner = document_
+        ? document_->GetElementById("script-restart-banner") : nullptr;
+    if (!banner) return;
+    banner->SetClass("hidden", !coordinator_.scriptRestartRequired());
 }
 
 void ScriptEditorController::textChanged(const std::string& text) {

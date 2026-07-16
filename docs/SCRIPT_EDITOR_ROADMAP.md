@@ -12,7 +12,7 @@ Engineering Gates and ADR-0002.
 | Script 4 — Object Type Script Component | Completed | Schema v7 type-owned ordered attachments, Inspector attach/open/enable/reorder/remove, atomic Commands with exact Undo/Redo, delete guard, shared runtime model/parser and strict saved-source Play gate over enabled references. |
 | Script 5 — Runtime base | Completed | Shared `script-core`/`script-runtime`, isolated strict Lua scopes, `on_start`/`on_update`, exact saved-source snapshot, bounded execution, error isolation and Editor Play/standalone parity. |
 | Script 6 — Gameplay events | Completed | Canonical input and collision callbacks, shared gameplay API, immutable event snapshots, deferred destroy, error isolation and deterministic Logic → Scripts order in Editor Play and standalone. |
-| Script 7 — Apply workflow | Planned | Restart-required banner, Save and Restart, workspace return and cursor preservation. |
+| Script 7 — Apply workflow | Completed | Restart-required banner, atomic Restart & Apply, pinned Play target, exact workspace return, full native build and editor/Logic/SFX tests are green. |
 | Script 8 — IDE polish | Planned | Highlighting and editor assistance only after runtime end-to-end is complete. |
 
 ## Script 1 contract
@@ -149,11 +149,43 @@ Engineering Gates and ADR-0002.
   PlaySession input/update, collision `other`, deferred destroy across ordered
   attachments, standalone linkage and native runtime regression coverage.
 
-## Current gate status (2026-07-15)
+## Script 7 contract
+
+- Authority: saved `.lua` files remain the only source eligible for apply and
+  the active `PlaySession` remains the runtime authority. The Coordinator owns
+  only content fingerprints of sources already materialized plus the derived
+  set of linked Script Asset IDs saved afterward; it never keeps a second copy
+  of source text or reads files.
+- Intent/Command: a successful file-service Save enters workspace state through
+  `MarkScriptBufferSavedIntent`. `Restart & Apply` is a Play lifecycle operation
+  orchestrated by `ProjectSessionController`, not an authoring Command; it does
+  not change project revision, dirty state or either Undo history.
+- Invariants: editing an unsaved buffer never changes the running game or shows
+  the restart banner; saving an unlinked script never invalidates the session;
+  saving linked bytes equal to the applied fingerprint removes divergence. No
+  automatic hot reload or callback replacement occurs.
+- Atomicity: the controller snapshots and validates every enabled saved source
+  while the old runtime remains alive. The Coordinator materializes a complete
+  replacement before the noexcept session swap; any validation/load failure
+  preserves the current runtime, target, navigation and restart-required state.
+- Play target and navigation: Project Play restarts as Project Play; Current
+  Scene remains pinned to the originally launched Scene ID even if editor focus
+  changes. Restart from Script switches to Scene and re-arms Stop → Script while
+  the existing buffers, active tab, cursor and scroll remain untouched.
+- Undo/Stop: Save and runtime restart create no authoring Undo entries. Stop
+  disposes the runtime and clears every play-scoped launch/fingerprint/divergence
+  projection without modifying the saved file or Script workspace.
+- Tests: dirty-versus-saved distinction, linked/unlinked sources, exact-source
+  reversion, failed restart atomicity, successful runtime replacement, pinned
+  Current Scene target, unchanged document revision/dirty state and exact
+  Script tab/cursor/scroll restoration.
+
+## Current gate status (2026-07-16)
 
 - `artcade-editor-native.exe`: builds successfully.
-- `editor_core_test`: 4,520 passed, 0 failed.
-- CTest: editor core, Logic Board and SFX all passed (3/3).
+- `editor_core_test`: passed through `scripts\build.bat --test`.
+- `sfx_synthesizer_test`: 12/12 passed.
+- `logic_board_editor_test`: 240 passed, 0 failed.
 - RmlUi smoke: Script empty state and an opened Lua source render without
   parser warnings; the textarea remains a static document element.
 - Slice 6 diff review: no open P0/P1 violations. The shared Lua boundary owns
@@ -165,4 +197,7 @@ Engineering Gates and ADR-0002.
   links with the shared Script modules; native `logic_board_test` passes 111/111.
   The only warning is the pre-existing insecure development asset key, which
   must not be shipped.
-- Next authorized slice: Script 7 — Apply workflow.
+- Slice 7 implementation, static architecture review and executable gates are
+  complete with no open P0/P1 finding. The only warning is the pre-existing
+  insecure development asset key, which must not be shipped.
+- Next authorized slice is Script 8 IDE polish.

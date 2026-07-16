@@ -9,11 +9,13 @@
 #include "editor-native/model/editor_ui_state.h"
 #include "editor-native/model/play_session.h"
 #include "editor-native/model/project_document.h"
+#include "editor-native/model/script_source_stamp.h"
 
 #include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -43,6 +45,16 @@ struct PlayNavigationState {
     std::string originLogicSearch;
     bool autoSwitchedToScene = false;
     bool returnToOriginArmed = false;
+};
+
+enum class PlayLaunchKind { Project, CurrentScene };
+
+// Exact launch target for the disposable runtime. Current Scene is pinned to
+// the scene that was launched, so workspace navigation during Play cannot
+// silently retarget Restart & Apply.
+struct PlayLaunchState {
+    PlayLaunchKind kind = PlayLaunchKind::Project;
+    SceneId sceneId;
 };
 
 // Pure clipboard rendering of a console message. Copies the full, unabbreviated
@@ -134,7 +146,12 @@ public:
     EditorOperationResult playProject(const std::vector<Scripts::ScriptProgram>& scripts);
     EditorOperationResult playCurrentScene();
     EditorOperationResult playCurrentScene(const std::vector<Scripts::ScriptProgram>& scripts);
+    EditorOperationResult restartPlaying(
+        const std::vector<Scripts::ScriptProgram>& scripts);
     EditorOperationResult stopPlaying();
+    bool scriptRestartRequired() const {
+        return isPlaying() && !outdatedPlayScriptAssets_.empty();
+    }
 
     // Runtime simulation step for the active Play session (authored motion).
     // No-op when not playing; never an EditorCommand, never touches the document.
@@ -256,6 +273,8 @@ private:
     void appendConsole(ConsoleMessage::Level level, std::string text);
     void replaceScriptDiagnostics(const AssetId& scriptAssetId,
                                   const std::vector<ScriptDiagnostic>& diagnostics);
+    void recordAppliedScriptSources(
+        const std::vector<Scripts::ScriptProgram>& scripts);
 
     // After a structural command (or its undo) mutates the document, the
     // workspace may reference a scene or entity that no longer exists. This
@@ -306,6 +325,12 @@ private:
     std::vector<ConsoleMessage>                      console_;
     std::optional<PlaySession>                       playSession_;
     std::optional<PlayNavigationState>               playNavigation_;
+    std::optional<PlayLaunchState>                   playLaunch_;
+    // Play-scoped comparison data, not saved-source authority: fingerprints of
+    // bytes already materialized by the active runtime plus the linked assets
+    // whose subsequently saved bytes differ. Cleared on Stop/new launch.
+    std::unordered_map<AssetId, ScriptSourceStamp>   appliedPlayScriptSources_;
+    std::unordered_set<AssetId>                      outdatedPlayScriptAssets_;
     EditorInvalidation                               pending_ = EditorInvalidation::None;
 };
 

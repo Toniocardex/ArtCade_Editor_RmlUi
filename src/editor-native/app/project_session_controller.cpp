@@ -142,7 +142,8 @@ void ProjectSessionController::bindUi() {
         [this](const AssetId& id) { openScript(id); },
         [this](const AssetId& id) { saveScript(id); },
         [this]() { saveAllScripts(); },
-        [this](const AssetId& id) { return closeScript(id); });
+        [this](const AssetId& id) { return closeScript(id); },
+        [this]() { restartAndApplyScripts(); });
     ui_.setImportImageForAnimationHandler(
         [this]() { return importAssetOfKind(AssetKind::Image); });
 }
@@ -474,6 +475,19 @@ bool ProjectSessionController::requestPlayCurrentScene() {
         snapshotSavedScriptsForPlay();
     if (!scripts) return false;
     return coordinator_.playCurrentScene(*scripts).ok;
+}
+
+bool ProjectSessionController::restartAndApplyScripts() {
+    if (!coordinator_.scriptRestartRequired()) {
+        coordinator_.logWarning("No saved Script changes require restart");
+        return false;
+    }
+    // Snapshot and contract validation happen while the current PlaySession is
+    // still alive. A failure therefore leaves the running game untouched.
+    std::optional<std::vector<Scripts::ScriptProgram>> scripts =
+        snapshotSavedScriptsForPlay();
+    if (!scripts) return false;
+    return coordinator_.restartPlaying(*scripts).ok;
 }
 
 } // namespace ArtCade::EditorNative

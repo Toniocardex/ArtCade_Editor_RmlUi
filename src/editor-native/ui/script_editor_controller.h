@@ -58,6 +58,7 @@ private:
     void refreshLineNumbers();
     void refreshStatus();
     void refreshDiagnostics();
+    void refreshApplyBanner();
     void syncSurfaceFromActiveBuffer();
     void validate(const AssetId& assetId, std::uint64_t revision);
 

@@ -544,6 +544,8 @@ EditorOperationResult EditorCoordinator::playProject(
         navigation.returnToOriginArmed = true;
     }
     playSession_.emplace(std::move(*session));
+    playLaunch_ = PlayLaunchState{PlayLaunchKind::Project, document_.startSceneId()};
+    recordAppliedScriptSources(scripts);
     state_.spriteAnimationEditor = SpriteAnimationEditorState{};
     if (fromAuthoringWorkspace) {
         state_.centerWorkspaceMode = CenterWorkspaceMode::Scene;
@@ -599,6 +601,8 @@ EditorOperationResult EditorCoordinator::playCurrentScene(
         navigation.returnToOriginArmed = true;
     }
     playSession_.emplace(std::move(*session));
+    playLaunch_ = PlayLaunchState{PlayLaunchKind::CurrentScene, state_.activeSceneId};
+    recordAppliedScriptSources(scripts);
     state_.spriteAnimationEditor = SpriteAnimationEditorState{};
     if (fromAuthoringWorkspace) {
         state_.centerWorkspaceMode = CenterWorkspaceMode::Scene;
@@ -613,6 +617,74 @@ EditorOperationResult EditorCoordinator::playCurrentScene(
     // A Play/Stop toggle re-renders every authoring-affordance panel so their
     // controls switch to the frozen (disabled) state and back: Inspector fields,
     // Hierarchy create/delete buttons and Assets import/remove buttons.
+    const EditorInvalidation invalidation = fromAuthoringWorkspace
+        ? kPlayNavigationInvalidation : kPlayToggleInvalidation;
+    accumulate(invalidation);
+    return EditorOperationResult::success(invalidation);
+}
+
+void EditorCoordinator::recordAppliedScriptSources(
+    const std::vector<Scripts::ScriptProgram>& scripts) {
+    appliedPlayScriptSources_.clear();
+    for (const Scripts::ScriptProgram& program : scripts)
+        appliedPlayScriptSources_[program.assetId] = scriptSourceStamp(program.source);
+    outdatedPlayScriptAssets_.clear();
+}
+
+EditorOperationResult EditorCoordinator::restartPlaying(
+    const std::vector<Scripts::ScriptProgram>& scripts) {
+    if (!isPlaying() || !playLaunch_) {
+        appendConsole(ConsoleMessage::Level::Warning, "Cannot restart: Play is not running");
+        return EditorOperationResult::failure("Cannot restart: Play is not running");
+    }
+    if (!scriptRestartRequired()) {
+        appendConsole(ConsoleMessage::Level::Warning,
+                      "No saved Script changes require restart");
+        return EditorOperationResult::failure("No saved Script changes require restart");
+    }
+
+    std::string error;
+    std::optional<PlaySession> replacement;
+    if (playLaunch_->kind == PlayLaunchKind::Project) {
+        replacement = PlaySession::startProject(document_, scripts, &error);
+    } else {
+        replacement = PlaySession::startActiveScene(
+            document_, playLaunch_->sceneId, scripts, &error);
+    }
+    if (!replacement) {
+        const std::string message = error.empty()
+            ? "Cannot restart Play" : "Cannot restart Play: " + error;
+        appendConsole(ConsoleMessage::Level::Error, message);
+        return EditorOperationResult::failure(message);
+    }
+
+    const CenterWorkspaceMode originWorkspace = state_.centerWorkspaceMode;
+    const bool fromAuthoringWorkspace = originWorkspace != CenterWorkspaceMode::Scene;
+    PlayNavigationState navigation;
+    if (fromAuthoringWorkspace) {
+        navigation.originWorkspace = originWorkspace;
+        navigation.originObjectTypeId = state_.logicBoardEditor.objectTypeId;
+        navigation.originLogicTab = state_.logicBoardEditor.tab;
+        navigation.originLogicSearch = state_.logicBoardEditor.search;
+        navigation.autoSwitchedToScene = true;
+        navigation.returnToOriginArmed = true;
+    }
+
+    // Materialization completed before this assignment, so a validation/load
+    // failure above leaves the old runtime and navigation fully intact.
+    playSession_ = std::move(*replacement);
+    recordAppliedScriptSources(scripts);
+    state_.spriteAnimationEditor = SpriteAnimationEditorState{};
+    if (fromAuthoringWorkspace) {
+        state_.centerWorkspaceMode = CenterWorkspaceMode::Scene;
+        playNavigation_ = std::move(navigation);
+        logInfo(originWorkspace == CenterWorkspaceMode::Script
+            ? "Play restarted with saved Script changes; Stop returns to Script Editor"
+            : "Play restarted; Stop returns to Logic Board");
+    } else {
+        logInfo("Play restarted with saved Script changes");
+    }
+
     const EditorInvalidation invalidation = fromAuthoringWorkspace
         ? kPlayNavigationInvalidation : kPlayToggleInvalidation;
     accumulate(invalidation);
@@ -641,6 +713,9 @@ EditorOperationResult EditorCoordinator::stopPlaying() {
         logInfo("Stopped - back to authoring document");
     }
     playNavigation_.reset();
+    playLaunch_.reset();
+    appliedPlayScriptSources_.clear();
+    outdatedPlayScriptAssets_.clear();
     // A Play/Stop toggle re-renders every authoring-affordance panel so their
     // controls switch to the frozen (disabled) state and back: Inspector fields,
     // Hierarchy create/delete buttons and Assets import/remove buttons.

@@ -178,6 +178,11 @@
                 <div id="logic-board-panel" class="logic-board-panel hidden"></div>
                 <div id="script-editor-panel" class="script-editor-panel hidden">
                     <div id="script-editor-tabs" class="script-editor-tabs"></div>
+                    <div id="script-restart-banner" class="script-restart-banner hidden">
+                        <span>Saved script changes are not running.</span>
+                        <button id="btn-script-restart-apply" class="script-restart-button"
+                                data-action="restart-script-play">Restart &amp; Apply</button>
+                    </div>
                     <div id="script-editor-empty" class="script-editor-empty">
                         <div class="script-editor-empty-title">No script open</div>
                         <div>Double-click a script in Assets or create a new Lua script.</div>

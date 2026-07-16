@@ -38,6 +38,7 @@ public:
     bool closeScript(const AssetId& assetId);
     bool requestPlayProject();
     bool requestPlayCurrentScene();
+    bool restartAndApplyScripts();
 
     void refreshWindowTitle();
     void refreshWindowTitleIfNeeded();

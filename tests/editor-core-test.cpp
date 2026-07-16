@@ -40,6 +40,7 @@
 #include "editor-native/model/project_io.h"
 #include "editor-native/model/path_confinement.h"
 #include "editor-native/model/play_session.h"
+#include "editor-native/model/script_source_stamp.h"
 #include "editor-native/model/box_collider_view.h"
 #include "editor-native/model/box_collider_geometry.h"
 #include "editor-native/model/scene_frame_snapshot.h"
@@ -3659,6 +3660,7 @@ static void runScriptAssetAndFileServiceTests() {
     const auto firstFingerprint = files.fingerprint("scripts/player.lua");
     CHECK(firstFingerprint.ok);
     CHECK(firstFingerprint.value.size == loaded.value.size());
+    CHECK(firstFingerprint.value.hash == scriptSourceStamp(loaded.value).hash);
     CHECK(!files.writeScriptAtomically("../escape.lua", "return {}\n").ok);
     CHECK(!files.writeScriptAtomically("scripts/not-lua.txt", "return {}\n").ok);
     CHECK(!files.readImportSource("relative.lua").ok);
@@ -3930,6 +3932,111 @@ static void runScriptAssetAndFileServiceTests() {
     CHECK(workspace.apply(SwitchCenterWorkspaceIntent{CenterWorkspaceMode::Scene}).ok);
     CHECK(workspace.stopPlaying().ok);
     CHECK(workspace.state().centerWorkspaceMode == CenterWorkspaceMode::Scene);
+
+    // Slice 7: only a successful Save of a linked source makes the active
+    // immutable Play snapshot stale. Restart materializes first, replaces
+    // atomically, and re-arms Scene -> Script navigation without touching the
+    // authoring document or the editor buffer's cursor/scroll state.
+    ProjectDoc applyDoc = makeDoc();
+    applyDoc.scriptAssets = {
+        ScriptAssetDef{"player", "Player.lua", "scripts/player.lua"},
+        ScriptAssetDef{"notes", "Notes.lua", "scripts/notes.lua"},
+    };
+    applyDoc.objectTypes.at("Hero").scripts = ScriptComponent{{
+        ScriptAttachmentDef{"player-script", "player", true}}};
+    EditorCoordinator applyWorkflow{std::move(applyDoc)};
+    const std::string sourceV1 = R"lua(artcade.require_api_version(1)
+return { on_start = function(ctx) ctx.self:set_position(1, 2) end }
+)lua";
+    const std::string sourceV2 = R"lua(artcade.require_api_version(1)
+return { on_start = function(ctx) ctx.self:set_position(7, 8) end }
+)lua";
+    CHECK(applyWorkflow.apply(OpenScriptBufferIntent{"player", sourceV1}).ok);
+    CHECK(applyWorkflow.apply(OpenScriptBufferIntent{"notes", "return {}\n"}).ok);
+    CHECK(applyWorkflow.apply(ActivateScriptBufferIntent{"player"}).ok);
+    CHECK(applyWorkflow.apply(SetScriptCursorIntent{"player", 12, 42.f}).ok);
+    const std::uint64_t applyDocumentRevision = applyWorkflow.document().revision();
+    const Scripts::ScriptProgram programV1{
+        "player", "scripts/player.lua", sourceV1};
+    const Scripts::ScriptProgram programV2{
+        "player", "scripts/player.lua", sourceV2};
+    CHECK(applyWorkflow.playProject({programV1}).ok);
+    CHECK(!applyWorkflow.scriptRestartRequired());
+    const RuntimeEntity* initiallyApplied = applyWorkflow.playSession()
+        ? applyWorkflow.playSession()->findEntity(kHero) : nullptr;
+    CHECK(initiallyApplied && initiallyApplied->transform.position.x == 1.f);
+
+    // Saving an open but unlinked asset never invalidates the runtime.
+    CHECK(applyWorkflow.apply(ActivateScriptBufferIntent{"notes"}).ok);
+    CHECK(applyWorkflow.apply(EditScriptBufferIntent{
+        "notes", "return {}\n-- saved notes\n", 10}).ok);
+    CHECK(applyWorkflow.apply(MarkScriptBufferSavedIntent{
+        "notes", "return {}\n-- saved notes\n"}).ok);
+    CHECK(!applyWorkflow.scriptRestartRequired());
+
+    CHECK(applyWorkflow.apply(ActivateScriptBufferIntent{"player"}).ok);
+    CHECK(applyWorkflow.apply(EditScriptBufferIntent{"player", sourceV2, 24}).ok);
+    CHECK(!applyWorkflow.scriptRestartRequired()); // dirty buffer is not applied source
+    CHECK(applyWorkflow.apply(MarkScriptBufferSavedIntent{"player", sourceV2}).ok);
+    CHECK(applyWorkflow.scriptRestartRequired());
+    const RuntimeEntity* stillApplied = applyWorkflow.playSession()
+        ? applyWorkflow.playSession()->findEntity(kHero) : nullptr;
+    CHECK(stillApplied && stillApplied->transform.position.x == 1.f);
+    // Re-saving the exact applied bytes removes the derived divergence.
+    CHECK(applyWorkflow.apply(EditScriptBufferIntent{"player", sourceV1, 18}).ok);
+    CHECK(applyWorkflow.apply(MarkScriptBufferSavedIntent{"player", sourceV1}).ok);
+    CHECK(!applyWorkflow.scriptRestartRequired());
+    CHECK(applyWorkflow.apply(EditScriptBufferIntent{"player", sourceV2, 24}).ok);
+    CHECK(applyWorkflow.apply(MarkScriptBufferSavedIntent{"player", sourceV2}).ok);
+    CHECK(applyWorkflow.apply(SetScriptCursorIntent{"player", 24, 42.f}).ok);
+
+    const Scripts::ScriptProgram invalidReplacement{
+        "player", "scripts/player.lua",
+        "artcade.require_api_version(1)\nreturn { on_start = function( }\n"};
+    CHECK(!applyWorkflow.restartPlaying({invalidReplacement}).ok);
+    CHECK(applyWorkflow.isPlaying());
+    CHECK(applyWorkflow.scriptRestartRequired());
+    CHECK(applyWorkflow.state().centerWorkspaceMode == CenterWorkspaceMode::Script);
+    const RuntimeEntity* preservedAfterFailure = applyWorkflow.playSession()
+        ? applyWorkflow.playSession()->findEntity(kHero) : nullptr;
+    CHECK(preservedAfterFailure && preservedAfterFailure->transform.position.x == 1.f);
+
+    CHECK(applyWorkflow.restartPlaying({programV2}).ok);
+    CHECK(!applyWorkflow.scriptRestartRequired());
+    CHECK(applyWorkflow.state().centerWorkspaceMode == CenterWorkspaceMode::Scene);
+    const RuntimeEntity* restartedEntity = applyWorkflow.playSession()
+        ? applyWorkflow.playSession()->findEntity(kHero) : nullptr;
+    CHECK(restartedEntity && restartedEntity->transform.position.x == 7.f);
+    CHECK(applyWorkflow.document().revision() == applyDocumentRevision);
+    CHECK(!applyWorkflow.document().isDirty());
+    CHECK(applyWorkflow.stopPlaying().ok);
+    CHECK(!applyWorkflow.scriptRestartRequired());
+    CHECK(applyWorkflow.state().centerWorkspaceMode == CenterWorkspaceMode::Script);
+    CHECK(applyWorkflow.state().scriptEditor.activeAssetId
+          == std::optional<AssetId>{"player"});
+    CHECK(applyWorkflow.state().scriptEditor.active()->cursorOffset == 24);
+    CHECK(applyWorkflow.state().scriptEditor.active()->scrollTop == 42.f);
+
+    // Restart Current Scene is pinned to its original launch target even when
+    // the editor's active scene changes while Play is running.
+    const std::string sourceV3 = R"lua(artcade.require_api_version(1)
+return { on_start = function(ctx) ctx.self:set_position(9, 10) end }
+)lua";
+    const Scripts::ScriptProgram programV3{
+        "player", "scripts/player.lua", sourceV3};
+    CHECK(applyWorkflow.apply(SelectSceneIntent{kSceneB}).ok);
+    CHECK(applyWorkflow.playCurrentScene({programV2}).ok);
+    CHECK(applyWorkflow.playSession()
+          && applyWorkflow.playSession()->sceneId() == kSceneB);
+    CHECK(applyWorkflow.apply(ActivateScriptBufferIntent{"player"}).ok);
+    CHECK(applyWorkflow.apply(EditScriptBufferIntent{"player", sourceV3, 30}).ok);
+    CHECK(applyWorkflow.apply(MarkScriptBufferSavedIntent{"player", sourceV3}).ok);
+    CHECK(applyWorkflow.apply(SelectSceneIntent{kSceneA}).ok);
+    CHECK(applyWorkflow.restartPlaying({programV3}).ok);
+    CHECK(applyWorkflow.playSession()
+          && applyWorkflow.playSession()->sceneId() == kSceneB);
+    CHECK(applyWorkflow.stopPlaying().ok);
+    CHECK(applyWorkflow.state().centerWorkspaceMode == CenterWorkspaceMode::Script);
 
     // Metadata removal reconciles dangling workspace buffers in the same
     // command path (the UI guard runs before this for dirty buffers).

@@ -216,6 +216,15 @@ EditorOperationResult EditorCoordinator::apply(const MarkScriptBufferSavedIntent
     const bool hadDiagnostics = !buffer->diagnostics.empty();
     const std::uint64_t previousRevision = buffer->revision;
     buffer->markSaved(intent.persistedText);
+    if (isPlaying()) {
+        const auto applied = appliedPlayScriptSources_.find(intent.scriptAssetId);
+        if (applied != appliedPlayScriptSources_.end()) {
+            if (applied->second == scriptSourceStamp(intent.persistedText))
+                outdatedPlayScriptAssets_.erase(intent.scriptAssetId);
+            else
+                outdatedPlayScriptAssets_.insert(intent.scriptAssetId);
+        }
+    }
     const bool invalidatedDiagnostics = hadDiagnostics && buffer->revision != previousRevision;
     if (invalidatedDiagnostics) replaceScriptDiagnostics(intent.scriptAssetId, {});
     const EditorInvalidation invalidation = EditorInvalidation::ScriptEditor

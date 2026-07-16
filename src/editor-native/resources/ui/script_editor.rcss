@@ -37,6 +37,28 @@
     background-color: #18181b;
     border-bottom: 1px #292a30;
 }
+.script-restart-banner {
+    min-height: 36dp;
+    padding: 0 10dp;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    background-color: #2b2415;
+    border-bottom: 1px #6b5420;
+    color: #e5c66b;
+    font-size: 11dp;
+}
+.script-restart-banner.hidden { display: none; }
+.script-restart-button {
+    height: 26dp;
+    padding: 0 10dp;
+    background-color: #3b82f6;
+    border: 1px #60a5fa;
+    color: #ffffff;
+    font-size: 10dp;
+}
+.script-restart-button:hover { background-color: #2563eb; }
 .script-tab {
     min-width: 120dp;
     max-width: 240dp;
