@@ -285,6 +285,11 @@ private:
     bool stopAnimation(EntityId id);
     bool setAnimationPlaybackSpeed(EntityId id, float speed);
     bool playSound(EntityId id, const AssetId& audioAssetId, float volume);
+    bool setRuntimeStateNumber(const GameVariableId& id, double value);
+    bool addRuntimeStateNumber(const GameVariableId& id, double delta);
+    bool toggleRuntimeStateBoolean(const GameVariableId& id);
+    std::optional<double> getRuntimeStateNumber(const GameVariableId& id) const;
+    bool isLogicKeyHeld(LogicKey key) const;
 
     RuntimeScene scene_;
     PlayAssetCatalogSnapshot assets_;
@@ -304,6 +309,9 @@ private:
     std::unordered_map<EntityId, Logic::ScopeToken> logicScopesByEntity_;
     std::set<std::pair<EntityId, EntityId>> activeCollisionPairs_;
     std::set<EntityId> pendingDestroy_;
+    std::unordered_map<GameVariableId, GameVariableValue> runtimeVariables_;
+    std::unordered_map<GameVariableId, GameVariableDefinition::Type> runtimeVariableTypes_;
+    std::vector<LogicKey> heldLogicKeys_;
 };
 
 } // namespace ArtCade::EditorNative

@@ -193,13 +193,15 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
         }
     }
 
-    // -- Audio: name + load mode ------------------------------------------------
+    // -- Audio: display name resolved through Generated SFX when linked --------
     groups += groupTitle("Audio", doc.audioAssets.size());
     for (const AudioAssetDef& asset : doc.audioAssets) {
-        if (matchesAssetFilter(filter, {asset.name, asset.assetId, "Audio",
+        const std::string displayName =
+            resolveAudioAssetDisplayName(coordinator.document(), asset);
+        if (matchesAssetFilter(filter, {displayName, asset.assetId, "Audio",
                                         asset.sourcePath})) {
             const char* mode = asset.loadMode == AudioLoadMode::Stream ? "Stream" : "Sound";
-            groups += assetRow(nullptr, assetDisplayName(asset.name, asset.assetId),
+            groups += assetRow(nullptr, displayName,
                                asset.assetId, nullptr, asset.assetId,
                                "<span class=\"asset-meta\">" + std::string(mode) + "</span>",
                                menuAffordance("audio", asset.assetId));

@@ -6,7 +6,9 @@
 
 - **Autorità:** `ProjectDoc.generatedSfx` possiede le recipe persistenti. Il normale
   catalogo `AudioAssetDef` possiede gli output runtime; il legame usa
-  `GeneratedSfxDef.outputAssetId`.
+  `GeneratedSfxDef.outputAssetId`. Il nome display di un output ancora collegato
+  è sempre `GeneratedSfxDef.name` (via `resolveAudioAssetDisplayName`);
+  `AudioAssetDef.name` resta vuoto finché la recipe non scollega l'output.
 - **Intent/Command:** create, rename, update, delete e completamento della
   generazione passano da Command. Apertura editor, preset non applicato, preview
   e Stop sono stato workspace e non producono dirty.

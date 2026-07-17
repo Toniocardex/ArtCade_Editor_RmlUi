@@ -18,7 +18,7 @@
 | 2D.1. Action animazione | Completata | `animation.play_clip`, `animation.stop` e `animation.set_playback_speed` descriptor-driven, validate, compilate e mutate in PlaySession. |
 | 2D.2. Action audio | Completata | `audio.play_sound` usa solo `AudioAssetDef` statici; la policy core Authoring/Executable rende i draft salvabili ma non eseguibili, e la cache Raylib play-scoped viene rilasciata su Stop. |
 | 2D.X. Runtime Logic Host parity | Completata | Adapter non astratto, destroy differito con scope cleanup, animazione asset-scoped, audio risolto; target game nativo/WASM verdi. |
-| 2D.3. Entity utilities | Da fare | Prossima slice: contratto dedicato per `Translate` e `Is Visible`. |
+| 2D.3. Entity utilities | Completata | `entity.translate_by` (Move By) con editor offset e `entity.is_visible` come Event predicato; host `isVisible` in PlaySession/runtime. |
 | 2E. Variabili | Da fare | Bloccata dalla decisione di ownership della slice. |
 | 2F. Tempo e messaggi | Da fare | Dopo contratto dedicato. |
 
@@ -205,6 +205,15 @@ esattamente l'assenza tramite il solo flag migration-only `capabilityEnabled`.
   destroy e smoke combinato Key Pressed → Is Grounded → Jump → Play Clip →
   Play Sound.
 
+#### 2D.3 — Entity utilities (completata)
+
+- `entity.is_visible` è un Event predicato (`on_update` + guard) con toggle
+  Expected; riusa la feature `entity.visibility` e l'host `isVisible`.
+- `entity.translate_by` (Move By) espone editor ΔX/ΔY su proprietà `offset`;
+  la mutazione resta Command → `ProjectDocument` → host `translate`.
+- Verifiche: compile/runtime tick, PlaySession Is Visible → Move By,
+  `logic_board_editor_test` e `logic_board_test` verdi.
+
 ### 2E. Variabili
 
 **Obiettivo:** introdurre stato gameplay mutabile con ownership e scope espliciti. È una slice autonoma, non un'aggiunta al catalogo precedente.
@@ -231,7 +240,7 @@ Questa fase richiede un mini-contract separato per ordine di dispatch, `dt`, pay
 
 ## 4. Backlog esplicitamente non incluso nelle prime ondate
 
-Restano fuori fino a una slice dedicata: `Other Has Tag`, `Destroy Other`, `Translate`, `Is Visible`, `Set Position` specializzato, branching OR/gruppi, variabili collection, messaggi con payload complesso e qualsiasi scripting utente. Possono riusare foundation e capability già introdotte, ma non devono entrare come blocchi solo visuali.
+Restano fuori fino a una slice dedicata: `Other Has Tag`, `Destroy Other`, `Set Position` specializzato, branching OR/gruppi, variabili collection, messaggi con payload complesso e qualsiasi scripting utente. Possono riusare foundation e capability già introdotte, ma non devono entrare come blocchi solo visuali.
 
 ## 5. Gate obbligatori per ciascuna ondata
 

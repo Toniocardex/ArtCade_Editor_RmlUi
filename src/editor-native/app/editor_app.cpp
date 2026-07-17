@@ -1167,7 +1167,7 @@ int EditorApp::run(int argc, char** argv) {
                     } else {
                         AudioAssetDef output;
                         output.assetId = outputAssetId;
-                        output.name = current->name;
+                        output.name.clear();
                         output.sourcePath = completed.relativePath;
                         output.loadMode = AudioLoadMode::StaticSound;
                         const auto registered = coordinator.execute(

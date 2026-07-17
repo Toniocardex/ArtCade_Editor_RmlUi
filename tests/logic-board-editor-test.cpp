@@ -131,7 +131,7 @@ static void testConditionCommands() {
     CHECK(coordinator.execute(SetLogicPropertyCommand{
         "Hero", rule.id, LogicPropertyTarget::Condition, 0, "expected", false}).ok);
     CHECK(std::get<bool>(coordinator.document().data().objectTypes.at("Hero").logicBoard
-        ->rules[0].conditions[0].properties[0].value) == false);
+        ->rules[0].conditions[0].block.properties[0].value) == false);
 
     const auto beforeMove = Logic::logicBoardToJson(
         *coordinator.document().data().objectTypes.at("Hero").logicBoard);
@@ -305,6 +305,69 @@ static void testConditionGatesRuntimeDispatch() {
     // Grounded now: the condition passes and the action fires.
     coordinator.updateRuntime(jump, 1.f / 60.f);
     CHECK(!coordinator.playSession()->findEntity(1)->visible);
+    CHECK(coordinator.stopPlaying().ok);
+}
+
+static void testIsGroundedEventRunsOnTick() {
+    EditorCoordinator coordinator{makePlatformerProjectData()};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& initial = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+
+    LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(initial));
+    rule.trigger = Logic::makeDefaultEventBlock(Logic::kIsGrounded);
+    rule.actions[0] = {Logic::kSetVisible,
+        {{"target", LogicEntityReference{}}, {"visible", false}}};
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
+
+    CHECK(coordinator.playCurrentScene().ok);
+    CHECK(coordinator.playSession() != nullptr);
+    CHECK(coordinator.playSession()->findEntity(1)->visible);
+
+    RuntimeInputSnapshot none;
+    for (int i = 0; i < 300; ++i) coordinator.updateRuntime(none, 0.05f);
+    // Once grounded, the predicate event must fire via dispatchTick.
+    CHECK(coordinator.playSession()->findEntity(1)->platformerController->grounded);
+    CHECK(!coordinator.playSession()->findEntity(1)->visible);
+    CHECK(coordinator.stopPlaying().ok);
+}
+
+static void testIsVisibleEventAndMoveBy() {
+    EditorCoordinator coordinator{makeProjectData()};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& initial = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+
+    LogicRuleDef visibleRule = Logic::makeDefaultRule(nextLogicRuleId(initial));
+    visibleRule.trigger = Logic::makeDefaultEventBlock(Logic::kIsVisible);
+    visibleRule.actions[0] = {Logic::kTranslateBy, {{"offset", Vec2{10.f, 20.f}}}};
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", visibleRule, 0}).ok);
+
+    const LogicBoardDef& authored =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(authored.rules[0].trigger.typeId == Logic::kIsVisible);
+    CHECK(authored.rules[0].actions[0].typeId == Logic::kTranslateBy);
+    CHECK(coordinator.execute(SetLogicPropertyCommand{
+        "Hero", authored.rules[0].id, LogicPropertyTarget::Action, 0,
+        "offset", Vec2{12.f, -3.f}}).ok);
+    const LogicBoardDef& updated =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicPropertyDef* offset =
+        Logic::findProperty(updated.rules[0].actions[0], "offset");
+    CHECK(offset != nullptr);
+    const auto* offsetValue = std::get_if<Vec2>(&offset->value);
+    CHECK(offsetValue != nullptr);
+    CHECK(offsetValue->x == 12.f);
+    CHECK(offsetValue->y == -3.f);
+
+    CHECK(coordinator.playCurrentScene().ok);
+    CHECK(coordinator.playSession() != nullptr);
+    const float startX = coordinator.playSession()->findEntity(1)->transform.position.x;
+    const float startY = coordinator.playSession()->findEntity(1)->transform.position.y;
+    CHECK(coordinator.playSession()->findEntity(1)->visible);
+
+    RuntimeInputSnapshot none;
+    coordinator.updateRuntime(none, 1.f / 60.f);
+    CHECK(coordinator.playSession()->findEntity(1)->transform.position.x == startX + 12.f);
+    CHECK(coordinator.playSession()->findEntity(1)->transform.position.y == startY - 3.f);
     CHECK(coordinator.stopPlaying().ok);
 }
 
@@ -671,27 +734,27 @@ static void testCatalogPickersShareIntentCommandPath() {
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
         ->rules[0].trigger.typeId == Logic::kKeyPressed);
 
-    const uint64_t beforeCondition = coordinator.document().revision();
+    const uint64_t beforeEvent = coordinator.document().revision();
     CHECK(controller.handleAction(
-        "add-logic-condition-type", rule.id, Logic::kIsGrounded, {}));
-    CHECK(coordinator.document().revision() == beforeCondition + 1);
+        "change-logic-trigger", rule.id, Logic::kIsGrounded, {}));
+    CHECK(coordinator.document().revision() == beforeEvent + 1);
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
-        ->rules[0].conditions[0].typeId == Logic::kIsGrounded);
+        ->rules[0].trigger.typeId == Logic::kIsGrounded);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].conditions.empty());
 
-    // There is currently one condition type compatible with a key trigger;
-    // selecting it again still exercises the Change picker path and remains a
-    // canonical Command no-op (no artificial revision).
+    // Re-selecting the same event type is a Command no-op (no artificial revision).
     const uint64_t beforeNoOp = coordinator.document().revision();
     CHECK(controller.handleAction(
-        "change-logic-condition", rule.id + "|0", Logic::kIsGrounded, {}));
+        "change-logic-trigger", rule.id, Logic::kIsGrounded, {}));
     CHECK(coordinator.document().revision() == beforeNoOp);
 
     CHECK(coordinator.undo().ok);
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
-        ->rules[0].conditions.empty());
+        ->rules[0].trigger.typeId == Logic::kKeyPressed);
     CHECK(coordinator.redo().ok);
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
-        ->rules[0].conditions.size() == 1);
+        ->rules[0].trigger.typeId == Logic::kIsGrounded);
 }
 
 static void testPlaySoundActionValidation() {
@@ -842,6 +905,8 @@ int main() {
     testConditionCommands();
     testConditionCompatibility();
     testConditionGatesRuntimeDispatch();
+    testIsGroundedEventRunsOnTick();
+    testIsVisibleEventAndMoveBy();
     testPlayRuntimeIsolation();
     testCollisionEventOtherAndDeferredDestroy();
     testAnimationActions();

@@ -66,7 +66,7 @@ EditorCoordinator::EditorCoordinator(ProjectDoc doc)
 EditorOperationResult EditorCoordinator::apply(const ChangeLogicTriggerTypeIntent& intent) {
     return execute(ReplaceLogicTriggerCommand{
         intent.objectTypeId, intent.ruleId,
-        Logic::makeDefaultBlock(intent.typeId, Logic::BlockKind::Trigger)});
+        Logic::makeDefaultEventBlock(intent.typeId)});
 }
 
 EditorOperationResult EditorCoordinator::apply(const AddLogicActionTypeIntent& intent) {

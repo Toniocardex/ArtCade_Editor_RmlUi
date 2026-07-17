@@ -39,6 +39,21 @@ artcade::sfx::GeneratedSfxDef* findDefinition(ProjectDoc& document,
     return it == document.generatedSfx.end() ? nullptr : &*it;
 }
 
+AudioAssetDef* findAudioAssetMutable(ProjectDoc& document, const AssetId& id) {
+    const auto it = std::find_if(document.audioAssets.begin(), document.audioAssets.end(),
+        [&](const AudioAssetDef& asset) { return asset.assetId == id; });
+    return it == document.audioAssets.end() ? nullptr : &*it;
+}
+
+/** Ownership handoff: recipe no longer owns the WAV → AudioAssetDef.name becomes
+ *  the display authority. Not a sync of two live sources. */
+void transferOutputNameOnDetach(ProjectDoc& document,
+                                const artcade::sfx::GeneratedSfxDef& definition) {
+    if (definition.outputAssetId.empty()) return;
+    if (AudioAssetDef* output = findAudioAssetMutable(document, definition.outputAssetId))
+        output->name = definition.name;
+}
+
 EditorOperationResult validateRecipe(const artcade::sfx::SfxRecipe& recipe) {
     const auto result = artcade::sfx::SfxSynthesizer::validate(recipe);
     return result.ok() ? EditorOperationResult::success(EditorInvalidation::None)
@@ -144,7 +159,9 @@ EditorOperationResult UpdateGeneratedSfxRecipeCommand::apply(ProjectDocument& do
         auto* definition = findDefinition(after_, id_);
         definition->recipe = recipe_;
         // A changed recipe must never masquerade as the previous generated
-        // output. The old AudioAssetDef remains a normal catalog asset.
+        // output. Hand the display name to the retained AudioAssetDef, then
+        // clear the recipe→output link.
+        transferOutputNameOnDetach(after_, *definition);
         definition->outputAssetId.clear();
         definition->outputPath.clear();
         captured_ = true;
@@ -169,6 +186,8 @@ EditorOperationResult RemoveGeneratedSfxCommand::apply(ProjectDocument& document
         }
         before_ = document.data();
         after_ = before_;
+        if (const artcade::sfx::GeneratedSfxDef* definition = findDefinition(after_, id_))
+            transferOutputNameOnDetach(after_, *definition);
         after_.generatedSfx.erase(std::remove_if(
             after_.generatedSfx.begin(), after_.generatedSfx.end(),
             [&](const artcade::sfx::GeneratedSfxDef& definition) {
@@ -211,18 +230,22 @@ EditorOperationResult RegisterGeneratedSfxOutputCommand::apply(ProjectDocument& 
         before_ = document.data();
         after_ = before_;
         auto* definition = findDefinition(after_, id_);
+        AudioAssetDef linkedOutput = outputAsset_;
+        // Linked output has no parallel name authority — display comes from
+        // GeneratedSfxDef.name until the recipe detaches.
+        linkedOutput.name.clear();
         auto audio = std::find_if(after_.audioAssets.begin(), after_.audioAssets.end(),
-            [&](const AudioAssetDef& asset) { return asset.assetId == outputAsset_.assetId; });
+            [&](const AudioAssetDef& asset) { return asset.assetId == linkedOutput.assetId; });
         if (audio == after_.audioAssets.end()) {
-            after_.audioAssets.push_back(outputAsset_);
-        } else if (audio->sourcePath == outputAsset_.sourcePath) {
-            *audio = outputAsset_;
+            after_.audioAssets.push_back(linkedOutput);
+        } else if (audio->sourcePath == linkedOutput.sourcePath) {
+            *audio = linkedOutput;
         } else {
             return EditorOperationResult::failure(
                 "Generated SFX output asset id conflicts with an existing asset");
         }
-        definition->outputAssetId = outputAsset_.assetId;
-        definition->outputPath = outputAsset_.sourcePath;
+        definition->outputAssetId = linkedOutput.assetId;
+        definition->outputPath = linkedOutput.sourcePath;
         captured_ = true;
     }
     document.commitStagedCommand(after_);

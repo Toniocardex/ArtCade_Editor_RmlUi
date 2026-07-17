@@ -22,6 +22,11 @@ struct PlaySession::LogicHostAdapter final : Logic::ILogicRuntimeHost {
         return true;
     }
 
+    bool isVisible(EntityId id) override {
+        const RuntimeEntity* entity = owner ? owner->findEntity(id) : nullptr;
+        return entity && entity->visible;
+    }
+
     bool setPosition(EntityId id, Vec2 value) override {
         RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
         if (!entity || !std::isfinite(value.x) || !std::isfinite(value.y)) return false;
@@ -35,6 +40,33 @@ struct PlaySession::LogicHostAdapter final : Logic::ILogicRuntimeHost {
         if (!entity || !std::isfinite(delta.x) || !std::isfinite(delta.y)) return false;
         entity->transform.position.x += delta.x;
         entity->transform.position.y += delta.y;
+        owner->refreshStaticCollider(id);
+        return true;
+    }
+
+    bool setRotation(EntityId id, float radians) override {
+        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
+        if (!entity || !std::isfinite(radians)) return false;
+        entity->transform.rotation = radians;
+        owner->refreshStaticCollider(id);
+        return true;
+    }
+
+    bool rotateBy(EntityId id, float deltaRadians) override {
+        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
+        if (!entity || !std::isfinite(deltaRadians)) return false;
+        entity->transform.rotation += deltaRadians;
+        owner->refreshStaticCollider(id);
+        return true;
+    }
+
+    bool setScale(EntityId id, Vec2 scale) override {
+        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
+        if (!entity || !std::isfinite(scale.x) || !std::isfinite(scale.y)
+            || scale.x <= 0.f || scale.y <= 0.f) {
+            return false;
+        }
+        entity->transform.scale = scale;
         owner->refreshStaticCollider(id);
         return true;
     }
@@ -77,6 +109,36 @@ struct PlaySession::LogicHostAdapter final : Logic::ILogicRuntimeHost {
     }
     bool playSound(EntityId id, const AssetId& audioAssetId, float volume) override {
         return owner && owner->playSound(id, audioAssetId, volume);
+    }
+
+    bool setStateNumber(const GameVariableId& id, double value) override {
+        return owner && owner->setRuntimeStateNumber(id, value);
+    }
+    bool addStateNumber(const GameVariableId& id, double delta) override {
+        return owner && owner->addRuntimeStateNumber(id, delta);
+    }
+    bool toggleStateBoolean(const GameVariableId& id) override {
+        return owner && owner->toggleRuntimeStateBoolean(id);
+    }
+    std::optional<double> getStateNumber(const GameVariableId& id) const override {
+        return owner ? owner->getRuntimeStateNumber(id) : std::nullopt;
+    }
+
+    bool setVelocity(EntityId id, Vec2 velocity) override {
+        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
+        if (!entity || !std::isfinite(velocity.x) || !std::isfinite(velocity.y)) return false;
+        entity->transform.velocity = velocity;
+        return true;
+    }
+
+    bool isKeyDown(LogicKey key) override {
+        return owner && owner->isLogicKeyHeld(key);
+    }
+
+    EntityId spawnObjectType(EntityId /*owner*/, const ObjectTypeId& /*objectTypeId*/,
+                             float /*x*/, float /*y*/) override {
+        // Editor Play spawn is not implemented in this slice; fail explicitly.
+        return INVALID_ENTITY;
     }
 
     PlaySession* owner = nullptr;
@@ -340,6 +402,10 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
     session.scene().name = scene->name;
     session.scene().worldSize = scene->worldSize;
     session.scene().backgroundColor = scene->backgroundColor;
+    for (const GameVariableDefinition& variable : document.data().globalVariables) {
+        session.runtimeVariableTypes_[variable.key] = variable.type;
+        session.runtimeVariables_[variable.key] = variable.initialValue;
+    }
 
     // Structural order (SceneDef::instances' own): simulation must never be
     // coupled to the visual layer order (see RuntimeScene::renderOrder below).
@@ -984,6 +1050,7 @@ void PlaySession::updatePlatformer(RuntimeEntity& entity, const RuntimeInputSnap
 void PlaySession::update(const RuntimeInputSnapshot& input, float dt) {
     platformerMoveIntents_.clear();
     platformerJumpIntents_.clear();
+    heldLogicKeys_ = input.heldLogicKeys;
     if (logicRuntime_) {
         logicRuntime_->beginFrame();
         for (LogicKey key : input.pressedLogicKeys) logicRuntime_->dispatchKeyPressed(key);
@@ -998,6 +1065,11 @@ void PlaySession::update(const RuntimeInputSnapshot& input, float dt) {
     // scope has consumed the same input snapshot.
     flushPendingDestroys();
     if (!std::isfinite(dt) || dt <= 0.f) return;
+    // Predicate events (Is Grounded, Every Frame, timers) compile to on_update.
+    // Tick must run after input dispatch and before movement so intents are
+    // visible to platformer/top-down this frame — same order as the game loop.
+    if (logicRuntime_ && logicRuntime_->requiresTick()) logicRuntime_->dispatchTick(dt);
+    flushPendingDestroys();
     if (scriptRuntime_) scriptRuntime_->update(dt);
     flushPendingDestroys();
     // One movement writer per entity (enforced at authoring): dispatch by driver.
@@ -1008,6 +1080,61 @@ void PlaySession::update(const RuntimeInputSnapshot& input, float dt) {
     }
     dispatchCollisionTransitions();
     flushPendingDestroys();
+}
+
+bool PlaySession::setRuntimeStateNumber(const GameVariableId& id, double value) {
+    const auto typeIt = runtimeVariableTypes_.find(id);
+    if (typeIt == runtimeVariableTypes_.end()
+        || typeIt->second != GameVariableDefinition::Type::Number
+        || !std::isfinite(value)) {
+        return false;
+    }
+    runtimeVariables_[id] = value;
+    return true;
+}
+
+bool PlaySession::addRuntimeStateNumber(const GameVariableId& id, double delta) {
+    const auto typeIt = runtimeVariableTypes_.find(id);
+    if (typeIt == runtimeVariableTypes_.end()
+        || typeIt->second != GameVariableDefinition::Type::Number
+        || !std::isfinite(delta)) {
+        return false;
+    }
+    auto& stored = runtimeVariables_[id];
+    const double* current = std::get_if<double>(&stored);
+    if (!current || !std::isfinite(*current)) return false;
+    stored = *current + delta;
+    return true;
+}
+
+bool PlaySession::toggleRuntimeStateBoolean(const GameVariableId& id) {
+    const auto typeIt = runtimeVariableTypes_.find(id);
+    if (typeIt == runtimeVariableTypes_.end()
+        || typeIt->second != GameVariableDefinition::Type::Boolean) {
+        return false;
+    }
+    auto& stored = runtimeVariables_[id];
+    const bool* current = std::get_if<bool>(&stored);
+    if (!current) return false;
+    stored = !*current;
+    return true;
+}
+
+std::optional<double> PlaySession::getRuntimeStateNumber(const GameVariableId& id) const {
+    const auto typeIt = runtimeVariableTypes_.find(id);
+    if (typeIt == runtimeVariableTypes_.end()
+        || typeIt->second != GameVariableDefinition::Type::Number) {
+        return std::nullopt;
+    }
+    const auto valueIt = runtimeVariables_.find(id);
+    if (valueIt == runtimeVariables_.end()) return std::nullopt;
+    const double* current = std::get_if<double>(&valueIt->second);
+    if (!current || !std::isfinite(*current)) return std::nullopt;
+    return *current;
+}
+
+bool PlaySession::isLogicKeyHeld(LogicKey key) const {
+    return std::find(heldLogicKeys_.begin(), heldLogicKeys_.end(), key) != heldLogicKeys_.end();
 }
 
 } // namespace ArtCade::EditorNative

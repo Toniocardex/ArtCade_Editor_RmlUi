@@ -141,6 +141,9 @@ public:
     const AudioAssetDef*     findAudioAsset(const AssetId& id) const;
     bool                     hasGeneratedSfx(const std::string& id) const;
     const artcade::sfx::GeneratedSfxDef* findGeneratedSfx(const std::string& id) const;
+    /** Recipe that currently owns @p outputAssetId, or nullptr if independent. */
+    const artcade::sfx::GeneratedSfxDef* findGeneratedSfxByOutputAssetId(
+        const AssetId& outputAssetId) const;
     bool                     hasFontAsset(const AssetId& id) const;
     const FontAssetDef*      findFontAsset(const AssetId& id) const;
     bool                     hasScriptAsset(const AssetId& id) const;
@@ -411,5 +414,12 @@ private:
     uint64_t   revisionHighWater_ = 0;
     uint32_t   replaceCount_ = 0;
 };
+
+/** Single display-name query for Audio assets.
+ *  Linked Generated SFX output → GeneratedSfxDef.name.
+ *  Imported / detached audio → AudioAssetDef.name (fallback assetId). */
+[[nodiscard]] std::string resolveAudioAssetDisplayName(
+    const ProjectDocument& document,
+    const AudioAssetDef& audio);
 
 } // namespace ArtCade::EditorNative

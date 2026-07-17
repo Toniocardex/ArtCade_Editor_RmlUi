@@ -29,6 +29,7 @@ bool isNumericCommit(const std::string& action) {
         "commit-tileset-margin-x", "commit-tileset-margin-y",
         "commit-tileset-spacing-x", "commit-tileset-spacing-y",
         "commit-logic-position-x", "commit-logic-position-y",
+        "commit-logic-offset-x", "commit-logic-offset-y",
         "commit-logic-animation-speed",
         "commit-sfx-field",
     };

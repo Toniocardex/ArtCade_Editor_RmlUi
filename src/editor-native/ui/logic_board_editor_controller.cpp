@@ -119,8 +119,8 @@ bool LogicBoardEditorController::handleAction(
         return true;
     }
     if (action == "change-logic-trigger" || action == "change-logic-action"
-        || action == "change-logic-condition" || action == "add-logic-action-type"
-        || action == "add-logic-condition-type" || action == "set-logic-collision-object-type"
+        || action == "add-logic-action-type"
+        || action == "set-logic-event-collision-object-type"
         || action == "set-logic-animation-asset" || action == "set-logic-animation-clip") {
         panel_.closeDropdown();
     }
@@ -162,13 +162,12 @@ bool LogicBoardEditorController::handleAction(
         || action == "remove-logic-action" || action == "move-logic-action-up"
         || action == "move-logic-action-down" || action == "change-logic-action"
         || action == "toggle-logic-visible" || action == "commit-logic-position-x"
-        || action == "commit-logic-position-y" || action == "set-logic-animation-asset"
+        || action == "commit-logic-position-y" || action == "commit-logic-offset-x"
+        || action == "commit-logic-offset-y" || action == "set-logic-animation-asset"
         || action == "set-logic-animation-clip" || action == "commit-logic-animation-speed"
         || action == "set-logic-audio-asset" || action == "commit-logic-audio-volume"
-        || action == "add-logic-condition-type" || action == "change-logic-condition"
-        || action == "remove-logic-condition" || action == "move-logic-condition-up"
-        || action == "move-logic-condition-down" || action == "toggle-logic-condition-expected"
-        || action == "set-logic-collision-object-type";
+        || action == "toggle-logic-event-expected"
+        || action == "set-logic-event-collision-object-type";
     if (coordinator_.isPlaying() && authoringAction) return true;
 
     if (action == "create-logic-board") {
@@ -226,12 +225,25 @@ bool LogicBoardEditorController::handleAction(
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, arg, LogicPropertyTarget::Trigger, 0, "key", *key});
         }
+    } else if (action == "toggle-logic-event-expected") {
+        if (const LogicRuleDef* rule = ruleById(arg)) {
+            bool expected = true;
+            if (const LogicPropertyDef* p = Logic::findProperty(rule->trigger, "expected"))
+                if (const auto* current = std::get_if<bool>(&p->value)) expected = *current;
+            coordinator_.execute(SetLogicPropertyCommand{
+                objectTypeId, arg, LogicPropertyTarget::Trigger, 0, "expected", !expected});
+        }
+    } else if (action == "set-logic-event-collision-object-type") {
+        coordinator_.execute(SetLogicPropertyCommand{
+            objectTypeId, arg, LogicPropertyTarget::Trigger, 0,
+            "objectTypeId", LogicStringValue{value}});
     } else if (action == "add-logic-action-type") {
         coordinator_.apply(AddLogicActionTypeIntent{objectTypeId, arg, value});
     } else if (action == "remove-logic-action" || action == "move-logic-action-up"
                || action == "move-logic-action-down" || action == "change-logic-action"
                || action == "toggle-logic-visible" || action == "commit-logic-position-x"
-               || action == "commit-logic-position-y" || action == "set-logic-animation-asset"
+               || action == "commit-logic-position-y" || action == "commit-logic-offset-x"
+               || action == "commit-logic-offset-y" || action == "set-logic-animation-asset"
                || action == "set-logic-animation-clip"
                || action == "commit-logic-animation-speed"
                || action == "set-logic-audio-asset" || action == "commit-logic-audio-volume") {
@@ -269,6 +281,19 @@ bool LogicBoardEditorController::handleAction(
             else position.y = *parsed;
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, ruleId, LogicPropertyTarget::Action, index, "position", position});
+        } else if (action == "commit-logic-offset-x" || action == "commit-logic-offset-y") {
+            const std::optional<float> parsed = parseNumberField(value);
+            if (!parsed) {
+                coordinator_.logError("Logic offset must be a finite number");
+                return true;
+            }
+            Vec2 offset{};
+            if (const LogicPropertyDef* p = Logic::findProperty(rule->actions[index], "offset"))
+                if (const auto* current = std::get_if<Vec2>(&p->value)) offset = *current;
+            if (action == "commit-logic-offset-x") offset.x = *parsed;
+            else offset.y = *parsed;
+            coordinator_.execute(SetLogicPropertyCommand{
+                objectTypeId, ruleId, LogicPropertyTarget::Action, index, "offset", offset});
         } else if (action == "set-logic-animation-asset") {
             const SpriteAnimationAssetDef* asset =
                 coordinator_.document().findSpriteAnimationAsset(value);
@@ -317,39 +342,6 @@ bool LogicBoardEditorController::handleAction(
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, ruleId, LogicPropertyTarget::Action, index,
                 "volume", static_cast<double>(*parsed)});
-        }
-    } else if (action == "add-logic-condition-type") {
-        coordinator_.apply(AddLogicConditionTypeIntent{objectTypeId, arg, value});
-    } else if (action == "remove-logic-condition" || action == "move-logic-condition-up"
-               || action == "move-logic-condition-down"
-               || action == "toggle-logic-condition-expected"
-               || action == "change-logic-condition"
-               || action == "set-logic-collision-object-type") {
-        LogicRuleId ruleId;
-        std::size_t index = 0;
-        if (!parseActionArg(arg, ruleId, index)) return true;
-        const LogicRuleDef* rule = ruleById(ruleId);
-        if (!rule || index >= rule->conditions.size()) return true;
-        if (action == "remove-logic-condition") {
-            coordinator_.execute(RemoveLogicConditionCommand{objectTypeId, ruleId, index});
-        } else if (action == "move-logic-condition-up" || action == "move-logic-condition-down") {
-            const std::size_t destination = action == "move-logic-condition-up"
-                ? (index == 0 ? 0 : index - 1)
-                : std::min(index + 1, rule->conditions.size() - 1);
-            coordinator_.execute(MoveLogicConditionCommand{objectTypeId, ruleId, index, destination});
-        } else if (action == "change-logic-condition") {
-            coordinator_.apply(ChangeLogicConditionTypeIntent{
-                objectTypeId, ruleId, index, value});
-        } else if (action == "set-logic-collision-object-type") {
-            coordinator_.execute(SetLogicPropertyCommand{
-                objectTypeId, ruleId, LogicPropertyTarget::Condition, index,
-                "objectTypeId", LogicStringValue{value}});
-        } else {
-            bool expected = true;
-            if (const LogicPropertyDef* p = Logic::findProperty(rule->conditions[index], "expected"))
-                if (const auto* current = std::get_if<bool>(&p->value)) expected = *current;
-            coordinator_.execute(SetLogicPropertyCommand{
-                objectTypeId, ruleId, LogicPropertyTarget::Condition, index, "expected", !expected});
         }
     } else {
         return false;

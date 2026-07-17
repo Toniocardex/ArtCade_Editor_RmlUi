@@ -3444,7 +3444,7 @@ static void runGeneratedSfxTests() {
 
     AudioAssetDef output;
     output.assetId = "generated-audio-sfx-jump";
-    output.name = "Jump";
+    output.name = "ShouldBeCleared";
     output.sourcePath = "assets/audio/generated/sfx-jump.wav";
     output.loadMode = AudioLoadMode::StaticSound;
     CHECK(coordinator.execute(RegisterGeneratedSfxOutputCommand{
@@ -3452,7 +3452,18 @@ static void runGeneratedSfxTests() {
     CHECK(coordinator.document().hasAudioAsset(output.assetId));
     CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId
           == output.assetId);
+    CHECK(coordinator.document().findAudioAsset(output.assetId)->name.empty());
+    CHECK(resolveAudioAssetDisplayName(
+            coordinator.document(),
+            *coordinator.document().findAudioAsset(output.assetId)) == "Jump");
     CHECK(ProjectValidator::validate(coordinator.document()).ok);
+
+    CHECK(coordinator.execute(RenameGeneratedSfxCommand{"sfx-jump", "Hero Jump"}).ok);
+    CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->name == "Hero Jump");
+    CHECK(coordinator.document().findAudioAsset(output.assetId)->name.empty());
+    CHECK(resolveAudioAssetDisplayName(
+            coordinator.document(),
+            *coordinator.document().findAudioAsset(output.assetId)) == "Hero Jump");
 
     SfxRecipe changed = recipe;
     changed.randomSeed += 1u;
@@ -3460,6 +3471,10 @@ static void runGeneratedSfxTests() {
         UpdateGeneratedSfxRecipeCommand{"sfx-jump", changed}).ok);
     CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId.empty());
     CHECK(coordinator.document().hasAudioAsset(output.assetId));
+    CHECK(coordinator.document().findAudioAsset(output.assetId)->name == "Hero Jump");
+    CHECK(resolveAudioAssetDisplayName(
+            coordinator.document(),
+            *coordinator.document().findAudioAsset(output.assetId)) == "Hero Jump");
     const std::uint64_t staleRevision = coordinator.document().revision();
     CHECK(!coordinator.execute(RegisterGeneratedSfxOutputCommand{
         "sfx-jump", recipe, output}).ok);
@@ -3468,11 +3483,18 @@ static void runGeneratedSfxTests() {
     CHECK(coordinator.undo().ok); // recipe update
     CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId
           == output.assetId);
+    CHECK(coordinator.document().findAudioAsset(output.assetId)->name.empty());
     CHECK(coordinator.redo().ok);
     CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId.empty());
+    CHECK(coordinator.document().findAudioAsset(output.assetId)->name == "Hero Jump");
 
     CHECK(coordinator.execute(RegisterGeneratedSfxOutputCommand{
         "sfx-jump", changed, output}).ok);
+    CHECK(coordinator.document().findAudioAsset(output.assetId)->name.empty());
+    CHECK(resolveAudioAssetDisplayName(
+            coordinator.document(),
+            *coordinator.document().findAudioAsset(output.assetId))
+          == coordinator.document().findGeneratedSfx("sfx-jump")->name);
     CHECK(coordinator.execute(RemoveAudioAssetCommand{output.assetId}).ok);
     CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId.empty());
     CHECK(coordinator.undo().ok);
@@ -3482,10 +3504,15 @@ static void runGeneratedSfxTests() {
     CHECK(coordinator.execute(RemoveGeneratedSfxCommand{"sfx-jump"}).ok);
     CHECK(!coordinator.document().hasGeneratedSfx("sfx-jump"));
     CHECK(coordinator.document().hasAudioAsset(output.assetId));
+    CHECK(coordinator.document().findAudioAsset(output.assetId)->name == "Hero Jump");
+    CHECK(resolveAudioAssetDisplayName(
+            coordinator.document(),
+            *coordinator.document().findAudioAsset(output.assetId)) == "Hero Jump");
     CHECK(!coordinator.execute(
         CreateGeneratedSfxCommand{"sfx-jump", "Replacement", changed}).ok);
     CHECK(coordinator.undo().ok);
     CHECK(coordinator.document().hasGeneratedSfx("sfx-jump"));
+    CHECK(coordinator.document().findAudioAsset(output.assetId)->name.empty());
 
     ProjectDoc unsupported = makeDoc();
     artcade::sfx::GeneratedSfxDef badVersion;
@@ -4065,10 +4092,14 @@ static void runManualScriptRuntimeTests() {
         float audioVolume = 0.f;
 
         bool setVisible(EntityId, bool value) override { visible = value; return true; }
+        bool isVisible(EntityId) override { return visible; }
         bool setPosition(EntityId, Vec2 value) override { position = value; return true; }
         bool translate(EntityId, Vec2 delta) override {
             position.x += delta.x; position.y += delta.y; return true;
         }
+        bool setRotation(EntityId, float) override { return true; }
+        bool rotateBy(EntityId, float) override { return true; }
+        bool setScale(EntityId, Vec2) override { return true; }
         bool isGrounded(EntityId) override { return grounded; }
         bool requestPlatformerMove(EntityId, float axis) override {
             moveAxis = axis; return true;
@@ -4086,6 +4117,17 @@ static void runManualScriptRuntimeTests() {
         }
         bool playSound(EntityId, const AssetId& asset, float volume) override {
             audioAsset = asset; audioVolume = volume; return true;
+        }
+        bool setStateNumber(const GameVariableId&, double) override { return false; }
+        bool addStateNumber(const GameVariableId&, double) override { return false; }
+        bool toggleStateBoolean(const GameVariableId&) override { return false; }
+        std::optional<double> getStateNumber(const GameVariableId&) const override {
+            return std::nullopt;
+        }
+        bool setVelocity(EntityId, Vec2) override { return true; }
+        bool isKeyDown(LogicKey) override { return false; }
+        EntityId spawnObjectType(EntityId, const ObjectTypeId&, float, float) override {
+            return INVALID_ENTITY;
         }
     };
 
