@@ -922,6 +922,8 @@ int main() {
         CHECK(std::filesystem::is_regular_file(successDestination));
         CHECK(c.document().data().projectName == "Fresh");
         CHECK(c.document().data().scenes.empty());
+        CHECK(c.document().data().generatedSfx.empty());
+        CHECK(c.document().data().audioAssets.empty());
         CHECK(!c.document().isDirty());
         CHECK(c.undoSize() == 0);
         CHECK(!c.selection().hasEntity());
@@ -931,6 +933,8 @@ int main() {
         EditorCoordinator loaded{makeDoc()};
         CHECK(loadProjectFromFile(loaded, successDestination).ok);
         CHECK(loaded.document().data().projectName == "Fresh");
+        CHECK(loaded.document().data().generatedSfx.empty());
+        CHECK(loaded.document().data().audioAssets.empty());
         CHECK(!loaded.document().isDirty());
     }
 

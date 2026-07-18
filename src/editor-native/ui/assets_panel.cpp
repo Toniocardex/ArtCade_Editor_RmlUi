@@ -43,7 +43,7 @@ std::string importMenu(bool disabled) {
          + entry("import-font",  "Font")
          + entry("import-script", "Lua Script")
          + entry("create-script", "Create Lua Script")
-         + entry("create-generated-sfx", "Generated SFX", "coin")
+         + entry("open-generated-sfx", "Generated SFX Editor")
          + "</div></div>";
 }
 

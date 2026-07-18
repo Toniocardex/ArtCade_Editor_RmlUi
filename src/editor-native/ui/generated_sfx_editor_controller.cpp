@@ -265,7 +265,22 @@ std::string GeneratedSfxEditorController::selectedOr(
 }
 
 void GeneratedSfxEditorController::open(const std::string& id) {
-    if (id.empty() || !coordinator_.document().hasGeneratedSfx(id)) return;
+    if (id.empty()) {
+        workspaceOpen_ = true;
+        const std::optional<std::string> previous = selectedId_;
+        if (selectedId_
+            && !coordinator_.document().hasGeneratedSfx(*selectedId_)) {
+            selectedId_.reset();
+        }
+        if (!selectedId_
+            && !coordinator_.document().data().generatedSfx.empty()) {
+            selectedId_ = coordinator_.document().data().generatedSfx.front().id;
+        }
+        if (previous != selectedId_ && stopPreviewRequest_) stopPreviewRequest_();
+        createMenuOpen_ = false;
+        return;
+    }
+    if (!coordinator_.document().hasGeneratedSfx(id)) return;
     if (selectedId_ && *selectedId_ != id && stopPreviewRequest_) stopPreviewRequest_();
     workspaceOpen_ = true;
     selectedId_ = id;

@@ -363,6 +363,11 @@ funzionalità audio restano comunque sospese fino ai gate finali SFX-R6.
   la selezione si azzera ma l'Audio Editor resta aperto sull'empty state; solo
   `close-generated-sfx` chiude il workspace. Build Release e test dedicati
   coprono click, file fisico assente, Undo/Redo, riferimenti Logic Board e Play.
+- **Empty project contract (2026-07-18):** startup e New Project mantengono
+  `ProjectDoc.generatedSfx` e `audioAssets` vuoti. L'entry Assets "Generated SFX
+  Editor" apre soltanto il workspace senza creare recipe, preset o WAV impliciti;
+  la prima mutazione avviene esclusivamente scegliendo un preset dal menu Create.
+  Un progetto caricato proietta soltanto recipe e asset realmente serializzati.
 - **Preflight output (2026-07-18):** una sola guard applicativa rivalida identità
   canonica, path confinato e collisioni reali sul filesystem. La UI usa la stessa
   capability per disabilitare Generate/Create; il click la rivalida prima del

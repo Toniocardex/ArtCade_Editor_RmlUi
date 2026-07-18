@@ -111,14 +111,24 @@ int main() {
         sourceRoot / "src/editor-native/ui/editor_ui.cpp"));
     const auto shellActions = markupActionIds(readText(
         sourceRoot / "src/editor-native/resources/ui/editor_shell.rml"));
+    const auto assetsPanelActions = markupActionIds(readText(
+        sourceRoot / "src/editor-native/ui/assets_panel.cpp"));
     const std::string controllerSource = readText(
         sourceRoot / "src/editor-native/ui/generated_sfx_editor_controller.cpp");
     const std::string applicationSource = readText(
         sourceRoot / "src/editor-native/app/editor_app.cpp");
+    const std::string assetsPanelSource = readText(
+        sourceRoot / "src/editor-native/ui/assets_panel.cpp");
     CHECK(controllerSource.find("Command{") == std::string::npos);
     CHECK(controllerSource.find("coordinator_.execute(") == std::string::npos);
     CHECK(controllerSource.find("GeneratedSfxIntent{") != std::string::npos);
     CHECK(countOccurrences(applicationSource, "sfxGeneration.requestGenerate(") == 1);
+    CHECK(assetsPanelSource.find(
+        "entry(\"open-generated-sfx\", \"Generated SFX Editor\")")
+        != std::string::npos);
+    CHECK(assetsPanelSource.find(
+        "entry(\"create-generated-sfx\", \"Generated SFX\", \"coin\")")
+        == std::string::npos);
     for (const auto& id : sourceActions) {
         if (id.find("sfx") == std::string::npos
             && id != "copy-primary-to-secondary") continue;
@@ -126,6 +136,10 @@ int main() {
         CHECK(findGeneratedSfxEditorAction(id) != nullptr);
     }
     for (const auto& id : shellActions) {
+        if (id.find("sfx") == std::string::npos) continue;
+        CHECK(findGeneratedSfxEditorAction(id) != nullptr);
+    }
+    for (const auto& id : assetsPanelActions) {
         if (id.find("sfx") == std::string::npos) continue;
         CHECK(findGeneratedSfxEditorAction(id) != nullptr);
     }
@@ -142,6 +156,12 @@ int main() {
 
     EditorCoordinator coordinator{makeProject()};
     GeneratedSfxEditorController controller{coordinator};
+    const auto openedEmpty = controller.dispatch("open-generated-sfx", {}, {});
+    CHECK(openedEmpty.handled && openedEmpty.refresh);
+    CHECK(controller.viewModel().workspaceOpen);
+    CHECK(!controller.viewModel().selectedId.has_value());
+    CHECK(coordinator.document().data().generatedSfx.empty());
+    CHECK(coordinator.document().data().audioAssets.empty());
     int previewRequests = 0;
     int stopRequests = 0;
     int generateRequests = 0;
@@ -154,6 +174,27 @@ int main() {
             ++generateRequests;
             generatedId = id;
         });
+    // Empty open with a stale selection must stop preview audio.
+    {
+        EditorCoordinator withRecipe{makeProject()};
+        CHECK(withRecipe.apply(
+            CreateGeneratedSfxIntent{
+                "generated-sfx-1", "Coin",
+                *generatedSfxRecipeFromPreset("coin")}).ok);
+        GeneratedSfxEditorController staleOpen{withRecipe};
+        int staleStops = 0;
+        staleOpen.setGenerationHandlers(
+            [](const std::string&) {},
+            [&] { ++staleStops; },
+            [](const std::string&) {});
+        CHECK(staleOpen.dispatch("open-generated-sfx", "generated-sfx-1", {}).refresh);
+        CHECK(staleOpen.viewModel().selectedId == "generated-sfx-1");
+        CHECK(withRecipe.execute(RemoveGeneratedSfxCommand{"generated-sfx-1"}).ok);
+        const auto reopened = staleOpen.dispatch("open-generated-sfx", {}, {});
+        CHECK(reopened.handled && reopened.refresh);
+        CHECK(!staleOpen.viewModel().selectedId.has_value());
+        CHECK(staleStops == 1);
+    }
     controller.setDiagnosticHandler(
         [&](const std::string&) { ++dismissRequests; });
     controller.setCreateFromCurrentHandler(
