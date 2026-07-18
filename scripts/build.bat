@@ -67,11 +67,19 @@ echo [editor 3/3] Building artcade-editor-native...
 if errorlevel 1 ( popd >nul & echo [FAIL] build failed. & exit /b 1 )
 
 if "!DO_TEST!"=="1" (
-    echo [editor] Building + running editor_core_test and sfx_synthesizer_test...
-    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target editor_core_test sfx_synthesizer_test
+    echo [editor] Building + running editor core suites and sfx_synthesizer_test...
+    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target editor_core_test sprite_animation_test tileset_tilemap_test generated_sfx_model_test script_asset_test sfx_synthesizer_test
     if errorlevel 1 ( popd >nul & echo [FAIL] test build failed. & exit /b 1 )
     "!BUILD_DIR!\tests\editor_core_test.exe"
     if errorlevel 1 ( popd >nul & echo [FAIL] editor_core_test failed. & exit /b 1 )
+    "!BUILD_DIR!\tests\sprite_animation_test.exe"
+    if errorlevel 1 ( popd >nul & echo [FAIL] sprite_animation_test failed. & exit /b 1 )
+    "!BUILD_DIR!\tests\tileset_tilemap_test.exe"
+    if errorlevel 1 ( popd >nul & echo [FAIL] tileset_tilemap_test failed. & exit /b 1 )
+    "!BUILD_DIR!\tests\generated_sfx_model_test.exe"
+    if errorlevel 1 ( popd >nul & echo [FAIL] generated_sfx_model_test failed. & exit /b 1 )
+    "!BUILD_DIR!\tests\script_asset_test.exe"
+    if errorlevel 1 ( popd >nul & echo [FAIL] script_asset_test failed. & exit /b 1 )
     "!BUILD_DIR!\tests\sfx_synthesizer_test.exe"
     if errorlevel 1 ( popd >nul & echo [FAIL] sfx_synthesizer_test failed. & exit /b 1 )
     echo [editor] Building + running logic_board_editor_test...
