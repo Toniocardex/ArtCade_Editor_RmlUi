@@ -13,5 +13,9 @@ _deps/
 Thumbs.db
 Desktop.ini
 
+# Local test capture noise
+script_test_out.txt
+*_test_out.txt
+
 # Junction target is local — use submodule in git; do not commit a copy of runtime
 vendor/artcade-runtime/
