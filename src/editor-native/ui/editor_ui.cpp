@@ -444,6 +444,7 @@ void EditorUi::detach() {
     previewGeneratedSfxRequest_ = {};
     stopGeneratedSfxPreviewRequest_ = {};
     generateNewSfxOutputRequest_ = {};
+    playAudioAssetRequest_ = {};
     regenerateAllStaleSfxRequest_ = {};
     cancelSfxBatchRequest_ = {};
     dismissSfxBatchSummaryRequest_ = {};
@@ -689,6 +690,10 @@ void EditorUi::setGeneratedSfxHandlers(GeneratedSfxRequest preview,
     generateNewSfxOutputRequest_ = std::move(generateNew);
 }
 
+void EditorUi::setPlayAudioAssetHandler(GeneratedSfxRequest playAudioAsset) {
+    playAudioAssetRequest_ = std::move(playAudioAsset);
+}
+
 void EditorUi::setSfxBatchHandlers(WorkspaceRequest regenerateAllStale,
                                    WorkspaceRequest cancelBatch,
                                    WorkspaceRequest dismissSummary) {
@@ -717,6 +722,7 @@ void EditorUi::setProjectSavedQuery(ProjectSavedQuery query) {
 
 void EditorUi::notifyGeneratedSfxOutputReady(const std::string& id) {
     sfxJustGeneratedId_ = id;
+    if (!id.empty()) expandedSfxOutputs_.insert(id);
     refreshGeneratedSfxEditor();
 }
 
@@ -985,6 +991,25 @@ std::string formatSfxMacroNumber(const SfxMacro& macro, float displayValue);
 // even if a coincidental value match would technically pass the comparison.
 std::string activeSfxPresetId(const artcade::sfx::SfxRecipe& recipe);
 
+std::string sfxOutputSerialLabel(const std::string& assetId) {
+    const auto pos = assetId.rfind('-');
+    if (pos == std::string::npos || pos + 1 >= assetId.size()) return {};
+    const std::string suffix = assetId.substr(pos + 1);
+    if (suffix.size() < 3 || !std::all_of(suffix.begin(), suffix.end(),
+            [](unsigned char c) { return std::isdigit(c) != 0; })) {
+        return {};
+    }
+    return suffix;
+}
+
+std::string sfxOutputRowLabel(const artcade::sfx::GeneratedSfxDef& recipe,
+                              const AudioAssetDef& audio) {
+    const std::string serial = sfxOutputSerialLabel(audio.assetId);
+    if (!serial.empty()) return recipe.name + " · " + serial;
+    if (!audio.name.empty()) return audio.name;
+    return audio.assetId;
+}
+
 const char* generatedSfxStatusLabel(const ProjectDocument& document,
                                     const artcade::sfx::GeneratedSfxDef& definition) {
     return generatedSfxOutputStatusLabel(generatedSfxOutputStatus(document, definition));
@@ -1151,9 +1176,20 @@ void EditorUi::refreshGeneratedSfxEditor() {
         const bool selected = entry.id == definition->id;
         const char* status = generatedSfxStatusLabel(coordinator_.document(), entry);
         const char* statusClass = generatedSfxStatusClass(coordinator_.document(), entry);
+        const auto outputs = generatedOutputsFor(coordinator_.document(), entry.id);
+        const bool expanded = expandedSfxOutputs_.count(entry.id) != 0;
         browserHtml += "<div class=\"sfx-browser-row";
         if (selected) browserHtml += " selected";
-        browserHtml += "\">"
+        browserHtml += "\">";
+        if (!outputs.empty()) {
+            browserHtml +=
+                "<button class=\"sfx-browser-expand\" data-action=\"toggle-sfx-outputs\" data-arg=\""
+                + escapeRml(entry.id) + "\" title=\"Show generated outputs\">"
+                + std::string(expanded ? "&#x25BE;" : "&#x25B8;") + "</button>";
+        } else {
+            browserHtml += "<span class=\"sfx-browser-expand-spacer\"></span>";
+        }
+        browserHtml +=
             "<button class=\"sfx-browser-row-main\" data-action=\"open-generated-sfx\" data-arg=\""
             + escapeRml(entry.id) + "\">"
             "<span class=\"sfx-browser-name\">" + escapeRml(entry.name) + "</span>"
@@ -1162,7 +1198,12 @@ void EditorUi::refreshGeneratedSfxEditor() {
             browserHtml += " ";
             browserHtml += statusClass;
         }
-        browserHtml += "\">" + std::string(status) + "</span></button>"
+        browserHtml += "\">" + std::string(status) + "</span>";
+        if (!outputs.empty()) {
+            browserHtml += "<span class=\"sfx-browser-output-count\">Outputs · "
+                         + std::to_string(outputs.size()) + "</span>";
+        }
+        browserHtml += "</button>"
             "<div class=\"sfx-browser-actions\">"
             "<button class=\"sfx-browser-action\" data-action=\"focus-sfx-rename\" data-arg=\""
             + escapeRml(entry.id) + "\" title=\"Rename\"><span class=\"icon\">&#xeb0a;</span></button>"
@@ -1171,6 +1212,33 @@ void EditorUi::refreshGeneratedSfxEditor() {
             "<button class=\"sfx-browser-action destructive\" data-action=\"remove-generated-sfx\" data-arg=\""
             + escapeRml(entry.id) + "\" title=\"Delete\"><span class=\"icon\">&#xeb41;</span></button>"
             "</div></div>";
+
+        if (expanded) {
+            for (const AudioAssetDef* output : outputs) {
+                const bool isCurrent = output->assetId == entry.outputAssetId;
+                browserHtml += "<div class=\"sfx-browser-output-row";
+                if (isCurrent) browserHtml += " current";
+                browserHtml += "\">"
+                    "<span class=\"sfx-browser-output-indent\"></span>"
+                    "<span class=\"sfx-browser-output-main\">"
+                    "<span class=\"sfx-browser-output-name\">"
+                    + escapeRml(sfxOutputRowLabel(entry, *output)) + "</span>"
+                    "<span class=\"sfx-browser-output-meta\">"
+                    + std::string(isCurrent ? "Current" : "Audio") + "</span></span>"
+                    "<div class=\"sfx-browser-actions\">"
+                    "<button class=\"sfx-browser-action\" data-action=\"preview-sfx-output-audio\" data-arg=\""
+                    + escapeRml(output->assetId) + "\" title=\"Preview\"><span class=\"icon\">&#xed46;</span></button>"
+                    "<button class=\"sfx-browser-action\" data-action=\"reveal-sfx-output-audio\" data-arg=\""
+                    + escapeRml(output->assetId) + "\" title=\"Reveal in Assets\"><span class=\"icon\">&#xeaad;</span></button>"
+                    "<button class=\"sfx-browser-action\" data-action=\"rename-sfx-output-audio\" data-arg=\""
+                    + escapeRml(output->assetId) + "\" title=\"Rename audio asset\"><span class=\"icon\">&#xeb0a;</span></button>"
+                    "<button class=\"sfx-browser-action\" data-action=\"copy-sfx-output-path\" data-arg=\""
+                    + escapeRml(output->assetId) + "\" title=\"Copy path\"><span class=\"icon\">&#xea7a;</span></button>"
+                    "<button class=\"sfx-browser-action destructive\" data-action=\"remove-sfx-output-audio\" data-arg=\""
+                    + escapeRml(output->assetId) + "\" title=\"Delete audio asset\"><span class=\"icon\">&#xeb41;</span></button>"
+                    "</div></div>";
+            }
+        }
     }
     if (shown == 0) {
         browserHtml += "<div class=\"sfx-browser-empty\">"
@@ -2598,6 +2666,60 @@ bool EditorUi::handleGeneratedSfxAction(const std::string& action, const std::st
     }
     if (action == "toggle-sfx-create-menu") {
         sfxCreateMenuOpen_ = !sfxCreateMenuOpen_;
+        refreshGeneratedSfxEditor();
+        return true;
+    }
+    if (action == "toggle-sfx-outputs") {
+        if (arg.empty()) return true;
+        if (expandedSfxOutputs_.count(arg)) expandedSfxOutputs_.erase(arg);
+        else expandedSfxOutputs_.insert(arg);
+        refreshGeneratedSfxEditor();
+        return true;
+    }
+    if (action == "preview-sfx-output-audio") {
+        if (playAudioAssetRequest_ && !arg.empty()) playAudioAssetRequest_(arg);
+        return true;
+    }
+    if (action == "reveal-sfx-output-audio") {
+        if (!arg.empty()) coordinator_.apply(SetAssetFilterIntent{arg});
+        return true;
+    }
+    if (action == "copy-sfx-output-path") {
+        const AudioAssetDef* audio = coordinator_.document().findAudioAsset(arg);
+        if (audio && !audio->sourcePath.empty())
+            SetClipboardText(audio->sourcePath.c_str());
+        return true;
+    }
+    if (action == "rename-sfx-output-audio") {
+        const AudioAssetDef* audio = coordinator_.document().findAudioAsset(arg);
+        if (!audio) return true;
+        // Current linked output: display name authority is the recipe.
+        if (const artcade::sfx::GeneratedSfxDef* owner =
+                coordinator_.document().findGeneratedSfxByOutputAssetId(arg)) {
+            openGeneratedSfxId_ = owner->id;
+            sfxFocusNameField_ = true;
+            refreshGeneratedSfxEditor();
+            return true;
+        }
+        // Independent WAV: materialize a stable Assets name when still empty,
+        // then reveal so the user can manage it like any other audio asset.
+        if (audio->name.empty() || audio->name == audio->assetId) {
+            std::string name = audio->assetId;
+            if (audio->generatedFromSfxId) {
+                if (const auto* recipe =
+                        coordinator_.document().findGeneratedSfx(*audio->generatedFromSfxId)) {
+                    name = sfxOutputRowLabel(*recipe, *audio);
+                }
+            }
+            coordinator_.execute(RenameAudioAssetCommand{arg, name});
+        }
+        coordinator_.apply(SetAssetFilterIntent{arg});
+        refreshGeneratedSfxEditor();
+        return true;
+    }
+    if (action == "remove-sfx-output-audio") {
+        if (arg.empty()) return true;
+        coordinator_.execute(RemoveAudioAssetCommand{arg});
         refreshGeneratedSfxEditor();
         return true;
     }

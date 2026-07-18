@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace ArtCade::EditorNative {
 
@@ -151,6 +152,11 @@ enum class GeneratedSfxOutputStatus {
 /** True when any AudioAssetDef already owns this project-relative path. */
 [[nodiscard]] bool generatedSfxOutputPathTaken(const ProjectDocument& document,
                                                const std::string& relativePath);
+
+/** Audio assets historically produced by @p generatedSfxId (newest serial first). */
+[[nodiscard]] std::vector<const AudioAssetDef*> generatedOutputsFor(
+    const ProjectDocument& document,
+    const std::string& generatedSfxId);
 
 /** Fresh output identity for Generate New: …-<sfxId>-0001, -0002, …
  *  Path is derived from assetId (not display name). Checks catalog + disk. */

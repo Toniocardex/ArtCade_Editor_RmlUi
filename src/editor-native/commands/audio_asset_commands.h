@@ -24,6 +24,20 @@ private:
     AudioLoadMode loadMode_;
 };
 
+class RenameAudioAssetCommand final : public EditorCommand {
+public:
+    RenameAudioAssetCommand(AssetId assetId, std::string name);
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "RenameAudioAsset"; }
+private:
+    AssetId     assetId_;
+    std::string name_;
+    ProjectDoc  before_{};
+    ProjectDoc  after_{};
+    bool        captured_ = false;
+};
+
 class RemoveAudioAssetCommand final : public EditorCommand {
 public:
     explicit RemoveAudioAssetCommand(AssetId assetId);

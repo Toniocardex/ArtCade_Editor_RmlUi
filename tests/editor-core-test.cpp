@@ -3530,10 +3530,20 @@ static void runGeneratedSfxTests() {
         "sfx-jump", changedAgain, output2}).ok);
     CHECK(coordinator.document().hasAudioAsset(output.assetId));
     CHECK(coordinator.document().findAudioAsset(output.assetId)->name == "Hero Jump");
+    CHECK(coordinator.document().findAudioAsset(output.assetId)->generatedFromSfxId
+          == std::optional<std::string>{"sfx-jump"});
     CHECK(coordinator.document().findGeneratedSfxByOutputAssetId(output.assetId) == nullptr);
     CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId
           == output2.assetId);
     CHECK(coordinator.document().findAudioAsset(output2.assetId)->name.empty());
+    CHECK(coordinator.document().findAudioAsset(output2.assetId)->generatedFromSfxId
+          == std::optional<std::string>{"sfx-jump"});
+    {
+        const auto outputs = generatedOutputsFor(coordinator.document(), "sfx-jump");
+        CHECK(outputs.size() == 2);
+        CHECK(outputs[0]->assetId == output2.assetId);
+        CHECK(outputs[1]->assetId == output.assetId);
+    }
     CHECK(generatedSfxOutputStatus(coordinator.document(),
             *coordinator.document().findGeneratedSfx("sfx-jump"))
           == GeneratedSfxOutputStatus::Ready);

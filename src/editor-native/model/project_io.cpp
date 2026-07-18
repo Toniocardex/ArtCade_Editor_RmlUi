@@ -1149,6 +1149,10 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                 return DeserializeResult::failure("Audio asset loadMode is unknown");
             }
             asset.loadMode = *parsed;
+            if (item.contains("generatedFromSfxId") && item["generatedFromSfxId"].is_string()) {
+                const std::string from = item["generatedFromSfxId"].get<std::string>();
+                if (!from.empty()) asset.generatedFromSfxId = from;
+            }
             doc.audioAssets.push_back(std::move(asset));
         }
     }
@@ -1163,6 +1167,17 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                     "Generated SFX recipe is invalid: " + decoded.error().message);
             }
             doc.generatedSfx.push_back(decoded.takeValue());
+        }
+    }
+
+    // Legacy: linked outputs without provenance → stamp GeneratedSfx id.
+    for (const artcade::sfx::GeneratedSfxDef& definition : doc.generatedSfx) {
+        if (definition.outputAssetId.empty()) continue;
+        for (AudioAssetDef& asset : doc.audioAssets) {
+            if (asset.assetId != definition.outputAssetId) continue;
+            if (!asset.generatedFromSfxId || asset.generatedFromSfxId->empty())
+                asset.generatedFromSfxId = definition.id;
+            break;
         }
     }
 
@@ -1283,12 +1298,15 @@ SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
 
     nlohmann::json audioAssets = nlohmann::json::array();
     for (const AudioAssetDef& asset : doc.audioAssets) {
-        audioAssets.push_back(nlohmann::json{
+        nlohmann::json entry{
             {"assetId", asset.assetId},
             {"name", asset.name.empty() ? asset.assetId : asset.name},
             {"sourcePath", asset.sourcePath},
             {"loadMode", audioLoadModeToString(asset.loadMode)},
-        });
+        };
+        if (asset.generatedFromSfxId && !asset.generatedFromSfxId->empty())
+            entry["generatedFromSfxId"] = *asset.generatedFromSfxId;
+        audioAssets.push_back(std::move(entry));
     }
 
     nlohmann::json generatedSfx = nlohmann::json::array();

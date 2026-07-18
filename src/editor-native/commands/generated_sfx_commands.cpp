@@ -294,6 +294,7 @@ EditorOperationResult RegisterGeneratedSfxOutputCommand::apply(ProjectDocument& 
         // Linked output has no parallel name authority — display comes from
         // GeneratedSfxDef.name until the recipe detaches.
         linkedOutput.name.clear();
+        linkedOutput.generatedFromSfxId = id_;
         // Regenerating into a new asset keeps the previous WAV as an independent
         // AudioAssetDef (name handoff). Same-id updates stay in place.
         if (!definition->outputAssetId.empty()
@@ -362,6 +363,7 @@ EditorOperationResult CreateGeneratedSfxOutputCommand::apply(ProjectDocument& do
             transferOutputNameOnDetach(after_, *definition);
         AudioAssetDef linkedOutput = outputAsset_;
         linkedOutput.name.clear();
+        linkedOutput.generatedFromSfxId = id_;
         after_.audioAssets.push_back(linkedOutput);
         definition->outputAssetId = linkedOutput.assetId;
         definition->outputPath = linkedOutput.sourcePath;
@@ -414,6 +416,39 @@ bool generatedSfxOutputPathTaken(const ProjectDocument& document,
         [&](const AudioAssetDef& asset) {
             return normalize(asset.sourcePath) == needle;
         });
+}
+
+namespace {
+
+bool serialSuffixNewer(const std::string& leftId, const std::string& rightId) {
+    auto serialOf = [](const std::string& id) -> int {
+        const auto pos = id.rfind('-');
+        if (pos == std::string::npos || pos + 1 >= id.size()) return -1;
+        try {
+            return std::stoi(id.substr(pos + 1));
+        } catch (...) {
+            return -1;
+        }
+    };
+    return serialOf(leftId) > serialOf(rightId);
+}
+
+} // namespace
+
+std::vector<const AudioAssetDef*> generatedOutputsFor(
+    const ProjectDocument& document,
+    const std::string& generatedSfxId) {
+    std::vector<const AudioAssetDef*> result;
+    if (generatedSfxId.empty()) return result;
+    for (const AudioAssetDef& audio : document.data().audioAssets) {
+        if (audio.generatedFromSfxId && *audio.generatedFromSfxId == generatedSfxId)
+            result.push_back(&audio);
+    }
+    std::sort(result.begin(), result.end(),
+        [](const AudioAssetDef* left, const AudioAssetDef* right) {
+            return serialSuffixNewer(left->assetId, right->assetId);
+        });
+    return result;
 }
 
 std::optional<GeneratedSfxOutputIdentity> nextGeneratedSfxOutputIdentity(

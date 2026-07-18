@@ -597,6 +597,56 @@ int EditorApp::run(int argc, char** argv) {
         [&](const std::string& id) { startSfxJob(SfxJobKind::Preview, id); },
         [&]() { sfxPreview.stop(); },
         [&](const std::string& id) { startSfxJob(SfxJobKind::Generate, id); });
+    ui.setPlayAudioAssetHandler([&](const std::string& assetId) {
+        const AudioAssetDef* audio = coordinator.document().findAudioAsset(assetId);
+        if (!audio) {
+            coordinator.logError("Unknown audio asset: " + assetId);
+            return;
+        }
+        if (projectSession.currentProjectPath().empty()) {
+            coordinator.logError("Save the project before previewing audio assets");
+            return;
+        }
+        if (!IsAudioDeviceReady()) {
+            InitAudioDevice();
+            ownsSfxAudioDevice = IsAudioDeviceReady();
+        }
+        if (!IsAudioDeviceReady()) {
+            coordinator.logError("Audio device is not ready");
+            return;
+        }
+        const auto confined = resolvePathInsideRoot(
+            projectSession.currentProjectPath().parent_path(),
+            std::filesystem::u8path(audio->sourcePath));
+        if (!confined.ok) {
+            coordinator.logError("Audio path rejected: " + confined.error);
+            return;
+        }
+        if (!FileExists(confined.value.string().c_str())) {
+            coordinator.logError("Audio file missing: " + audio->sourcePath);
+            return;
+        }
+        Sound sound = LoadSound(confined.value.string().c_str());
+        if (sound.frameCount == 0) {
+            coordinator.logError("Could not load audio: " + audio->sourcePath);
+            return;
+        }
+        // One-shot owner-thread preview: unload any previous transient preview
+        // wave held on the RaylibPreview path by stopping it first.
+        sfxPreview.stop();
+        PlaySound(sound);
+        // Keep the Sound alive until the next preview/stop by parking it in the
+        // play-session cache keyed by asset id (Edit-mode reuse is fine).
+        auto existing = playSoundCache.find(assetId);
+        if (existing != playSoundCache.end()) {
+            UnloadSound(existing->second);
+            existing->second = sound;
+        } else {
+            playSoundCache.emplace(assetId, sound);
+        }
+        coordinator.logInfo("Playing audio asset: "
+            + resolveAudioAssetDisplayName(coordinator.document(), *audio));
+    });
     ui.setSfxBatchHandlers(
         [&] { startRegenerateAllStale(); },
         [&] {

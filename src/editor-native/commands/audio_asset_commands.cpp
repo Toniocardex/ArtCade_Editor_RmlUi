@@ -40,6 +40,35 @@ EditorOperationResult AddAudioAssetCommand::undo(ProjectDocument& document) {
     return EditorOperationResult::success(kInvalidation, DomainChange::assetChanged(assetId_));
 }
 
+RenameAudioAssetCommand::RenameAudioAssetCommand(AssetId assetId, std::string name)
+    : assetId_(std::move(assetId)), name_(std::move(name)) {}
+
+EditorOperationResult RenameAudioAssetCommand::apply(ProjectDocument& document) {
+    if (!captured_) {
+        if (name_.empty()) return EditorOperationResult::failure("Audio name cannot be empty");
+        if (!document.hasAudioAsset(assetId_)) {
+            return EditorOperationResult::failure("Unknown audio asset: " + assetId_);
+        }
+        before_ = document.data();
+        after_ = before_;
+        auto it = std::find_if(after_.audioAssets.begin(), after_.audioAssets.end(),
+            [&](const AudioAssetDef& asset) { return asset.assetId == assetId_; });
+        if (it == after_.audioAssets.end()) {
+            return EditorOperationResult::failure("Unknown audio asset: " + assetId_);
+        }
+        it->name = name_;
+        captured_ = true;
+    }
+    document.commitStagedCommand(after_);
+    return EditorOperationResult::success(kInvalidation, DomainChange::assetChanged(assetId_));
+}
+
+EditorOperationResult RenameAudioAssetCommand::undo(ProjectDocument& document) {
+    if (!captured_) return EditorOperationResult::failure("Cannot undo audio asset rename");
+    document.commitStagedCommand(before_);
+    return EditorOperationResult::success(kInvalidation, DomainChange::assetChanged(assetId_));
+}
+
 RemoveAudioAssetCommand::RemoveAudioAssetCommand(AssetId assetId)
     : assetId_(std::move(assetId)) {}
 

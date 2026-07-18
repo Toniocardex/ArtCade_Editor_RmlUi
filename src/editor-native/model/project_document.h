@@ -39,6 +39,7 @@ class SetPlatformerValueCommand;
 class AddImageAssetCommand;
 class RemoveImageAssetCommand;
 class AddAudioAssetCommand;
+class RenameAudioAssetCommand;
 class RemoveAudioAssetCommand;
 class CreateGeneratedSfxCommand;
 class RenameGeneratedSfxCommand;
@@ -223,6 +224,7 @@ private:
     friend class AddImageAssetCommand;
     friend class RemoveImageAssetCommand;
     friend class AddAudioAssetCommand;
+    friend class RenameAudioAssetCommand;
     friend class RemoveAudioAssetCommand;
     friend class CreateGeneratedSfxCommand;
     friend class RenameGeneratedSfxCommand;

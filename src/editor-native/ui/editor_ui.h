@@ -131,6 +131,8 @@ public:
     void setGeneratedSfxHandlers(GeneratedSfxRequest preview,
                                  WorkspaceRequest stopPreview,
                                  GeneratedSfxRequest generateNew);
+    /** Play an existing AudioAssetDef WAV (owner-thread Raylib). */
+    void setPlayAudioAssetHandler(GeneratedSfxRequest playAudioAsset);
     void setSfxBatchHandlers(WorkspaceRequest regenerateAllStale,
                              WorkspaceRequest cancelBatch,
                              WorkspaceRequest dismissSummary);
@@ -303,6 +305,7 @@ private:
     GeneratedSfxRequest                 previewGeneratedSfxRequest_;
     WorkspaceRequest                    stopGeneratedSfxPreviewRequest_;
     GeneratedSfxRequest                 generateNewSfxOutputRequest_;
+    GeneratedSfxRequest                 playAudioAssetRequest_;
     WorkspaceRequest                    regenerateAllStaleSfxRequest_;
     WorkspaceRequest                    cancelSfxBatchRequest_;
     WorkspaceRequest                    dismissSfxBatchSummaryRequest_;
@@ -336,6 +339,8 @@ private:
     bool                                sfxAdvancedMode_ = false;
     /** Browser search buffer (workspace-only). */
     std::string                         sfxBrowserFilter_;
+    /** Expanded recipe rows showing output history (workspace-only). */
+    std::unordered_set<std::string>     expandedSfxOutputs_;
     /** "+" create-from-preset menu open state (workspace-only). */
     bool                                sfxCreateMenuOpen_ = false;
     /** After Rename from the browser, focus the name field once. */
