@@ -8,6 +8,8 @@ endfunction()
 artcade_test(editor_core_test
     editor-core-test.cpp
     artcade-editor-core)
+target_sources(editor_core_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/editor-native/app/generated_sfx_generation_preflight.cpp)
 if(MSVC)
     target_link_options(editor_core_test PRIVATE /STACK:8388608)
 endif()

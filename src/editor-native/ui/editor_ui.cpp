@@ -470,6 +470,8 @@ void EditorUi::detach() {
     cancelSfxBatchRequest_ = {};
     dismissSfxBatchSummaryRequest_ = {};
     sfxBatchState_ = {};
+    sfxGenerationAvailabilityQuery_ = {};
+    generatedSfxRefreshPending_ = false;
     spriteAnimationEditor_.detach();
     tilesetEditor_.detach();
     logicBoardEditor_.detach();
@@ -486,6 +488,10 @@ void EditorUi::processFrame() {
     if (!listener_ || !document_) return;
     scriptEditor_.processFrame();
     applyInvalidations(coordinator_.consumeInvalidations());
+    if (generatedSfxRefreshPending_) {
+        generatedSfxRefreshPending_ = false;
+        refreshGeneratedSfxEditor();
+    }
     // Deferred context menus: shown here, after the application's
     // outside-click check for this frame has already run.
     showPendingHierarchyMenu();
@@ -554,8 +560,10 @@ void EditorUi::applyInvalidations(EditorInvalidation flags) {
     if (has(flags, EditorInvalidation::Assets) || has(flags, EditorInvalidation::Project))
         assets_.refresh(document_, coordinator_);
     if (has(flags, EditorInvalidation::Assets) || has(flags, EditorInvalidation::Project)
-        || has(flags, EditorInvalidation::Toolbar))
+        || has(flags, EditorInvalidation::Toolbar)) {
+        generatedSfxRefreshPending_ = false;
         refreshGeneratedSfxEditor();
+    }
     if (has(flags, EditorInvalidation::LogicBoard) || has(flags, EditorInvalidation::Project))
         logicBoardEditor_.refresh();
     if (has(flags, EditorInvalidation::ScriptEditor) || has(flags, EditorInvalidation::Project))
@@ -737,9 +745,18 @@ void EditorUi::setProjectSavedQuery(ProjectSavedQuery query) {
     projectSavedQuery_ = std::move(query);
 }
 
+void EditorUi::setGeneratedSfxGenerationAvailabilityQuery(
+    GeneratedSfxGenerationAvailabilityQuery query) {
+    sfxGenerationAvailabilityQuery_ = std::move(query);
+}
+
 void EditorUi::notifyGeneratedSfxOutputReady(const std::string& id) {
     sfxJustGeneratedId_ = id;
     refreshGeneratedSfxEditor();
+}
+
+void EditorUi::deferGeneratedSfxRefresh() {
+    generatedSfxRefreshPending_ = true;
 }
 
 void EditorUi::closeSfxCreateFromCurrentDialog() {
@@ -748,7 +765,7 @@ void EditorUi::closeSfxCreateFromCurrentDialog() {
     sfxCreateFromCurrentError_.clear();
     sfxCreateFromCurrentSourceId_.clear();
     sfxFocusCreateFromCurrentName_ = false;
-    refreshGeneratedSfxEditor();
+    deferGeneratedSfxRefresh();
 }
 
 void EditorUi::validateSfxCreateFromCurrentName(const std::string& value) {
@@ -766,7 +783,9 @@ void EditorUi::validateSfxCreateFromCurrentName(const std::string& value) {
     } else {
         sfxCreateFromCurrentError_.clear();
     }
-    refreshGeneratedSfxEditor();
+    // Blur precedes the click on Create/Cancel. Rebuilding the dialog here
+    // would destroy both event targets while RmlUi is still dispatching them.
+    deferGeneratedSfxRefresh();
 }
 
 void EditorUi::confirmSfxCreateFromCurrent(const std::string& value) {
@@ -777,7 +796,7 @@ void EditorUi::confirmSfxCreateFromCurrent(const std::string& value) {
     }
     if (projectSavedQuery_ && !projectSavedQuery_()) {
         sfxCreateFromCurrentError_ = "Save the project before creating an audio asset";
-        refreshGeneratedSfxEditor();
+        deferGeneratedSfxRefresh();
         return;
     }
     std::string trimmed = value.empty() ? sfxCreateFromCurrentName_ : value;
@@ -788,12 +807,12 @@ void EditorUi::confirmSfxCreateFromCurrent(const std::string& value) {
     sfxCreateFromCurrentName_ = trimmed;
     if (trimmed.empty()) {
         sfxCreateFromCurrentError_ = "Name cannot be empty";
-        refreshGeneratedSfxEditor();
+        deferGeneratedSfxRefresh();
         return;
     }
     if (audioDisplayNameExists(coordinator_.document().data(), trimmed)) {
         sfxCreateFromCurrentError_ = "Audio name already exists";
-        refreshGeneratedSfxEditor();
+        deferGeneratedSfxRefresh();
         return;
     }
     const std::string sourceId = sfxCreateFromCurrentSourceId_;
@@ -802,12 +821,22 @@ void EditorUi::confirmSfxCreateFromCurrent(const std::string& value) {
         return;
     }
     const std::string newId = nextGeneratedSfxId(coordinator_.document());
+    if (sfxGenerationAvailabilityQuery_) {
+        const GeneratedSfxGenerationAvailability availability =
+            sfxGenerationAvailabilityQuery_(newId);
+        if (!availability.allowed) {
+            sfxCreateFromCurrentError_ = availability.reason.empty()
+                ? "Audio output cannot be created" : availability.reason;
+            deferGeneratedSfxRefresh();
+            return;
+        }
+    }
     const auto result = coordinator_.execute(
         DuplicateGeneratedSfxCommand{sourceId, newId, trimmed});
     if (!result.ok) {
         sfxCreateFromCurrentError_ = result.error.empty()
             ? "Could not create sound" : result.error;
-        refreshGeneratedSfxEditor();
+        deferGeneratedSfxRefresh();
         return;
     }
     sfxCreateFromCurrentOpen_ = false;
@@ -820,7 +849,7 @@ void EditorUi::confirmSfxCreateFromCurrent(const std::string& value) {
         stopGeneratedSfxPreviewRequest_();
     }
     openGeneratedSfxId_ = newId;
-    refreshGeneratedSfxEditor();
+    deferGeneratedSfxRefresh();
     if (generateSfxOutputRequest_) generateSfxOutputRequest_(newId);
 }
 
@@ -1298,13 +1327,17 @@ void EditorUi::refreshGeneratedSfxEditor() {
     // (not just describing the constraint in prose next to an active-looking
     // button) is what makes "why didn't that do anything" unreachable.
     const bool projectSaved = !projectSavedQuery_ || projectSavedQuery_();
+    GeneratedSfxGenerationAvailability generationAvailability;
+    if (projectSaved && sfxGenerationAvailabilityQuery_)
+        generationAvailability = sfxGenerationAvailabilityQuery_(definition->id);
+    const bool canGenerate = projectSaved && generationAvailability.allowed;
     // First generation creates the stable AudioAssetDef; later clicks regenerate
     // the same WAV in place.
     if (Rml::Element* generateBtn = document_->GetElementById("btn-sfx-generate")) {
         generateBtn->SetInnerRML(outputStatus == GeneratedSfxOutputStatus::NeedsGeneration
             ? "Generate Audio Asset"
             : "Regenerate Audio Asset");
-        generateBtn->SetClass("disabled", !projectSaved);
+        generateBtn->SetClass("disabled", !canGenerate);
     }
     if (Rml::Element* moreMenu = document_->GetElementById("sfx-more-menu"))
         moreMenu->SetClass("hidden", !sfxMoreMenuOpen_);
@@ -1312,8 +1345,15 @@ void EditorUi::refreshGeneratedSfxEditor() {
     if (Rml::Element* dialogHost = document_->GetElementById("sfx-create-from-current")) {
         dialogHost->SetClass("hidden", !sfxCreateFromCurrentOpen_);
         if (sfxCreateFromCurrentOpen_) {
+            GeneratedSfxGenerationAvailability createAvailability;
+            if (projectSaved && sfxGenerationAvailabilityQuery_) {
+                createAvailability = sfxGenerationAvailabilityQuery_(
+                    nextGeneratedSfxId(coordinator_.document()));
+            }
             const bool canCreate = projectSaved && sfxCreateFromCurrentError_.empty()
-                && !sfxCreateFromCurrentName_.empty();
+                && !sfxCreateFromCurrentName_.empty() && createAvailability.allowed;
+            const std::string createError = !sfxCreateFromCurrentError_.empty()
+                ? sfxCreateFromCurrentError_ : createAvailability.reason;
             std::string dialogHtml =
                 "<div class=\"sfx-modal\">"
                 "<span class=\"sfx-modal-title\">Create New Sound</span>"
@@ -1329,16 +1369,16 @@ void EditorUi::refreshGeneratedSfxEditor() {
                     "<div class=\"sfx-modal-actions\">"
                     "<button class=\"panel-btn\" data-action=\"cancel-sfx-create-from-current\">Cancel</button>"
                     "<button class=\"panel-btn\" data-action=\"save-project\">Save Project&#8230;</button>"
-                    "<button class=\"panel-btn primary disabled\">Create and Generate</button>"
+                    "<button id=\"btn-sfx-create-from-current-confirm\" class=\"panel-btn primary disabled\">Create and Generate</button>"
                     "</div></div>";
             } else {
                 dialogHtml +=
-                    "<span class=\"sfx-modal-error\">" + escapeRml(sfxCreateFromCurrentError_) + "</span>"
+                    "<span class=\"sfx-modal-error\">" + escapeRml(createError) + "</span>"
                     "<div class=\"sfx-modal-actions\">"
                     "<button class=\"panel-btn\" data-action=\"cancel-sfx-create-from-current\">Cancel</button>"
                     "<button class=\"panel-btn primary"
                     + std::string(canCreate ? "" : " disabled")
-                    + "\" data-action=\"confirm-sfx-create-from-current\">Create and Generate</button>"
+                    + "\" id=\"btn-sfx-create-from-current-confirm\" data-action=\"confirm-sfx-create-from-current\">Create and Generate</button>"
                     "</div></div>";
             }
             dialogHost->SetInnerRML(dialogHtml);
@@ -1359,6 +1399,14 @@ void EditorUi::refreshGeneratedSfxEditor() {
              + "\" data-action=\"apply-sfx-preset\" data-arg=\"" + id + "\">" + label + "</button>";
     };
     const bool justGenerated = ready && sfxJustGeneratedId_ == definition->id;
+    const std::string outputStatusMarkup =
+        !projectSaved ? "\">Save the project before generating an audio asset."
+        : !generationAvailability.allowed
+            ? " stale\">" + escapeRml(generationAvailability.reason)
+        : justGenerated ? " ready\">Audio asset generated"
+        : ready ? " ready\">Audio asset ready"
+        : stale ? " stale\">Stale · Regenerate audio asset"
+                : "\">Needs generation";
     // ConsoleMessage carries no asset id or field path (that's the deferred
     // "field-addressable diagnostics" slice), so this can only reflect the
     // console's global counts -- the same numbers status-health already
@@ -1375,12 +1423,7 @@ void EditorUi::refreshGeneratedSfxEditor() {
         "<input id=\"sfx-name-input\" class=\"sfx-name\" type=\"text\" data-action=\"commit-sfx-name\" "
         "title=\"Rename this Generated SFX\" value=\""
         + escapeRml(definition->name) + "\"/>"
-        "<span class=\"sfx-status" + std::string(
-            !projectSaved ? "\">Save the project before generating an audio asset."
-            : justGenerated ? " ready\">Audio asset generated"
-            : ready ? " ready\">Audio asset ready"
-            : stale ? " stale\">Stale · Regenerate audio asset"
-                    : "\">Needs generation")
+        "<span class=\"sfx-status" + outputStatusMarkup
         + "</span>"
         + (!projectSaved ? "<button class=\"sfx-inline-action\" data-action=\"save-project\">Save Project&#8230;</button>" : "")
         + "</div>"

@@ -5,6 +5,7 @@
 // with no GL context and no stubs.
 
 #include "editor-native/app/editor_coordinator.h"
+#include "editor-native/app/generated_sfx_generation_preflight.h"
 #include "editor-native/app/hierarchy_actions.h"
 #include "editor-native/app/input_routing.h"
 #include "editor-native/app/inspector_commit.h"
@@ -3547,6 +3548,50 @@ static void runGeneratedSfxTests() {
     CHECK(generatedAudioAssetId("sfx-jump") == "generated-audio-sfx-jump");
     CHECK(generatedAudioRelativePath("sfx-jump")
           == "assets/audio/generated/generated-audio-sfx-jump.wav");
+
+    // Filesystem preflight: a canonical WAV not represented by the document is
+    // an external collision and blocks before render or Duplicate. A linked
+    // output is Regenerate and may replace its own existing destination.
+    {
+        const std::filesystem::path root = testTempDir() / "sfx-generation-preflight";
+        std::error_code ec;
+        std::filesystem::create_directories(root / "assets" / "audio" / "generated", ec);
+        CHECK(!ec);
+
+        artcade::sfx::GeneratedSfxDef prospective;
+        prospective.id = "prospective";
+        const auto available = preflightGeneratedSfxGeneration(
+            coordinator.document(), prospective, root);
+        CHECK(available.allowed);
+        CHECK(!available.regenerating);
+        CHECK(!available.identity.finalPath.empty());
+        {
+            std::ofstream existing{available.identity.finalPath, std::ios::binary};
+            existing << "existing";
+        }
+        const std::uint64_t revisionBeforeBlockedPreflight =
+            coordinator.document().revision();
+        const auto blocked = preflightGeneratedSfxGeneration(
+            coordinator.document(), prospective, root);
+        CHECK(!blocked.allowed);
+        CHECK(blocked.error.find("already exists") != std::string::npos);
+        CHECK(coordinator.document().revision() == revisionBeforeBlockedPreflight);
+
+        const auto linked = preflightGeneratedSfxGeneration(
+            coordinator.document(),
+            *coordinator.document().findGeneratedSfx("sfx-jump"), root);
+        CHECK(linked.allowed);
+        CHECK(linked.regenerating);
+        {
+            std::ofstream existingLinked{linked.identity.finalPath, std::ios::binary};
+            existingLinked << "owned";
+        }
+        const auto linkedExisting = preflightGeneratedSfxGeneration(
+            coordinator.document(),
+            *coordinator.document().findGeneratedSfx("sfx-jump"), root);
+        CHECK(linkedExisting.allowed);
+        CHECK(linkedExisting.regenerating);
+    }
 
     // Cross-catalog case-insensitive name uniqueness.
     CHECK(audioDisplayNameExists(coordinator.document().data(), "HERO JUMP"));

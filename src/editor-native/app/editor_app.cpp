@@ -5,6 +5,7 @@
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/app/editor_input.h"
 #include "editor-native/app/file_dialog.h"
+#include "editor-native/app/generated_sfx_generation_preflight.h"
 #include "editor-native/app/hierarchy_actions.h"
 #include "editor-native/app/input_routing.h"
 #include "editor-native/app/new_project_transaction.h"
@@ -408,6 +409,23 @@ int EditorApp::run(int argc, char** argv) {
     std::function<void(SfxJobKind, const std::string&)> startSfxJob;
     std::function<void()> pumpSfxBatch;
 
+    // One preflight authority for UI capability and click-time revalidation.
+    // Unknown ids are prospective Create-from-Current identities; existing ids
+    // use their persisted link to distinguish Generate from Regenerate.
+    const auto sfxGenerationPreflight = [&](const std::string& id) {
+        const artcade::sfx::GeneratedSfxDef* definition =
+            coordinator.document().findGeneratedSfx(id);
+        artcade::sfx::GeneratedSfxDef prospective;
+        if (!definition) {
+            prospective.id = id;
+            definition = &prospective;
+        }
+        const std::filesystem::path projectPath = projectSession.currentProjectPath();
+        return preflightGeneratedSfxGeneration(
+            coordinator.document(), *definition,
+            projectPath.empty() ? std::filesystem::path{} : projectPath.parent_path());
+    };
+
     startSfxJob = [&](SfxJobKind kind, const std::string& id) {
         if (coordinator.isPlaying()) {
             coordinator.logWarning("Stop Play before previewing or generating SFX");
@@ -442,28 +460,22 @@ int EditorApp::run(int argc, char** argv) {
         request.kind = kind;
         request.id = id;
         request.recipe = definition->recipe;
+        bool regenerating = false;
         if (kind == SfxJobKind::Generate) {
             request.projectPath = projectSession.currentProjectPath();
-            if (request.projectPath.empty()) {
-                coordinator.logError("Save the project before generating a WAV asset");
+            GeneratedSfxGenerationPreflight preflight = sfxGenerationPreflight(id);
+            if (!preflight.allowed) {
+                coordinator.logError(preflight.error);
                 return;
             }
-            const auto identity = stableGeneratedSfxOutputIdentity(
-                coordinator.document(), *definition, request.projectPath.parent_path());
-            if (!identity) {
-                coordinator.logError("Could not allocate Generated SFX output path");
-                return;
-            }
-            request.outputAssetId = identity->assetId;
-            request.relativePath = identity->relativePath;
-            request.finalPath = identity->finalPath;
-            request.stagingPath = identity->stagingPath;
+            regenerating = preflight.regenerating;
+            request.outputAssetId = std::move(preflight.identity.assetId);
+            request.relativePath = std::move(preflight.identity.relativePath);
+            request.finalPath = std::move(preflight.identity.finalPath);
+            request.stagingPath = std::move(preflight.identity.stagingPath);
         }
 
         if (!sfxBatch.active || kind != SfxJobKind::Generate) {
-            const bool regenerating = kind == SfxJobKind::Generate
-                && !definition->outputAssetId.empty()
-                && coordinator.document().hasAudioAsset(definition->outputAssetId);
             coordinator.logInfo(kind == SfxJobKind::Preview
                 ? "Rendering SFX preview..."
                 : (regenerating ? "Regenerating SFX WAV..." : "Generating SFX WAV..."));
@@ -613,6 +625,11 @@ int EditorApp::run(int argc, char** argv) {
             publishSfxBatch();
         });
     ui.setProjectSavedQuery([&] { return !projectSession.currentProjectPath().empty(); });
+    ui.setGeneratedSfxGenerationAvailabilityQuery([&](const std::string& id) {
+        const GeneratedSfxGenerationPreflight preflight = sfxGenerationPreflight(id);
+        return EditorUi::GeneratedSfxGenerationAvailability{
+            preflight.allowed, preflight.error};
+    });
 
     // Fit View / auto-fit: frame the active scene, centred, with a small padding.
     // Workspace-only (recenter pan to 0 + zoom-to-fit via intents); the viewport
@@ -1724,6 +1741,44 @@ int EditorApp::run(int argc, char** argv) {
             const bool changeCallback =
                 coordinator.uiState().assetFilter == "lifecycle-image";
 
+            // Regression smoke for the Generated SFX modal lifetime. Dispatch
+            // the real RmlUi click from markup that closes on success; its
+            // rebuild must wait for processFrame so the event target survives.
+            ui.setProjectSavedQuery([] { return true; });
+            ui.handleAction("create-generated-sfx", "", "");
+            const std::size_t sfxBeforeCreateFromCurrent =
+                coordinator.document().data().generatedSfx.size();
+            ui.setGeneratedSfxGenerationAvailabilityQuery([](const std::string&) {
+                return EditorUi::GeneratedSfxGenerationAvailability{
+                    false, "Audio file already exists"};
+            });
+            ui.handleAction("open-sfx-create-from-current", "", "");
+            Rml::Element* createFromCurrent = host.document()
+                ? host.document()->GetElementById("btn-sfx-create-from-current-confirm")
+                : nullptr;
+            const bool hadBlockedCreateButton = createFromCurrent != nullptr;
+            if (createFromCurrent)
+                createFromCurrent->DispatchEvent("click", Rml::Dictionary{});
+            ui.processFrame();
+            const bool sfxCreationBlocked = hadBlockedCreateButton
+                && coordinator.document().data().generatedSfx.size()
+                    == sfxBeforeCreateFromCurrent;
+
+            ui.setGeneratedSfxGenerationAvailabilityQuery([](const std::string&) {
+                return EditorUi::GeneratedSfxGenerationAvailability{true, {}};
+            });
+            createFromCurrent = host.document()
+                ? host.document()->GetElementById("btn-sfx-create-from-current-confirm")
+                : nullptr;
+            const bool hadCreateFromCurrentButton = createFromCurrent != nullptr;
+            if (createFromCurrent)
+                createFromCurrent->DispatchEvent("click", Rml::Dictionary{});
+            ui.processFrame();
+            const bool sfxCreateFromCurrentDispatch = sfxCreationBlocked
+                && hadCreateFromCurrentButton
+                && coordinator.document().data().generatedSfx.size()
+                    == sfxBeforeCreateFromCurrent + 1;
+
             ui.detach();
             if (probe) probe->DispatchEvent("click", Rml::Dictionary{});
             const bool noCallbackAfterDetach =
@@ -1740,7 +1795,7 @@ int EditorApp::run(int argc, char** argv) {
             missingDocumentUi.detach();
 
             if (!requiredElementsPresent || !collapsedOnce || !expandedAgain
-                || !exactlyOneCallback || !changeCallback
+                || !exactlyOneCallback || !changeCallback || !sfxCreateFromCurrentDispatch
                 || !noCallbackAfterDetach || !noChangeCallbackAfterDetach || ui.isBound()) {
                 TraceLog(LOG_ERROR, "[editor] RmlUi lifecycle smoke failed");
                 exitCode = 1;

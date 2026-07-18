@@ -128,6 +128,7 @@ FetchContent_MakeAvailable(rmlui)
 set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/app/main.cpp
     editor-native/app/editor_app.cpp
+    editor-native/app/generated_sfx_generation_preflight.cpp
     editor-native/app/project_session_controller.cpp
     editor-native/app/scene_view_interaction.cpp
     ${rmlui_SOURCE_DIR}/Backends/RmlUi_Renderer_GL3.cpp

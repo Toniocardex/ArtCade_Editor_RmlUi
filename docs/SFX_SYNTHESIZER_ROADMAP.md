@@ -50,6 +50,14 @@
 - **Create New Sound from Current…** (menu ⋯): `DuplicateGeneratedSfxCommand`
   + Generate sul nuovo id. Dialog: Enter/CTA creano; blur solo valida;
   Escape/Cancel senza mutazioni. Preflight progetto salvato.
+- **Hardening lifetime (2026-07-18):** la modale accoda il rebuild del markup a
+  `EditorUi::processFrame()`; blur, Cancel, Enter e Create non distruggono più
+  l'elemento RmlUi che sta ancora dispatchando l'evento. Lo smoke lifecycle
+  invia il click reale a `Create and Generate` e verifica la singola duplicazione.
+- **Preflight output (2026-07-18):** una sola guard applicativa rivalida identità
+  canonica, path confinato e collisioni reali sul filesystem. La UI usa la stessa
+  capability per disabilitare Generate/Create; il click la rivalida prima del
+  worker e, per Create from Current, prima del `DuplicateGeneratedSfxCommand`.
 - L’originale non viene ripristinato (se Stale resta Stale).
 - **Regenerate All Stale**: stessa operazione individuale in-place, seriale,
   workspace-only; non aumenta `audioAssets.size()`.

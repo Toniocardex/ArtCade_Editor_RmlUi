@@ -143,6 +143,14 @@ public:
     // message the user has to go looking for.
     using ProjectSavedQuery = std::function<bool()>;
     void setProjectSavedQuery(ProjectSavedQuery query);
+    struct GeneratedSfxGenerationAvailability {
+        bool allowed = true;
+        std::string reason;
+    };
+    using GeneratedSfxGenerationAvailabilityQuery =
+        std::function<GeneratedSfxGenerationAvailability(const std::string&)>;
+    void setGeneratedSfxGenerationAvailabilityQuery(
+        GeneratedSfxGenerationAvailabilityQuery query);
     // Called by the application right after RegisterGeneratedSfxOutputCommand
     // commits. Shows a one-shot "Audio asset generated" confirmation until
     // the next SFX panel interaction of any kind.
@@ -247,6 +255,9 @@ private:
     void refreshCenterWorkspace();
     void updateZoomReadout();   // toolbar zoom %, refreshed on Viewport invalidation
     void refreshGeneratedSfxEditor();
+    // Modal actions may still be inside RmlUi event dispatch. Rebuild their
+    // generated markup from processFrame, after the target element is released.
+    void deferGeneratedSfxRefresh();
     bool handleGeneratedSfxAction(const std::string& action, const std::string& arg,
                                   const std::string& value);
     void commitGridCellSize(const std::string& text);
@@ -311,6 +322,7 @@ private:
     WorkspaceRequest                    dismissSfxBatchSummaryRequest_;
     SfxBatchState                       sfxBatchState_;
     ProjectSavedQuery                   projectSavedQuery_;
+    GeneratedSfxGenerationAvailabilityQuery sfxGenerationAvailabilityQuery_;
     bool                                viewportContextMenuVisible_ = false;
     bool                                hierarchyContextMenuVisible_ = false;
     // Deferred hierarchy menu request (applied on the next processFrame).
@@ -349,6 +361,7 @@ private:
     std::string                         sfxCreateFromCurrentError_;
     std::string                         sfxCreateFromCurrentSourceId_;
     bool                                sfxFocusCreateFromCurrentName_ = false;
+    bool                                generatedSfxRefreshPending_ = false;
     /** After Rename from the browser, focus the name field once. */
     bool                                sfxFocusNameField_ = false;
     std::unordered_set<std::string>     sfxCollapsedSections_{"secondary-voice", "noise-layer"};
