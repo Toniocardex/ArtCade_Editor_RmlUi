@@ -91,6 +91,12 @@ if "!DO_TEST!"=="1" (
     if errorlevel 1 ( popd >nul & echo [FAIL] Logic Board test build failed. & exit /b 1 )
     "!BUILD_DIR!\tests\logic_board_editor_test.exe"
     if errorlevel 1 ( popd >nul & echo [FAIL] logic_board_editor_test failed. & exit /b 1 )
+
+    echo [editor] Building + running play_sound_preload_test...
+    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target play_sound_preload_test
+    if errorlevel 1 ( popd >nul & echo [FAIL] play_sound_preload_test build failed. & exit /b 1 )
+    "!BUILD_DIR!\tests\play_sound_preload_test.exe"
+    if errorlevel 1 ( popd >nul & echo [FAIL] play_sound_preload_test failed. & exit /b 1 )
 )
 popd >nul
 

@@ -13,6 +13,7 @@ add_library(artcade-editor-core STATIC
     editor-native/model/generated_sfx_preset_catalog.cpp
     editor-native/model/project_io.cpp
     editor-native/model/path_confinement.cpp
+    editor-native/model/play_sound_preload.cpp
     editor-native/model/script_editor_state.cpp
     editor-native/model/play_session.cpp
     editor-native/model/box_collider_geometry.cpp

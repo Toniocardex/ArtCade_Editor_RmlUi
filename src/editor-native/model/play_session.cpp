@@ -472,10 +472,9 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
         }
     }
 
-    // Referenced audio assets are resolved and cached up front, same as
-    // animation sheets above — Play Sound must never do file I/O when a rule
-    // actually fires, and a missing/non-static asset fails Play atomically
-    // rather than surfacing only once the rule happens to run.
+    // Referenced audio assets are resolved into metadata up front (same as
+    // animation sheets). EditorApp loads Raylib Sound handles at Start Play from
+    // this snapshot — PlaySession never opens files or owns Sound.
     auto preloadAudioAsset = [&](const AssetId& audioAssetId) -> bool {
         if (session.assets_.audioAssets.count(audioAssetId) != 0) return true;
         const AudioAssetDef* audio = document.findAudioAsset(audioAssetId);
