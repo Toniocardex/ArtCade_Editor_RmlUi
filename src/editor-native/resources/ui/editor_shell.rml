@@ -239,7 +239,13 @@
             <div class="sfx-header-actions">
                 <button class="panel-btn" data-action="preview-generated-sfx"><span class="icon">&#xed46;</span>Preview</button>
                 <button id="btn-sfx-stop" class="panel-btn disabled" data-action="stop-generated-sfx-preview">Stop</button>
-                <button id="btn-sfx-generate" class="panel-btn primary" data-action="generate-new-sfx-output">Generate New Audio Asset</button>
+                <button id="btn-sfx-generate" class="panel-btn primary" data-action="generate-sfx-output">Generate Audio Asset</button>
+                <div class="sfx-more-wrap">
+                    <button id="btn-sfx-more" class="panel-btn" data-action="toggle-sfx-more-menu" title="More">&#x22EF;</button>
+                    <div id="sfx-more-menu" class="sfx-more-menu hidden">
+                        <button class="sfx-more-entry" data-action="open-sfx-create-from-current">Create New Sound from Current&#8230;</button>
+                    </div>
+                </div>
                 <button class="panel-btn" data-action="close-generated-sfx">Close</button>
             </div>
         </div>
@@ -247,6 +253,7 @@
             <div id="sfx-editor-browser" class="sfx-editor-browser"></div>
             <div id="sfx-editor-body" class="sfx-editor-body"></div>
         </div>
+        <div id="sfx-create-from-current" class="sfx-modal-backdrop hidden"></div>
     </div>
 
     <div id="viewport-context-menu" class="context-menu hidden">

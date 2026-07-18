@@ -46,7 +46,6 @@ class RenameGeneratedSfxCommand;
 class UpdateGeneratedSfxRecipeCommand;
 class RemoveGeneratedSfxCommand;
 class RegisterGeneratedSfxOutputCommand;
-class CreateGeneratedSfxOutputCommand;
 class AddFontAssetCommand;
 class RemoveFontAssetCommand;
 class AddScriptAssetCommand;
@@ -232,7 +231,6 @@ private:
     friend class RemoveGeneratedSfxCommand;
     friend class DuplicateGeneratedSfxCommand;
     friend class RegisterGeneratedSfxOutputCommand;
-    friend class CreateGeneratedSfxOutputCommand;
     friend class AddFontAssetCommand;
     friend class RemoveFontAssetCommand;
     friend class AddScriptAssetCommand;

@@ -24,13 +24,33 @@ std::string folded(std::string value) {
     return value;
 }
 
-bool nameExists(const ProjectDoc& document, const std::string& name,
-                const std::string& exceptId = {}) {
-    const std::string candidate = folded(name);
-    return std::any_of(document.generatedSfx.begin(), document.generatedSfx.end(),
-        [&](const artcade::sfx::GeneratedSfxDef& definition) {
-            return definition.id != exceptId && folded(definition.name) == candidate;
-        });
+std::string trimCopy(std::string_view value) {
+    std::size_t begin = 0;
+    while (begin < value.size()
+           && std::isspace(static_cast<unsigned char>(value[begin]))) {
+        ++begin;
+    }
+    std::size_t end = value.size();
+    while (end > begin
+           && std::isspace(static_cast<unsigned char>(value[end - 1]))) {
+        --end;
+    }
+    return std::string(value.substr(begin, end - begin));
+}
+
+/** "Coin 02" / "Coin 2" → "Coin"; otherwise the trimmed name. */
+std::string uniqueNameStem(std::string name) {
+    name = trimCopy(name);
+    if (name.empty()) return {};
+    const auto space = name.rfind(' ');
+    if (space == std::string::npos || space + 1 >= name.size()) return name;
+    const std::string suffix = name.substr(space + 1);
+    if (suffix.empty()
+        || !std::all_of(suffix.begin(), suffix.end(),
+                        [](unsigned char c) { return std::isdigit(c) != 0; })) {
+        return name;
+    }
+    return trimCopy(name.substr(0, space));
 }
 
 artcade::sfx::GeneratedSfxDef* findDefinition(ProjectDoc& document,
@@ -65,7 +85,44 @@ EditorOperationResult success(const std::string& id) {
     return EditorOperationResult::success(kInvalidation, DomainChange::assetChanged(id));
 }
 
+std::string normalizePath(std::string path) {
+    std::replace(path.begin(), path.end(), '\\', '/');
+    return path;
+}
+
+bool audioIsLinkedGeneratedOutput(const ProjectDoc& document, const AudioAssetDef& asset) {
+    return std::any_of(document.generatedSfx.begin(), document.generatedSfx.end(),
+        [&](const artcade::sfx::GeneratedSfxDef& definition) {
+            return !definition.outputAssetId.empty()
+                && definition.outputAssetId == asset.assetId;
+        });
+}
+
 } // namespace
+
+bool audioDisplayNameExists(
+    const ProjectDoc& document,
+    std::string_view candidate,
+    const std::optional<std::string>& exceptSfxId,
+    const std::optional<AssetId>& exceptAudioAssetId) {
+    const std::string needle = folded(trimCopy(candidate));
+    if (needle.empty()) return false;
+    if (std::any_of(document.generatedSfx.begin(), document.generatedSfx.end(),
+            [&](const artcade::sfx::GeneratedSfxDef& definition) {
+                if (exceptSfxId && definition.id == *exceptSfxId) return false;
+                return folded(trimCopy(definition.name)) == needle;
+            })) {
+        return true;
+    }
+    return std::any_of(document.audioAssets.begin(), document.audioAssets.end(),
+        [&](const AudioAssetDef& asset) {
+            if (exceptAudioAssetId && asset.assetId == *exceptAudioAssetId) return false;
+            // Linked generated outputs share the recipe display name — already counted.
+            if (audioIsLinkedGeneratedOutput(document, asset)) return false;
+            if (asset.name.empty()) return false;
+            return folded(trimCopy(asset.name)) == needle;
+        });
+}
 
 bool generatedSfxRecipesEqual(const artcade::sfx::SfxRecipe& left,
                               const artcade::sfx::SfxRecipe& right) {
@@ -95,24 +152,33 @@ const char* generatedSfxOutputStatusLabel(GeneratedSfxOutputStatus status) {
     return "Needs generation";
 }
 
+AssetId generatedAudioAssetId(const std::string& generatedSfxId) {
+    return "generated-audio-" + generatedSfxId;
+}
+
+std::string generatedAudioRelativePath(const std::string& generatedSfxId) {
+    return "assets/audio/generated/" + generatedAudioAssetId(generatedSfxId) + ".wav";
+}
+
 CreateGeneratedSfxCommand::CreateGeneratedSfxCommand(
     std::string id, std::string name, artcade::sfx::SfxRecipe recipe)
     : id_(std::move(id)), name_(std::move(name)), recipe_(std::move(recipe)) {}
 
 EditorOperationResult CreateGeneratedSfxCommand::apply(ProjectDocument& document) {
     if (!captured_) {
-        if (id_.empty() || name_.empty()) {
+        const std::string name = trimCopy(name_);
+        if (id_.empty() || name.empty()) {
             return EditorOperationResult::failure("Generated SFX needs an id and a name");
         }
         if (document.hasGeneratedSfx(id_)) {
             return EditorOperationResult::failure("Generated SFX id already exists: " + id_);
         }
-        if (document.hasAudioAsset("generated-audio-" + id_)) {
+        if (document.hasAudioAsset(generatedAudioAssetId(id_))) {
             return EditorOperationResult::failure(
                 "Generated SFX id is still owned by an existing generated audio asset");
         }
-        if (nameExists(document.data(), name_)) {
-            return EditorOperationResult::failure("Generated SFX name already exists: " + name_);
+        if (audioDisplayNameExists(document.data(), name)) {
+            return EditorOperationResult::failure("Audio name already exists: " + name);
         }
         const auto valid = validateRecipe(recipe_);
         if (!valid.ok) return valid;
@@ -120,7 +186,7 @@ EditorOperationResult CreateGeneratedSfxCommand::apply(ProjectDocument& document
         after_ = before_;
         artcade::sfx::GeneratedSfxDef definition;
         definition.id = id_;
-        definition.name = name_;
+        definition.name = name;
         definition.recipe = recipe_;
         after_.generatedSfx.push_back(std::move(definition));
         captured_ = true;
@@ -140,16 +206,31 @@ RenameGeneratedSfxCommand::RenameGeneratedSfxCommand(std::string id, std::string
 
 EditorOperationResult RenameGeneratedSfxCommand::apply(ProjectDocument& document) {
     if (!captured_) {
-        if (name_.empty()) return EditorOperationResult::failure("SFX name cannot be empty");
+        const std::string name = trimCopy(name_);
+        if (name.empty()) return EditorOperationResult::failure("SFX name cannot be empty");
         if (!document.hasGeneratedSfx(id_)) {
             return EditorOperationResult::failure("Unknown Generated SFX: " + id_);
         }
-        if (nameExists(document.data(), name_, id_)) {
-            return EditorOperationResult::failure("Generated SFX name already exists: " + name_);
+        const auto* current = document.findGeneratedSfx(id_);
+        const std::optional<AssetId> exceptAudio =
+            current && !current->outputAssetId.empty()
+                ? std::optional<AssetId>{current->outputAssetId}
+                : std::nullopt;
+        if (audioDisplayNameExists(document.data(), name, id_, exceptAudio)) {
+            return EditorOperationResult::failure("Audio name already exists: " + name);
         }
         before_ = document.data();
         after_ = before_;
-        findDefinition(after_, id_)->name = name_;
+        auto* definition = findDefinition(after_, id_);
+        definition->name = name;
+        // Keep the linked AudioAssetDef.name mirrored so the generated file
+        // always carries the user-facing default until they rename again.
+        if (!definition->outputAssetId.empty()) {
+            if (AudioAssetDef* output =
+                    findAudioAssetMutable(after_, definition->outputAssetId)) {
+                output->name = name;
+            }
+        }
         captured_ = true;
     }
     document.commitStagedCommand(after_);
@@ -228,18 +309,19 @@ EditorOperationResult DuplicateGeneratedSfxCommand::apply(ProjectDocument& docum
     if (!captured_) {
         const auto* source = document.findGeneratedSfx(sourceId_);
         if (!source) return EditorOperationResult::failure("Unknown Generated SFX: " + sourceId_);
-        if (newId_.empty() || newName_.empty()) {
+        const std::string newName = trimCopy(newName_);
+        if (newId_.empty() || newName.empty()) {
             return EditorOperationResult::failure("Generated SFX needs an id and a name");
         }
         if (document.hasGeneratedSfx(newId_)) {
             return EditorOperationResult::failure("Generated SFX id already exists: " + newId_);
         }
-        if (document.hasAudioAsset("generated-audio-" + newId_)) {
+        if (document.hasAudioAsset(generatedAudioAssetId(newId_))) {
             return EditorOperationResult::failure(
                 "Generated SFX id is still owned by an existing generated audio asset");
         }
-        if (nameExists(document.data(), newName_)) {
-            return EditorOperationResult::failure("Generated SFX name already exists: " + newName_);
+        if (audioDisplayNameExists(document.data(), newName)) {
+            return EditorOperationResult::failure("Audio name already exists: " + newName);
         }
         const auto valid = validateRecipe(source->recipe);
         if (!valid.ok) return valid;
@@ -247,7 +329,7 @@ EditorOperationResult DuplicateGeneratedSfxCommand::apply(ProjectDocument& docum
         after_ = before_;
         artcade::sfx::GeneratedSfxDef clone;
         clone.id = newId_;
-        clone.name = newName_;
+        clone.name = newName;
         clone.recipe = source->recipe;
         // New identity: never share the source WAV / catalog link / fingerprint.
         clone.outputAssetId.clear();
@@ -279,40 +361,71 @@ EditorOperationResult RegisterGeneratedSfxOutputCommand::apply(ProjectDocument& 
             return EditorOperationResult::failure(
                 "Generated SFX recipe changed while rendering; stale output discarded");
         }
-        if (outputAsset_.assetId.empty() || outputAsset_.sourcePath.empty()) {
-            return EditorOperationResult::failure("Generated SFX output asset is incomplete");
+        const AssetId canonicalId = generatedAudioAssetId(id_);
+        const std::string canonicalPath = generatedAudioRelativePath(id_);
+        if (outputAsset_.assetId != canonicalId
+            || normalizePath(outputAsset_.sourcePath) != normalizePath(canonicalPath)) {
+            return EditorOperationResult::failure(
+                "Generated SFX output must use the canonical asset id and path");
         }
         std::string pathError;
-        if (!isSafeProjectRelativePath(std::filesystem::u8path(outputAsset_.sourcePath),
-                                       &pathError)) {
+        if (!isSafeProjectRelativePath(std::filesystem::u8path(canonicalPath), &pathError)) {
             return EditorOperationResult::failure("Unsafe generated output path: " + pathError);
         }
+
+        const bool firstGeneration = current->outputAssetId.empty();
+        if (firstGeneration) {
+            if (document.hasAudioAsset(canonicalId)) {
+                return EditorOperationResult::failure(
+                    "Canonical generated audio asset already exists: " + canonicalId);
+            }
+            if (generatedSfxOutputPathTaken(document, canonicalPath)) {
+                return EditorOperationResult::failure(
+                    "Generated audio output path already exists: " + canonicalPath);
+            }
+        } else {
+            if (current->outputAssetId != canonicalId
+                || normalizePath(current->outputPath) != normalizePath(canonicalPath)) {
+                return EditorOperationResult::failure(
+                    "Generated SFX already owns a non-canonical output identity");
+            }
+            if (!document.hasAudioAsset(canonicalId)) {
+                return EditorOperationResult::failure(
+                    "Linked generated audio asset is missing: " + canonicalId);
+            }
+            const AudioAssetDef* existing = document.findAudioAsset(canonicalId);
+            if (!existing
+                || normalizePath(existing->sourcePath) != normalizePath(canonicalPath)) {
+                return EditorOperationResult::failure(
+                    "Linked generated audio asset path mismatch");
+            }
+            if (existing->generatedFromSfxId
+                && !existing->generatedFromSfxId->empty()
+                && *existing->generatedFromSfxId != id_) {
+                return EditorOperationResult::failure(
+                    "Generated audio asset belongs to a different sound");
+            }
+        }
+
         before_ = document.data();
         after_ = before_;
         auto* definition = findDefinition(after_, id_);
         AudioAssetDef linkedOutput = outputAsset_;
-        // Linked output has no parallel name authority — display comes from
-        // GeneratedSfxDef.name until the recipe detaches.
-        linkedOutput.name.clear();
+        linkedOutput.assetId = canonicalId;
+        linkedOutput.sourcePath = canonicalPath;
+        // Stamp the recipe display name onto the AudioAssetDef (default on the
+        // file). While linked, UI display still resolves from GeneratedSfxDef.name.
+        linkedOutput.name = definition->name;
         linkedOutput.generatedFromSfxId = id_;
-        // Regenerating into a new asset keeps the previous WAV as an independent
-        // AudioAssetDef (name handoff). Same-id updates stay in place.
-        if (!definition->outputAssetId.empty()
-            && definition->outputAssetId != linkedOutput.assetId) {
-            transferOutputNameOnDetach(after_, *definition);
-        }
         auto audio = std::find_if(after_.audioAssets.begin(), after_.audioAssets.end(),
-            [&](const AudioAssetDef& asset) { return asset.assetId == linkedOutput.assetId; });
+            [&](const AudioAssetDef& asset) { return asset.assetId == canonicalId; });
         if (audio == after_.audioAssets.end()) {
             after_.audioAssets.push_back(linkedOutput);
-        } else if (audio->sourcePath == linkedOutput.sourcePath) {
-            *audio = linkedOutput;
         } else {
-            return EditorOperationResult::failure(
-                "Generated SFX output asset id conflicts with an existing asset");
+            *audio = linkedOutput;
         }
-        definition->outputAssetId = linkedOutput.assetId;
-        definition->outputPath = linkedOutput.sourcePath;
+        definition->outputAssetId = canonicalId;
+        definition->outputPath = canonicalPath;
         definition->generatedRecipeFingerprint =
             artcade::sfx::recipeFingerprint(expectedRecipe_);
         captured_ = true;
@@ -327,160 +440,74 @@ EditorOperationResult RegisterGeneratedSfxOutputCommand::undo(ProjectDocument& d
     return success(id_);
 }
 
-CreateGeneratedSfxOutputCommand::CreateGeneratedSfxOutputCommand(
-    std::string id, artcade::sfx::SfxRecipe expectedRecipe, AudioAssetDef outputAsset)
-    : id_(std::move(id)), expectedRecipe_(std::move(expectedRecipe)),
-      outputAsset_(std::move(outputAsset)) {}
-
-EditorOperationResult CreateGeneratedSfxOutputCommand::apply(ProjectDocument& document) {
-    if (!captured_) {
-        const auto* current = document.findGeneratedSfx(id_);
-        if (!current) return EditorOperationResult::failure("Unknown Generated SFX: " + id_);
-        if (!generatedSfxRecipesEqual(current->recipe, expectedRecipe_)) {
-            return EditorOperationResult::failure(
-                "Generated SFX recipe changed while rendering; stale output discarded");
-        }
-        if (outputAsset_.assetId.empty() || outputAsset_.sourcePath.empty()) {
-            return EditorOperationResult::failure("Generated SFX output asset is incomplete");
-        }
-        if (document.hasAudioAsset(outputAsset_.assetId)) {
-            return EditorOperationResult::failure(
-                "Generated audio asset already exists: " + outputAsset_.assetId);
-        }
-        if (generatedSfxOutputPathTaken(document, outputAsset_.sourcePath)) {
-            return EditorOperationResult::failure(
-                "Generated audio output path already exists: " + outputAsset_.sourcePath);
-        }
-        std::string pathError;
-        if (!isSafeProjectRelativePath(std::filesystem::u8path(outputAsset_.sourcePath),
-                                       &pathError)) {
-            return EditorOperationResult::failure("Unsafe generated output path: " + pathError);
-        }
-        before_ = document.data();
-        after_ = before_;
-        auto* definition = findDefinition(after_, id_);
-        if (!definition->outputAssetId.empty())
-            transferOutputNameOnDetach(after_, *definition);
-        AudioAssetDef linkedOutput = outputAsset_;
-        linkedOutput.name.clear();
-        linkedOutput.generatedFromSfxId = id_;
-        after_.audioAssets.push_back(linkedOutput);
-        definition->outputAssetId = linkedOutput.assetId;
-        definition->outputPath = linkedOutput.sourcePath;
-        definition->generatedRecipeFingerprint =
-            artcade::sfx::recipeFingerprint(expectedRecipe_);
-        captured_ = true;
-    }
-    document.commitStagedCommand(after_);
-    return success(id_);
-}
-
-EditorOperationResult CreateGeneratedSfxOutputCommand::undo(ProjectDocument& document) {
-    if (!captured_) return EditorOperationResult::failure("Cannot undo SFX output creation");
-    document.commitStagedCommand(before_);
-    return success(id_);
-}
-
 std::string nextGeneratedSfxId(const ProjectDocument& document) {
     int index = 1;
     std::string id;
     do {
         id = "generated-sfx-" + std::to_string(index++);
     } while (document.hasGeneratedSfx(id)
-             || document.hasAudioAsset("generated-audio-" + id));
+             || document.hasAudioAsset(generatedAudioAssetId(id)));
     return id;
 }
 
 std::string uniqueGeneratedSfxName(const ProjectDocument& document,
                                    const std::string& baseName) {
-    const std::string base = baseName.empty() ? "Generated SFX" : baseName;
-    if (!nameExists(document.data(), base)) return base;
-    for (int index = 1; index < 10000; ++index) {
+    std::string stem = uniqueNameStem(baseName);
+    if (stem.empty()) stem = "Generated SFX";
+    if (!audioDisplayNameExists(document.data(), stem)) return stem;
+    for (int index = 2; index < 10000; ++index) {
         char suffix[8];
         std::snprintf(suffix, sizeof(suffix), " %02d", index);
-        const std::string candidate = base + suffix;
-        if (!nameExists(document.data(), candidate)) return candidate;
+        const std::string candidate = stem + suffix;
+        if (!audioDisplayNameExists(document.data(), candidate)) return candidate;
     }
-    return base + " copy";
+    return stem + " 9999";
 }
 
 bool generatedSfxOutputPathTaken(const ProjectDocument& document,
-                                 const std::string& relativePath) {
+                                 const std::string& relativePath,
+                                 const std::optional<AssetId>& exceptAssetId) {
     if (relativePath.empty()) return false;
-    auto normalize = [](std::string path) {
-        std::replace(path.begin(), path.end(), '\\', '/');
-        return path;
-    };
-    const std::string needle = normalize(relativePath);
+    const std::string needle = normalizePath(relativePath);
     return std::any_of(document.data().audioAssets.begin(), document.data().audioAssets.end(),
         [&](const AudioAssetDef& asset) {
-            return normalize(asset.sourcePath) == needle;
+            if (exceptAssetId && asset.assetId == *exceptAssetId) return false;
+            return normalizePath(asset.sourcePath) == needle;
         });
 }
 
-namespace {
-
-bool serialSuffixNewer(const std::string& leftId, const std::string& rightId) {
-    auto serialOf = [](const std::string& id) -> int {
-        const auto pos = id.rfind('-');
-        if (pos == std::string::npos || pos + 1 >= id.size()) return -1;
-        try {
-            return std::stoi(id.substr(pos + 1));
-        } catch (...) {
-            return -1;
-        }
-    };
-    return serialOf(leftId) > serialOf(rightId);
-}
-
-} // namespace
-
-std::vector<const AudioAssetDef*> generatedOutputsFor(
-    const ProjectDocument& document,
-    const std::string& generatedSfxId) {
-    std::vector<const AudioAssetDef*> result;
-    if (generatedSfxId.empty()) return result;
-    for (const AudioAssetDef& audio : document.data().audioAssets) {
-        if (audio.generatedFromSfxId && *audio.generatedFromSfxId == generatedSfxId)
-            result.push_back(&audio);
-    }
-    std::sort(result.begin(), result.end(),
-        [](const AudioAssetDef* left, const AudioAssetDef* right) {
-            return serialSuffixNewer(left->assetId, right->assetId);
-        });
-    return result;
-}
-
-std::optional<GeneratedSfxOutputIdentity> nextGeneratedSfxOutputIdentity(
+std::optional<GeneratedSfxOutputIdentity> stableGeneratedSfxOutputIdentity(
     const ProjectDocument& document,
     const artcade::sfx::GeneratedSfxDef& definition,
     const std::filesystem::path& projectRoot) {
-    for (std::uint32_t serial = 1; serial < 100000u; ++serial) {
-        char suffix[16];
-        std::snprintf(suffix, sizeof(suffix), "%04u", serial);
-        GeneratedSfxOutputIdentity identity;
-        identity.assetId = "generated-audio-" + definition.id + "-" + suffix;
-        identity.relativePath = "assets/audio/generated/" + identity.assetId + ".wav";
-        if (document.hasAudioAsset(identity.assetId)) continue;
-        if (generatedSfxOutputPathTaken(document, identity.relativePath)) continue;
+    const AssetId canonicalId = generatedAudioAssetId(definition.id);
+    const std::string canonicalPath = generatedAudioRelativePath(definition.id);
+    GeneratedSfxOutputIdentity identity;
+    identity.assetId = canonicalId;
+    identity.relativePath = canonicalPath;
 
-        if (projectRoot.empty()) {
-            // Catalog-only allocation (unit tests without a saved project root).
-            return identity;
+    if (!definition.outputAssetId.empty()
+        && document.hasAudioAsset(definition.outputAssetId)) {
+        // Regenerate: only the canonical pair is allowed.
+        if (definition.outputAssetId != canonicalId
+            || normalizePath(definition.outputPath) != normalizePath(canonicalPath)) {
+            return std::nullopt;
         }
-
-        const auto confined = resolvePathInsideRoot(
-            projectRoot, std::filesystem::u8path(identity.relativePath));
-        if (!confined.ok) continue;
-        std::error_code existsError;
-        if (std::filesystem::exists(confined.value, existsError)) continue;
-
-        identity.finalPath = confined.value;
-        identity.stagingPath = identity.finalPath.parent_path()
-            / (identity.finalPath.stem().string() + ".artcade-pending.wav");
-        return identity;
+    } else {
+        // First generation: refuse collisions with foreign catalog entries.
+        if (document.hasAudioAsset(canonicalId)) return std::nullopt;
+        if (generatedSfxOutputPathTaken(document, canonicalPath)) return std::nullopt;
     }
-    return std::nullopt;
+
+    if (projectRoot.empty()) return identity;
+
+    const auto confined = resolvePathInsideRoot(
+        projectRoot, std::filesystem::u8path(identity.relativePath));
+    if (!confined.ok) return std::nullopt;
+    identity.finalPath = confined.value;
+    identity.stagingPath = identity.finalPath.parent_path()
+        / (identity.finalPath.stem().string() + ".artcade-pending.wav");
+    return identity;
 }
 
 } // namespace ArtCade::EditorNative

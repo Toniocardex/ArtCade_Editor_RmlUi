@@ -4,11 +4,10 @@
 #include "core/types.h"
 #include "editor-native/commands/editor_command.h"
 
-#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
-#include <vector>
+#include <string_view>
 
 namespace ArtCade::EditorNative {
 
@@ -87,10 +86,8 @@ private:
     bool captured_ = false;
 };
 
-// Commits a successfully encoded output only if the recipe snapshot is still
-// current. It registers/updates the normal AudioAssetDef atomically with the
-// recipe link. The encoder/file write has already completed outside the model.
-// Prefer CreateGeneratedSfxOutputCommand for "Generate New Audio Asset".
+/** First generate or regenerate: upsert the single AudioAssetDef for this recipe.
+ *  1 GeneratedSfxDef ↔ 1 AudioAssetDef ↔ 1 WAV. Never allocates serial outputs. */
 class RegisterGeneratedSfxOutputCommand final : public EditorCommand {
 public:
     RegisterGeneratedSfxOutputCommand(std::string id,
@@ -99,25 +96,6 @@ public:
     EditorOperationResult apply(ProjectDocument& document) override;
     EditorOperationResult undo(ProjectDocument& document) override;
     const char* name() const override { return "RegisterGeneratedSfxOutput"; }
-private:
-    std::string id_;
-    artcade::sfx::SfxRecipe expectedRecipe_{};
-    AudioAssetDef outputAsset_{};
-    ProjectDoc before_{};
-    ProjectDoc after_{};
-    bool captured_ = false;
-};
-
-/** Create-only: new AudioAssetDef + link. Rejects any id/path collision (no upsert).
- *  Detaches the previous linked output (name handoff) when present. */
-class CreateGeneratedSfxOutputCommand final : public EditorCommand {
-public:
-    CreateGeneratedSfxOutputCommand(std::string id,
-                                    artcade::sfx::SfxRecipe expectedRecipe,
-                                    AudioAssetDef outputAsset);
-    EditorOperationResult apply(ProjectDocument& document) override;
-    EditorOperationResult undo(ProjectDocument& document) override;
-    const char* name() const override { return "CreateGeneratedSfxOutput"; }
 private:
     std::string id_;
     artcade::sfx::SfxRecipe expectedRecipe_{};
@@ -143,23 +121,29 @@ enum class GeneratedSfxOutputStatus {
 
 [[nodiscard]] const char* generatedSfxOutputStatusLabel(GeneratedSfxOutputStatus status);
 
+/** Case-insensitive display-name collision across Generated SFX + Audio assets. */
+[[nodiscard]] bool audioDisplayNameExists(
+    const ProjectDoc& document,
+    std::string_view candidate,
+    const std::optional<std::string>& exceptSfxId = std::nullopt,
+    const std::optional<AssetId>& exceptAudioAssetId = std::nullopt);
+
 /** Next free `generated-sfx-N` that is not blocked by a leftover audio asset id. */
 [[nodiscard]] std::string nextGeneratedSfxId(const ProjectDocument& document);
-/** Unique display name: base, then "base 01", "base 02", … */
+/** Unique display name: base, then "base 02", "base 03", … across the audio namespace. */
 [[nodiscard]] std::string uniqueGeneratedSfxName(const ProjectDocument& document,
                                                  const std::string& baseName);
 
 /** True when any AudioAssetDef already owns this project-relative path. */
 [[nodiscard]] bool generatedSfxOutputPathTaken(const ProjectDocument& document,
-                                               const std::string& relativePath);
+                                               const std::string& relativePath,
+                                               const std::optional<AssetId>& exceptAssetId = std::nullopt);
 
-/** Audio assets historically produced by @p generatedSfxId (newest serial first). */
-[[nodiscard]] std::vector<const AudioAssetDef*> generatedOutputsFor(
-    const ProjectDocument& document,
-    const std::string& generatedSfxId);
+/** Deterministic 1:1 catalog identity: generated-audio-{sfxId}. */
+[[nodiscard]] AssetId generatedAudioAssetId(const std::string& generatedSfxId);
+[[nodiscard]] std::string generatedAudioRelativePath(const std::string& generatedSfxId);
 
-/** Fresh output identity for Generate New: …-<sfxId>-0001, -0002, …
- *  Path is derived from assetId (not display name). Checks catalog + disk. */
+/** Stable output identity for generate/regenerate (no serial suffixes). */
 struct GeneratedSfxOutputIdentity {
     AssetId assetId;
     std::string relativePath;
@@ -167,7 +151,8 @@ struct GeneratedSfxOutputIdentity {
     std::filesystem::path stagingPath;
 };
 
-[[nodiscard]] std::optional<GeneratedSfxOutputIdentity> nextGeneratedSfxOutputIdentity(
+/** Prefer the already-linked output when present; otherwise allocate the stable pair. */
+[[nodiscard]] std::optional<GeneratedSfxOutputIdentity> stableGeneratedSfxOutputIdentity(
     const ProjectDocument& document,
     const artcade::sfx::GeneratedSfxDef& definition,
     const std::filesystem::path& projectRoot);

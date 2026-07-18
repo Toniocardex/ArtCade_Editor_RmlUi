@@ -251,6 +251,28 @@ public:
             return;
         }
 
+        // Create-from-current name field: Enter confirms; blur only validates;
+        // Escape cancels. Must not share the generic commit- blur/Enter path.
+        if (action == "sfx-create-from-current-name") {
+            const int key = event.GetParameter<int>("key_identifier", 0);
+            if (type == "keydown" && key == Rml::Input::KI_ESCAPE) {
+                ui_.closeSfxCreateFromCurrentDialog();
+                event.StopPropagation();
+                return;
+            }
+            const bool enter = type == "keydown"
+                && (key == Rml::Input::KI_RETURN || key == Rml::Input::KI_NUMPADENTER);
+            if (type == "blur") {
+                ui_.validateSfxCreateFromCurrentName(formValue(actionElement, event));
+                return;
+            }
+            if (enter) {
+                ui_.confirmSfxCreateFromCurrent(formValue(actionElement, event));
+                event.StopPropagation();
+                return;
+            }
+            return;
+        }
         const bool isCommit = action.rfind("commit-", 0) == 0;
         const bool isResize = action.rfind("resize-", 0) == 0;
 
@@ -443,8 +465,7 @@ void EditorUi::detach() {
     fitViewRequest_ = {};
     previewGeneratedSfxRequest_ = {};
     stopGeneratedSfxPreviewRequest_ = {};
-    generateNewSfxOutputRequest_ = {};
-    playAudioAssetRequest_ = {};
+    generateSfxOutputRequest_ = {};
     regenerateAllStaleSfxRequest_ = {};
     cancelSfxBatchRequest_ = {};
     dismissSfxBatchSummaryRequest_ = {};
@@ -684,14 +705,10 @@ void EditorUi::setTilesetImageSizeProvider(ImageSizeProvider imageSize) {
 
 void EditorUi::setGeneratedSfxHandlers(GeneratedSfxRequest preview,
                                        WorkspaceRequest stopPreview,
-                                       GeneratedSfxRequest generateNew) {
+                                       GeneratedSfxRequest generate) {
     previewGeneratedSfxRequest_ = std::move(preview);
     stopGeneratedSfxPreviewRequest_ = std::move(stopPreview);
-    generateNewSfxOutputRequest_ = std::move(generateNew);
-}
-
-void EditorUi::setPlayAudioAssetHandler(GeneratedSfxRequest playAudioAsset) {
-    playAudioAssetRequest_ = std::move(playAudioAsset);
+    generateSfxOutputRequest_ = std::move(generate);
 }
 
 void EditorUi::setSfxBatchHandlers(WorkspaceRequest regenerateAllStale,
@@ -722,8 +739,89 @@ void EditorUi::setProjectSavedQuery(ProjectSavedQuery query) {
 
 void EditorUi::notifyGeneratedSfxOutputReady(const std::string& id) {
     sfxJustGeneratedId_ = id;
-    if (!id.empty()) expandedSfxOutputs_.insert(id);
     refreshGeneratedSfxEditor();
+}
+
+void EditorUi::closeSfxCreateFromCurrentDialog() {
+    sfxCreateFromCurrentOpen_ = false;
+    sfxCreateFromCurrentName_.clear();
+    sfxCreateFromCurrentError_.clear();
+    sfxCreateFromCurrentSourceId_.clear();
+    sfxFocusCreateFromCurrentName_ = false;
+    refreshGeneratedSfxEditor();
+}
+
+void EditorUi::validateSfxCreateFromCurrentName(const std::string& value) {
+    if (!sfxCreateFromCurrentOpen_) return;
+    std::string trimmed = value;
+    while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.front())))
+        trimmed.erase(trimmed.begin());
+    while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.back())))
+        trimmed.pop_back();
+    sfxCreateFromCurrentName_ = trimmed;
+    if (trimmed.empty()) {
+        sfxCreateFromCurrentError_ = "Name cannot be empty";
+    } else if (audioDisplayNameExists(coordinator_.document().data(), trimmed)) {
+        sfxCreateFromCurrentError_ = "Audio name already exists";
+    } else {
+        sfxCreateFromCurrentError_.clear();
+    }
+    refreshGeneratedSfxEditor();
+}
+
+void EditorUi::confirmSfxCreateFromCurrent(const std::string& value) {
+    if (!sfxCreateFromCurrentOpen_) return;
+    if (coordinator_.isPlaying()) {
+        coordinator_.logWarning("Stop Play before creating Generated SFX");
+        return;
+    }
+    if (projectSavedQuery_ && !projectSavedQuery_()) {
+        sfxCreateFromCurrentError_ = "Save the project before creating an audio asset";
+        refreshGeneratedSfxEditor();
+        return;
+    }
+    std::string trimmed = value.empty() ? sfxCreateFromCurrentName_ : value;
+    while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.front())))
+        trimmed.erase(trimmed.begin());
+    while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.back())))
+        trimmed.pop_back();
+    sfxCreateFromCurrentName_ = trimmed;
+    if (trimmed.empty()) {
+        sfxCreateFromCurrentError_ = "Name cannot be empty";
+        refreshGeneratedSfxEditor();
+        return;
+    }
+    if (audioDisplayNameExists(coordinator_.document().data(), trimmed)) {
+        sfxCreateFromCurrentError_ = "Audio name already exists";
+        refreshGeneratedSfxEditor();
+        return;
+    }
+    const std::string sourceId = sfxCreateFromCurrentSourceId_;
+    if (sourceId.empty() || !coordinator_.document().hasGeneratedSfx(sourceId)) {
+        closeSfxCreateFromCurrentDialog();
+        return;
+    }
+    const std::string newId = nextGeneratedSfxId(coordinator_.document());
+    const auto result = coordinator_.execute(
+        DuplicateGeneratedSfxCommand{sourceId, newId, trimmed});
+    if (!result.ok) {
+        sfxCreateFromCurrentError_ = result.error.empty()
+            ? "Could not create sound" : result.error;
+        refreshGeneratedSfxEditor();
+        return;
+    }
+    sfxCreateFromCurrentOpen_ = false;
+    sfxCreateFromCurrentError_.clear();
+    sfxCreateFromCurrentName_.clear();
+    sfxCreateFromCurrentSourceId_.clear();
+    sfxMoreMenuOpen_ = false;
+    if (openGeneratedSfxId_ && *openGeneratedSfxId_ != newId
+        && stopGeneratedSfxPreviewRequest_) {
+        stopGeneratedSfxPreviewRequest_();
+    }
+    openGeneratedSfxId_ = newId;
+    refreshGeneratedSfxEditor();
+    if (generateSfxOutputRequest_) generateSfxOutputRequest_(newId);
 }
 
 void EditorUi::setEntityPlacementHandlers(EntityPlacementRequest addEntity,
@@ -991,25 +1089,6 @@ std::string formatSfxMacroNumber(const SfxMacro& macro, float displayValue);
 // even if a coincidental value match would technically pass the comparison.
 std::string activeSfxPresetId(const artcade::sfx::SfxRecipe& recipe);
 
-std::string sfxOutputSerialLabel(const std::string& assetId) {
-    const auto pos = assetId.rfind('-');
-    if (pos == std::string::npos || pos + 1 >= assetId.size()) return {};
-    const std::string suffix = assetId.substr(pos + 1);
-    if (suffix.size() < 3 || !std::all_of(suffix.begin(), suffix.end(),
-            [](unsigned char c) { return std::isdigit(c) != 0; })) {
-        return {};
-    }
-    return suffix;
-}
-
-std::string sfxOutputRowLabel(const artcade::sfx::GeneratedSfxDef& recipe,
-                              const AudioAssetDef& audio) {
-    const std::string serial = sfxOutputSerialLabel(audio.assetId);
-    if (!serial.empty()) return recipe.name + " · " + serial;
-    if (!audio.name.empty()) return audio.name;
-    return audio.assetId;
-}
-
 const char* generatedSfxStatusLabel(const ProjectDocument& document,
                                     const artcade::sfx::GeneratedSfxDef& definition) {
     return generatedSfxOutputStatusLabel(generatedSfxOutputStatus(document, definition));
@@ -1158,7 +1237,7 @@ void EditorUi::refreshGeneratedSfxEditor() {
     if (sfxCreateMenuOpen_) {
         browserHtml +=
             "<div class=\"sfx-browser-create-menu\">"
-            "<div class=\"sfx-browser-create-title\">CREATE GENERATED SFX</div>"
+            "<div class=\"sfx-browser-create-title\">New Generated SFX</div>"
             "<button class=\"sfx-browser-create-entry\" data-action=\"create-generated-sfx-from-preset\" data-arg=\"blank\">Blank</button>"
             "<button class=\"sfx-browser-create-entry\" data-action=\"create-generated-sfx-from-preset\" data-arg=\"coin\">Coin</button>"
             "<button class=\"sfx-browser-create-entry\" data-action=\"create-generated-sfx-from-preset\" data-arg=\"jump\">Jump</button>"
@@ -1176,20 +1255,9 @@ void EditorUi::refreshGeneratedSfxEditor() {
         const bool selected = entry.id == definition->id;
         const char* status = generatedSfxStatusLabel(coordinator_.document(), entry);
         const char* statusClass = generatedSfxStatusClass(coordinator_.document(), entry);
-        const auto outputs = generatedOutputsFor(coordinator_.document(), entry.id);
-        const bool expanded = expandedSfxOutputs_.count(entry.id) != 0;
         browserHtml += "<div class=\"sfx-browser-row";
         if (selected) browserHtml += " selected";
-        browserHtml += "\">";
-        if (!outputs.empty()) {
-            browserHtml +=
-                "<button class=\"sfx-browser-expand\" data-action=\"toggle-sfx-outputs\" data-arg=\""
-                + escapeRml(entry.id) + "\" title=\"Show generated outputs\">"
-                + std::string(expanded ? "&#x25BE;" : "&#x25B8;") + "</button>";
-        } else {
-            browserHtml += "<span class=\"sfx-browser-expand-spacer\"></span>";
-        }
-        browserHtml +=
+        browserHtml += "\">"
             "<button class=\"sfx-browser-row-main\" data-action=\"open-generated-sfx\" data-arg=\""
             + escapeRml(entry.id) + "\">"
             "<span class=\"sfx-browser-name\">" + escapeRml(entry.name) + "</span>"
@@ -1198,47 +1266,15 @@ void EditorUi::refreshGeneratedSfxEditor() {
             browserHtml += " ";
             browserHtml += statusClass;
         }
-        browserHtml += "\">" + std::string(status) + "</span>";
-        if (!outputs.empty()) {
-            browserHtml += "<span class=\"sfx-browser-output-count\">Outputs · "
-                         + std::to_string(outputs.size()) + "</span>";
-        }
-        browserHtml += "</button>"
+        browserHtml += "\">" + std::string(status) + "</span></button>"
             "<div class=\"sfx-browser-actions\">"
             "<button class=\"sfx-browser-action\" data-action=\"focus-sfx-rename\" data-arg=\""
             + escapeRml(entry.id) + "\" title=\"Rename\"><span class=\"icon\">&#xeb0a;</span></button>"
             "<button class=\"sfx-browser-action\" data-action=\"duplicate-generated-sfx\" data-arg=\""
-            + escapeRml(entry.id) + "\" title=\"Duplicate\"><span class=\"icon\">&#xedef;</span></button>"
+            + escapeRml(entry.id) + "\" title=\"Duplicate Sound\"><span class=\"icon\">&#xedef;</span></button>"
             "<button class=\"sfx-browser-action destructive\" data-action=\"remove-generated-sfx\" data-arg=\""
             + escapeRml(entry.id) + "\" title=\"Delete\"><span class=\"icon\">&#xeb41;</span></button>"
             "</div></div>";
-
-        if (expanded) {
-            for (const AudioAssetDef* output : outputs) {
-                const bool isCurrent = output->assetId == entry.outputAssetId;
-                browserHtml += "<div class=\"sfx-browser-output-row";
-                if (isCurrent) browserHtml += " current";
-                browserHtml += "\">"
-                    "<span class=\"sfx-browser-output-indent\"></span>"
-                    "<span class=\"sfx-browser-output-main\">"
-                    "<span class=\"sfx-browser-output-name\">"
-                    + escapeRml(sfxOutputRowLabel(entry, *output)) + "</span>"
-                    "<span class=\"sfx-browser-output-meta\">"
-                    + std::string(isCurrent ? "Current" : "Audio") + "</span></span>"
-                    "<div class=\"sfx-browser-actions\">"
-                    "<button class=\"sfx-browser-action\" data-action=\"preview-sfx-output-audio\" data-arg=\""
-                    + escapeRml(output->assetId) + "\" title=\"Preview\"><span class=\"icon\">&#xed46;</span></button>"
-                    "<button class=\"sfx-browser-action\" data-action=\"reveal-sfx-output-audio\" data-arg=\""
-                    + escapeRml(output->assetId) + "\" title=\"Reveal in Assets\"><span class=\"icon\">&#xeaad;</span></button>"
-                    "<button class=\"sfx-browser-action\" data-action=\"rename-sfx-output-audio\" data-arg=\""
-                    + escapeRml(output->assetId) + "\" title=\"Rename audio asset\"><span class=\"icon\">&#xeb0a;</span></button>"
-                    "<button class=\"sfx-browser-action\" data-action=\"copy-sfx-output-path\" data-arg=\""
-                    + escapeRml(output->assetId) + "\" title=\"Copy path\"><span class=\"icon\">&#xea7a;</span></button>"
-                    "<button class=\"sfx-browser-action destructive\" data-action=\"remove-sfx-output-audio\" data-arg=\""
-                    + escapeRml(output->assetId) + "\" title=\"Delete audio asset\"><span class=\"icon\">&#xeb41;</span></button>"
-                    "</div></div>";
-            }
-        }
     }
     if (shown == 0) {
         browserHtml += "<div class=\"sfx-browser-empty\">"
@@ -1262,10 +1298,60 @@ void EditorUi::refreshGeneratedSfxEditor() {
     // (not just describing the constraint in prose next to an active-looking
     // button) is what makes "why didn't that do anything" unreachable.
     const bool projectSaved = !projectSavedQuery_ || projectSavedQuery_();
-    // Always create a new AudioAssetDef + WAV (never in-place replace).
+    // First generation creates the stable AudioAssetDef; later clicks regenerate
+    // the same WAV in place.
     if (Rml::Element* generateBtn = document_->GetElementById("btn-sfx-generate")) {
-        generateBtn->SetInnerRML("Generate New Audio Asset");
+        generateBtn->SetInnerRML(outputStatus == GeneratedSfxOutputStatus::NeedsGeneration
+            ? "Generate Audio Asset"
+            : "Regenerate Audio Asset");
         generateBtn->SetClass("disabled", !projectSaved);
+    }
+    if (Rml::Element* moreMenu = document_->GetElementById("sfx-more-menu"))
+        moreMenu->SetClass("hidden", !sfxMoreMenuOpen_);
+
+    if (Rml::Element* dialogHost = document_->GetElementById("sfx-create-from-current")) {
+        dialogHost->SetClass("hidden", !sfxCreateFromCurrentOpen_);
+        if (sfxCreateFromCurrentOpen_) {
+            const bool canCreate = projectSaved && sfxCreateFromCurrentError_.empty()
+                && !sfxCreateFromCurrentName_.empty();
+            std::string dialogHtml =
+                "<div class=\"sfx-modal\">"
+                "<span class=\"sfx-modal-title\">Create New Sound</span>"
+                "<span class=\"sfx-modal-copy\">Creates an independent sound using the current recipe.<br/>"
+                "The original sound will not be changed.</span>"
+                "<span class=\"sfx-modal-label\">Name</span>"
+                "<input id=\"sfx-create-from-current-name\" class=\"sfx-modal-input\" type=\"text\" "
+                "data-action=\"sfx-create-from-current-name\" value=\""
+                + escapeRml(sfxCreateFromCurrentName_) + "\"/>";
+            if (!projectSaved) {
+                dialogHtml +=
+                    "<span class=\"sfx-modal-error\">Save the project before creating an audio asset</span>"
+                    "<div class=\"sfx-modal-actions\">"
+                    "<button class=\"panel-btn\" data-action=\"cancel-sfx-create-from-current\">Cancel</button>"
+                    "<button class=\"panel-btn\" data-action=\"save-project\">Save Project&#8230;</button>"
+                    "<button class=\"panel-btn primary disabled\">Create and Generate</button>"
+                    "</div></div>";
+            } else {
+                dialogHtml +=
+                    "<span class=\"sfx-modal-error\">" + escapeRml(sfxCreateFromCurrentError_) + "</span>"
+                    "<div class=\"sfx-modal-actions\">"
+                    "<button class=\"panel-btn\" data-action=\"cancel-sfx-create-from-current\">Cancel</button>"
+                    "<button class=\"panel-btn primary"
+                    + std::string(canCreate ? "" : " disabled")
+                    + "\" data-action=\"confirm-sfx-create-from-current\">Create and Generate</button>"
+                    "</div></div>";
+            }
+            dialogHost->SetInnerRML(dialogHtml);
+            if (sfxFocusCreateFromCurrentName_) {
+                sfxFocusCreateFromCurrentName_ = false;
+                if (Rml::Element* nameInput =
+                        document_->GetElementById("sfx-create-from-current-name")) {
+                    nameInput->Focus(true);
+                }
+            }
+        } else {
+            dialogHost->SetInnerRML("");
+        }
     }
     const std::string activePreset = activeSfxPresetId(recipe);
     const auto presetButton = [&](const char* id, const char* label) {
@@ -1293,7 +1379,7 @@ void EditorUi::refreshGeneratedSfxEditor() {
             !projectSaved ? "\">Save the project before generating an audio asset."
             : justGenerated ? " ready\">Audio asset generated"
             : ready ? " ready\">Audio asset ready"
-            : stale ? " stale\">Stale · Generate a new audio asset"
+            : stale ? " stale\">Stale · Regenerate audio asset"
                     : "\">Needs generation")
         + "</span>"
         + (!projectSaved ? "<button class=\"sfx-inline-action\" data-action=\"save-project\">Save Project&#8230;</button>" : "")
@@ -2666,61 +2752,54 @@ bool EditorUi::handleGeneratedSfxAction(const std::string& action, const std::st
     }
     if (action == "toggle-sfx-create-menu") {
         sfxCreateMenuOpen_ = !sfxCreateMenuOpen_;
+        sfxMoreMenuOpen_ = false;
         refreshGeneratedSfxEditor();
         return true;
     }
-    if (action == "toggle-sfx-outputs") {
-        if (arg.empty()) return true;
-        if (expandedSfxOutputs_.count(arg)) expandedSfxOutputs_.erase(arg);
-        else expandedSfxOutputs_.insert(arg);
+    if (action == "toggle-sfx-more-menu") {
+        sfxMoreMenuOpen_ = !sfxMoreMenuOpen_;
+        sfxCreateMenuOpen_ = false;
         refreshGeneratedSfxEditor();
         return true;
     }
-    if (action == "preview-sfx-output-audio") {
-        if (playAudioAssetRequest_ && !arg.empty()) playAudioAssetRequest_(arg);
-        return true;
-    }
-    if (action == "reveal-sfx-output-audio") {
-        if (!arg.empty()) coordinator_.apply(SetAssetFilterIntent{arg});
-        return true;
-    }
-    if (action == "copy-sfx-output-path") {
-        const AudioAssetDef* audio = coordinator_.document().findAudioAsset(arg);
-        if (audio && !audio->sourcePath.empty())
-            SetClipboardText(audio->sourcePath.c_str());
-        return true;
-    }
-    if (action == "rename-sfx-output-audio") {
-        const AudioAssetDef* audio = coordinator_.document().findAudioAsset(arg);
-        if (!audio) return true;
-        // Current linked output: display name authority is the recipe.
-        if (const artcade::sfx::GeneratedSfxDef* owner =
-                coordinator_.document().findGeneratedSfxByOutputAssetId(arg)) {
-            openGeneratedSfxId_ = owner->id;
-            sfxFocusNameField_ = true;
-            refreshGeneratedSfxEditor();
+    if (action == "open-sfx-create-from-current") {
+        if (coordinator_.isPlaying()) {
+            coordinator_.logWarning("Stop Play before creating Generated SFX");
             return true;
         }
-        // Independent WAV: materialize a stable Assets name when still empty,
-        // then reveal so the user can manage it like any other audio asset.
-        if (audio->name.empty() || audio->name == audio->assetId) {
-            std::string name = audio->assetId;
-            if (audio->generatedFromSfxId) {
-                if (const auto* recipe =
-                        coordinator_.document().findGeneratedSfx(*audio->generatedFromSfxId)) {
-                    name = sfxOutputRowLabel(*recipe, *audio);
-                }
-            }
-            coordinator_.execute(RenameAudioAssetCommand{arg, name});
+        const std::string sourceId = arg.empty() && openGeneratedSfxId_
+            ? *openGeneratedSfxId_ : arg;
+        const auto* source = coordinator_.document().findGeneratedSfx(sourceId);
+        if (!source) return true;
+        sfxMoreMenuOpen_ = false;
+        sfxCreateFromCurrentOpen_ = true;
+        sfxCreateFromCurrentSourceId_ = sourceId;
+        sfxCreateFromCurrentName_ = uniqueGeneratedSfxName(
+            coordinator_.document(), source->name);
+        sfxCreateFromCurrentError_.clear();
+        if (audioDisplayNameExists(coordinator_.document().data(), sfxCreateFromCurrentName_)) {
+            sfxCreateFromCurrentError_ = "Audio name already exists";
         }
-        coordinator_.apply(SetAssetFilterIntent{arg});
+        sfxFocusCreateFromCurrentName_ = true;
         refreshGeneratedSfxEditor();
         return true;
     }
-    if (action == "remove-sfx-output-audio") {
-        if (arg.empty()) return true;
-        coordinator_.execute(RemoveAudioAssetCommand{arg});
-        refreshGeneratedSfxEditor();
+    if (action == "cancel-sfx-create-from-current") {
+        closeSfxCreateFromCurrentDialog();
+        return true;
+    }
+    if (action == "confirm-sfx-create-from-current") {
+        std::string typed = sfxCreateFromCurrentName_;
+        if (document_) {
+            if (Rml::Element* nameInput =
+                    document_->GetElementById("sfx-create-from-current-name")) {
+                if (auto* control =
+                        rmlui_dynamic_cast<Rml::ElementFormControl*>(nameInput)) {
+                    typed = control->GetValue();
+                }
+            }
+        }
+        confirmSfxCreateFromCurrent(typed);
         return true;
     }
     if (action == "create-generated-sfx" || action == "create-generated-sfx-from-preset") {
@@ -2738,6 +2817,7 @@ bool EditorUi::handleGeneratedSfxAction(const std::string& action, const std::st
             CreateGeneratedSfxCommand{id, name, *recipe});
         if (result.ok) {
             sfxCreateMenuOpen_ = false;
+            sfxFocusNameField_ = true;
             openSfx(id);
         }
         return true;
@@ -2750,6 +2830,11 @@ bool EditorUi::handleGeneratedSfxAction(const std::string& action, const std::st
         if (stopGeneratedSfxPreviewRequest_) stopGeneratedSfxPreviewRequest_();
         openGeneratedSfxId_.reset();
         sfxCreateMenuOpen_ = false;
+        sfxMoreMenuOpen_ = false;
+        sfxCreateFromCurrentOpen_ = false;
+        sfxCreateFromCurrentName_.clear();
+        sfxCreateFromCurrentError_.clear();
+        sfxCreateFromCurrentSourceId_.clear();
         refreshGeneratedSfxEditor();
         return true;
     }
@@ -2767,7 +2852,10 @@ bool EditorUi::handleGeneratedSfxAction(const std::string& action, const std::st
             coordinator_.document(), source->name);
         const auto result = coordinator_.execute(
             DuplicateGeneratedSfxCommand{sourceId, newId, newName});
-        if (result.ok) openSfx(newId);
+        if (result.ok) {
+            sfxFocusNameField_ = true;
+            openSfx(newId);
+        }
         return true;
     }
     if (action == "focus-sfx-rename") {
@@ -2810,8 +2898,8 @@ bool EditorUi::handleGeneratedSfxAction(const std::string& action, const std::st
         if (stopGeneratedSfxPreviewRequest_) stopGeneratedSfxPreviewRequest_();
         return true;
     }
-    if (action == "generate-new-sfx-output" || action == "generate-sfx-output") {
-        if (generateNewSfxOutputRequest_) generateNewSfxOutputRequest_(current->id);
+    if (action == "generate-sfx-output" || action == "generate-new-sfx-output") {
+        if (generateSfxOutputRequest_) generateSfxOutputRequest_(current->id);
         return true;
     }
     if (action == "commit-sfx-name") {

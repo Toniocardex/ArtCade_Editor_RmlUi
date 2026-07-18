@@ -128,8 +128,7 @@ bool finalizeNewGeneratedOutput(const std::filesystem::path& staging,
 #endif
 }
 
-// Kept for a future "Regenerate Current Output" action (in-place replace).
-[[maybe_unused]] bool replaceGeneratedOutputAtomically(
+bool replaceGeneratedOutputAtomically(
     const std::filesystem::path& staging,
     const std::filesystem::path& destination,
     std::string& error) {
@@ -449,10 +448,10 @@ int EditorApp::run(int argc, char** argv) {
                 coordinator.logError("Save the project before generating a WAV asset");
                 return;
             }
-            const auto identity = nextGeneratedSfxOutputIdentity(
+            const auto identity = stableGeneratedSfxOutputIdentity(
                 coordinator.document(), *definition, request.projectPath.parent_path());
             if (!identity) {
-                coordinator.logError("Could not allocate a free Generated SFX output path");
+                coordinator.logError("Could not allocate Generated SFX output path");
                 return;
             }
             request.outputAssetId = identity->assetId;
@@ -462,8 +461,12 @@ int EditorApp::run(int argc, char** argv) {
         }
 
         if (!sfxBatch.active || kind != SfxJobKind::Generate) {
+            const bool regenerating = kind == SfxJobKind::Generate
+                && !definition->outputAssetId.empty()
+                && coordinator.document().hasAudioAsset(definition->outputAssetId);
             coordinator.logInfo(kind == SfxJobKind::Preview
-                ? "Rendering SFX preview..." : "Generating SFX WAV...");
+                ? "Rendering SFX preview..."
+                : (regenerating ? "Regenerating SFX WAV..." : "Generating SFX WAV..."));
         }
         sfxJob.emplace(std::async(std::launch::async,
             [request = std::move(request)]() mutable {
@@ -597,56 +600,6 @@ int EditorApp::run(int argc, char** argv) {
         [&](const std::string& id) { startSfxJob(SfxJobKind::Preview, id); },
         [&]() { sfxPreview.stop(); },
         [&](const std::string& id) { startSfxJob(SfxJobKind::Generate, id); });
-    ui.setPlayAudioAssetHandler([&](const std::string& assetId) {
-        const AudioAssetDef* audio = coordinator.document().findAudioAsset(assetId);
-        if (!audio) {
-            coordinator.logError("Unknown audio asset: " + assetId);
-            return;
-        }
-        if (projectSession.currentProjectPath().empty()) {
-            coordinator.logError("Save the project before previewing audio assets");
-            return;
-        }
-        if (!IsAudioDeviceReady()) {
-            InitAudioDevice();
-            ownsSfxAudioDevice = IsAudioDeviceReady();
-        }
-        if (!IsAudioDeviceReady()) {
-            coordinator.logError("Audio device is not ready");
-            return;
-        }
-        const auto confined = resolvePathInsideRoot(
-            projectSession.currentProjectPath().parent_path(),
-            std::filesystem::u8path(audio->sourcePath));
-        if (!confined.ok) {
-            coordinator.logError("Audio path rejected: " + confined.error);
-            return;
-        }
-        if (!FileExists(confined.value.string().c_str())) {
-            coordinator.logError("Audio file missing: " + audio->sourcePath);
-            return;
-        }
-        Sound sound = LoadSound(confined.value.string().c_str());
-        if (sound.frameCount == 0) {
-            coordinator.logError("Could not load audio: " + audio->sourcePath);
-            return;
-        }
-        // One-shot owner-thread preview: unload any previous transient preview
-        // wave held on the RaylibPreview path by stopping it first.
-        sfxPreview.stop();
-        PlaySound(sound);
-        // Keep the Sound alive until the next preview/stop by parking it in the
-        // play-session cache keyed by asset id (Edit-mode reuse is fine).
-        auto existing = playSoundCache.find(assetId);
-        if (existing != playSoundCache.end()) {
-            UnloadSound(existing->second);
-            existing->second = sound;
-        } else {
-            playSoundCache.emplace(assetId, sound);
-        }
-        coordinator.logInfo("Playing audio asset: "
-            + resolveAudioAssetDisplayName(coordinator.document(), *audio));
-    });
     ui.setSfxBatchHandlers(
         [&] { startRegenerateAllStale(); },
         [&] {
@@ -1416,20 +1369,13 @@ int EditorApp::run(int argc, char** argv) {
                             "Discarded stale Generated SFX output (changed during generation)");
                         markBatch(SfxBatchItemStatus::Skipped, "Changed during generation");
                     }
-                } else if (!current->outputAssetId.empty()
-                           && coordinator.document().hasAudioAsset(current->outputAssetId)
-                           && (completed.outputAssetId == current->outputAssetId
-                               || completed.relativePath == current->outputPath)) {
-                    std::error_code cleanupError;
-                    std::filesystem::remove(completed.stagingPath, cleanupError);
-                    coordinator.logError(
-                        "Refusing to overwrite existing Generated SFX output; "
-                        "expected a new asset id/path");
-                    markBatch(SfxBatchItemStatus::Failed, "Refused overwrite of existing output");
                 } else {
-                    if (coordinator.document().hasAudioAsset(completed.outputAssetId)
-                        || generatedSfxOutputPathTaken(coordinator.document(),
-                                                       completed.relativePath)) {
+                    const bool regenerating = !current->outputAssetId.empty()
+                        && coordinator.document().hasAudioAsset(current->outputAssetId);
+                    if (!regenerating
+                        && (coordinator.document().hasAudioAsset(completed.outputAssetId)
+                            || generatedSfxOutputPathTaken(coordinator.document(),
+                                                           completed.relativePath))) {
                         std::error_code cleanupError;
                         std::filesystem::remove(completed.stagingPath, cleanupError);
                         coordinator.logError(
@@ -1438,8 +1384,12 @@ int EditorApp::run(int argc, char** argv) {
                                   "Output id or path already exists");
                     } else {
                         std::string finalizeError;
-                        if (!finalizeNewGeneratedOutput(
-                                completed.stagingPath, completed.finalPath, finalizeError)) {
+                        const bool finalized = regenerating
+                            ? replaceGeneratedOutputAtomically(
+                                  completed.stagingPath, completed.finalPath, finalizeError)
+                            : finalizeNewGeneratedOutput(
+                                  completed.stagingPath, completed.finalPath, finalizeError);
+                        if (!finalized) {
                             std::error_code cleanupError;
                             std::filesystem::remove(completed.stagingPath, cleanupError);
                             coordinator.logError(
@@ -1452,16 +1402,18 @@ int EditorApp::run(int argc, char** argv) {
                             output.sourcePath = completed.relativePath;
                             output.loadMode = AudioLoadMode::StaticSound;
                             const auto registered = coordinator.execute(
-                                CreateGeneratedSfxOutputCommand{
+                                RegisterGeneratedSfxOutputCommand{
                                     completed.id, completed.recipe, std::move(output)});
                             if (registered.ok) {
                                 coordinator.logInfo(
-                                    "Generated WAV: " + completed.relativePath);
+                                    (regenerating ? "Regenerated WAV: " : "Generated WAV: ")
+                                    + completed.relativePath);
                                 ui.notifyGeneratedSfxOutputReady(completed.id);
                                 markBatch(SfxBatchItemStatus::Succeeded, "Ready");
                             } else {
                                 std::error_code cleanupError;
-                                std::filesystem::remove(completed.finalPath, cleanupError);
+                                if (!regenerating)
+                                    std::filesystem::remove(completed.finalPath, cleanupError);
                                 markBatch(SfxBatchItemStatus::Failed,
                                           registered.error.empty()
                                               ? "Register failed"

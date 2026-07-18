@@ -22,10 +22,75 @@
 
 .sfx-kicker { display: block; font-size: 10px; color: #758399; letter-spacing: 1px; }
 .sfx-editor-title { display: block; margin-top: 2px; font-size: 19px; font-weight: 600; }
-.sfx-header-actions { display: flex; flex-direction: row; gap: 7px; }
+.sfx-header-actions { display: flex; flex-direction: row; gap: 7px; align-items: center; }
 /* Extra breathing room before the primary action -- Preview/Stop read as one
    group (listen), Generate/Close as another (commit/leave). */
 .sfx-header-actions .primary { background: #3b82f6; color: white; margin-left: 10px; }
+
+.sfx-more-wrap { position: relative; }
+.sfx-more-menu {
+    position: absolute;
+    top: 34px;
+    right: 0px;
+    min-width: 260px;
+    padding: 4px;
+    background: #1a2029;
+    border: 1px #303743;
+    z-index: 40;
+}
+.sfx-more-menu.hidden { display: none; }
+.sfx-more-entry {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px;
+    background: transparent;
+    border-width: 0;
+    color: #dfe5ee;
+    font-size: 12px;
+}
+.sfx-more-entry:hover { background: #243041; }
+
+.sfx-modal-backdrop {
+    position: absolute;
+    left: 0px;
+    right: 0px;
+    top: 0px;
+    bottom: 0px;
+    z-index: 50;
+    background: #0b0d10cc;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+.sfx-modal-backdrop.hidden { display: none; }
+.sfx-modal {
+    width: 360px;
+    padding: 16px 18px;
+    background: #181c23;
+    border: 1px #303743;
+    color: #dfe5ee;
+}
+.sfx-modal-title { display: block; font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+.sfx-modal-copy { display: block; font-size: 11px; color: #9aa8bc; margin-bottom: 14px; line-height: 1.4; }
+.sfx-modal-label { display: block; font-size: 11px; color: #758399; margin-bottom: 4px; }
+.sfx-modal-input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    height: 30px;
+    padding: 4px 8px;
+    margin-bottom: 6px;
+    background: #111419;
+    border: 1px #3a4554;
+    color: #dfe5ee;
+}
+.sfx-modal-input:focus { border-color: #3b82f6; }
+.sfx-modal-error { display: block; font-size: 11px; color: #f07178; min-height: 14px; margin-bottom: 10px; }
+.sfx-modal-actions { display: flex; flex-direction: row; justify-content: flex-end; gap: 8px; }
+.sfx-modal-actions .primary { background: #3b82f6; color: white; }
+.sfx-modal-actions .primary.disabled { opacity: 0.45; }
 
 .sfx-editor-main {
     position: absolute;
@@ -124,17 +189,17 @@
 }
 .sfx-batch-cancel:hover { background: #2d3745; border-color: #e0b35a; }
 .sfx-browser-create-menu {
-    margin-bottom: 8px;
-    padding: 4px;
-    background: #181d25;
-    border: 1px #3a4658;
-    border-radius: 3px;
+    margin: 0 0 8px 0;
+    padding: 2px 0 4px 0;
+    background: transparent;
+    border-width: 0;
 }
 .sfx-browser-create-title {
-    padding: 4px 6px 6px 6px;
+    display: block;
+    padding: 2px 8px 6px 8px;
     color: #758399;
     font-size: 10px;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.6px;
 }
 .sfx-browser-create-entry {
     display: block;
@@ -213,50 +278,6 @@
 .sfx-browser-action:hover { background: #2a3340; }
 .sfx-browser-action:hover .icon { color: #dfe5ee; }
 .sfx-browser-action.destructive:hover .icon { color: #f07178; }
-.sfx-browser-expand {
-    width: 16px;
-    height: 20px;
-    padding: 0;
-    background: transparent;
-    border-width: 0;
-    color: #758399;
-    font-size: 10px;
-}
-.sfx-browser-expand:hover { color: #dfe5ee; }
-.sfx-browser-expand-spacer { width: 16px; height: 20px; }
-.sfx-browser-output-count {
-    display: block;
-    font-size: 10px;
-    color: #6b7684;
-}
-.sfx-browser-output-row {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 4px;
-    width: 100%;
-    box-sizing: border-box;
-    min-height: 24px;
-    padding: 2px 4px 2px 6px;
-    margin-bottom: 1px;
-    color: #9aa8bc;
-}
-.sfx-browser-output-row.current { color: #dfe5ee; }
-.sfx-browser-output-indent { width: 16px; }
-.sfx-browser-output-main {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-}
-.sfx-browser-output-name {
-    font-size: 11px;
-    white-space: nowrap;
-    overflow: hidden;
-}
-.sfx-browser-output-meta { font-size: 10px; color: #6b7684; }
-.sfx-browser-output-row.current .sfx-browser-output-meta { color: #67d391; }
 
 .sfx-editor-body {
     flex: 1;

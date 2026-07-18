@@ -130,14 +130,12 @@ public:
     using GeneratedSfxRequest = std::function<void(const std::string&)>;
     void setGeneratedSfxHandlers(GeneratedSfxRequest preview,
                                  WorkspaceRequest stopPreview,
-                                 GeneratedSfxRequest generateNew);
-    /** Play an existing AudioAssetDef WAV (owner-thread Raylib). */
-    void setPlayAudioAssetHandler(GeneratedSfxRequest playAudioAsset);
+                                 GeneratedSfxRequest generate);
     void setSfxBatchHandlers(WorkspaceRequest regenerateAllStale,
                              WorkspaceRequest cancelBatch,
                              WorkspaceRequest dismissSummary);
     void setSfxBatchState(SfxBatchState state);
-    // Generate New writes into the project's own folder (assets/audio/generated/),
+    // Generate writes into the project's own folder (assets/audio/generated/),
     // which requires a saved project path -- a constraint the application
     // layer already enforces (it logs a Console error and no-ops otherwise).
     // Surfacing it here too means the SFX panel's own status line explains
@@ -145,10 +143,13 @@ public:
     // message the user has to go looking for.
     using ProjectSavedQuery = std::function<bool()>;
     void setProjectSavedQuery(ProjectSavedQuery query);
-    // Called by the application right after CreateGeneratedSfxOutputCommand
+    // Called by the application right after RegisterGeneratedSfxOutputCommand
     // commits. Shows a one-shot "Audio asset generated" confirmation until
     // the next SFX panel interaction of any kind.
     void notifyGeneratedSfxOutputReady(const std::string& id);
+    void validateSfxCreateFromCurrentName(const std::string& value);
+    void confirmSfxCreateFromCurrent(const std::string& value);
+    void closeSfxCreateFromCurrentDialog();
 
     using EntityPlacementRequest = std::function<void()>;
     void setEntityPlacementHandlers(EntityPlacementRequest addEntity,
@@ -304,8 +305,7 @@ private:
     WorkspaceRequest                    fitViewRequest_;
     GeneratedSfxRequest                 previewGeneratedSfxRequest_;
     WorkspaceRequest                    stopGeneratedSfxPreviewRequest_;
-    GeneratedSfxRequest                 generateNewSfxOutputRequest_;
-    GeneratedSfxRequest                 playAudioAssetRequest_;
+    GeneratedSfxRequest                 generateSfxOutputRequest_;
     WorkspaceRequest                    regenerateAllStaleSfxRequest_;
     WorkspaceRequest                    cancelSfxBatchRequest_;
     WorkspaceRequest                    dismissSfxBatchSummaryRequest_;
@@ -339,10 +339,16 @@ private:
     bool                                sfxAdvancedMode_ = false;
     /** Browser search buffer (workspace-only). */
     std::string                         sfxBrowserFilter_;
-    /** Expanded recipe rows showing output history (workspace-only). */
-    std::unordered_set<std::string>     expandedSfxOutputs_;
     /** "+" create-from-preset menu open state (workspace-only). */
     bool                                sfxCreateMenuOpen_ = false;
+    /** Header ⋯ menu (workspace-only). */
+    bool                                sfxMoreMenuOpen_ = false;
+    /** Create New Sound from Current dialog (workspace-only). */
+    bool                                sfxCreateFromCurrentOpen_ = false;
+    std::string                         sfxCreateFromCurrentName_;
+    std::string                         sfxCreateFromCurrentError_;
+    std::string                         sfxCreateFromCurrentSourceId_;
+    bool                                sfxFocusCreateFromCurrentName_ = false;
     /** After Rename from the browser, focus the name field once. */
     bool                                sfxFocusNameField_ = false;
     std::unordered_set<std::string>     sfxCollapsedSections_{"secondary-voice", "noise-layer"};

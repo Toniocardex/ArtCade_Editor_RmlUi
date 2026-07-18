@@ -1,8 +1,11 @@
 #include "editor-native/commands/audio_asset_commands.h"
 
+#include "editor-native/commands/generated_sfx_commands.h"
 #include "editor-native/model/project_document.h"
 
 #include <algorithm>
+#include <cctype>
+#include <optional>
 #include <utility>
 
 namespace ArtCade::EditorNative {
@@ -21,6 +24,9 @@ EditorOperationResult AddAudioAssetCommand::apply(ProjectDocument& document) {
     }
     if (document.hasAudioAsset(assetId_)) {
         return EditorOperationResult::failure("Audio asset already exists: " + assetId_);
+    }
+    if (audioDisplayNameExists(document.data(), assetId_)) {
+        return EditorOperationResult::failure("Audio name already exists: " + assetId_);
     }
     AudioAssetDef asset;
     asset.assetId = assetId_;
@@ -45,9 +51,17 @@ RenameAudioAssetCommand::RenameAudioAssetCommand(AssetId assetId, std::string na
 
 EditorOperationResult RenameAudioAssetCommand::apply(ProjectDocument& document) {
     if (!captured_) {
-        if (name_.empty()) return EditorOperationResult::failure("Audio name cannot be empty");
+        std::string name = name_;
+        while (!name.empty() && std::isspace(static_cast<unsigned char>(name.front())))
+            name.erase(name.begin());
+        while (!name.empty() && std::isspace(static_cast<unsigned char>(name.back())))
+            name.pop_back();
+        if (name.empty()) return EditorOperationResult::failure("Audio name cannot be empty");
         if (!document.hasAudioAsset(assetId_)) {
             return EditorOperationResult::failure("Unknown audio asset: " + assetId_);
+        }
+        if (audioDisplayNameExists(document.data(), name, std::nullopt, assetId_)) {
+            return EditorOperationResult::failure("Audio name already exists: " + name);
         }
         before_ = document.data();
         after_ = before_;
@@ -56,7 +70,7 @@ EditorOperationResult RenameAudioAssetCommand::apply(ProjectDocument& document) 
         if (it == after_.audioAssets.end()) {
             return EditorOperationResult::failure("Unknown audio asset: " + assetId_);
         }
-        it->name = name_;
+        it->name = name;
         captured_ = true;
     }
     document.commitStagedCommand(after_);
