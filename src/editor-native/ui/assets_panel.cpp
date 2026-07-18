@@ -1,6 +1,7 @@
 #include "editor-native/ui/assets_panel.h"
 
 #include "editor-native/app/editor_coordinator.h"
+#include "editor-native/commands/generated_sfx_commands.h"
 #include "editor-native/ui/editor_ui.h"
 
 #include <RmlUi/Core/Element.h>
@@ -181,21 +182,29 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
     for (const artcade::sfx::GeneratedSfxDef& definition : doc.generatedSfx) {
         if (matchesAssetFilter(filter, {definition.name, definition.id,
                                         "Generated SFX", definition.outputPath})) {
-            const bool priorOutput = coordinator.document().hasAudioAsset(
-                "generated-audio-" + definition.id);
-            const char* state = !definition.outputAssetId.empty() ? "Ready"
-                : priorOutput ? "Stale" : "Needs generate";
-            groups += assetRow("&#xf1c8;", definition.name, definition.id,
+            const GeneratedSfxOutputStatus status =
+                generatedSfxOutputStatus(coordinator.document(), definition);
+            groups += assetRow("&#xed46;", definition.name, definition.id,
                                "open-generated-sfx", definition.id,
-                               "<span class=\"asset-meta\">" + std::string(state) + "</span>",
+                               "<span class=\"asset-meta\">"
+                                   + std::string(generatedSfxOutputStatusLabel(status))
+                                   + "</span>",
                                menuAffordance("sfx", definition.id));
             ++shown;
         }
     }
 
-    // -- Audio: display name resolved through Generated SFX when linked --------
-    groups += groupTitle("Audio", doc.audioAssets.size());
+    // -- Audio: independent / detached assets only (linked SFX outputs stay
+    // under Generated SFX so one logical asset does not appear twice). --------
+    std::size_t independentAudioCount = 0;
     for (const AudioAssetDef& asset : doc.audioAssets) {
+        if (!coordinator.document().findGeneratedSfxByOutputAssetId(asset.assetId))
+            ++independentAudioCount;
+    }
+    groups += groupTitle("Audio", independentAudioCount);
+    for (const AudioAssetDef& asset : doc.audioAssets) {
+        if (coordinator.document().findGeneratedSfxByOutputAssetId(asset.assetId))
+            continue;
         const std::string displayName =
             resolveAudioAssetDisplayName(coordinator.document(), asset);
         if (matchesAssetFilter(filter, {displayName, asset.assetId, "Audio",

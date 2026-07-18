@@ -3,6 +3,7 @@
 #include "core/types.h"
 #include "editor-native/commands/editor_invalidation.h"
 #include "editor-native/app/pending_edit.h"
+#include "editor-native/app/sfx_batch.h"
 #include "editor-native/ui/assets_panel.h"
 #include "editor-native/ui/console_panel.h"
 #include "editor-native/ui/hierarchy_panel.h"
@@ -129,8 +130,12 @@ public:
     using GeneratedSfxRequest = std::function<void(const std::string&)>;
     void setGeneratedSfxHandlers(GeneratedSfxRequest preview,
                                  WorkspaceRequest stopPreview,
-                                 GeneratedSfxRequest generate);
-    // Generate writes into the project's own folder (assets/audio/generated/),
+                                 GeneratedSfxRequest generateNew);
+    void setSfxBatchHandlers(WorkspaceRequest regenerateAllStale,
+                             WorkspaceRequest cancelBatch,
+                             WorkspaceRequest dismissSummary);
+    void setSfxBatchState(SfxBatchState state);
+    // Generate New writes into the project's own folder (assets/audio/generated/),
     // which requires a saved project path -- a constraint the application
     // layer already enforces (it logs a Console error and no-ops otherwise).
     // Surfacing it here too means the SFX panel's own status line explains
@@ -138,11 +143,9 @@ public:
     // message the user has to go looking for.
     using ProjectSavedQuery = std::function<bool()>;
     void setProjectSavedQuery(ProjectSavedQuery query);
-    // Called by the application right after a Generate job's output is
-    // committed via RegisterGeneratedSfxOutputCommand. Shows a one-shot
-    // "Audio asset generated" confirmation (closing the mental loop of
-    // "where did that go") in place of the steady-state "Audio asset ready"
-    // wording, until the next SFX panel interaction of any kind.
+    // Called by the application right after CreateGeneratedSfxOutputCommand
+    // commits. Shows a one-shot "Audio asset generated" confirmation until
+    // the next SFX panel interaction of any kind.
     void notifyGeneratedSfxOutputReady(const std::string& id);
 
     using EntityPlacementRequest = std::function<void()>;
@@ -299,7 +302,11 @@ private:
     WorkspaceRequest                    fitViewRequest_;
     GeneratedSfxRequest                 previewGeneratedSfxRequest_;
     WorkspaceRequest                    stopGeneratedSfxPreviewRequest_;
-    GeneratedSfxRequest                 generateSfxOutputRequest_;
+    GeneratedSfxRequest                 generateNewSfxOutputRequest_;
+    WorkspaceRequest                    regenerateAllStaleSfxRequest_;
+    WorkspaceRequest                    cancelSfxBatchRequest_;
+    WorkspaceRequest                    dismissSfxBatchSummaryRequest_;
+    SfxBatchState                       sfxBatchState_;
     ProjectSavedQuery                   projectSavedQuery_;
     bool                                viewportContextMenuVisible_ = false;
     bool                                hierarchyContextMenuVisible_ = false;
@@ -327,6 +334,12 @@ private:
     // Simple/Advanced is a workspace view, not document state -- no dirty, no
     // Undo, same contract as openGeneratedSfxId_ itself.
     bool                                sfxAdvancedMode_ = false;
+    /** Browser search buffer (workspace-only). */
+    std::string                         sfxBrowserFilter_;
+    /** "+" create-from-preset menu open state (workspace-only). */
+    bool                                sfxCreateMenuOpen_ = false;
+    /** After Rename from the browser, focus the name field once. */
+    bool                                sfxFocusNameField_ = false;
     std::unordered_set<std::string>     sfxCollapsedSections_{"secondary-voice", "noise-layer"};
     // Live state for an in-progress macro-slider drag; see handleSfxMacroDrag.
     struct SfxMacroDragSession {

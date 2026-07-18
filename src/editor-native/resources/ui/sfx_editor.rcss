@@ -27,12 +27,196 @@
    group (listen), Generate/Close as another (commit/leave). */
 .sfx-header-actions .primary { background: #3b82f6; color: white; margin-left: 10px; }
 
-.sfx-editor-body {
+.sfx-editor-main {
     position: absolute;
     left: 0px;
     right: 0px;
     top: 63px;
     bottom: 0px;
+    display: flex;
+    flex-direction: row;
+}
+
+.sfx-editor-browser {
+    width: 240px;
+    min-width: 240px;
+    box-sizing: border-box;
+    padding: 10px 8px 16px 8px;
+    background: #151920;
+    border-right: 1px #2b3340;
+    overflow-y: auto;
+}
+.sfx-browser-toolbar {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.sfx-browser-search {
+    flex: 1;
+    height: 23px;
+    padding: 2px 6px;
+    box-sizing: border-box;
+    background: #10141a;
+    border: 1px #354052;
+    color: #e6edf7;
+}
+.sfx-browser-search:focus { border-color: #3b82f6; }
+.sfx-browser-add {
+    width: 26px;
+    height: 23px;
+    padding: 0;
+    background: #232a35;
+    border: 1px #394353;
+    border-radius: 2px;
+    color: #dfe5ee;
+    font-size: 14px;
+}
+.sfx-browser-add:hover { background: #2d3745; border-color: #3b82f6; }
+.sfx-batch-cta {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 8px;
+    padding: 6px 8px;
+    background: #232a35;
+    border: 1px #3b82f6;
+    border-radius: 3px;
+    color: #dfe5ee;
+    font-size: 11px;
+    text-align: center;
+}
+.sfx-batch-cta:hover { background: #2d3745; }
+.sfx-batch-panel {
+    margin-bottom: 8px;
+    padding: 8px;
+    background: #181d25;
+    border: 1px #3a4658;
+    border-radius: 3px;
+}
+.sfx-batch-title { font-size: 11px; font-weight: 600; color: #dfe5ee; margin-bottom: 4px; }
+.sfx-batch-name { font-size: 11px; color: #9aa8bc; margin-bottom: 6px; }
+.sfx-batch-summary { font-size: 11px; color: #9aa8bc; margin-bottom: 8px; line-height: 1.45; }
+.sfx-batch-bar {
+    height: 6px;
+    background: #10141a;
+    border: 1px #354052;
+    border-radius: 3px;
+    margin-bottom: 8px;
+    overflow: hidden;
+}
+.sfx-batch-bar-fill {
+    height: 100%;
+    background: #3b82f6;
+}
+.sfx-batch-cancel {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 5px 8px;
+    background: #232a35;
+    border: 1px #394353;
+    border-radius: 2px;
+    color: #dfe5ee;
+    font-size: 11px;
+    text-align: center;
+}
+.sfx-batch-cancel:hover { background: #2d3745; border-color: #e0b35a; }
+.sfx-browser-create-menu {
+    margin-bottom: 8px;
+    padding: 4px;
+    background: #181d25;
+    border: 1px #3a4658;
+    border-radius: 3px;
+}
+.sfx-browser-create-title {
+    padding: 4px 6px 6px 6px;
+    color: #758399;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+}
+.sfx-browser-create-entry {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    text-align: left;
+    padding: 5px 8px;
+    margin-bottom: 1px;
+    background: transparent;
+    border-width: 0;
+    border-radius: 2px;
+    color: #dfe5ee;
+    font-size: 12px;
+}
+.sfx-browser-create-entry:hover { background: #1d2a44; color: #dbe6ff; }
+.sfx-browser-list { display: block; }
+.sfx-browser-empty {
+    padding: 12px 8px;
+    color: #6b7684;
+    font-size: 11px;
+}
+.sfx-browser-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 28px;
+    padding: 3px 4px 3px 6px;
+    margin-bottom: 1px;
+    background: transparent;
+    border-width: 0;
+    border-radius: 3px;
+    color: #dfe5ee;
+}
+.sfx-browser-row:hover { background: #1c222c; }
+.sfx-browser-row.selected { background: #1d2a44; }
+.sfx-browser-row-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    text-align: left;
+    padding: 0;
+    background: transparent;
+    border-width: 0;
+    color: #dfe5ee;
+}
+.sfx-browser-name {
+    font-size: 12px;
+    color: #e6edf7;
+    white-space: nowrap;
+    overflow: hidden;
+}
+.sfx-browser-status { font-size: 10px; color: #758399; }
+.sfx-browser-status.ready { color: #67d391; }
+.sfx-browser-status.stale { color: #e0b35a; }
+.sfx-browser-actions { display: flex; flex-direction: row; gap: 2px; }
+.sfx-browser-action {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    background: transparent;
+    border-width: 0;
+    border-radius: 2px;
+    color: #758399;
+    font-size: 11px;
+}
+.sfx-browser-action .icon {
+    margin-right: 0;
+    font-size: 1em;
+    color: #758399;
+}
+.sfx-browser-action:hover { background: #2a3340; }
+.sfx-browser-action:hover .icon { color: #dfe5ee; }
+.sfx-browser-action.destructive:hover .icon { color: #f07178; }
+
+.sfx-editor-body {
+    flex: 1;
+    min-width: 0;
     padding: 14px 18px 28px 18px;
     overflow-y: auto;
 }
@@ -63,7 +247,19 @@
 .sfx-summary-row { display: flex; flex-direction: row; align-items: center; gap: 10px; }
 .sfx-status { color: #94a3b8; font-size: 11px; }
 .sfx-status.ready { color: #67d391; }
-.sfx-name { width: 280px; }
+.sfx-status.stale { color: #e0b35a; }
+/* Match .sfx-field input / .sfx-macro-input — identity field, not a hero control. */
+.sfx-name {
+    width: 200px;
+    height: 23px;
+    padding: 2px 6px;
+    box-sizing: border-box;
+    background: #10141a;
+    border: 1px #354052;
+    color: #e6edf7;
+}
+.sfx-name:hover { border-color: #4a5a70; }
+.sfx-name:focus { border-color: #3b82f6; }
 .sfx-output-path { margin-top: 4px; color: #758399; font-size: 10px; }
 /* Global console counts (see the comment at their computation site in
    editor_ui.cpp for why this isn't scoped to this asset specifically).

@@ -239,11 +239,14 @@
             <div class="sfx-header-actions">
                 <button class="panel-btn" data-action="preview-generated-sfx"><span class="icon">&#xed46;</span>Preview</button>
                 <button id="btn-sfx-stop" class="panel-btn disabled" data-action="stop-generated-sfx-preview">Stop</button>
-                <button id="btn-sfx-generate" class="panel-btn primary" data-action="generate-sfx-output">Generate &amp; Add to Project</button>
+                <button id="btn-sfx-generate" class="panel-btn primary" data-action="generate-new-sfx-output">Generate New Audio Asset</button>
                 <button class="panel-btn" data-action="close-generated-sfx">Close</button>
             </div>
         </div>
-        <div id="sfx-editor-body" class="sfx-editor-body"></div>
+        <div class="sfx-editor-main">
+            <div id="sfx-editor-browser" class="sfx-editor-browser"></div>
+            <div id="sfx-editor-body" class="sfx-editor-body"></div>
+        </div>
     </div>
 
     <div id="viewport-context-menu" class="context-menu hidden">

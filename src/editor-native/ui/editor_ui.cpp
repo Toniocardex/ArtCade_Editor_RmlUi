@@ -132,6 +132,8 @@ bool actionRequiresPendingEditGate(const std::string& action) {
         "open-sprite-animation", "close-sprite-animation",
         "open-tileset-editor", "close-tileset-editor",
         "open-generated-sfx", "close-generated-sfx",
+        "duplicate-generated-sfx", "create-generated-sfx-from-preset",
+        "toggle-sfx-create-menu",
         "open-scene-workspace", "open-logic-workspace", "open-script-workspace",
         "open-script", "activate-script", "close-script",
         "toggle-inspector-section",
@@ -441,7 +443,11 @@ void EditorUi::detach() {
     fitViewRequest_ = {};
     previewGeneratedSfxRequest_ = {};
     stopGeneratedSfxPreviewRequest_ = {};
-    generateSfxOutputRequest_ = {};
+    generateNewSfxOutputRequest_ = {};
+    regenerateAllStaleSfxRequest_ = {};
+    cancelSfxBatchRequest_ = {};
+    dismissSfxBatchSummaryRequest_ = {};
+    sfxBatchState_ = {};
     spriteAnimationEditor_.detach();
     tilesetEditor_.detach();
     logicBoardEditor_.detach();
@@ -677,10 +683,32 @@ void EditorUi::setTilesetImageSizeProvider(ImageSizeProvider imageSize) {
 
 void EditorUi::setGeneratedSfxHandlers(GeneratedSfxRequest preview,
                                        WorkspaceRequest stopPreview,
-                                       GeneratedSfxRequest generate) {
+                                       GeneratedSfxRequest generateNew) {
     previewGeneratedSfxRequest_ = std::move(preview);
     stopGeneratedSfxPreviewRequest_ = std::move(stopPreview);
-    generateSfxOutputRequest_ = std::move(generate);
+    generateNewSfxOutputRequest_ = std::move(generateNew);
+}
+
+void EditorUi::setSfxBatchHandlers(WorkspaceRequest regenerateAllStale,
+                                   WorkspaceRequest cancelBatch,
+                                   WorkspaceRequest dismissSummary) {
+    regenerateAllStaleSfxRequest_ = std::move(regenerateAllStale);
+    cancelSfxBatchRequest_ = std::move(cancelBatch);
+    dismissSfxBatchSummaryRequest_ = std::move(dismissSummary);
+}
+
+void EditorUi::setSfxBatchState(SfxBatchState state) {
+    const bool changed = state.active != sfxBatchState_.active
+        || state.cancelRequested != sfxBatchState_.cancelRequested
+        || state.summaryVisible != sfxBatchState_.summaryVisible
+        || state.currentIndex != sfxBatchState_.currentIndex
+        || state.items.size() != sfxBatchState_.items.size()
+        || state.succeeded != sfxBatchState_.succeeded
+        || state.failed != sfxBatchState_.failed
+        || state.skipped != sfxBatchState_.skipped
+        || state.cancelled != sfxBatchState_.cancelled;
+    sfxBatchState_ = std::move(state);
+    if (changed && openGeneratedSfxId_) refreshGeneratedSfxEditor();
 }
 
 void EditorUi::setProjectSavedQuery(ProjectSavedQuery query) {
@@ -957,11 +985,59 @@ std::string formatSfxMacroNumber(const SfxMacro& macro, float displayValue);
 // even if a coincidental value match would technically pass the comparison.
 std::string activeSfxPresetId(const artcade::sfx::SfxRecipe& recipe);
 
+const char* generatedSfxStatusLabel(const ProjectDocument& document,
+                                    const artcade::sfx::GeneratedSfxDef& definition) {
+    return generatedSfxOutputStatusLabel(generatedSfxOutputStatus(document, definition));
+}
+
+const char* generatedSfxStatusClass(const ProjectDocument& document,
+                                    const artcade::sfx::GeneratedSfxDef& definition) {
+    switch (generatedSfxOutputStatus(document, definition)) {
+    case GeneratedSfxOutputStatus::Ready: return "ready";
+    case GeneratedSfxOutputStatus::Stale: return "stale";
+    case GeneratedSfxOutputStatus::NeedsGeneration: return "";
+    }
+    return "";
+}
+
+bool matchesSfxBrowserFilter(const std::string& filter,
+                             const artcade::sfx::GeneratedSfxDef& definition) {
+    if (filter.empty()) return true;
+    std::string haystack = definition.name + " " + definition.id + " " + definition.outputPath;
+    std::string needle = filter;
+    std::transform(haystack.begin(), haystack.end(), haystack.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::transform(needle.begin(), needle.end(), needle.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return haystack.find(needle) != std::string::npos;
+}
+
+std::optional<artcade::sfx::SfxRecipe> recipeFromPresetId(const std::string& presetId) {
+    if (presetId == "blank") return artcade::sfx::SfxRecipe{};
+    if (presetId == "coin") return artcade::sfx::presets::coin();
+    if (presetId == "jump") return artcade::sfx::presets::jump();
+    if (presetId == "laser") return artcade::sfx::presets::laser();
+    if (presetId == "explosion") return artcade::sfx::presets::explosion();
+    if (presetId == "hit") return artcade::sfx::presets::hit();
+    return std::nullopt;
+}
+
+const char* presetDisplayName(const std::string& presetId) {
+    if (presetId == "blank") return "SFX";
+    if (presetId == "coin") return "Coin";
+    if (presetId == "jump") return "Jump";
+    if (presetId == "laser") return "Laser";
+    if (presetId == "explosion") return "Explosion";
+    if (presetId == "hit") return "Hit";
+    return "SFX";
+}
+
 void EditorUi::refreshGeneratedSfxEditor() {
     if (!document_) return;
     Rml::Element* root = document_->GetElementById("sfx-editor");
+    Rml::Element* browser = document_->GetElementById("sfx-editor-browser");
     Rml::Element* body = document_->GetElementById("sfx-editor-body");
-    if (!root || !body) return;
+    if (!root || !browser || !body) return;
     if (coordinator_.isPlaying()) {
         root->SetClass("hidden", true);
         return;
@@ -971,7 +1047,9 @@ void EditorUi::refreshGeneratedSfxEditor() {
     if (!definition) {
         openGeneratedSfxId_.reset();
         sfxMacroDrag_.reset();
+        sfxCreateMenuOpen_ = false;
         root->SetClass("hidden", true);
+        browser->SetInnerRML("");
         body->SetInnerRML("");
         return;
     }
@@ -986,10 +1064,129 @@ void EditorUi::refreshGeneratedSfxEditor() {
     if (Rml::Element* title = document_->GetElementById("sfx-editor-title"))
         title->SetInnerRML(escapeRml(definition->name));
 
+    // Persistent library browser — projection of ProjectDocument.generatedSfx.
+    std::size_t staleCount = 0;
+    for (const artcade::sfx::GeneratedSfxDef& entry :
+         coordinator_.document().data().generatedSfx) {
+        if (generatedSfxOutputStatus(coordinator_.document(), entry)
+            == GeneratedSfxOutputStatus::Stale) {
+            ++staleCount;
+        }
+    }
+    std::string browserHtml =
+        "<div class=\"sfx-browser-toolbar\">"
+        "<input class=\"sfx-browser-search\" type=\"text\" data-action=\"commit-sfx-browser-search\" "
+        "placeholder=\"Search…\" value=\"" + escapeRml(sfxBrowserFilter_) + "\"/>"
+        "<button class=\"sfx-browser-add\" data-action=\"toggle-sfx-create-menu\" "
+        "title=\"New Generated SFX\">+</button></div>";
+    if (sfxBatchState_.active) {
+        std::size_t done = 0;
+        for (const SfxBatchItem& item : sfxBatchState_.items) {
+            if (item.status != SfxBatchItemStatus::Pending
+                && item.status != SfxBatchItemStatus::Generating) {
+                ++done;
+            }
+        }
+        const std::size_t total = sfxBatchState_.items.size();
+        const std::size_t displayIndex = std::min(done + 1, total);
+        const int percent = total == 0 ? 0
+            : static_cast<int>((done * 100) / total);
+        std::string currentName;
+        if (sfxBatchState_.currentIndex < sfxBatchState_.items.size()) {
+            const std::string& id = sfxBatchState_.items[sfxBatchState_.currentIndex].id;
+            if (const auto* def = coordinator_.document().findGeneratedSfx(id))
+                currentName = def->name;
+            else
+                currentName = id;
+        }
+        browserHtml +=
+            "<div class=\"sfx-batch-panel\">"
+            "<div class=\"sfx-batch-title\">Generating "
+            + std::to_string(displayIndex) + " of " + std::to_string(total) + "</div>"
+            "<div class=\"sfx-batch-name\">" + escapeRml(currentName) + "</div>"
+            "<div class=\"sfx-batch-bar\"><div class=\"sfx-batch-bar-fill\" style=\"width:"
+            + std::to_string(percent) + "%;\"></div></div>"
+            "<button class=\"sfx-batch-cancel\" data-action=\"cancel-sfx-batch\" "
+            "title=\"Finish the current item, then stop\">"
+            + std::string(sfxBatchState_.cancelRequested
+                              ? "Stopping after current…"
+                              : "Cancel Queue")
+            + "</button></div>";
+    } else if (sfxBatchState_.summaryVisible) {
+        browserHtml +=
+            "<div class=\"sfx-batch-panel\">"
+            "<div class=\"sfx-batch-title\">Regeneration complete</div>"
+            "<div class=\"sfx-batch-summary\">"
+            + std::to_string(sfxBatchState_.succeeded) + " succeeded<br/>"
+            + std::to_string(sfxBatchState_.skipped) + " skipped<br/>"
+            + std::to_string(sfxBatchState_.failed) + " failed<br/>"
+            + std::to_string(sfxBatchState_.cancelled) + " cancelled"
+            + "</div>"
+            "<button class=\"sfx-batch-cancel\" data-action=\"dismiss-sfx-batch-summary\">Close</button>"
+            "</div>";
+    } else if (staleCount > 0 && (!projectSavedQuery_ || projectSavedQuery_())) {
+        browserHtml +=
+            "<button class=\"sfx-batch-cta\" data-action=\"regenerate-all-stale-sfx\">"
+            "Regenerate " + std::to_string(staleCount)
+            + (staleCount == 1 ? " Stale" : " Stale") + "</button>";
+    }
+    if (sfxCreateMenuOpen_) {
+        browserHtml +=
+            "<div class=\"sfx-browser-create-menu\">"
+            "<div class=\"sfx-browser-create-title\">CREATE GENERATED SFX</div>"
+            "<button class=\"sfx-browser-create-entry\" data-action=\"create-generated-sfx-from-preset\" data-arg=\"blank\">Blank</button>"
+            "<button class=\"sfx-browser-create-entry\" data-action=\"create-generated-sfx-from-preset\" data-arg=\"coin\">Coin</button>"
+            "<button class=\"sfx-browser-create-entry\" data-action=\"create-generated-sfx-from-preset\" data-arg=\"jump\">Jump</button>"
+            "<button class=\"sfx-browser-create-entry\" data-action=\"create-generated-sfx-from-preset\" data-arg=\"laser\">Laser</button>"
+            "<button class=\"sfx-browser-create-entry\" data-action=\"create-generated-sfx-from-preset\" data-arg=\"explosion\">Explosion</button>"
+            "<button class=\"sfx-browser-create-entry\" data-action=\"create-generated-sfx-from-preset\" data-arg=\"hit\">Hit</button>"
+            "</div>";
+    }
+    browserHtml += "<div class=\"sfx-browser-list\">";
+    std::size_t shown = 0;
+    for (const artcade::sfx::GeneratedSfxDef& entry :
+         coordinator_.document().data().generatedSfx) {
+        if (!matchesSfxBrowserFilter(sfxBrowserFilter_, entry)) continue;
+        ++shown;
+        const bool selected = entry.id == definition->id;
+        const char* status = generatedSfxStatusLabel(coordinator_.document(), entry);
+        const char* statusClass = generatedSfxStatusClass(coordinator_.document(), entry);
+        browserHtml += "<div class=\"sfx-browser-row";
+        if (selected) browserHtml += " selected";
+        browserHtml += "\">"
+            "<button class=\"sfx-browser-row-main\" data-action=\"open-generated-sfx\" data-arg=\""
+            + escapeRml(entry.id) + "\">"
+            "<span class=\"sfx-browser-name\">" + escapeRml(entry.name) + "</span>"
+            "<span class=\"sfx-browser-status";
+        if (statusClass[0] != '\0') {
+            browserHtml += " ";
+            browserHtml += statusClass;
+        }
+        browserHtml += "\">" + std::string(status) + "</span></button>"
+            "<div class=\"sfx-browser-actions\">"
+            "<button class=\"sfx-browser-action\" data-action=\"focus-sfx-rename\" data-arg=\""
+            + escapeRml(entry.id) + "\" title=\"Rename\"><span class=\"icon\">&#xeb0a;</span></button>"
+            "<button class=\"sfx-browser-action\" data-action=\"duplicate-generated-sfx\" data-arg=\""
+            + escapeRml(entry.id) + "\" title=\"Duplicate\"><span class=\"icon\">&#xedef;</span></button>"
+            "<button class=\"sfx-browser-action destructive\" data-action=\"remove-generated-sfx\" data-arg=\""
+            + escapeRml(entry.id) + "\" title=\"Delete\"><span class=\"icon\">&#xeb41;</span></button>"
+            "</div></div>";
+    }
+    if (shown == 0) {
+        browserHtml += "<div class=\"sfx-browser-empty\">"
+            + std::string(sfxBrowserFilter_.empty()
+                              ? "No Generated SFX yet."
+                              : "No matches.")
+            + "</div>";
+    }
+    browserHtml += "</div>";
+    browser->SetInnerRML(browserHtml);
+
     const artcade::sfx::SfxRecipe& recipe = definition->recipe;
-    const bool ready = !definition->outputAssetId.empty();
-    const bool stale = !ready && coordinator_.document().hasAudioAsset(
-        "generated-audio-" + definition->id);
+    const GeneratedSfxOutputStatus outputStatus =
+        generatedSfxOutputStatus(coordinator_.document(), *definition);
+    const bool ready = outputStatus == GeneratedSfxOutputStatus::Ready;
+    const bool stale = outputStatus == GeneratedSfxOutputStatus::Stale;
     // Generate writes into the project's own folder, so it needs a saved
     // project path -- surfaced here (not just via the Console error the
     // application layer already logs) so the constraint is visible before
@@ -997,11 +1194,9 @@ void EditorUi::refreshGeneratedSfxEditor() {
     // (not just describing the constraint in prose next to an active-looking
     // button) is what makes "why didn't that do anything" unreachable.
     const bool projectSaved = !projectSavedQuery_ || projectSavedQuery_();
-    // The button's own label carries the consequence, not just the verb: the
-    // first generation adds a new entry to the project's Assets catalog
-    // (usable by Logic Board/Play), every one after that updates it in place.
+    // Always create a new AudioAssetDef + WAV (never in-place replace).
     if (Rml::Element* generateBtn = document_->GetElementById("btn-sfx-generate")) {
-        generateBtn->SetInnerRML(ready || stale ? "Regenerate Audio Asset" : "Generate &amp; Add to Project");
+        generateBtn->SetInnerRML("Generate New Audio Asset");
         generateBtn->SetClass("disabled", !projectSaved);
     }
     const std::string activePreset = activeSfxPresetId(recipe);
@@ -1022,17 +1217,20 @@ void EditorUi::refreshGeneratedSfxEditor() {
         else if (message.level == ConsoleMessage::Level::Warning) ++consoleWarnings;
     }
     std::string html = "<div class=\"sfx-summary\"><div class=\"sfx-summary-row\">"
-        "<span class=\"sfx-field-label\">Name</span><input class=\"sfx-name\" type=\"text\" "
-        "data-action=\"commit-sfx-name\" value=\"" + escapeRml(definition->name) + "\"/>"
+        "<span class=\"sfx-field-label\">Name</span>"
+        "<input id=\"sfx-name-input\" class=\"sfx-name\" type=\"text\" data-action=\"commit-sfx-name\" "
+        "title=\"Rename this Generated SFX\" value=\""
+        + escapeRml(definition->name) + "\"/>"
         "<span class=\"sfx-status" + std::string(
             !projectSaved ? "\">Save the project before generating an audio asset."
             : justGenerated ? " ready\">Audio asset generated"
-            : ready ? " ready\">Audio asset ready" : stale ? "\">Modified · Regenerate audio asset"
-                                                            : "\">Needs generation")
+            : ready ? " ready\">Audio asset ready"
+            : stale ? " stale\">Stale · Generate a new audio asset"
+                    : "\">Needs generation")
         + "</span>"
         + (!projectSaved ? "<button class=\"sfx-inline-action\" data-action=\"save-project\">Save Project&#8230;</button>" : "")
         + "</div>"
-        + (ready ? "<div class=\"sfx-output-path\">" + escapeRml(definition->outputPath) + "</div>" : "")
+        + ((ready || stale) ? "<div class=\"sfx-output-path\">" + escapeRml(definition->outputPath) + "</div>" : "")
         + ((consoleErrors + consoleWarnings) > 0
             ? "<div class=\"sfx-console-issues\"><span class=\"status-health "
               + std::string(consoleErrors != 0 ? "error" : "warning") + "\"><span class=\"status-dot\"></span>"
@@ -1042,6 +1240,7 @@ void EditorUi::refreshGeneratedSfxEditor() {
               + "</span><button class=\"sfx-inline-action\" data-action=\"open-console-issues\">Show details</button></div>"
             : "")
         + "<div class=\"sfx-presets\">"
+          "<span class=\"sfx-field-label\">Apply to current</span>"
         + presetButton("coin", "Coin") + presetButton("jump", "Jump") + presetButton("laser", "Laser")
         + presetButton("explosion", "Explosion") + presetButton("hit", "Hit")
         + "<span class=\"sfx-preset-divider\"></span>"
@@ -1064,6 +1263,11 @@ void EditorUi::refreshGeneratedSfxEditor() {
                 "<span>Advanced settings</span><span class=\"sfx-mode-toggle-chevron\">&#8250;</span>"
                 "</button></div>";
         body->SetInnerRML(html);
+        if (sfxFocusNameField_) {
+            sfxFocusNameField_ = false;
+            if (Rml::Element* nameInput = document_->GetElementById("sfx-name-input"))
+                nameInput->Focus();
+        }
         return;
     }
 
@@ -1139,6 +1343,11 @@ void EditorUi::refreshGeneratedSfxEditor() {
     html += sfxInput("DC cutoff Hz", "filter.dcCutoff", recipe.filter.dcBlockCutoffHz);
     html += "</div></div>";
     body->SetInnerRML(html);
+    if (sfxFocusNameField_) {
+        sfxFocusNameField_ = false;
+        if (Rml::Element* nameInput = document_->GetElementById("sfx-name-input"))
+            nameInput->Focus();
+    }
 }
 
 const char* waveformLabel(artcade::sfx::Waveform value) {
@@ -2358,37 +2567,92 @@ bool EditorUi::handleGeneratedSfxAction(const std::string& action, const std::st
     // notifyGeneratedSfxOutputReady) lasts until the next panel interaction
     // of any kind -- this is that "any kind" catch-all.
     sfxJustGeneratedId_.clear();
-    if (action == "create-generated-sfx") {
+
+    const auto openSfx = [&](const std::string& id) {
+        if (id.empty() || !coordinator_.document().hasGeneratedSfx(id)) return;
+        if (openGeneratedSfxId_ && *openGeneratedSfxId_ != id
+            && stopGeneratedSfxPreviewRequest_) {
+            stopGeneratedSfxPreviewRequest_();
+        }
+        openGeneratedSfxId_ = id;
+        sfxCreateMenuOpen_ = false;
+        refreshGeneratedSfxEditor();
+    };
+
+    if (action == "commit-sfx-browser-search") {
+        sfxBrowserFilter_ = value;
+        refreshGeneratedSfxEditor();
+        return true;
+    }
+    if (action == "regenerate-all-stale-sfx") {
+        if (regenerateAllStaleSfxRequest_) regenerateAllStaleSfxRequest_();
+        return true;
+    }
+    if (action == "cancel-sfx-batch") {
+        if (cancelSfxBatchRequest_) cancelSfxBatchRequest_();
+        return true;
+    }
+    if (action == "dismiss-sfx-batch-summary") {
+        if (dismissSfxBatchSummaryRequest_) dismissSfxBatchSummaryRequest_();
+        return true;
+    }
+    if (action == "toggle-sfx-create-menu") {
+        sfxCreateMenuOpen_ = !sfxCreateMenuOpen_;
+        refreshGeneratedSfxEditor();
+        return true;
+    }
+    if (action == "create-generated-sfx" || action == "create-generated-sfx-from-preset") {
         if (coordinator_.isPlaying()) {
             coordinator_.logWarning("Stop Play before creating Generated SFX");
             return true;
         }
-        int index = 1;
-        std::string id;
-        std::string name;
-        do {
-            id = "generated-sfx-" + std::to_string(index);
-            name = "Generated SFX " + std::to_string(index++);
-        } while (coordinator_.document().hasGeneratedSfx(id)
-                 || coordinator_.document().hasAudioAsset("generated-audio-" + id));
+        const std::string presetId = action == "create-generated-sfx" ? "coin" : arg;
+        const auto recipe = recipeFromPresetId(presetId);
+        if (!recipe) return true;
+        const std::string id = nextGeneratedSfxId(coordinator_.document());
+        const std::string name = uniqueGeneratedSfxName(
+            coordinator_.document(), presetDisplayName(presetId));
         const auto result = coordinator_.execute(
-            CreateGeneratedSfxCommand{id, name, artcade::sfx::presets::coin()});
+            CreateGeneratedSfxCommand{id, name, *recipe});
         if (result.ok) {
-            openGeneratedSfxId_ = id;
-            refreshGeneratedSfxEditor();
+            sfxCreateMenuOpen_ = false;
+            openSfx(id);
         }
         return true;
     }
     if (action == "open-generated-sfx") {
-        if (!coordinator_.isPlaying() && coordinator_.document().hasGeneratedSfx(arg)) {
-            openGeneratedSfxId_ = arg;
-            refreshGeneratedSfxEditor();
-        }
+        if (!coordinator_.isPlaying()) openSfx(arg);
         return true;
     }
     if (action == "close-generated-sfx") {
+        if (stopGeneratedSfxPreviewRequest_) stopGeneratedSfxPreviewRequest_();
         openGeneratedSfxId_.reset();
+        sfxCreateMenuOpen_ = false;
         refreshGeneratedSfxEditor();
+        return true;
+    }
+    if (action == "duplicate-generated-sfx") {
+        if (coordinator_.isPlaying()) {
+            coordinator_.logWarning("Stop Play before duplicating Generated SFX");
+            return true;
+        }
+        const std::string sourceId = arg.empty() && openGeneratedSfxId_
+            ? *openGeneratedSfxId_ : arg;
+        const auto* source = coordinator_.document().findGeneratedSfx(sourceId);
+        if (!source) return true;
+        const std::string newId = nextGeneratedSfxId(coordinator_.document());
+        const std::string newName = uniqueGeneratedSfxName(
+            coordinator_.document(), source->name);
+        const auto result = coordinator_.execute(
+            DuplicateGeneratedSfxCommand{sourceId, newId, newName});
+        if (result.ok) openSfx(newId);
+        return true;
+    }
+    if (action == "focus-sfx-rename") {
+        if (!coordinator_.isPlaying() && coordinator_.document().hasGeneratedSfx(arg)) {
+            sfxFocusNameField_ = true;
+            openSfx(arg);
+        }
         return true;
     }
     if (action == "remove-generated-sfx") {
@@ -2396,8 +2660,15 @@ bool EditorUi::handleGeneratedSfxAction(const std::string& action, const std::st
             ? *openGeneratedSfxId_ : arg;
         if (!id.empty()) {
             const auto result = coordinator_.execute(RemoveGeneratedSfxCommand{id});
-            if (result.ok && openGeneratedSfxId_ == id) openGeneratedSfxId_.reset();
-            refreshGeneratedSfxEditor();
+            if (result.ok) {
+                if (openGeneratedSfxId_ == id) {
+                    openGeneratedSfxId_.reset();
+                    // Keep the workspace open on another asset when possible.
+                    const auto& list = coordinator_.document().data().generatedSfx;
+                    if (!list.empty()) openGeneratedSfxId_ = list.front().id;
+                }
+                refreshGeneratedSfxEditor();
+            }
         }
         return true;
     }
@@ -2417,12 +2688,15 @@ bool EditorUi::handleGeneratedSfxAction(const std::string& action, const std::st
         if (stopGeneratedSfxPreviewRequest_) stopGeneratedSfxPreviewRequest_();
         return true;
     }
-    if (action == "generate-sfx-output") {
-        if (generateSfxOutputRequest_) generateSfxOutputRequest_(current->id);
+    if (action == "generate-new-sfx-output" || action == "generate-sfx-output") {
+        if (generateNewSfxOutputRequest_) generateNewSfxOutputRequest_(current->id);
         return true;
     }
     if (action == "commit-sfx-name") {
-        coordinator_.execute(RenameGeneratedSfxCommand{current->id, value});
+        // Blur-from-Generate can deliver an empty buffer even when the field
+        // still shows the current name — ignore empty rather than failing.
+        if (!value.empty() && value != current->name)
+            coordinator_.execute(RenameGeneratedSfxCommand{current->id, value});
         refreshGeneratedSfxEditor();
         return true;
     }

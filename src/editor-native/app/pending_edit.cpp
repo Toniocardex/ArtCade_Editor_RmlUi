@@ -41,7 +41,8 @@ bool requiresNonEmptyText(const std::string& action) {
         "commit-project-name", "commit-scene-name", "commit-name",
         "commit-type-name", "commit-layer-rename",
         "commit-animation-clip-name", "commit-tileset-name",
-        "commit-sfx-name",
+        // commit-sfx-name: blur-from-toolbar can report an empty buffer even when
+        // the field still displays the current name; handleAction ignores empty.
     };
     return std::find(std::begin(actions), std::end(actions), action) != std::end(actions);
 }

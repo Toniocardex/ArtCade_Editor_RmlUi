@@ -57,6 +57,7 @@ EditorOperationResult RemoveAudioAssetCommand::apply(ProjectDocument& document) 
             if (definition.outputAssetId == assetId_) {
                 definition.outputAssetId.clear();
                 definition.outputPath.clear();
+                definition.generatedRecipeFingerprint.clear();
             }
         }
         captured_ = true;

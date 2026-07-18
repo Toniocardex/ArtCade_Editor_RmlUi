@@ -8,7 +8,8 @@
   catalogo `AudioAssetDef` possiede gli output runtime; il legame usa
   `GeneratedSfxDef.outputAssetId`. Il nome display di un output ancora collegato
   è sempre `GeneratedSfxDef.name` (via `resolveAudioAssetDisplayName`);
-  `AudioAssetDef.name` resta vuoto finché la recipe non scollega l'output.
+  `AudioAssetDef.name` resta vuoto finché la recipe non viene rimossa (handoff
+  ownership). Lo stato Ready/Stale è derivato da `generatedRecipeFingerprint`.
 - **Intent/Command:** create, rename, update, delete e completamento della
   generazione passano da Command. Apertura editor, preset non applicato, preview
   e Stop sono stato workspace e non producono dirty.
@@ -51,3 +52,20 @@ Il riferimento alla React UI nel pacchetto originale è sostituito dal prodotto
 RmlUi nativo, in accordo con `AGENTS.md`. Non vengono introdotti React, Tauri,
 bridge WASM, FFmpeg o polling del filesystem. Ogg Vorbis resta un adapter
 opzionale finché le librerie Xiph e le relative notice non sono distribuite.
+
+## Workspace multi-asset (Slice 1)
+
+- Browser persistente a sinistra: ricerca, + New from Preset, Duplicate, Rename
+  (focus Name), Delete; selezione = `openGeneratedSfxId` (workspace only).
+- `DuplicateGeneratedSfxCommand` copia solo recipe + nome univoco; mai
+  `outputAssetId` / WAV.
+- Output ancora collegato non compare come secondo asset sotto Audio.
+- Stato derivato: Needs generation / Stale / Ready via
+  `generatedRecipeFingerprint` (modificare la recipe non scollega l'output).
+- Generate New: nuovo WAV + nuovo `AudioAssetDef` (`…-0001`, `…-0002`, …);
+  Command `CreateGeneratedSfxOutputCommand` (create-only); il precedente output
+  resta Audio indipendente. Path derivato dall'asset id, non dal display name.
+- `RegisterGeneratedSfxOutputCommand` resta per un eventuale Regenerate Current.
+- Slice 2: Regenerate All Stale (coda seriale workspace-only; ogni item crea
+  un nuovo output se quello precedente esiste già).
+- Prossima: Variation Sets (Slice 3).
