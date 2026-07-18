@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/types.h"
+#include "editor-native/model/authored_transform.h"
 #include "editor-native/model/box_collider_view.h"
 
 #include <optional>
@@ -24,19 +25,23 @@ struct SceneFrameEntity {
     EntityId entityId = INVALID_ENTITY;
     std::string name;
     Vec3 fillColor;
+    // Unrotated visual rect (top-left + size). Use with rotationRadians for
+    // DrawRectanglePro / OBB pick; AABB for containment is derived when needed.
     SceneFrameRect bounds;
     bool selected = false;
+    float rotationRadians = 0.f;
 };
 
 struct SceneFrameSprite {
     EntityId entityId = INVALID_ENTITY;
     AssetId assetId;
-    SceneFrameRect destination;
-    Vec2 origin;
+    SceneFrameRect destination;   // unrotated destination rect
+    Vec2 origin;                  // DrawTexturePro origin (typically half size)
     bool visible = false;
     bool selected = false;
     SceneFrameRect source;
     bool hasSource = false;
+    float rotationRadians = 0.f;
 };
 
 struct SceneFrameTilemapCell {

@@ -256,7 +256,8 @@ void routeViewportPickDrag(EditorCoordinator& coordinator, const ViewportRect& r
     if (drag.active && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
         if (const std::optional<Vec2> preview = dragPreviewPosition(coordinator, rect, drag)) {
             if (preview->x != drag.startEntityPos.x || preview->y != drag.startEntityPos.y) {
-                coordinator.execute(SetEntityPositionCommand{active, drag.entity, *preview});
+                coordinator.execute(SetEntityTransformCommand{
+                    active, drag.entity, AuthoredTransformPatch{*preview}});
             }
         }
         drag = ViewportDrag{};

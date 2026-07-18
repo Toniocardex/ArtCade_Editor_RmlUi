@@ -2278,10 +2278,21 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         const std::optional<float> parsed = parseNumberField(value);
         if (!parsed.has_value()) coordinator_.logError("Platformer gravity is not a number");
         else setPlatformerGravity(coordinator_, *parsed);
-    } else if (action == "commit-pos-x") {
-        commitInspectorPositionX(coordinator_, selected, value);
-    } else if (action == "commit-pos-y") {
-        commitInspectorPositionY(coordinator_, selected, value);
+    } else if (action == "commit-transform-position-x") {
+        commitInspectorTransformField(coordinator_, selected,
+                                      InspectorTransformField::PositionX, value);
+    } else if (action == "commit-transform-position-y") {
+        commitInspectorTransformField(coordinator_, selected,
+                                      InspectorTransformField::PositionY, value);
+    } else if (action == "commit-transform-rotation") {
+        commitInspectorTransformField(coordinator_, selected,
+                                      InspectorTransformField::RotationDegrees, value);
+    } else if (action == "commit-transform-scale-x") {
+        commitInspectorTransformField(coordinator_, selected,
+                                      InspectorTransformField::ScaleX, value);
+    } else if (action == "commit-transform-scale-y") {
+        commitInspectorTransformField(coordinator_, selected,
+                                      InspectorTransformField::ScaleY, value);
     } else if (action == "commit-name") {
         if (selected == INVALID_ENTITY) coordinator_.logError("No selected instance");
         else if (value.empty()) coordinator_.logError("Name cannot be empty");

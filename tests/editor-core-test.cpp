@@ -41,6 +41,7 @@
 #include "editor-native/commands/scene_commands.h"
 #include "editor-native/commands/sprite_presentation_commands.h"
 #include "editor-native/model/project_io.h"
+#include "editor-native/model/authored_transform.h"
 #include "editor-native/model/path_confinement.h"
 #include "editor-native/model/play_session.h"
 #include "editor-native/model/script_source_stamp.h"
@@ -61,6 +62,7 @@
 #include "script-runtime.h"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include "artcade/sfx/presets.hpp"
@@ -88,7 +90,7 @@ int main() {
         const SelectionState selectionBefore = c.selection();
         const EditorUiState  uiBefore = c.uiState();
 
-        const auto r = c.execute(SetEntityPositionCommand{kSceneA, kHero, {99.f, 20.f}});
+        const auto r = c.execute(SetEntityTransformCommand{kSceneA, kHero, {99.f, 20.f}});
         CHECK(r.ok);
         // Only the document changed; selection and UI state are untouched.
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 99.f);
@@ -103,7 +105,7 @@ int main() {
         const uint64_t revBefore = c.document().revision();
         c.consumeInvalidations(); // clear
 
-        const auto r = c.execute(SetEntityPositionCommand{kSceneA, 9999, {1.f, 2.f}});
+        const auto r = c.execute(SetEntityTransformCommand{kSceneA, 9999, {1.f, 2.f}});
         CHECK(!r.ok);
         CHECK(!r.error.empty());
         CHECK(c.document().revision() == revBefore);          // state unchanged
@@ -115,11 +117,11 @@ int main() {
         CHECK(!c.canUndo());                                   // not pushed to undo
     }
 
-    // -- ┬º24.4  SetEntityPositionCommand invalidates only Inspector|Viewport ---
+    // -- ┬º24.4  SetEntityTransformCommand invalidates only Inspector|Viewport ---
     {
         EditorCoordinator c{makeDoc()};
         c.consumeInvalidations();
-        const auto r = c.execute(SetEntityPositionCommand{kSceneA, kHero, {1.f, 1.f}});
+        const auto r = c.execute(SetEntityTransformCommand{kSceneA, kHero, {1.f, 1.f}});
         CHECK(r.invalidation ==
               (EditorInvalidation::Inspector | EditorInvalidation::Viewport));
         CHECK(r.change.kind == DomainChangeKind::EntityChanged);
@@ -181,7 +183,7 @@ int main() {
         c.apply(SelectEntityIntent{kHero});
         c.apply(ResizePanelIntent{ResizePanelIntent::Panel::Left, 333.f});
         c.apply(SetHierarchyFilterIntent{"keep-me"});
-        c.execute(SetEntityPositionCommand{kSceneA, kHero, {99.f, 20.f}});
+        c.execute(SetEntityTransformCommand{kSceneA, kHero, {99.f, 20.f}});
         CHECK(c.canUndo());
         c.consumeInvalidations();
 
@@ -234,8 +236,8 @@ int main() {
         EditorCoordinator c{makeDoc()};
         c.apply(SelectEntityIntent{kHero});
         c.apply(SetViewportZoomIntent{kSceneA, 2.0f});   // populate per-scene view state
-        c.execute(SetEntityPositionCommand{kSceneA, kHero, {7.f, 8.f}});
-        c.execute(SetEntityPositionCommand{kSceneA, kHero, {9.f, 10.f}});
+        c.execute(SetEntityTransformCommand{kSceneA, kHero, {7.f, 8.f}});
+        c.execute(SetEntityTransformCommand{kSceneA, kHero, {9.f, 10.f}});
         c.undo();                                   // leave a redo branch too
         CHECK(c.canUndo());
         CHECK(c.canRedo());
@@ -299,7 +301,7 @@ int main() {
         EditorCoordinator c{makeDoc()};
         c.apply(SelectEntityIntent{kHero});
         c.apply(ResizePanelIntent{ResizePanelIntent::Panel::Left, 345.f});
-        c.execute(SetEntityPositionCommand{kSceneA, kHero, {44.f, 55.f}});
+        c.execute(SetEntityTransformCommand{kSceneA, kHero, {44.f, 55.f}});
         c.consumeInvalidations();
 
         const uint64_t revisionBefore = c.document().revision();
@@ -414,7 +416,7 @@ int main() {
         EditorCoordinator c{makeDoc()};
         c.apply(SelectEntityIntent{kHero});
         c.apply(ResizePanelIntent{ResizePanelIntent::Panel::Left, 345.f});
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {44.f, 55.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {44.f, 55.f}}).ok);
         const uint64_t revisionBefore = c.document().revision();
         const uint64_t savedBefore = c.document().savedRevision();
         const bool dirtyBefore = c.document().isDirty();
@@ -438,7 +440,7 @@ int main() {
         c.apply(SelectEntityIntent{kHero});
         c.apply(SetActiveToolIntent{EditorTool::Pan});
         c.apply(ResizePanelIntent{ResizePanelIntent::Panel::Left, 410.f});
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {321.f, 20.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {321.f, 20.f}}).ok);
 
         SerializeResult serialized = ProjectSerializer::serialize(c.document());
         CHECK(serialized.ok);
@@ -680,7 +682,7 @@ int main() {
         EditorCoordinator c{makeDoc()};
         c.apply(SelectEntityIntent{kHero});
         c.apply(ResizePanelIntent{ResizePanelIntent::Panel::Left, 360.f});
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {44.f, 55.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {44.f, 55.f}}).ok);
 
         const uint64_t revisionBefore = c.document().revision();
         const uint64_t savedBefore = c.document().savedRevision();
@@ -720,7 +722,7 @@ int main() {
         c.apply(SelectEntityIntent{kHero});
         c.apply(SetViewportZoomIntent{kSceneA, 2.5f});
         c.apply(ResizePanelIntent{ResizePanelIntent::Panel::Left, 390.f});
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {777.f, 20.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {777.f, 20.f}}).ok);
         CHECK(c.canUndo());
         CHECK(c.document().isDirty());
 
@@ -764,7 +766,7 @@ int main() {
         EditorCoordinator sameCoordinator{makeReplacementDoc()};
         sameCoordinator.apply(ResizePanelIntent{ResizePanelIntent::Panel::Left, 444.f});
         sameCoordinator.apply(SelectEntityIntent{77});
-        CHECK(sameCoordinator.execute(SetEntityPositionCommand{
+        CHECK(sameCoordinator.execute(SetEntityTransformCommand{
             "scene-replacement", 77, {1.f, 2.f}}).ok);
         CHECK(sameCoordinator.canUndo());
 
@@ -795,7 +797,7 @@ int main() {
         EditorCoordinator c{makeDoc()};
         c.apply(SelectEntityIntent{kHero});
         c.apply(ResizePanelIntent{ResizePanelIntent::Panel::Left, 345.f});
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {44.f, 55.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {44.f, 55.f}}).ok);
         const uint64_t revisionBefore = c.document().revision();
         const uint64_t savedBefore = c.document().savedRevision();
         const bool dirtyBefore = c.document().isDirty();
@@ -974,7 +976,8 @@ int main() {
         c.apply(SelectEntityIntent{kHero});
         const uint64_t revBefore = c.document().revision();
 
-        const auto bad = commitInspectorPositionX(c, kHero, "abc");
+        const auto bad = commitInspectorTransformField(
+            c, kHero, InspectorTransformField::PositionX, "abc");
         CHECK(!bad.ok);
         CHECK(c.document().revision() == revBefore);           // untouched
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 10.f);
@@ -1163,7 +1166,8 @@ int main() {
         c.apply(SelectEntityIntent{kHero});
         c.consumeInvalidations();
 
-        const auto r = commitInspectorPositionX(c, kHero, "256");
+        const auto r = commitInspectorTransformField(
+            c, kHero, InspectorTransformField::PositionX, "256");
         CHECK(r.ok);
         CHECK(r.change.kind == DomainChangeKind::EntityChanged);
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 256.f);
@@ -1177,11 +1181,101 @@ int main() {
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 10.f);
     }
 
-    // -- Bring Into Scene: explicit recovery via SetEntityPositionCommand ------
+    // -- SetEntityTransformCommand: rotation (degrees UI → radians document) ---
+    {
+        EditorCoordinator c{makeDoc()};
+        c.apply(SelectEntityIntent{kHero});
+        const uint64_t revBefore = c.document().revision();
+
+        CHECK(commitInspectorTransformField(
+            c, kHero, InspectorTransformField::RotationDegrees, "90").ok);
+        const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(inst != nullptr);
+        CHECK(std::fabs(inst->transform.rotation - (90.f * kDegToRad)) < 0.0001f);
+        CHECK(c.document().revision() == revBefore + 1);
+
+        CHECK(c.undo().ok);
+        CHECK(std::fabs(c.document().findInstanceInScene(kSceneA, kHero)->transform.rotation) < 0.0001f);
+        CHECK(c.redo().ok);
+        CHECK(std::fabs(c.document().findInstanceInScene(kSceneA, kHero)->transform.rotation
+                        - (90.f * kDegToRad)) < 0.0001f);
+    }
+
+    // -- SetEntityTransformCommand: independent Scale X/Y + validation --------
+    {
+        EditorCoordinator c{makeDoc()};
+        c.apply(SelectEntityIntent{kHero});
+        CHECK(commitInspectorTransformField(
+            c, kHero, InspectorTransformField::ScaleX, "2").ok);
+        CHECK(commitInspectorTransformField(
+            c, kHero, InspectorTransformField::ScaleY, "0.5").ok);
+        const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(inst->transform.scale.x == 2.f);
+        CHECK(inst->transform.scale.y == 0.5f);
+
+        const uint64_t rev = c.document().revision();
+        CHECK(c.execute(SetEntityTransformCommand{
+            kSceneA, kHero, AuthoredTransformPatch{std::nullopt, std::nullopt, Vec2{2.f, 0.5f}}}).ok);
+        CHECK(c.document().revision() == rev);   // no-op: same values
+
+        CHECK(!c.execute(SetEntityTransformCommand{
+            kSceneA, kHero, AuthoredTransformPatch{std::nullopt, std::nullopt, Vec2{0.f, 1.f}}}).ok);
+        CHECK(!c.execute(SetEntityTransformCommand{
+            kSceneA, kHero, AuthoredTransformPatch{std::nullopt, std::nullopt, Vec2{-1.f, 1.f}}}).ok);
+        CHECK(!c.execute(SetEntityTransformCommand{
+            kSceneA, kHero,
+            AuthoredTransformPatch{std::nullopt, std::nullopt,
+                                   Vec2{std::numeric_limits<float>::quiet_NaN(), 1.f}}}).ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.scale.x == 2.f);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.scale.y == 0.5f);
+    }
+
+    // -- Transform snapshot: scale without zero-fallback; OBB pick ------------
+    {
+        EditorCoordinator c{makeDoc()};
+        CHECK(c.execute(SetEntityTransformCommand{
+            kSceneA, kHero,
+            AuthoredTransformPatch{Vec2{100.f, 100.f}, 45.f * kDegToRad, Vec2{2.f, 0.5f}}}).ok);
+        const SceneFrameSnapshot frame =
+            collectSceneFrameSnapshot(c.document(), kSceneA, kHero);
+        CHECK(!frame.entities.empty());
+        CHECK(frame.entities[0].bounds.width == 64.f);    // 32 * scale.x
+        CHECK(frame.entities[0].bounds.height == 16.f);   // 32 * scale.y
+        CHECK(std::fabs(frame.entities[0].rotationRadians - (45.f * kDegToRad)) < 0.0001f);
+
+        // Center is inside the OBB.
+        CHECK(pickEntityAt(frame, Vec2{100.f, 100.f}) == kHero);
+        // A corner of the axis-aligned AABB of a 45° box that is outside the OBB
+        // must miss (AABB of size 64x16 at 45° extends farther on the diagonal).
+        const float halfDiag = 0.5f * (64.f + 16.f) / std::sqrt(2.f);
+        CHECK(pickEntityAt(frame, Vec2{100.f + halfDiag + 2.f, 100.f}) == INVALID_ENTITY);
+    }
+
+    // -- Transform save/reload preserves position, rotation, scale ------------
+    {
+        EditorCoordinator c{makeDoc()};
+        CHECK(c.execute(SetEntityTransformCommand{
+            kSceneA, kHero,
+            AuthoredTransformPatch{Vec2{12.5f, -3.f}, 30.f * kDegToRad, Vec2{1.5f, 2.25f}}}).ok);
+        const auto saved = ProjectSerializer::serialize(c.document());
+        CHECK(saved.ok);
+        const auto loaded = ProjectSerializer::deserialize(saved.value);
+        CHECK(loaded.ok);
+        const SceneInstanceDef* inst =
+            loaded.value.findInstanceInScene(kSceneA, kHero);
+        CHECK(inst != nullptr);
+        CHECK(inst->transform.position.x == 12.5f);
+        CHECK(inst->transform.position.y == -3.f);
+        CHECK(std::fabs(inst->transform.rotation - (30.f * kDegToRad)) < 0.0001f);
+        CHECK(inst->transform.scale.x == 1.5f);
+        CHECK(inst->transform.scale.y == 2.25f);
+    }
+
+    // -- Bring Into Scene: explicit recovery via SetEntityTransformCommand ------
     {
         EditorCoordinator c{makeInheritedDoc()};
         c.apply(SelectEntityIntent{kHero});
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, Vec2{562.f, -35.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, Vec2{562.f, -35.f}}).ok);
         const std::size_t undoBefore = c.undoSize();
 
         const auto r = bringSelectedEntityIntoScene(c);
@@ -1204,14 +1298,14 @@ int main() {
     {
         EditorCoordinator inside{makeInheritedDoc()};
         inside.apply(SelectEntityIntent{kHero});
-        CHECK(inside.execute(SetEntityPositionCommand{kSceneA, kHero, Vec2{100.f, 100.f}}).ok);
+        CHECK(inside.execute(SetEntityTransformCommand{kSceneA, kHero, Vec2{100.f, 100.f}}).ok);
         const std::size_t undoBefore = inside.undoSize();
         CHECK(bringSelectedEntityIntoScene(inside).ok);
         CHECK(inside.undoSize() == undoBefore);
 
         EditorCoordinator playing{makeInheritedDoc()};
         playing.apply(SelectEntityIntent{kHero});
-        CHECK(playing.execute(SetEntityPositionCommand{kSceneA, kHero, Vec2{562.f, -35.f}}).ok);
+        CHECK(playing.execute(SetEntityTransformCommand{kSceneA, kHero, Vec2{562.f, -35.f}}).ok);
         CHECK(playing.playProject().ok);
         CHECK(!bringSelectedEntityIntoScene(playing).ok);
         CHECK(playing.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 562.f);
@@ -2259,7 +2353,7 @@ int main() {
         EditorCoordinator c{makeInheritedDoc()};
         std::optional<PlaySession> session = PlaySession::startProject(c.document());
         CHECK(session.has_value()); // inherited img-hero at x=10
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {50.f, 20.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {50.f, 20.f}}).ok);
         SpriteRendererOverride delta;
         delta.imageAssetId = "img-alt";
         delta.animationAssetId = AssetId{};
@@ -2323,14 +2417,14 @@ int main() {
     // -- Authoring commands and undo are blocked while Play is running --------
     {
         EditorCoordinator c{makeInheritedDoc()};
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {25.f, 20.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {25.f, 20.f}}).ok);
         CHECK(c.canUndo());
         const uint64_t revisionBefore = c.document().revision();
         const std::size_t undoBefore = c.undoSize();
 
         CHECK(c.playProject().ok);
         CHECK(c.isPlaying());
-        CHECK(!c.execute(SetEntityPositionCommand{kSceneA, kHero, {99.f, 20.f}}).ok);
+        CHECK(!c.execute(SetEntityTransformCommand{kSceneA, kHero, {99.f, 20.f}}).ok);
         CHECK(!c.execute(SetInstanceSpriteOverrideCommand{
             kSceneA, kHero, SpriteRendererOverride{}}).ok);
         CHECK(!c.undo().ok);
@@ -2347,7 +2441,7 @@ int main() {
         const std::size_t logBefore = c.consoleLog().size();
         const uint64_t revisionBefore = c.document().revision();
 
-        CHECK(!c.execute(SetEntityPositionCommand{kSceneA, kHero, {99.f, 20.f}}).ok);
+        CHECK(!c.execute(SetEntityTransformCommand{kSceneA, kHero, {99.f, 20.f}}).ok);
         CHECK(c.document().revision() == revisionBefore);
         CHECK(c.consoleLog().size() == logBefore + 1);
         CHECK(c.consoleLog().back().level == ConsoleMessage::Level::Warning);
@@ -2471,7 +2565,7 @@ int main() {
         CHECK(!c.canUndo());
         c.consumeInvalidations();
         const EditorOperationResult moved =
-            c.execute(SetEntityPositionCommand{kSceneA, kHero, Vec2{99.f, 20.f}});
+            c.execute(SetEntityTransformCommand{kSceneA, kHero, Vec2{99.f, 20.f}});
         CHECK(moved.ok);
         CHECK(c.canUndo());
         // Toolbar is invalidated so the Undo button can re-derive its state.
@@ -2481,7 +2575,7 @@ int main() {
     // -- Undo restores the document, refreshes toolbar, and re-disables -------
     {
         EditorCoordinator c{makeDoc()};
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 99.f);
         c.consumeInvalidations();
 
@@ -2497,7 +2591,7 @@ int main() {
     // -- replaceProject clears the history (Undo disabled) -------------------
     {
         EditorCoordinator c{makeDoc()};
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
         CHECK(c.canUndo());
         CHECK(c.replaceProject(ProjectDocument{makeReplacementDoc()}).ok);
         CHECK(!c.canUndo());
@@ -2506,7 +2600,7 @@ int main() {
     // -- Play disables Undo as affordance; Stop restores the existing history -
     {
         EditorCoordinator c{makeDoc()};
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
         CHECK(c.canUndo());
         CHECK(c.playProject().ok);
         CHECK(c.isPlaying());
@@ -2522,7 +2616,7 @@ int main() {
     // -- (1) Execute -> Undo -> Redo restores the document exactly ------------
     {
         EditorCoordinator c{makeDoc()};
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
         CHECK(c.undo().ok);
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 10.f);
         CHECK(c.canRedo());
@@ -2536,7 +2630,7 @@ int main() {
     // -- (2) Redo restores the entry's recorded revision ----------------------
     {
         EditorCoordinator c{makeDoc()};
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
         const uint64_t revAfter = c.document().revision();
         CHECK(c.undo().ok);
         CHECK(c.document().revision() != revAfter);     // moved off the post-state
@@ -2547,7 +2641,7 @@ int main() {
     // -- (3) Undo/Redo cross savedRevision (dirty correctness) ---------------
     {
         EditorCoordinator c{makeDoc()};
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
         CHECK(c.markProjectSaved().ok);
         CHECK(!c.document().isDirty());
         CHECK(c.undo().ok);
@@ -2559,7 +2653,7 @@ int main() {
     // -- (3b) Save taken at the post-undo state: redo dirties, undo cleans ----
     {
         EditorCoordinator c{makeDoc()};
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
         CHECK(c.undo().ok);                              // back to state A
         CHECK(c.markProjectSaved().ok);                 // save AT the post-undo state
         CHECK(!c.document().isDirty());
@@ -2572,10 +2666,10 @@ int main() {
     // -- (4) A new command after Undo discards the redo branch ----------------
     {
         EditorCoordinator c{makeDoc()};
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
         CHECK(c.undo().ok);
         CHECK(c.canRedo());
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, Vec2{50.f, 20.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, Vec2{50.f, 20.f}}).ok);
         CHECK(!c.canRedo());                             // B is no longer redoable
         CHECK(!c.redo().ok);
     }
@@ -2583,7 +2677,7 @@ int main() {
     // -- (5) replaceProject clears redo; (6) Save keeps it --------------------
     {
         EditorCoordinator c{makeDoc()};
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
         CHECK(c.undo().ok);
         CHECK(c.canRedo());
         CHECK(c.markProjectSaved().ok);
@@ -2603,7 +2697,7 @@ int main() {
     // -- (8) Redo is rejected during Play ------------------------------------
     {
         EditorCoordinator c{makeDoc()};
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
         CHECK(c.undo().ok);
         CHECK(c.playProject().ok);
         CHECK(!c.redo().ok);                             // coordinator guard
@@ -2615,7 +2709,7 @@ int main() {
     // -- (10) Redo's invalidation matches the original command ----------------
     {
         EditorCoordinator c{makeDoc()};
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, Vec2{99.f, 20.f}}).ok);
         CHECK(c.undo().ok);
         c.consumeInvalidations();
         CHECK(c.redo().ok);
@@ -2642,7 +2736,7 @@ int main() {
 
     // == P0-06 pending-edit classification and ordering =======================
     {
-        CHECK(classifyPendingEdit("commit-pos-x", "12.5").status
+        CHECK(classifyPendingEdit("commit-transform-position-x", "12.5").status
               == PendingEditStatus::Resolved);
         CHECK(classifyPendingEdit("commit-project-name", "Arcade").status
               == PendingEditStatus::Resolved);
@@ -2653,14 +2747,14 @@ int main() {
 
         for (const std::string& text : {"", "-", "+", ".", "-.", "+.",
                                         "1e", "1E", "1e+", "1e-", "12."}) {
-            const PendingEditResult result = classifyPendingEdit("commit-pos-x", text);
+            const PendingEditResult result = classifyPendingEdit("commit-transform-position-x", text);
             CHECK(result.status == PendingEditStatus::Incomplete);
             CHECK(!result.message.empty());
         }
 
         for (const std::string& text : {"NaN", "nan", "inf", "infinity",
                                         "12px", "1e9999", "abc", "1e."}) {
-            const PendingEditResult result = classifyPendingEdit("commit-pos-y", text);
+            const PendingEditResult result = classifyPendingEdit("commit-transform-position-y", text);
             CHECK(result.status == PendingEditStatus::Invalid);
             CHECK(!result.message.empty());
         }
@@ -2677,14 +2771,19 @@ int main() {
         EditorCoordinator c{makeDoc()};
         const uint64_t revisionBefore = c.document().revision();
         const PendingEditResult incomplete =
-            classifyPendingEdit("commit-pos-x", "1e");
-        if (incomplete.resolved()) commitInspectorPositionX(c, kHero, "1e");
+            classifyPendingEdit("commit-transform-position-x", "1e");
+        if (incomplete.resolved()) {
+            commitInspectorTransformField(c, kHero, InspectorTransformField::PositionX, "1e");
+        }
         CHECK(c.document().revision() == revisionBefore);
         CHECK(!c.document().isDirty());
 
-        const PendingEditResult valid = classifyPendingEdit("commit-pos-x", "33");
+        const PendingEditResult valid = classifyPendingEdit("commit-transform-position-x", "33");
         CHECK(valid.resolved());
-        if (valid.resolved()) CHECK(commitInspectorPositionX(c, kHero, "33").ok);
+        if (valid.resolved()) {
+            CHECK(commitInspectorTransformField(
+                c, kHero, InspectorTransformField::PositionX, "33").ok);
+        }
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 33.f);
         CHECK(c.document().isDirty());
         CHECK(resolveUnsavedGuard(c.document().isDirty(), UnsavedChoice::Cancel, false)
@@ -2698,16 +2797,19 @@ int main() {
     {
         EditorCoordinator escaped{makeDoc()};
         const uint64_t revisionBefore = escaped.document().revision();
-        CHECK(classifyPendingEdit("commit-pos-x", "10").resolved());
-        CHECK(!pendingEditNeedsCommit("commit-pos-x", "10", "10"));
-        if (pendingEditNeedsCommit("commit-pos-x", "10", "10"))
-            commitInspectorPositionX(escaped, kHero, "10");
+        CHECK(classifyPendingEdit("commit-transform-position-x", "10").resolved());
+        CHECK(!pendingEditNeedsCommit("commit-transform-position-x", "10", "10"));
+        if (pendingEditNeedsCommit("commit-transform-position-x", "10", "10")) {
+            commitInspectorTransformField(
+                escaped, kHero, InspectorTransformField::PositionX, "10");
+        }
         CHECK(escaped.document().revision() == revisionBefore);
         CHECK(!escaped.document().isDirty());
         CHECK(pendingEditNeedsCommit("commit-layer-rename", "Gameplay", "Gameplay"));
 
         EditorCoordinator navigated{makeDoc()};
-        CHECK(commitInspectorPositionX(navigated, kHero, "44").ok);
+        CHECK(commitInspectorTransformField(
+            navigated, kHero, InspectorTransformField::PositionX, "44").ok);
         navigated.apply(SelectSceneIntent{kSceneB});
         CHECK(navigated.state().activeSceneId == kSceneB);
         CHECK(navigated.document().findInstanceInScene(kSceneA, kHero)->transform.position.x
@@ -3902,7 +4004,7 @@ int main() {
         CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
         // kHero's transform.position is {10,20} (makeDoc's fixture) - the world
         // origin for this tilemap's cell (0,0).
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {10.f, 20.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {10.f, 20.f}}).ok);
 
         const SceneFrameSnapshot snap = collectSceneFrameSnapshot(c.document(), kSceneA, INVALID_ENTITY);
         const auto it = std::find_if(snap.tilemaps.begin(), snap.tilemaps.end(),
@@ -4035,9 +4137,9 @@ int main() {
             c.document().findInstanceInScene(kSceneA, kHero)->transform.position;
         const Vec4 backgroundBefore = c.document().findScene(kSceneA)->backgroundColor;
 
-        CHECK(!c.execute(SetEntityPositionCommand{kSceneA, kHero, {nan, 10.f}}).ok);
-        CHECK(!c.execute(SetEntityPositionCommand{kSceneA, kHero, {10.f, inf}}).ok);
-        CHECK(!c.execute(SetEntityPositionCommand{kSceneA, kHero, {negInf, 10.f}}).ok);
+        CHECK(!c.execute(SetEntityTransformCommand{kSceneA, kHero, {nan, 10.f}}).ok);
+        CHECK(!c.execute(SetEntityTransformCommand{kSceneA, kHero, {10.f, inf}}).ok);
+        CHECK(!c.execute(SetEntityTransformCommand{kSceneA, kHero, {negInf, 10.f}}).ok);
         CHECK(!c.execute(CreateEntityCommand{kSceneA, 1001, "Hero", "Bad", {inf, 0.f}}).ok);
         CHECK(!c.execute(CloneInstanceCommand{kSceneA, kHero, 1002, "Bad clone", {0.f, nan}}).ok);
         CHECK(!c.execute(CreateEntityWithDefaultTypeCommand{
@@ -4316,7 +4418,7 @@ int main() {
     {
         EditorCoordinator c{makeSpriteDoc()};
         setUpTilemapForPainting(c);
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {213.f, 119.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {213.f, 119.f}}).ok);
         CHECK(c.execute(SetTilemapCellSizeCommand{kSceneA, kHero, {16.f, 16.f}}).ok);
         c.apply(SetSceneGridCellSizeIntent{kSceneA, 32.0f});
 
@@ -4373,7 +4475,7 @@ int main() {
         CHECK(selectGrid.cellSize.x == 32.f);
 
         c.apply(SetActiveToolIntent{EditorTool::Brush});
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {100.f, 50.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {100.f, 50.f}}).ok);
         const SceneGridDefinition moved =
             viewportDisplayGrid(c.document(), c.state(), kSceneA);
         CHECK(moved.origin.x == 100.f);
@@ -4385,7 +4487,7 @@ int main() {
         CHECK(rectangular.cellSize.x == 16.f);
         CHECK(rectangular.cellSize.y == 32.f);
 
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {-48.f, -32.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {-48.f, -32.f}}).ok);
         const SceneGridDefinition negative =
             viewportDisplayGrid(c.document(), c.state(), kSceneA);
         CHECK(negative.origin.x == -48.f);
@@ -4513,7 +4615,7 @@ int main() {
     {
         EditorCoordinator c{makeSpriteDoc()};
         setUpTilemapForPainting(c);
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {213.f, 119.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {213.f, 119.f}}).ok);
         CHECK(c.execute(SetTilemapCellSizeCommand{kSceneA, kHero, {16.f, 32.f}}).ok);
         c.apply(SetActiveToolIntent{EditorTool::Brush});
 
@@ -4565,7 +4667,7 @@ int main() {
     {
         EditorCoordinator c{makeSpriteDoc()};
         setUpTilemapForPainting(c);
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {213.f, 119.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {213.f, 119.f}}).ok);
         CHECK(c.execute(SetTilemapCellSizeCommand{kSceneA, kHero, {16.f, 16.f}}).ok);
         c.apply(SetActiveToolIntent{EditorTool::Brush});
 
@@ -5007,7 +5109,7 @@ int main() {
         CHECK(c.execute(AddSpriteRendererToObjectTypeCommand{"obj-1"}).ok);
         CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", true}).ok);
 
-        CHECK(!c.execute(SetEntityPositionCommand{"s", 1, {5.f, 5.f}}).ok);
+        CHECK(!c.execute(SetEntityTransformCommand{"s", 1, {5.f, 5.f}}).ok);
         CHECK(!c.execute(RenameEntityCommand{"s", 1, "New Name"}).ok);
         CHECK(!c.execute(CloneInstanceCommand{"s", 1, 2, "Clone", {}}).ok);
         SpriteRendererOverride lockedDelta; lockedDelta.visible = false;
@@ -5018,7 +5120,7 @@ int main() {
         CHECK(!c.execute(CreateEntityCommand{"s", 2, "obj-1", "B", {}, "layer-1"}).ok);
 
         CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", false}).ok);
-        CHECK(c.execute(SetEntityPositionCommand{"s", 1, {5.f, 5.f}}).ok);   // unlocked: succeeds
+        CHECK(c.execute(SetEntityTransformCommand{"s", 1, {5.f, 5.f}}).ok);   // unlocked: succeeds
     }
 
     // -- Object-type-owned components stay editable regardless of the instance's
@@ -5092,7 +5194,7 @@ int main() {
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
                   "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
-        CHECK(c.execute(SetEntityPositionCommand{"s", 1, {5.f, 5.f}}).ok);   // before the lock
+        CHECK(c.execute(SetEntityTransformCommand{"s", 1, {5.f, 5.f}}).ok);   // before the lock
         CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", true}).ok);
 
         CHECK(c.undo().ok);   // undoes SetLayerLocked (LIFO) - back to unlocked
@@ -5385,7 +5487,7 @@ int main() {
         // 4-6. Pointer down/drag/up equivalent - exactly what
         // routeViewportPickDrag issues on release, now reachable because its
         // own "activeTool == Select" guard passes again.
-        CHECK(c.execute(SetEntityPositionCommand{"s", 2, {50.f, 50.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{"s", 2, {50.f, 50.f}}).ok);
         CHECK(c.document().findInstanceInScene("s", 2)->transform.position.x == 50.f);
 
         // 7. Undo restores the position.

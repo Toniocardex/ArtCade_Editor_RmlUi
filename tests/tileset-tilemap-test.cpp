@@ -1541,7 +1541,7 @@ int main() {
     {
         EditorCoordinator c{makeSpriteDoc()};
         setUpTilemapForPainting(c);
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {0.f, 0.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {0.f, 0.f}}).ok);
         std::vector<TilemapCellChange> changes;
         changes.push_back(TilemapCellChange{{0, 0}, std::nullopt,
                                             TilemapCellValue{"tile-1", TileTransformFlags::None}});
@@ -2431,7 +2431,7 @@ int main() {
         changes.push_back(TilemapCellChange{{-2, 3}, std::nullopt,
                                             TilemapCellValue{"tile-2", TileTransformFlags::None}});
         CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {100.f, 50.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {100.f, 50.f}}).ok);
 
         CHECK(c.playCurrentScene().ok);
         const RuntimeEntity* runtime = c.playSession()->findEntity(kHero);
@@ -2703,7 +2703,7 @@ int main() {
         changes.push_back(TilemapCellChange{{-3, -2}, std::nullopt,
                                             TilemapCellValue{"tile-1", TileTransformFlags::None}});
         CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {0.f, 0.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {0.f, 0.f}}).ok);
 
         CHECK(c.playCurrentScene().ok);
         const RuntimeEntity* runtime = c.playSession()->findEntity(kHero);
@@ -2739,7 +2739,7 @@ int main() {
         changes.push_back(TilemapCellChange{{-3, -3}, std::nullopt,
                                             TilemapCellValue{"tile-2", TileTransformFlags::FlipX}});
         CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
-        CHECK(c.execute(SetEntityPositionCommand{kSceneA, kHero, {40.f, 10.f}}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {40.f, 10.f}}).ok);
         CHECK(c.playCurrentScene().ok);
         const SceneFrameSnapshot directPlay = collectSceneFrameSnapshot(*c.playSession());
         CHECK(c.stopPlaying().ok);

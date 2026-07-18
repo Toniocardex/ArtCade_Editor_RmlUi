@@ -197,7 +197,7 @@ public:
     // single beginSceneLayerRename path; no document mutation happens here.
     void beginActiveSceneLayerRename();
     // Viewport drag preview for the selected entity transform. Presentation only:
-    // the model still changes once, on mouse release, through SetEntityPositionCommand.
+    // the model still changes once, on mouse release, through SetEntityTransformCommand.
     void showEntityPositionPreview(EntityId entity, Vec2 position);
     // Pointer world/cell readout in the status bar (Edit mode, mouse over the
     // scene). Presentation-only per-frame update: change-guarded, no

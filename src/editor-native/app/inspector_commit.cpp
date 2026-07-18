@@ -2,6 +2,7 @@
 
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/commands/entity_commands.h"
+#include "editor-native/model/authored_transform.h"
 
 #include <cmath>
 #include <cstddef>
@@ -25,38 +26,33 @@ std::optional<float> parseNumberField(const std::string& text) {
     }
 }
 
-EditorOperationResult commitInspectorPositionX(EditorCoordinator& coordinator,
-                                               EntityId           entityId,
-                                               const std::string& text) {
-    const std::optional<float> parsed = parseNumberField(text);
-    if (!parsed) {
-        const auto result = EditorOperationResult::failure("Position X is not a number");
-        coordinator.logError(result.error);
-        return result;
-    }
+namespace {
 
-    const SceneId& sceneId = coordinator.state().activeSceneId;
-    const SceneInstanceDef* instance =
-        coordinator.document().findInstanceInScene(sceneId, entityId);
-    if (!instance) {
-        const auto result = EditorOperationResult::failure("No selected instance");
-        coordinator.logError(result.error);
-        return result;
+const char* fieldLabel(InspectorTransformField field) {
+    switch (field) {
+    case InspectorTransformField::PositionX: return "Position X";
+    case InspectorTransformField::PositionY: return "Position Y";
+    case InspectorTransformField::RotationDegrees: return "Rotation";
+    case InspectorTransformField::ScaleX: return "Scale X";
+    case InspectorTransformField::ScaleY: return "Scale Y";
     }
-
-    const Vec2 next{*parsed, instance->transform.position.y};
-    return coordinator.execute(SetEntityPositionCommand{sceneId, entityId, next});
+    return "Transform";
 }
 
-EditorOperationResult commitInspectorPositionY(EditorCoordinator& coordinator,
-                                               EntityId           entityId,
-                                               const std::string& text) {
+} // namespace
+
+EditorOperationResult commitInspectorTransformField(EditorCoordinator& coordinator,
+                                                    EntityId entityId,
+                                                    InspectorTransformField field,
+                                                    const std::string& text) {
     const std::optional<float> parsed = parseNumberField(text);
     if (!parsed) {
-        const auto result = EditorOperationResult::failure("Position Y is not a number");
+        const auto result = EditorOperationResult::failure(
+            std::string(fieldLabel(field)) + " is not a number");
         coordinator.logError(result.error);
         return result;
     }
+
     const SceneId& sceneId = coordinator.state().activeSceneId;
     const SceneInstanceDef* instance =
         coordinator.document().findInstanceInScene(sceneId, entityId);
@@ -65,8 +61,27 @@ EditorOperationResult commitInspectorPositionY(EditorCoordinator& coordinator,
         coordinator.logError(result.error);
         return result;
     }
-    const Vec2 next{instance->transform.position.x, *parsed};
-    return coordinator.execute(SetEntityPositionCommand{sceneId, entityId, next});
+
+    AuthoredTransformPatch patch;
+    switch (field) {
+    case InspectorTransformField::PositionX:
+        patch.position = Vec2{*parsed, instance->transform.position.y};
+        break;
+    case InspectorTransformField::PositionY:
+        patch.position = Vec2{instance->transform.position.x, *parsed};
+        break;
+    case InspectorTransformField::RotationDegrees:
+        patch.rotationRadians = *parsed * kDegToRad;
+        break;
+    case InspectorTransformField::ScaleX:
+        patch.scale = Vec2{*parsed, instance->transform.scale.y};
+        break;
+    case InspectorTransformField::ScaleY:
+        patch.scale = Vec2{instance->transform.scale.x, *parsed};
+        break;
+    }
+
+    return coordinator.execute(SetEntityTransformCommand{sceneId, entityId, std::move(patch)});
 }
 
 } // namespace ArtCade::EditorNative

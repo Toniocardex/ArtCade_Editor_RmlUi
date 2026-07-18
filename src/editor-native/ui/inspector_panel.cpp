@@ -2,6 +2,7 @@
 
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/commands/scene_layer_commands.h"
+#include "editor-native/model/authored_transform.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_render_view.h"
 #include "editor-native/ui/editor_ui.h"
@@ -24,10 +25,8 @@ namespace ArtCade::EditorNative {
 
 namespace {
 
-std::string num(float v) {
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "%.0f", std::trunc(v));
-    return buf;
+std::string num(float v, int precision = 3) {
+    return formatAuthoringFloat(v, precision);
 }
 
 // Tabler icon glyph span (PUA codepoint passed as an RML char reference).
@@ -92,10 +91,16 @@ std::string field(const char* label, const char* action, const std::string& valu
 
 // Like field(), with a trailing unit suffix (e.g. "wu") shown after the input.
 std::string fieldWithUnit(const char* label, const char* action, const std::string& value,
-                          const char* unit, bool disabled) {
+                          const char* unit, bool disabled, const char* id = nullptr) {
     std::string row = "<div class=\"prop-row\"><span class=\"prop-label\">";
     row += label;
-    row += "</span><input type=\"text\" class=\"prop-input\" data-action=\"";
+    row += "</span><input type=\"text\" class=\"prop-input\"";
+    if (id && *id) {
+        row += " id=\"";
+        row += id;
+        row += "\"";
+    }
+    row += " data-action=\"";
     row += action;
     row += "\" value=\"" + escapeRml(value) + "\"";
     if (disabled) row += " disabled=\"disabled\"";
@@ -724,10 +729,19 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     // -- Transform (instance-owned; structural, no remove) --------------------
     html += header("transform", isSectionCollapsed("transform"),
                    "&#xf22f;", "Transform", "INSTANCE", "", "", instanceDisabled);
-    html += field("Position X", "commit-pos-x", num(inst->transform.position.x), instanceDisabled,
-                  "inspector-pos-x");
-    html += field("Position Y", "commit-pos-y", num(inst->transform.position.y), instanceDisabled,
-                  "inspector-pos-y");
+    html += fieldWithUnit("Position X", "commit-transform-position-x",
+                          num(inst->transform.position.x), "wu", instanceDisabled,
+                          "inspector-pos-x");
+    html += fieldWithUnit("Position Y", "commit-transform-position-y",
+                          num(inst->transform.position.y), "wu", instanceDisabled,
+                          "inspector-pos-y");
+    html += fieldWithUnit("Rotation", "commit-transform-rotation",
+                          num(inst->transform.rotation * kRadToDeg, 2), "°", instanceDisabled,
+                          "inspector-rotation");
+    html += field("Scale X", "commit-transform-scale-x", num(inst->transform.scale.x),
+                  instanceDisabled, "inspector-scale-x");
+    html += field("Scale Y", "commit-transform-scale-y", num(inst->transform.scale.y),
+                  instanceDisabled, "inspector-scale-y");
     const SceneFrameSnapshot frame = collectSceneFrameSnapshot(
         coordinator.document(), coordinator.state().activeSceneId, selected);
     if (const std::optional<WorldRect> bounds = editorBoundsForEntity(frame, selected)) {

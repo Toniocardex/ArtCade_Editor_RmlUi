@@ -115,7 +115,7 @@ public:
     const ConsoleMessage* consoleMessage(std::optional<std::size_t> index) const;
 
     // ---- command path (authoring; undoable) ---------------------------------
-    /** Run a command by value, e.g. execute(SetEntityPositionCommand{scene, id, pos}). */
+    /** Run a command by value, e.g. execute(SetEntityTransformCommand{scene, id, patch}). */
     template <class CommandT>
     EditorOperationResult execute(CommandT command) {
         return executeOwned(std::make_unique<CommandT>(std::move(command)), nullptr);

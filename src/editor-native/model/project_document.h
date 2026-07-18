@@ -20,7 +20,8 @@ class AddLinearMoverCommand;
 class RemoveBoxColliderCommand;
 class RemoveLinearMoverCommand;
 class RenameEntityCommand;
-class SetEntityPositionCommand;
+class SetEntityTransformCommand;
+struct AuthoredTransformPatch;
 class SetBoxColliderEnabledCommand;
 class SetLinearMoverDirectionCommand;
 class SetLinearMoverSpeedCommand;
@@ -201,7 +202,7 @@ private:
     friend class RemoveBoxColliderCommand;
     friend class RemoveLinearMoverCommand;
     friend class RenameEntityCommand;
-    friend class SetEntityPositionCommand;
+    friend class SetEntityTransformCommand;
     friend class SetBoxColliderEnabledCommand;
     friend class SetBoxColliderOffsetCommand;
     friend class SetBoxColliderSizeCommand;
@@ -285,7 +286,9 @@ private:
 
     // ---- Patch (authoring mutations; called by commands) --------------------
     bool setProjectName(std::string name);
-    bool setInstancePosition(const SceneId& sceneId, EntityId id, Vec2 position);
+    // Authored fields only (position / rotation / scale). Never touches velocity.
+    bool patchInstanceTransform(const SceneId& sceneId, EntityId id,
+                                const AuthoredTransformPatch& patch);
     bool setInstanceName(const SceneId& sceneId, EntityId id, std::string name);
     bool setSceneName(const SceneId& sceneId, std::string name);
     // The scene world size (Dimensions). Resizing never moves instances — an

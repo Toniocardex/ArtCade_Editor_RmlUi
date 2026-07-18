@@ -130,7 +130,8 @@ EditorOperationResult bringSelectedEntityIntoScene(EditorCoordinator& coordinato
     if (next->x == instance->transform.position.x && next->y == instance->transform.position.y) {
         return EditorOperationResult::success(EditorInvalidation::None);
     }
-    return coordinator.execute(SetEntityPositionCommand{sceneId, id, *next});
+    return coordinator.execute(SetEntityTransformCommand{
+        sceneId, id, AuthoredTransformPatch{*next}});
 }
 
 EditorOperationResult addBoxCollider(EditorCoordinator& coordinator) {

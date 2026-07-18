@@ -14,7 +14,9 @@ namespace {
 
 bool isNumericCommit(const std::string& action) {
     static constexpr std::string_view actions[] = {
-        "commit-pos-x", "commit-pos-y", "commit-animator-speed",
+        "commit-transform-position-x", "commit-transform-position-y",
+        "commit-transform-rotation", "commit-transform-scale-x", "commit-transform-scale-y",
+        "commit-animator-speed",
         "commit-box-offset-x", "commit-box-offset-y",
         "commit-box-size-x", "commit-box-size-y",
         "commit-mover-dir-x", "commit-mover-dir-y", "commit-mover-speed",

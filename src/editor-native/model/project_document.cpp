@@ -1,4 +1,5 @@
 #include "editor-native/model/project_document.h"
+#include "editor-native/model/authored_transform.h"
 #include "editor-native/model/generated_sfx_policy.h"
 #include "editor-native/model/numeric_validation.h"
 #include "editor-native/model/path_confinement.h"
@@ -134,11 +135,26 @@ bool ProjectDocument::setProjectName(std::string name) {
     return true;
 }
 
-bool ProjectDocument::setInstancePosition(const SceneId& sceneId, EntityId id, Vec2 position) {
-    if (!NumericValidation::isFinite(position)) return false;
+bool ProjectDocument::patchInstanceTransform(const SceneId& sceneId, EntityId id,
+                                             const AuthoredTransformPatch& patch) {
     SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
     if (!instance) return false;
-    instance->transform.position = position;
+    if (patch.position) {
+        if (!NumericValidation::isFinite(*patch.position)) return false;
+        instance->transform.position = *patch.position;
+    }
+    if (patch.rotationRadians) {
+        if (!NumericValidation::isFinite(*patch.rotationRadians)) return false;
+        instance->transform.rotation = *patch.rotationRadians;
+    }
+    if (patch.scale) {
+        if (!NumericValidation::isFinite(*patch.scale)
+            || patch.scale->x < kMinAuthoringScale
+            || patch.scale->y < kMinAuthoringScale) {
+            return false;
+        }
+        instance->transform.scale = *patch.scale;
+    }
     markDirty();
     return true;
 }

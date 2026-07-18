@@ -2,6 +2,7 @@
 
 #include "core/types.h"
 #include "editor-native/commands/editor_command.h"
+#include "editor-native/model/authored_transform.h"
 
 #include <cstddef>
 #include <string>
@@ -102,21 +103,25 @@ private:
     bool        captured_ = false;   // see CreateEntityCommand::captured_
 };
 
-/** Move one instance. Invalidates Inspector | Viewport (prompt §24.4). */
-class SetEntityPositionCommand final : public EditorCommand {
+/** Patch authored Transform fields (position / rotation / scale). Never
+ *  touches velocity. Invalidates Inspector | Viewport. */
+class SetEntityTransformCommand final : public EditorCommand {
 public:
-    SetEntityPositionCommand(SceneId sceneId, EntityId id, Vec2 position);
+    SetEntityTransformCommand(SceneId sceneId, EntityId id, AuthoredTransformPatch patch);
+    // Position-only sugar — same command, patch.position only.
+    SetEntityTransformCommand(SceneId sceneId, EntityId id, Vec2 position)
+        : SetEntityTransformCommand(std::move(sceneId), id, AuthoredTransformPatch{position}) {}
 
     EditorOperationResult apply(ProjectDocument& document) override;
     EditorOperationResult undo(ProjectDocument& document) override;
-    const char* name() const override { return "SetEntityPosition"; }
+    const char* name() const override { return "SetEntityTransform"; }
 
 private:
-    SceneId  sceneId_;
-    EntityId id_;
-    Vec2     newPosition_;
-    Vec2     oldPosition_{};
-    bool     captured_ = false;
+    SceneId                sceneId_;
+    EntityId               id_;
+    AuthoredTransformPatch patch_;
+    AuthoredTransformPatch undoPatch_{};
+    bool                   captured_ = false;
 };
 
 /** Rename one instance. Invalidates Hierarchy | Inspector. */

@@ -294,42 +294,71 @@ EditorOperationResult CloneInstanceCommand::undo(ProjectDocument& document) {
 }
 
 // ----------------------------------------------------------------------------
-// SetEntityPositionCommand
+// SetEntityTransformCommand
 // ----------------------------------------------------------------------------
-SetEntityPositionCommand::SetEntityPositionCommand(SceneId sceneId, EntityId id,
-                                                   Vec2 position)
-    : sceneId_(std::move(sceneId)), id_(id), newPosition_(position) {}
+SetEntityTransformCommand::SetEntityTransformCommand(SceneId sceneId, EntityId id,
+                                                     AuthoredTransformPatch patch)
+    : sceneId_(std::move(sceneId)), id_(id), patch_(std::move(patch)) {}
 
-EditorOperationResult SetEntityPositionCommand::apply(ProjectDocument& document) {
-    if (!NumericValidation::isFinite(newPosition_)) {
+EditorOperationResult SetEntityTransformCommand::apply(ProjectDocument& document) {
+    if (patch_.position && !NumericValidation::isFinite(*patch_.position)) {
         return EditorOperationResult::failure("Entity position must be finite");
     }
+    if (patch_.rotationRadians && !NumericValidation::isFinite(*patch_.rotationRadians)) {
+        return EditorOperationResult::failure("Entity rotation must be finite");
+    }
+    if (patch_.scale) {
+        if (!NumericValidation::isFinite(*patch_.scale)
+            || patch_.scale->x < kMinAuthoringScale
+            || patch_.scale->y < kMinAuthoringScale) {
+            return EditorOperationResult::failure(
+                "Entity scale must be finite and at least "
+                + formatAuthoringFloat(kMinAuthoringScale));
+        }
+    }
+    if (!patch_.position && !patch_.rotationRadians && !patch_.scale) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+
     const SceneInstanceDef* current = document.findInstanceInScene(sceneId_, id_);
     if (!current) {
         return EditorOperationResult::failure("No instance with that id in the target scene");
     }
+
+    const Transform& xf = current->transform;
+    const Vec2 nextPosition = patch_.position.value_or(xf.position);
+    const float nextRotation = patch_.rotationRadians.value_or(xf.rotation);
+    const Vec2 nextScale = patch_.scale.value_or(xf.scale);
+    if (nearlyEqualTransform(nextPosition, xf.position)
+        && nearlyEqualTransform(nextRotation, xf.rotation)
+        && nearlyEqualTransform(nextScale, xf.scale)) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+
     if (!captured_) {
         // The lock gate only guards the new user gesture that first calls
         // apply() - a later redo reuses this same command with captured_
         // already true and must never be blocked by the layer's current
         // lock state (undo/redo must always be reproducible).
         if (document.isInstanceLayerLocked(sceneId_, *current)) {
-            return EditorOperationResult::failure("Cannot move \"" + current->instanceName
+            return EditorOperationResult::failure("Cannot transform \"" + current->instanceName
                 + "\": its layer is locked");
         }
-        oldPosition_ = current->transform.position;
+        if (patch_.position) undoPatch_.position = xf.position;
+        if (patch_.rotationRadians) undoPatch_.rotationRadians = xf.rotation;
+        if (patch_.scale) undoPatch_.scale = xf.scale;
         captured_ = true;
     }
-    if (!document.setInstancePosition(sceneId_, id_, newPosition_)) {
-        return EditorOperationResult::failure("Failed to set instance position");
+    if (!document.patchInstanceTransform(sceneId_, id_, patch_)) {
+        return EditorOperationResult::failure("Failed to patch instance transform");
     }
     return EditorOperationResult::success(
         kPositionInvalidation, DomainChange::entityChanged(sceneId_, id_));
 }
 
-EditorOperationResult SetEntityPositionCommand::undo(ProjectDocument& document) {
-    if (!captured_ || !document.setInstancePosition(sceneId_, id_, oldPosition_)) {
-        return EditorOperationResult::failure("Cannot undo position change");
+EditorOperationResult SetEntityTransformCommand::undo(ProjectDocument& document) {
+    if (!captured_ || !document.patchInstanceTransform(sceneId_, id_, undoPatch_)) {
+        return EditorOperationResult::failure("Cannot undo transform change");
     }
     return EditorOperationResult::success(
         kPositionInvalidation, DomainChange::entityChanged(sceneId_, id_));

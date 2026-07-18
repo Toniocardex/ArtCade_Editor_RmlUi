@@ -9,6 +9,7 @@
 
 add_library(artcade-editor-core STATIC
     editor-native/model/project_document.cpp
+    editor-native/model/authored_transform.cpp
     editor-native/model/generated_sfx_policy.cpp
     editor-native/model/generated_sfx_preset_catalog.cpp
     editor-native/model/project_io.cpp

@@ -1,5 +1,6 @@
 #include "editor-native/view/scene_view.h"
 
+#include "editor-native/model/authored_transform.h"
 #include "editor-native/model/tilemap_render_view.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/texture_cache.h"
@@ -48,6 +49,48 @@ Rectangle toRectangle(const SceneFrameRect& rect) {
     return Rectangle{rect.x, rect.y, rect.width, rect.height};
 }
 
+// Snapshot stores unrotated top-left rects. Raylib Draw*Pro treats dest.x/y as
+// the world position of the origin pivot (and subtracts origin even at 0°), so
+// convert top-left → pivot before drawing.
+Rectangle pivotDestination(const SceneFrameRect& topLeft, Vector2 origin) {
+    return Rectangle{
+        topLeft.x + origin.x,
+        topLeft.y + origin.y,
+        topLeft.width,
+        topLeft.height,
+    };
+}
+
+SceneFrameTransform2D visualOf(const SceneFrameRect& dest, float rotationRadians) {
+    return SceneFrameTransform2D{
+        Vec2{dest.x + dest.width * 0.5f, dest.y + dest.height * 0.5f},
+        Vec2{dest.width, dest.height},
+        rotationRadians,
+    };
+}
+
+void cornersOf(const SceneFrameTransform2D& xf, Vector2 out[4]) {
+    const float hx = xf.size.x * 0.5f;
+    const float hy = xf.size.y * 0.5f;
+    const float c = std::cos(xf.rotationRadians);
+    const float s = std::sin(xf.rotationRadians);
+    const Vec2 local[4] = {{-hx, -hy}, {hx, -hy}, {hx, hy}, {-hx, hy}};
+    for (int i = 0; i < 4; ++i) {
+        out[i] = {
+            xf.center.x + local[i].x * c - local[i].y * s,
+            xf.center.y + local[i].x * s + local[i].y * c,
+        };
+    }
+}
+
+void drawOrientedOutline(const SceneFrameTransform2D& xf, float thickness, Color color) {
+    Vector2 corners[4];
+    cornersOf(xf, corners);
+    for (int i = 0; i < 4; ++i) {
+        DrawLineEx(corners[i], corners[(i + 1) % 4], thickness, color);
+    }
+}
+
 bool hasVisibleSprite(const SceneFrameSnapshot& frame, EntityId entityId) {
     for (const SceneFrameSprite& sprite : frame.sprites) {
         if (sprite.entityId == entityId && sprite.visible && !sprite.assetId.empty()) return true;
@@ -67,15 +110,16 @@ bool hasVisibleTilemapCells(const SceneFrameSnapshot& frame, EntityId entityId) 
 }
 
 void drawMissingSprite(const SceneFrameSprite& sprite, float zoom) {
-    const Rectangle bounds = toRectangle(sprite.destination);
-    DrawRectangleRec(bounds, Color{70, 44, 58, 200});
-    DrawRectangleLinesEx(bounds, 1.5f / zoom, Color{230, 90, 120, 230});
-    DrawLineEx({bounds.x, bounds.y},
-               {bounds.x + bounds.width, bounds.y + bounds.height},
-               1.2f / zoom, Color{230, 90, 120, 230});
-    DrawLineEx({bounds.x + bounds.width, bounds.y},
-               {bounds.x, bounds.y + bounds.height},
-               1.2f / zoom, Color{230, 90, 120, 230});
+    const SceneFrameTransform2D xf = visualOf(sprite.destination, sprite.rotationRadians);
+    const float degrees = sprite.rotationRadians * kRadToDeg;
+    const Vector2 origin{sprite.origin.x, sprite.origin.y};
+    DrawRectanglePro(pivotDestination(sprite.destination, origin), origin, degrees,
+                     Color{70, 44, 58, 200});
+    drawOrientedOutline(xf, 1.5f / zoom, Color{230, 90, 120, 230});
+    Vector2 corners[4];
+    cornersOf(xf, corners);
+    DrawLineEx(corners[0], corners[2], 1.2f / zoom, Color{230, 90, 120, 230});
+    DrawLineEx(corners[1], corners[3], 1.2f / zoom, Color{230, 90, 120, 230});
 }
 
 void drawDashedLine(Vector2 a, Vector2 b, float thickness, Color color) {
@@ -195,9 +239,12 @@ void SceneView::render(const SceneFrameSnapshot& frame,
         const bool hasSprite = hasVisibleSprite(frame, entity.entityId);
         const bool hasTilemap = hasVisibleTilemapCells(frame, entity.entityId);
         if (!hasSprite && !hasTilemap) {
-            const Rectangle box = toRectangle(entity.bounds);
-            DrawRectangleRec(box, toColor(entity.fillColor, 0.92f));
-            DrawRectangleLinesEx(box, 1.f / cam.zoom, Color{12, 14, 18, 200});
+            const SceneFrameTransform2D xf = visualOf(entity.bounds, entity.rotationRadians);
+            const float degrees = entity.rotationRadians * kRadToDeg;
+            const Vector2 origin{entity.bounds.width * 0.5f, entity.bounds.height * 0.5f};
+            DrawRectanglePro(pivotDestination(entity.bounds, origin), origin, degrees,
+                             toColor(entity.fillColor, 0.92f));
+            drawOrientedOutline(xf, 1.f / cam.zoom, Color{12, 14, 18, 200});
             continue;
         }
         if (hasTilemap) {
@@ -226,8 +273,10 @@ void SceneView::render(const SceneFrameSnapshot& frame,
                         : Rectangle{0.f, 0.f,
                                     static_cast<float>(resource->texture.width),
                                     static_cast<float>(resource->texture.height)};
-                    DrawTexturePro(resource->texture, source, toRectangle(sprite.destination),
-                                  Vector2{0.f, 0.f}, 0.f, WHITE);
+                    const Vector2 origin{sprite.origin.x, sprite.origin.y};
+                    DrawTexturePro(resource->texture, source,
+                                  pivotDestination(sprite.destination, origin), origin,
+                                  sprite.rotationRadians * kRadToDeg, WHITE);
                 }
                 break;   // one SpriteRenderer per entity
             }
@@ -265,14 +314,23 @@ void SceneView::render(const SceneFrameSnapshot& frame,
         }
 
         if (entity.selected) {
-            const std::optional<WorldRect> editorBounds =
-                editorBoundsForEntity(frame, entity.entityId);
-            const Rectangle box = editorBounds
-                ? Rectangle{editorBounds->x, editorBounds->y,
-                            editorBounds->width, editorBounds->height}
-                : toRectangle(entity.bounds);
-            const Rectangle sel{box.x - 3.f, box.y - 3.f, box.width + 6.f, box.height + 6.f};
-            DrawRectangleLinesEx(sel, 2.f / cam.zoom, Color{59, 130, 246, 255});
+            // Prefer the entity/sprite oriented visual for the selection outline
+            // so a rotated instance does not get an AABB box disconnected from
+            // what is drawn. Collider/tilemap still contribute to containment
+            // via editorBoundsForEntity, but the outline follows the visual.
+            SceneFrameTransform2D outline = visualOf(entity.bounds, entity.rotationRadians);
+            for (const SceneFrameSprite& sprite : frame.sprites) {
+                if (sprite.entityId != entity.entityId || !sprite.visible
+                    || sprite.assetId.empty()) {
+                    continue;
+                }
+                outline = visualOf(sprite.destination, sprite.rotationRadians);
+                break;
+            }
+            // Inflate slightly in local space for a readable pad around the visual.
+            outline.size.x += 6.f;
+            outline.size.y += 6.f;
+            drawOrientedOutline(outline, 2.f / cam.zoom, Color{59, 130, 246, 255});
         }
     }
 
