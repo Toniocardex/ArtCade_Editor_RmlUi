@@ -9,7 +9,7 @@ Full spec (precedence order):
 1. `docs/ARTCADE_RMLUI_ARCHITECTURE_CONSTITUTION.md`
 2. `docs/ARTCADE_RMLUI_ARCHITECTURE.md`
 3. `docs/ARTCADE_RMLUI_ENGINEERING_GATES.md`
-4. `docs/RMLUI_MIGRATION_CONTRACT.md` (React porting only)
+4. `docs/RMLUI_MIGRATION_CONTRACT.md` (historical feature-port notes only)
 
 ## Authority (one source each)
 

@@ -2,7 +2,7 @@
 
 Native desktop editor for ArtCade — **RmlUi + Raylib + C++17**.
 
-This repository is separate from the legacy React/Tauri editor. All new authoring UI work happens here.
+This is the **only** supported authoring UI. Do not add obsolete UI stacks here.
 
 ## Layout
 
@@ -10,7 +10,7 @@ This repository is separate from the legacy React/Tauri editor. All new authorin
 artcade-editor/
 ├── src/editor-native/     # UI (RmlUi), viewport, authoring core
 ├── tests/                 # editor_core_test (no GL)
-├── docs/                  # RmlUi migration contract & plans
+├── docs/                  # architecture, gates, contracts
 ├── scripts/               # build.bat, run.bat
 └── vendor/artcade-runtime # ArtCade C++ engine (submodule or junction)
 ```
@@ -63,7 +63,7 @@ Output: `build\src\artcade-editor-native.exe` (with `resources/` copied alongsid
 - **`artcade-editor-core`** — `ProjectDocument`, commands, coordinator (no RmlUi/Raylib).
 - **`artcade-editor-native`** — RmlUi shell, panels, GL viewport.
 
-Authoritative design rules: [`docs/RMLUI_MIGRATION_CONTRACT.md`](docs/RMLUI_MIGRATION_CONTRACT.md).
+Authoritative design rules (precedence): Constitution → Architecture → Engineering Gates.
 
 ## Project format
 
@@ -73,5 +73,5 @@ Loads/saves `.artcade-project` / project JSON compatible with the ArtCade engine
 
 | Repo | Role |
 |------|------|
-| **artcade-editor** (this) | Native RmlUi editor — active development |
-| **ArtCade-Studio** | Game runtime + WASM + legacy React editor (maintenance) |
+| **artcade-editor** (this) | Native RmlUi editor — active product UI |
+| **ArtCade-Studio_V2** | Shared C++ runtime (`runtime-cpp`) + headless core |
