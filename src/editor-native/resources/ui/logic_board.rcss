@@ -178,6 +178,7 @@
 .logic-action-row { display: flex; flex-direction: row; align-items: center; }
 .logic-action-main { flex: 1; }
 .logic-diagnostic { display: block; margin: 5dp 10dp; padding: 7dp; color: #e5706b; background-color: #2a1f20; }
+.logic-diagnostic.warning { color: #a1a1aa; background-color: #1f1f23; }
 .logic-rule-diagnostics { display: block; }
 
 /* Event/Actions side by side on a wide workspace; .compact (see
@@ -210,6 +211,33 @@
 }
 .logic-col-content { display: block; }
 .logic-col-footer { display: block; margin-top: 8dp; }
+/* Execution Mode is a rule property projected into WHEN — muted, never a
+   Condition catalog entry or a strong badge. */
+.logic-execution-clause {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin: 6dp 0 2dp 0;
+    padding: 6dp 9dp;
+    color: #8a8a93;
+    font-size: 12dp;
+}
+.logic-execution-join {
+    margin-right: 8dp;
+    color: #6b6b73;
+    font-size: 10dp;
+    font-weight: 700;
+    letter-spacing: 0.6dp;
+}
+.logic-execution-label { color: #9ca3af; }
+.logic-execution-footer {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.logic-execution-footer .logic-block-label { margin-right: 8dp; }
+.logic-execution-trigger { flex: 1 1 auto; min-width: 140dp; max-width: 220dp; }
 .logic-col-empty {
     display: block;
     margin-bottom: 8dp;

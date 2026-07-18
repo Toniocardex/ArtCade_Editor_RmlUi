@@ -241,9 +241,9 @@
                 <button id="btn-sfx-stop" class="panel-btn disabled" data-action="stop-generated-sfx-preview">Stop</button>
                 <button id="btn-sfx-generate" class="panel-btn primary" data-action="generate-sfx-output">Generate Audio Asset</button>
                 <div class="sfx-more-wrap">
-                    <button id="btn-sfx-more" class="panel-btn" data-action="toggle-sfx-more-menu" title="More">&#x22EF;</button>
+                    <button id="btn-sfx-more" class="panel-btn sfx-more-trigger" data-action="toggle-sfx-more-menu" title="More">...</button>
                     <div id="sfx-more-menu" class="sfx-more-menu hidden">
-                        <button class="sfx-more-entry" data-action="open-sfx-create-from-current">Create New Sound from Current&#8230;</button>
+                        <button class="sfx-more-entry" data-action="open-sfx-create-from-current"><span class="icon">&#xedef;</span>Create New Sound from Current&#8230;</button>
                     </div>
                 </div>
                 <button class="panel-btn" data-action="close-generated-sfx">Close</button>

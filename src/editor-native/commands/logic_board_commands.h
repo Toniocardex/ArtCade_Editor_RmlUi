@@ -70,6 +70,17 @@ private:
     std::optional<LogicBoardDef> before_;
 };
 
+class SetLogicRuleExecutionModeCommand final : public EditorCommand {
+public:
+    SetLogicRuleExecutionModeCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
+                                     LogicExecutionMode mode);
+    ARTCADE_LOGIC_BOARD_COMMAND_COMMON(SetLogicRuleExecutionMode)
+private:
+    ObjectTypeId objectTypeId_; LogicRuleId ruleId_;
+    LogicExecutionMode mode_ = LogicExecutionMode::EveryOccurrence;
+    std::optional<LogicBoardDef> before_;
+};
+
 class ReplaceLogicTriggerCommand final : public EditorCommand {
 public:
     ReplaceLogicTriggerCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,

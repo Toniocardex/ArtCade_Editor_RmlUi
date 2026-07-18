@@ -250,6 +250,22 @@ EditorOperationResult SetLogicRuleEnabledCommand::apply(ProjectDocument& documen
 }
 EditorOperationResult SetLogicRuleEnabledCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
+SetLogicRuleExecutionModeCommand::SetLogicRuleExecutionModeCommand(
+    ObjectTypeId id, LogicRuleId ruleId, LogicExecutionMode mode)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), mode_(mode) {}
+EditorOperationResult SetLogicRuleExecutionModeCommand::apply(ProjectDocument& document) {
+    const LogicBoardDef* current = boardOf(document, objectTypeId_);
+    if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
+    LogicBoardDef next = *current;
+    LogicRuleDef* rule = ruleOf(next, ruleId_);
+    if (!rule) return EditorOperationResult::failure("Unknown Logic rule");
+    rule->executionMode = mode_;
+    COMMIT_NEXT_BOARD(next);
+}
+EditorOperationResult SetLogicRuleExecutionModeCommand::undo(ProjectDocument& document) {
+    UNDO_BOARD();
+}
+
 ReplaceLogicTriggerCommand::ReplaceLogicTriggerCommand(ObjectTypeId id, LogicRuleId ruleId,
                                                        LogicBlockDef trigger)
     : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), trigger_(std::move(trigger)) {}

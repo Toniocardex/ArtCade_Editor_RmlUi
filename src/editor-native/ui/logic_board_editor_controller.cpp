@@ -121,7 +121,8 @@ bool LogicBoardEditorController::handleAction(
     if (action == "change-logic-trigger" || action == "change-logic-action"
         || action == "add-logic-action-type"
         || action == "set-logic-event-collision-object-type"
-        || action == "set-logic-animation-asset" || action == "set-logic-animation-clip") {
+        || action == "set-logic-animation-asset" || action == "set-logic-animation-clip"
+        || action == "set-logic-execution-mode") {
         panel_.closeDropdown();
     }
 
@@ -167,7 +168,8 @@ bool LogicBoardEditorController::handleAction(
         || action == "set-logic-animation-clip" || action == "commit-logic-animation-speed"
         || action == "set-logic-audio-asset" || action == "commit-logic-audio-volume"
         || action == "toggle-logic-event-expected"
-        || action == "set-logic-event-collision-object-type";
+        || action == "set-logic-event-collision-object-type"
+        || action == "set-logic-execution-mode";
     if (coordinator_.isPlaying() && authoringAction) return true;
 
     if (action == "create-logic-board") {
@@ -218,6 +220,9 @@ bool LogicBoardEditorController::handleAction(
     } else if (action == "toggle-logic-rule") {
         if (const LogicRuleDef* rule = ruleById(arg))
             coordinator_.execute(SetLogicRuleEnabledCommand{objectTypeId, arg, !rule->enabled});
+    } else if (action == "set-logic-execution-mode") {
+        if (const auto mode = Logic::logicExecutionModeFromString(value))
+            coordinator_.execute(SetLogicRuleExecutionModeCommand{objectTypeId, arg, *mode});
     } else if (action == "change-logic-trigger") {
         coordinator_.apply(ChangeLogicTriggerTypeIntent{objectTypeId, arg, value});
     } else if (action == "set-logic-key") {

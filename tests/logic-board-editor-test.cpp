@@ -331,6 +331,82 @@ static void testIsGroundedEventRunsOnTick() {
     CHECK(coordinator.stopPlaying().ok);
 }
 
+static void testIsFallingEventTrueWhileDescendingFalseWhenGroundedOrRising() {
+    EditorCoordinator coordinator{makePlatformerProjectData()};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& initial = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+
+    // While falling → hide. A paired Is Grounded → show restores visibility on
+    // land so rising can be asserted without mutating PlaySession entities.
+    // Logic dispatchTick runs *before* platformer physics each frame.
+    LogicRuleDef fallRule = Logic::makeDefaultRule(nextLogicRuleId(initial));
+    fallRule.trigger = Logic::makeDefaultEventBlock(Logic::kIsFalling);
+    fallRule.actions[0] = {Logic::kSetVisible,
+        {{"target", LogicEntityReference{}}, {"visible", false}}};
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", fallRule, 0}).ok);
+
+    const LogicBoardDef& withFall =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    LogicRuleDef landRule = Logic::makeDefaultRule(nextLogicRuleId(withFall));
+    landRule.trigger = Logic::makeDefaultEventBlock(Logic::kIsGrounded);
+    landRule.actions[0] = {Logic::kSetVisible,
+        {{"target", LogicEntityReference{}}, {"visible", true}}};
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", landRule, 1}).ok);
+
+    CHECK(coordinator.playCurrentScene().ok);
+    CHECK(coordinator.playSession() != nullptr);
+    const RuntimeEntity* hero = coordinator.playSession()->findEntity(1);
+    CHECK(hero != nullptr);
+    CHECK(hero->visible);
+    CHECK(hero->platformerController.has_value());
+
+    RuntimeInputSnapshot none;
+    // Frame 1: tick still sees vy=0 → not falling; physics then applies gravity.
+    coordinator.updateRuntime(none, 1.f / 60.f);
+    hero = coordinator.playSession()->findEntity(1);
+    CHECK(hero != nullptr);
+    CHECK(!hero->platformerController->grounded);
+    CHECK(hero->platformerController->verticalVelocity > 0.001f);
+    CHECK(hero->visible);
+
+    // Frame 2: tick sees descending → Is Falling fires → hide.
+    coordinator.updateRuntime(none, 1.f / 60.f);
+    hero = coordinator.playSession()->findEntity(1);
+    CHECK(hero != nullptr);
+    CHECK(!hero->visible);
+
+    // Settle: Is Grounded shows again; while grounded Is Falling must stay false.
+    for (int i = 0; i < 300; ++i) coordinator.updateRuntime(none, 0.05f);
+    hero = coordinator.playSession()->findEntity(1);
+    CHECK(hero != nullptr);
+    CHECK(hero->platformerController->grounded);
+    CHECK(hero->visible);
+
+    // Jump: while rising (vy < 0) Is Falling must stay false → remain visible.
+    RuntimeInputSnapshot jump;
+    jump.jumpPressed = true;
+    coordinator.updateRuntime(jump, 1.f / 60.f);
+    hero = coordinator.playSession()->findEntity(1);
+    CHECK(hero != nullptr);
+    CHECK(!hero->platformerController->grounded);
+    CHECK(hero->platformerController->verticalVelocity < 0.f);
+    CHECK(hero->visible);
+
+    // Later in the jump arc, once descending again, Is Falling hides again.
+    bool hidWhileDescending = false;
+    for (int i = 0; i < 180; ++i) {
+        coordinator.updateRuntime(none, 1.f / 60.f);
+        hero = coordinator.playSession()->findEntity(1);
+        if (!hero) break;
+        if (!hero->visible) {
+            hidWhileDescending = true;
+            break;
+        }
+    }
+    CHECK(hidWhileDescending);
+    CHECK(coordinator.stopPlaying().ok);
+}
+
 static void testIsVisibleEventAndMoveBy() {
     EditorCoordinator coordinator{makeProjectData()};
     CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
@@ -900,12 +976,61 @@ static void testPlayNavigationFromLogicBoard() {
     CHECK(rejected.state().centerWorkspaceMode == CenterWorkspaceMode::Logic);
 }
 
+static void testExecutionModeCommand() {
+    EditorCoordinator coordinator{makeProjectData()};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& empty = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
+              .executionMode == LogicExecutionMode::EveryOccurrence);
+
+    const uint64_t revision = coordinator.document().revision();
+    const bool dirtyBefore = coordinator.document().isDirty();
+    CHECK(coordinator.execute(SetLogicRuleExecutionModeCommand{
+        "Hero", rule.id, LogicExecutionMode::OncePerActivation}).ok);
+    CHECK(coordinator.document().revision() == revision + 1);
+    CHECK(coordinator.document().isDirty());
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
+              .executionMode == LogicExecutionMode::OncePerActivation);
+
+    // Same mode → no-op (no dirty/revision bump).
+    const uint64_t afterSet = coordinator.document().revision();
+    CHECK(coordinator.execute(SetLogicRuleExecutionModeCommand{
+        "Hero", rule.id, LogicExecutionMode::OncePerActivation}).ok);
+    CHECK(coordinator.document().revision() == afterSet);
+
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
+              .executionMode == LogicExecutionMode::EveryOccurrence);
+    CHECK(coordinator.redo().ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
+              .executionMode == LogicExecutionMode::OncePerActivation);
+
+    const auto serialized = ProjectSerializer::serialize(coordinator.document());
+    CHECK(serialized.ok);
+    CHECK(serialized.value.find("once_per_activation") != std::string::npos);
+    const auto loaded = ProjectSerializer::deserialize(serialized.value);
+    CHECK(loaded.ok);
+    CHECK(loaded.value.data().objectTypes.at("Hero").logicBoard->rules[0].executionMode
+          == LogicExecutionMode::OncePerActivation);
+
+    CHECK(coordinator.playCurrentScene().ok);
+    CHECK(!coordinator.execute(SetLogicRuleExecutionModeCommand{
+        "Hero", rule.id, LogicExecutionMode::EveryOccurrence}).ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
+              .executionMode == LogicExecutionMode::OncePerActivation);
+    CHECK(coordinator.stopPlaying().ok);
+    (void)dirtyBefore;
+}
+
 int main() {
     testCommandsAndPersistence();
     testConditionCommands();
     testConditionCompatibility();
     testConditionGatesRuntimeDispatch();
     testIsGroundedEventRunsOnTick();
+    testIsFallingEventTrueWhileDescendingFalseWhenGroundedOrRising();
     testIsVisibleEventAndMoveBy();
     testPlayRuntimeIsolation();
     testCollisionEventOtherAndDeferredDestroy();
@@ -918,6 +1043,7 @@ int main() {
     testInvalidPlayIsAtomic();
     testWorkspaceTargetAndSwitchPolicy();
     testPlayNavigationFromLogicBoard();
+    testExecutionModeCommand();
     std::cout << "logic-board-editor-test: " << passed << " passed, "
               << failed << " failed\n";
     return failed == 0 ? 0 : 1;

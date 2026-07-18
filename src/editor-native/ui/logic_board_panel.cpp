@@ -210,8 +210,18 @@ std::string logicRuleSummary(const LogicRuleDef& rule) {
     } else {
         head = descriptorLabel(rule.trigger.typeId);
     }
+    if (rule.executionMode == LogicExecutionMode::OncePerActivation)
+        head += " \xC2\xB7 once per activation";
     if (!rule.actions.empty()) head += " \xE2\x86\x92 " + descriptorLabel(rule.actions.front().typeId);
     return head;
+}
+
+const char* executionModeLabel(LogicExecutionMode mode) {
+    switch (mode) {
+    case LogicExecutionMode::OncePerActivation: return "Once per activation";
+    case LogicExecutionMode::EveryOccurrence:
+    default: return "Every occurrence";
+    }
 }
 
 } // namespace
@@ -373,7 +383,10 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         const bool collapsed = collapsedRuleIds_.count(rule.id) != 0;
         const std::size_t diagnosticCount = static_cast<std::size_t>(std::count_if(
             compiled.diagnostics.begin(), compiled.diagnostics.end(),
-            [&](const Logic::LogicDiagnostic& d) { return d.ruleId == rule.id; }));
+            [&](const Logic::LogicDiagnostic& d) {
+                return d.ruleId == rule.id
+                    && d.severity == Logic::DiagnosticSeverity::Error;
+            }));
 
         html += "<div class=\"logic-rule" + std::string(rule.enabled ? "" : " off") + "\">"
                 "<div class=\"logic-rule-head\">";
@@ -411,9 +424,9 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
 
         html += "<div class=\"logic-rule-body\">";
 
-        // EVENT — trigger or predicate event (former condition blocks).
+        // WHEN — trigger/predicate plus projected execution mode (not a Condition).
         html += "<div class=\"logic-rule-col event-col\">"
-                "<div class=\"logic-col-head\">EVENT</div>"
+                "<div class=\"logic-col-head\">WHEN</div>"
                 "<div class=\"logic-col-content\">"
                 "<div class=\"logic-block\">";
         const std::string triggerDropdownId = "trigger|" + rule.id;
@@ -446,6 +459,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 html += "</div>";
             }
         } else if (rule.trigger.typeId == Logic::kIsGrounded
+                   || rule.trigger.typeId == Logic::kIsFalling
                    || rule.trigger.typeId == Logic::kIsVisible) {
             bool expected = true;
             if (const LogicPropertyDef* p = property(rule.trigger, "expected"))
@@ -480,14 +494,38 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 html += "</div>";
             }
         }
-        html += "</div>"; // .logic-block (EVENT)
+        html += "</div>"; // .logic-block (WHEN trigger)
+        if (rule.executionMode == LogicExecutionMode::OncePerActivation) {
+            // Projected into WHEN; never stored in rule.conditions[].
+            html += "<div class=\"logic-execution-clause\" title=\"Run Once per Activation\">"
+                    "<span class=\"logic-execution-join\">AND</span>"
+                    "<span class=\"logic-execution-label\">Once per activation</span>"
+                    "</div>";
+        }
         html += "</div>"; // .logic-col-content
+        const std::string executionDropdownId = "execution|" + rule.id;
+        const bool executionOpen = openDropdownId_ == executionDropdownId && !playing;
+        html += "<div class=\"logic-col-footer logic-execution-footer\">"
+                "<span class=\"logic-block-label\">Execution</span>";
+        html += dropdownTriggerMarkup(executionModeLabel(rule.executionMode),
+                                      "toggle-logic-dropdown", executionDropdownId,
+                                      executionOpen, playing, "logic-execution-trigger");
+        if (executionOpen) {
+            html += "<div class=\"drop-list logic-key-list\">";
+            html += dropEntry("Every occurrence", "every_occurrence",
+                              rule.executionMode == LogicExecutionMode::EveryOccurrence,
+                              executionDropdownId, "set-logic-execution-mode", rule.id);
+            html += dropEntry("Run once per activation", "once_per_activation",
+                              rule.executionMode == LogicExecutionMode::OncePerActivation,
+                              executionDropdownId, "set-logic-execution-mode", rule.id);
+            html += "</div>";
+        }
+        html += "</div>"; // .logic-col-footer
         html += "</div>"; // event-col
 
-        // ACTIONS — always at least one (enforced by RemoveLogicActionCommand),
-        // so no empty state, but the same head/content/footer shape.
+        // THEN — always at least one action (enforced by RemoveLogicActionCommand).
         html += "<div class=\"logic-rule-col actions-col\">"
-                "<div class=\"logic-col-head\">ACTIONS</div>"
+                "<div class=\"logic-col-head\">THEN</div>"
                 "<div class=\"logic-col-content\">";
         for (std::size_t actionIndex = 0; actionIndex < rule.actions.size(); ++actionIndex) {
             const LogicBlockDef& action = rule.actions[actionIndex];
@@ -680,7 +718,10 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         html += "<div class=\"logic-rule-diagnostics\">";
         for (const Logic::LogicDiagnostic& diagnostic : compiled.diagnostics) {
             if (diagnostic.ruleId != rule.id) continue;
-            html += "<div class=\"logic-diagnostic\">" + escapeRml(diagnostic.code) + " · "
+            const bool warning = diagnostic.severity == Logic::DiagnosticSeverity::Warning;
+            html += "<div class=\"logic-diagnostic"
+                 + std::string(warning ? " warning" : "") + "\">"
+                 + escapeRml(diagnostic.code) + " · "
                  + escapeRml(diagnostic.propertyKey) + " — " + escapeRml(diagnostic.message) + "</div>";
         }
         html += "</div>"; // .logic-rule-diagnostics

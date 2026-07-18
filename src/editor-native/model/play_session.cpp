@@ -75,6 +75,16 @@ struct PlaySession::LogicHostAdapter final : Logic::ILogicRuntimeHost {
         const RuntimeEntity* entity = owner ? owner->findEntity(id) : nullptr;
         return entity && entity->platformerController && entity->platformerController->grounded;
     }
+    bool isFalling(EntityId id) override {
+        const RuntimeEntity* entity = owner ? owner->findEntity(id) : nullptr;
+        if (!entity || !entity->platformerController) return false;
+        const RuntimePlatformerController& pc = *entity->platformerController;
+        if (pc.grounded) return false;
+        // +Y down (same convention as updatePlatformer). Rising after jump is
+        // negative velocity and must not count as falling.
+        constexpr float kFallingEpsilon = 0.001f;
+        return pc.verticalVelocity > kFallingEpsilon;
+    }
     bool requestPlatformerMove(EntityId id, float axis) override {
         RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
         if (!entity || !entity->platformerController || !std::isfinite(axis)) return false;

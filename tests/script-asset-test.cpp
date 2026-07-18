@@ -492,6 +492,7 @@ return { on_start = function(ctx) ctx.self:set_position(9, 10) end }
         bool visible = true;
         Vec2 position{};
         bool grounded = true;
+        bool falling = false;
         float moveAxis = 0.f;
         bool jumpRequested = false;
         bool destroyRequested = false;
@@ -512,6 +513,7 @@ return { on_start = function(ctx) ctx.self:set_position(9, 10) end }
         bool rotateBy(EntityId, float) override { return true; }
         bool setScale(EntityId, Vec2) override { return true; }
         bool isGrounded(EntityId) override { return grounded; }
+        bool isFalling(EntityId) override { return falling; }
         bool requestPlatformerMove(EntityId, float axis) override {
             moveAxis = axis; return true;
         }
