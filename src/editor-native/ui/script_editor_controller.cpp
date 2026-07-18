@@ -4,7 +4,11 @@
 #include "editor-native/app/script_syntax_validator.h"
 #include "editor-native/commands/editor_intent.h"
 #include "editor-native/model/script_editor_state.h"
+#include "editor-native/model/script_language_service.h"
+#include "editor-native/model/script_text_ops.h"
 #include "editor-native/ui/ui_markup.h"
+
+#include "script-api-catalog.h"
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -12,9 +16,11 @@
 #include <RmlUi/Core/StringUtilities.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <limits>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace ArtCade::EditorNative {
@@ -66,6 +72,10 @@ public:
         const auto* area = textarea();
         return area ? const_cast<Rml::ElementFormControlTextArea*>(area)->GetScrollTop() : 0.f;
     }
+    float scrollLeft() const override {
+        const auto* area = textarea();
+        return area ? const_cast<Rml::ElementFormControlTextArea*>(area)->GetScrollLeft() : 0.f;
+    }
     void setSelection(std::size_t begin, std::size_t end) override {
         if (auto* area = textarea()) {
             const std::string value = area->GetValue();
@@ -116,6 +126,10 @@ void ScriptEditorController::refresh() {
     refreshTabs();
     syncSurfaceFromActiveBuffer();
     refreshLineNumbers();
+    refreshHighlight();
+    refreshCaretAndCurrentLine();
+    refreshApiPanel();
+    refreshLanguageHint();
     refreshStatus();
     refreshDiagnostics();
     refreshApplyBanner();
@@ -153,6 +167,17 @@ void ScriptEditorController::processFrame() {
     for (const auto& [assetId, revision] : ready) {
         pendingValidation_.erase(assetId);
         validate(assetId, revision);
+    }
+
+    if (document_ && surface_ && state.editorFocused) {
+        const float top = surface_->scrollTop();
+        const float left = surface_->scrollLeft();
+        if (top != lastSyncedScrollTop_ || left != lastSyncedScrollLeft_) {
+            lastSyncedScrollTop_ = top;
+            lastSyncedScrollLeft_ = left;
+            syncOverlayScroll();
+            refreshCaretAndCurrentLine();
+        }
     }
 }
 
@@ -209,6 +234,7 @@ void ScriptEditorController::syncSurfaceFromActiveBuffer() {
     surface_->setText(buffer->text, buffer->cursorOffset, buffer->scrollTop);
     renderedAssetId_ = buffer->scriptAssetId;
     renderedRevision_ = buffer->revision;
+    refreshHighlight();
 }
 
 void ScriptEditorController::refreshLineNumbers() {
@@ -217,11 +243,103 @@ void ScriptEditorController::refreshLineNumbers() {
     if (!lines || !buffer) return;
     std::size_t count = 1;
     for (char c : buffer->text) if (c == '\n') ++count;
+    std::unordered_set<int> errorLines;
+    for (const ScriptDiagnostic& diagnostic : buffer->diagnostics) {
+        if (diagnostic.line > 0) errorLines.insert(diagnostic.line);
+    }
+    const ScriptCursorPosition cursor =
+        scriptCursorPosition(buffer->text, buffer->cursorOffset);
     std::string rml;
-    for (std::size_t line = 1; line <= count; ++line)
-        rml += std::to_string(line) + (line == count ? "" : "<br/>");
+    for (std::size_t line = 1; line <= count; ++line) {
+        const bool isError = errorLines.count(static_cast<int>(line)) != 0;
+        const bool isCurrent = line == cursor.line;
+        if (isError || isCurrent) {
+            rml += "<span class=\"";
+            if (isCurrent) rml += "script-line-current";
+            if (isError) {
+                if (isCurrent) rml += " ";
+                rml += "script-line-error";
+            }
+            rml += "\">" + std::to_string(line) + "</span>";
+        } else {
+            rml += std::to_string(line);
+        }
+        if (line != count) rml += "<br/>";
+    }
     lines->SetInnerRML(rml);
     if (surface_) lines->SetScrollTop(surface_->scrollTop());
+}
+
+void ScriptEditorController::refreshHighlight() {
+    Rml::Element* highlight = document_ ? document_->GetElementById("script-editor-highlight")
+                                        : nullptr;
+    const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.active();
+    if (!highlight) return;
+    if (!buffer) {
+        highlight->SetInnerRML({});
+        return;
+    }
+    ScriptHighlightDecorations decorations;
+    for (const ScriptDiagnostic& diagnostic : buffer->diagnostics) {
+        if (diagnostic.line > 0) decorations.errorLines.push_back(diagnostic.line);
+    }
+    decorations.bracketMatch = bracketDecoration_;
+    highlight->SetInnerRML(highlightLuaToRml(buffer->text, decorations));
+    syncOverlayScroll();
+}
+
+void ScriptEditorController::syncOverlayScroll() {
+    if (!document_ || !surface_) return;
+    const float top = surface_->scrollTop();
+    const float left = surface_->scrollLeft();
+    if (Rml::Element* lines = document_->GetElementById("script-line-numbers"))
+        lines->SetScrollTop(top);
+    if (Rml::Element* highlight = document_->GetElementById("script-editor-highlight")) {
+        highlight->SetScrollTop(top);
+        highlight->SetScrollLeft(left);
+    }
+}
+
+void ScriptEditorController::refreshCaretAndCurrentLine() {
+    if (!document_ || !surface_) return;
+    const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.active();
+    Rml::Element* caret = document_->GetElementById("script-editor-caret");
+    Rml::Element* band = document_->GetElementById("script-editor-current-line");
+    if (!buffer) {
+        if (caret) caret->SetClass("visible", false);
+        if (band) band->SetClass("visible", false);
+        return;
+    }
+    // Metrics must match script_editor.rcss (padding 12dp, line-height 18dp,
+    // JetBrains Mono 12dp ≈ 0.6em advance).
+    constexpr float kPad = 12.f;
+    constexpr float kLineHeight = 18.f;
+    constexpr float kCharWidth = 7.2f;
+    const ScriptCursorPosition cursor =
+        scriptCursorPosition(buffer->text, surface_->cursorOffset());
+    const float top = kPad - surface_->scrollTop()
+        + static_cast<float>(cursor.line - 1) * kLineHeight;
+    const float left = kPad - surface_->scrollLeft()
+        + static_cast<float>(cursor.column - 1) * kCharWidth;
+    if (band) {
+        band->SetProperty("top", std::to_string(top) + "dp");
+        band->SetClass("visible", true);
+    }
+    if (caret) {
+        caret->SetProperty("top", std::to_string(top) + "dp");
+        caret->SetProperty("left", std::to_string(left) + "dp");
+        caret->SetClass("visible", coordinator_.state().scriptEditor.editorFocused);
+    }
+}
+
+void ScriptEditorController::applyTextEdit(const ScriptTextEditResult& edit) {
+    if (!surface_) return;
+    bracketDecoration_.reset();
+    surface_->setText(edit.text, edit.selectionEnd, surface_->scrollTop());
+    surface_->setSelection(edit.selectionBegin, edit.selectionEnd);
+    textChanged(edit.text);
+    refreshHighlight();
+    refreshCaretAndCurrentLine();
 }
 
 void ScriptEditorController::refreshStatus() {
@@ -249,6 +367,8 @@ void ScriptEditorController::refreshDiagnostics() {
     if (!buffer || buffer->validationPending || buffer->diagnostics.empty()) {
         list->SetInnerRML({});
         list->SetClass("hidden", true);
+        refreshHighlight();
+        refreshLineNumbers();
         return;
     }
     std::string rml;
@@ -261,6 +381,8 @@ void ScriptEditorController::refreshDiagnostics() {
     }
     list->SetInnerRML(rml);
     list->SetClass("hidden", false);
+    refreshHighlight();
+    refreshLineNumbers();
 }
 
 void ScriptEditorController::refreshApplyBanner() {
@@ -273,6 +395,7 @@ void ScriptEditorController::refreshApplyBanner() {
 void ScriptEditorController::textChanged(const std::string& text) {
     const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.active();
     if (!buffer || !surface_) return;
+    bracketDecoration_.reset();
     const bool wasDirty = buffer->dirty();
     coordinator_.apply(EditScriptBufferIntent{
         buffer->scriptAssetId, text, surface_->cursorOffset()});
@@ -283,6 +406,8 @@ void ScriptEditorController::textChanged(const std::string& text) {
     // itself stable during continued typing.
     if (wasDirty != buffer->dirty()) refreshTabs();
     refreshLineNumbers();
+    refreshHighlight();
+    refreshCaretAndCurrentLine();
     refreshStatus();
 }
 
@@ -291,16 +416,19 @@ void ScriptEditorController::cursorChanged() {
     if (!buffer || !surface_) return;
     coordinator_.apply(SetScriptCursorIntent{
         buffer->scriptAssetId, surface_->cursorOffset(), surface_->scrollTop()});
-    if (document_) {
-        if (Rml::Element* lines = document_->GetElementById("script-line-numbers"))
-            lines->SetScrollTop(surface_->scrollTop());
-    }
+    lastSyncedScrollTop_ = surface_->scrollTop();
+    lastSyncedScrollLeft_ = surface_->scrollLeft();
+    syncOverlayScroll();
+    refreshLineNumbers();
+    refreshCaretAndCurrentLine();
+    refreshLanguageHint();
     refreshStatus();
 }
 
 void ScriptEditorController::setFocused(bool focused) {
     coordinator_.apply(SetScriptEditorFocusIntent{focused});
     if (!focused) cursorChanged();
+    else refreshCaretAndCurrentLine();
 }
 
 void ScriptEditorController::undo() {
@@ -316,12 +444,134 @@ void ScriptEditorController::insertSpacesForTab() {
     const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.active();
     if (!buffer || !surface_) return;
     const auto [selectionBegin, selectionEnd] = surface_->selection();
-    std::string next = surface_->text();
-    const std::size_t begin = std::min(selectionBegin, next.size());
-    const std::size_t end = std::min(std::max(selectionEnd, begin), next.size());
-    next.replace(begin, end - begin, 4, ' ');
-    surface_->setText(next, begin + 4, surface_->scrollTop());
-    textChanged(next);
+    applyTextEdit(indentOrInsertTab(surface_->text(), selectionBegin, selectionEnd));
+}
+
+void ScriptEditorController::outdent() {
+    const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.active();
+    if (!buffer || !surface_) return;
+    const auto [selectionBegin, selectionEnd] = surface_->selection();
+    applyTextEdit(outdentSelection(surface_->text(), selectionBegin, selectionEnd));
+}
+
+void ScriptEditorController::toggleComment() {
+    const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.active();
+    if (!buffer || !surface_) return;
+    const auto [selectionBegin, selectionEnd] = surface_->selection();
+    applyTextEdit(toggleLineComment(surface_->text(), selectionBegin, selectionEnd));
+}
+
+void ScriptEditorController::autoIndentNewline() {
+    const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.active();
+    if (!buffer || !surface_) return;
+    applyTextEdit(insertNewlineWithAutoIndent(surface_->text(), surface_->cursorOffset()));
+}
+
+void ScriptEditorController::jumpToMatchingBracket() {
+    const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.active();
+    if (!buffer || !surface_) return;
+    const auto match = findMatchingBracket(surface_->text(), surface_->cursorOffset());
+    if (!match) return;
+    bracketDecoration_ = match;
+    surface_->setSelection(match->first, match->second + 1);
+    surface_->focus();
+    refreshHighlight();
+    cursorChanged();
+}
+
+void ScriptEditorController::duplicateLines() {
+    const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.active();
+    if (!buffer || !surface_) return;
+    const auto [selectionBegin, selectionEnd] = surface_->selection();
+    applyTextEdit(duplicateSelectionLines(surface_->text(), selectionBegin, selectionEnd));
+}
+
+void ScriptEditorController::moveLines(int direction) {
+    const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.active();
+    if (!buffer || !surface_) return;
+    const auto [selectionBegin, selectionEnd] = surface_->selection();
+    applyTextEdit(moveSelectionLines(surface_->text(), selectionBegin, selectionEnd, direction));
+}
+
+void ScriptEditorController::refreshApiPanel() {
+    Rml::Element* list = document_ ? document_->GetElementById("script-api-list") : nullptr;
+    if (!list) return;
+    std::string rml;
+    for (const ScriptLanguageHint& entry : scriptApiReferenceEntries()) {
+        rml += "<button class=\"script-api-item\" data-action=\"insert-script-api\" data-arg=\""
+            + escapeRml(entry.qualifiedName) + "\" title=\""
+            + escapeRml(entry.detail) + "\">"
+            + escapeRml(entry.qualifiedName) + "</button>";
+    }
+    list->SetInnerRML(rml);
+}
+
+void ScriptEditorController::refreshLanguageHint() {
+    Rml::Element* hint = document_ ? document_->GetElementById("script-api-hint") : nullptr;
+    if (!hint || !surface_) return;
+    const ScriptLanguageHint signature = scriptSignatureAt(surface_->text(), surface_->cursorOffset());
+    if (!signature.title.empty()) {
+        hint->SetInnerRML(escapeRml(signature.title));
+        return;
+    }
+    const ScriptLanguageHint hover = scriptHoverAt(surface_->text(), surface_->cursorOffset());
+    hint->SetInnerRML(hover.title.empty() ? std::string{} : escapeRml(hover.title));
+}
+
+void ScriptEditorController::showCompletions() {
+    if (!document_ || !surface_) return;
+    Rml::Element* popup = document_->GetElementById("script-completion-popup");
+    if (!popup) return;
+    const auto completions = scriptCompletionsAt(surface_->text(), surface_->cursorOffset());
+    completionInserts_.clear();
+    if (completions.empty()) {
+        popup->SetInnerRML({});
+        popup->SetClass("hidden", true);
+        return;
+    }
+    std::string rml;
+    for (std::size_t i = 0; i < completions.size(); ++i) {
+        completionInserts_.push_back(completions[i].insertText);
+        rml += "<button class=\"script-completion-item";
+        if (i == 0) rml += " active";
+        rml += "\" data-action=\"accept-script-completion\" data-arg=\""
+            + std::to_string(i) + "\">"
+            + escapeRml(completions[i].qualifiedName) + "  "
+            + escapeRml(completions[i].title) + "</button>";
+    }
+    popup->SetInnerRML(rml);
+    popup->SetClass("hidden", false);
+}
+
+void ScriptEditorController::hideCompletions() {
+    completionInserts_.clear();
+    if (!document_) return;
+    if (Rml::Element* popup = document_->GetElementById("script-completion-popup")) {
+        popup->SetInnerRML({});
+        popup->SetClass("hidden", true);
+    }
+}
+
+void ScriptEditorController::acceptCompletion(const std::string& insertText) {
+    if (!surface_ || insertText.empty()) return;
+    hideCompletions();
+    const ScriptCompletionEdit edit =
+        applyScriptCompletionInsert(surface_->text(), surface_->cursorOffset(), insertText);
+    applyTextEdit(ScriptTextEditResult{
+        edit.text, edit.selectionBegin, edit.selectionEnd});
+}
+
+void ScriptEditorController::acceptCompletionAt(std::size_t index) {
+    if (index >= completionInserts_.size()) return;
+    acceptCompletion(completionInserts_[index]);
+}
+
+void ScriptEditorController::insertApiSnippet(const std::string& qualifiedName) {
+    const Scripts::ScriptApiEntry* entry =
+        Scripts::findScriptApiByQualifiedName(qualifiedName);
+    if (!entry || !surface_) return;
+    acceptCompletion(scriptInsertTextFor(*entry, surface_->text(), surface_->cursorOffset()));
+    surface_->focus();
 }
 
 void ScriptEditorController::findNext(const std::string& query) {

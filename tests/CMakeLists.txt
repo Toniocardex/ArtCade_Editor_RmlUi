@@ -17,7 +17,7 @@ function(artcade_editor_core_suite TARGET SOURCE)
         ${ARTCADE_EDITOR_CORE_TEST_HARNESS}
         ${CMAKE_SOURCE_DIR}/src/editor-native/app/generated_sfx_generation_preflight.cpp)
     if(MSVC)
-        target_link_options(${TARGET} PRIVATE /STACK:8388608)
+        target_link_options(${TARGET} PRIVATE /STACK:16777216)
     endif()
 endfunction()
 
@@ -35,6 +35,19 @@ artcade_editor_core_suite(generated_sfx_model_test
 
 artcade_editor_core_suite(script_asset_test
     script-asset-test.cpp)
+
+artcade_test(script_text_ops_test
+    script-text-ops-test.cpp
+    artcade-editor-core)
+target_sources(script_text_ops_test PRIVATE
+    ${ARTCADE_EDITOR_CORE_TEST_HARNESS})
+
+artcade_test(script_api_catalog_test
+    script-api-catalog-test.cpp
+    artcade-editor-core)
+target_sources(script_api_catalog_test PRIVATE
+    ${ARTCADE_EDITOR_CORE_TEST_HARNESS})
+target_link_libraries(script_api_catalog_test PRIVATE artcade-lua-runtime)
 
 artcade_test(generated_sfx_editor_controller_test
     generated-sfx-editor-controller-test.cpp

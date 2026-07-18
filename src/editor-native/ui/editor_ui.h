@@ -234,7 +234,7 @@ public:
     void handleScriptTextChanged(const std::string& value);
     void handleScriptCursorChanged();
     void setScriptEditorFocused(bool focused);
-    void handleScriptEditorShortcut(int key, bool control, bool shift);
+    void handleScriptEditorShortcut(int key, bool control, bool shift, bool alt = false);
 
 private:
     class Listener;   // defined in editor_ui.cpp

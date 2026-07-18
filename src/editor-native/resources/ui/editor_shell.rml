@@ -190,11 +190,22 @@
                     </div>
                     <div id="script-editor-body" class="script-editor-body hidden">
                         <div id="script-line-numbers" class="script-line-numbers">1</div>
-                        <textarea id="script-editor-textarea" class="script-editor-textarea"
-                                  data-action="edit-script-buffer" wrap="off"></textarea>
+                        <div class="script-editor-code">
+                            <div id="script-editor-highlight" class="script-editor-highlight"></div>
+                            <div id="script-editor-current-line" class="script-editor-current-line"></div>
+                            <div id="script-editor-caret" class="script-editor-caret"></div>
+                            <textarea id="script-editor-textarea" class="script-editor-textarea"
+                                      data-action="edit-script-buffer" wrap="off"></textarea>
+                            <div id="script-completion-popup" class="script-completion-popup hidden"></div>
+                        </div>
+                        <div id="script-api-panel" class="script-api-panel">
+                            <div class="script-api-panel-header">API v1</div>
+                            <div id="script-api-list" class="script-api-list"></div>
+                        </div>
                     </div>
                     <div id="script-diagnostics" class="script-diagnostics hidden"></div>
                     <div class="script-editor-status">
+                        <span id="script-api-hint" class="script-api-hint"></span>
                         <span id="script-cursor-status">Lua  &#xb7;  Ln 1, Col 1  &#xb7;  Spaces: 4</span>
                     </div>
                 </div>

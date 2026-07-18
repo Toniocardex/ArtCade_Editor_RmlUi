@@ -16,6 +16,8 @@ add_library(artcade-editor-core STATIC
     editor-native/model/path_confinement.cpp
     editor-native/model/play_sound_preload.cpp
     editor-native/model/script_editor_state.cpp
+    editor-native/model/script_text_ops.cpp
+    editor-native/model/script_language_service.cpp
     editor-native/model/play_session.cpp
     editor-native/model/box_collider_geometry.cpp
     editor-native/model/box_collider_view.cpp

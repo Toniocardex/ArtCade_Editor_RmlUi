@@ -176,10 +176,22 @@ public:
                 const int key = event.GetParameter<int>("key_identifier", 0);
                 const bool control = event.GetParameter<int>("ctrl_key", 0) != 0;
                 const bool shift = event.GetParameter<int>("shift_key", 0) != 0;
-                if (key == Rml::Input::KI_TAB || (control && (key == Rml::Input::KI_S
-                    || key == Rml::Input::KI_F || key == Rml::Input::KI_Z
-                    || key == Rml::Input::KI_Y))) {
-                    ui_.handleScriptEditorShortcut(key, control, shift);
+                const bool alt = event.GetParameter<int>("alt_key", 0) != 0;
+                const bool intercept = key == Rml::Input::KI_TAB
+                    || key == Rml::Input::KI_RETURN
+                    || key == Rml::Input::KI_NUMPADENTER
+                    || key == Rml::Input::KI_ESCAPE
+                    || (control && (key == Rml::Input::KI_S
+                        || key == Rml::Input::KI_F
+                        || key == Rml::Input::KI_Z
+                        || key == Rml::Input::KI_Y
+                        || key == Rml::Input::KI_M
+                        || key == Rml::Input::KI_SPACE
+                        || key == Rml::Input::KI_OEM_2))
+                    || (control && shift && key == Rml::Input::KI_L)
+                    || (alt && (key == Rml::Input::KI_UP || key == Rml::Input::KI_DOWN));
+                if (intercept) {
+                    ui_.handleScriptEditorShortcut(key, control, shift, alt);
                     event.StopImmediatePropagation();
                     return;
                 }
@@ -2414,6 +2426,13 @@ bool EditorUi::handleToolbarAction(const std::string& action, const std::string&
         scriptEditor_.findNext(value);
     } else if (action == "goto-script-line" || action == "commit-script-line") {
         scriptEditor_.goToLine(arg.empty() ? value : arg);
+    } else if (action == "insert-script-api") {
+        scriptEditor_.insertApiSnippet(arg);
+    } else if (action == "accept-script-completion") {
+        char* end = nullptr;
+        const unsigned long index = std::strtoul(arg.c_str(), &end, 10);
+        if (end && *end == '\0')
+            scriptEditor_.acceptCompletionAt(static_cast<std::size_t>(index));
     } else if (action == "validate-script") {
         scriptEditor_.validateActive();
     } else if (action == "restart-script-play") {
@@ -2636,9 +2655,28 @@ void EditorUi::setScriptEditorFocused(bool focused) {
     refreshToolbar();
 }
 
-void EditorUi::handleScriptEditorShortcut(int key, bool control, bool shift) {
+void EditorUi::handleScriptEditorShortcut(int key, bool control, bool shift, bool alt) {
+    if (key == Rml::Input::KI_ESCAPE) {
+        scriptEditor_.hideCompletions();
+        return;
+    }
     if (key == Rml::Input::KI_TAB) {
-        scriptEditor_.insertSpacesForTab();
+        if (shift) scriptEditor_.outdent();
+        else scriptEditor_.insertSpacesForTab();
+    } else if (key == Rml::Input::KI_RETURN || key == Rml::Input::KI_NUMPADENTER) {
+        scriptEditor_.autoIndentNewline();
+    } else if (control && key == Rml::Input::KI_SPACE) {
+        scriptEditor_.showCompletions();
+    } else if (control && key == Rml::Input::KI_OEM_2) { // Ctrl+/
+        scriptEditor_.toggleComment();
+    } else if (control && (key == Rml::Input::KI_M)) {
+        scriptEditor_.jumpToMatchingBracket();
+    } else if (control && shift && key == Rml::Input::KI_L) {
+        scriptEditor_.duplicateLines();
+    } else if (alt && key == Rml::Input::KI_UP) {
+        scriptEditor_.moveLines(-1);
+    } else if (alt && key == Rml::Input::KI_DOWN) {
+        scriptEditor_.moveLines(1);
     } else if (control && key == Rml::Input::KI_S) {
         if (const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.active()) {
             if (saveScriptRequest_) saveScriptRequest_(buffer->scriptAssetId);

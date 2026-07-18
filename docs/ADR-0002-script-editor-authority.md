@@ -2,6 +2,8 @@
 
 **Status:** Accepted  
 **Date:** 2026-07-15  
+**Updated:** 2026-07-19 — three-surface product model; see also
+`SCRIPT_EDITOR_ARCHITECTURE.md`  
 **Scope:** native RmlUi editor and shared C++ runtime model
 
 ## Context
@@ -12,7 +14,24 @@ Lua source. The existing `mainScriptPath` is a legacy runtime bootstrap field;
 it cannot represent a catalog of editable source assets or type-owned script
 attachments.
 
+Scripts are the **advanced** authoring surface for the same gameplay runtime as
+the Logic Board. They are not an editor for Logic-generated Lua.
+
 ## Decision
+
+### Three product surfaces
+
+| Surface | Authority role | Editable |
+|---|---|---|
+| Logic Board | Visual gameplay | Yes |
+| Generated Lua | Projection of Logic Board | **No** (inspect/copy only) |
+| Script Editor | Manual Lua on the same host | Yes |
+
+Logic Board and Manual Scripts both talk to `IGameplayRuntimeHost` /
+`PlaySession`. They must not rewrite each other. Bidirectional Logic ⇄ free Lua
+sync is rejected.
+
+### Four technical authorities
 
 The Script Editor uses four deliberately separate authorities:
 
@@ -33,10 +52,14 @@ Consequences:
 - `ScriptComponent` is type-owned, ordered and has stable attachment IDs;
 - Logic Board programs and manual scripts remain separate Lua programs and
   separate scopes;
+- within each lifecycle phase, generated Logic runs before manual Scripts
+  (attachment order); later Script writes to the same property win predictably;
 - Start Play materializes only saved source into immutable `ScriptProgram`
   snapshots; it never reads a live editor buffer or queries `ProjectDocument`
   per frame;
-- automatic hot reload is not part of the initial implementation.
+- automatic hot reload is not part of the initial implementation;
+- `ICodeEditorSurface` is presentation/input only — never a second text
+  authority.
 
 `CenterWorkspaceMode::Script` is a first-class workspace mode, but not a second
 persistent project authority. RmlUi remains presentation only.
@@ -102,9 +125,13 @@ without replacing editor buffers or their cursor/scroll state.
 - Store Lua source inside project JSON: mixes metadata and text-file history.
 - Edit `main.lua`/`main.luac`: conflates manual source with generated bootstrap.
 - Append Logic Board output to manual scripts: destroys ownership and diagnostics.
+- Make Generated Lua editable or reverse-sync it into the Logic Board.
+- Bidirectional Logic Board ⇄ free Lua authoring.
 - Use RmlUi form values as buffers: creates a UI authority and loses state on refresh.
 - Automatic hot reload in the MVP: introduces scope/subscription lifetime before
   the base runtime is proven.
+- Host Scintilla as a Win32 HWND over Raylib/RmlUi in the MVP (embedding/z-order
+  conflict); prefer an in-process surface behind `ICodeEditorSurface`.
 
 ## Required verification
 

@@ -1,21 +1,117 @@
 # Script Editor roadmap
 
 This roadmap is subordinate to the Architecture Constitution, Architecture,
-Engineering Gates and ADR-0002.
+Engineering Gates, ADR-0002 and [`SCRIPT_EDITOR_ARCHITECTURE.md`](SCRIPT_EDITOR_ARCHITECTURE.md).
+
+## Completed foundation (Script 1–7)
 
 | Slice | Status | Evidence / exit gate |
 |---|---|---|
 | Prerequisite — Runtime host parity | Completed | Shared Logic host is concrete; native/WASM runtime parity tests are green. |
 | Script 1 — Asset model and filesystem | Completed | `ScriptAssetDef`, schema v6, Commands, confined atomic file service, create/import, Assets category, round-trip and negative path/UTF-8 tests. |
-| Script 2 — Workspace editor MVP | Completed | Third workspace, static textarea surface, tabs, dirty buffers, Save/Save All, local Undo/Redo, unsaved guard, search/go-to-line, UTF-8 cursor status and Script → Play → Script navigation. Native build, 4,369 core assertions and full test suite green; empty/open-file screenshot smoke checks passed. |
-| Script 3 — Syntax diagnostics | Completed | 400 ms compile-only Lua 5.4 validation, revision-bound diagnostics, Console/source navigation and strict saved-source validation over an explicit referenced set. Activation becomes non-vacuous when Script 4 authors attachments. |
+| Script 2 — Workspace editor MVP | Completed | Third workspace, static textarea surface, tabs, dirty buffers, Save/Save All, local Undo/Redo, unsaved guard, search/go-to-line, UTF-8 cursor status and Script → Play → Script navigation. |
+| Script 3 — Syntax diagnostics | Completed | 400 ms compile-only Lua 5.4 validation, revision-bound diagnostics, Console/source navigation and strict saved-source validation over an explicit referenced set. |
 | Script 4 — Object Type Script Component | Completed | Schema v7 type-owned ordered attachments, Inspector attach/open/enable/reorder/remove, atomic Commands with exact Undo/Redo, delete guard, shared runtime model/parser and strict saved-source Play gate over enabled references. |
 | Script 5 — Runtime base | Completed | Shared `script-core`/`script-runtime`, isolated strict Lua scopes, `on_start`/`on_update`, exact saved-source snapshot, bounded execution, error isolation and Editor Play/standalone parity. |
 | Script 6 — Gameplay events | Completed | Canonical input and collision callbacks, shared gameplay API, immutable event snapshots, deferred destroy, error isolation and deterministic Logic → Scripts order in Editor Play and standalone. |
-| Script 7 — Apply workflow | Completed | Restart-required banner, atomic Restart & Apply, pinned Play target, exact workspace return, full native build and editor/Logic/SFX tests are green. |
-| Script 8 — IDE polish | Planned | Highlighting and editor assistance only after runtime end-to-end is complete. |
+| Script 7 — Apply workflow | Completed | Restart-required banner, atomic Restart & Apply, pinned Play target, exact workspace return. |
 
-## Script 1 contract
+## Authorized IDE slices (from architecture)
+
+These replace the former umbrella “Script 8 — IDE polish”. Product decisions and
+non-goals live in `SCRIPT_EDITOR_ARCHITECTURE.md`.
+
+| Slice | Status | Exit focus |
+|---|---|---|
+| **IDE-1** — Commercial editor surface | **Done** | In-process surface behind `ICodeEditorSurface` (Rml textarea + highlight overlay; no Scintilla HWND). Lua syntax highlight; auto-indent; bracket jump + decoration; comment toggle; indent/outdent; duplicate/move line; caret + current-line overlays; diagnostic gutter + in-text error lines; OS selection/clipboard via textarea; `ScriptEditorState` sole draft authority. |
+| IDE-2 — Script API Catalog | **Done** | Central `scriptApiCatalogV1()` in script-core; signature/hover strip; Ctrl+Space completions; API reference panel + snippet insert; catalog ↔ `manualScriptRuntimeBindingInventory` parity tests (145 checks). |
+| IDE-3 — Semantic validation | Planned | Asset/variable/clip/requirement checks shared with Play/export; Problems panel. |
+| IDE-4 — Object Type workflow UX | Planned | Create Script for Object Type (app transaction); Attach/Open/reorder/enabled; breadcrumb; attachment context panel. |
+| IDE-5 — Variables + missing APIs | Planned | `ctx.variables`; completions from `ProjectDocument`; explicit rotation unit APIs for v2. |
+| IDE-6 — Logic/Script messaging | Planned | Typed Message Definitions; Logic Send/On Message; Script `on_message` / emit. |
+| Future — Debugger | Deferred | Host-controlled breakpoints/step/locals; never expose Lua `debug` to scripts. |
+
+## IDE-1 contract
+
+- Authority: `ScriptEditorBuffer` remains the only unsaved-source authority;
+  `.lua` files remain the only saved-source authority; the surface never stores
+  a competing draft.
+- Intent/Command: text mutations stay workspace Intents; metadata stays Commands;
+  Save stays `ProjectScriptFileService` + `MarkScriptBufferSavedIntent`.
+- Invariants: one open tab per asset; no panel rebuild per keystroke; diagnostics
+  remain revision-bound projections; Generated Lua stays out of this surface.
+- Undo: focused editor → buffer history; otherwise project history.
+- Play: unchanged — saved snapshots only; Restart & Apply unchanged.
+- Tests: text ops (comment/indent/bracket) pure unit tests; controller still
+  syncs surface ← buffer; existing Script suite stays green.
+
+## IDE-2 contract
+
+**Classify (Gates §3):** workspace tooling + shared runtime metadata. Not
+persistent domain. Not Play. Not a second Script Asset catalog.
+
+### Authority
+
+| Concern | Owner | Notes |
+|---|---|---|
+| Public Manual Script API v1 surface | C++ bindings in `lua-host` (`pushManualContext` + load capture) | Executor only |
+| Tooling descriptors (docs, signatures, snippets) | `Scripts::scriptApiCatalogV1()` in **script-core** | Projection of the binding surface — never `ProjectDocument` |
+| Binding path inventory | Same registration tables as `pushManualContext` / callback capture | Exposed for parity tests |
+| Unsaved Lua text | `ScriptEditorBuffer` | Unchanged |
+| Asset/variable/clip IDs | `ProjectDocument` (read-only later) | **Out of IDE-2** → IDE-3/5 |
+
+### Intent / Command
+
+- **None** for catalog data (static process metadata).
+- Completions/snippets that edit text use existing `EditScriptBufferIntent` only.
+- No Command, no project dirty, no Undo entry for opening the API panel.
+
+### Invariants
+
+- One catalog feeds hover, signature help, snippets, API reference panel, and
+  parity tests. No parallel hardcoded string lists in UI.
+- Catalog `apiVersion` matches `kScriptApiVersion`.
+- Every public binding path has a descriptor; every descriptor path exists in
+  the runtime inventory (bijection).
+- Catalog must not invent APIs absent from Manual Script strict sandbox
+  (no Sol2 `game-api`, no `debug`, no filesystem).
+- `ICodeEditorSurface` remains rendering/input; language hints are controller
+  projections, not buffer authority.
+- Generated Lua stays out of this surface.
+
+### Undo / Play
+
+- Undo: only if a completion/snippet mutates the buffer (buffer history).
+- Play: unchanged — catalog is not consulted at runtime.
+
+### IDE-2 MVP scope
+
+| In | Out (later) |
+|---|---|
+| Descriptors for globals, callbacks, `ctx` fields, methods | `ctx.variables`, degree rotation APIs (IDE-5) |
+| Parity tests catalog ↔ binding inventory | Semantic asset/variable validation (IDE-3) |
+| Hover / signature strip from token under caret | ProjectDocument-driven completions (IDE-3/5) |
+| Ctrl+Space completions + insert snippets from catalog | Full debugger (Future) |
+| Read-only API reference strip in Script workspace | Logic Board messaging (IDE-6) |
+
+### Tests
+
+- Pure unit: catalog non-empty, unique qualified names, version == 1,
+  required callbacks present, snippet insert texts non-empty for methods.
+- Parity: sorted catalog binding paths == `manualScriptRuntimeBindingInventory()`.
+- Language service: resolve hover/signature/completions for known tokens;
+  unknown token → empty.
+- Existing Script / editor suites stay green.
+
+## Historical contracts (Script 1–7)
+
+The Script 1–7 contracts below remain the acceptance record for the foundation
+slices. Do not reopen them unless a P0 authority violation appears.
+
+<details>
+<summary>Script 1–7 contract text (unchanged)</summary>
+
+### Script 1 contract
 
 - Authority: metadata in `ProjectDocument`; saved text on disk.
 - Intent/Command: catalog mutation uses typed Commands; file service is an I/O
@@ -28,7 +124,7 @@ Engineering Gates and ADR-0002.
 - Tests: schema migration/round-trip, duplicates, traversal, symlink escape,
   BOM/newline normalization, atomic write/read/fingerprint and Command Undo/Redo.
 
-## Script 2 contract
+### Script 2 contract
 
 - Authority: one `ScriptEditorBuffer` per open AssetId in workspace state.
 - Intent/Command: open/focus/edit/cursor are workspace intents; metadata stays in
@@ -40,7 +136,7 @@ Engineering Gates and ADR-0002.
 - Tests: create → open → edit → save → close/reopen, dirty guard, Save All,
   local Undo/Redo, tab/cursor/scroll preservation and controller contract.
 
-## Script 3 contract
+### Script 3 contract
 
 - Authority: diagnostics are a disposable projection of the exact buffer
   revision that was compiled; the buffer remains the only unsaved-source
@@ -60,7 +156,7 @@ Engineering Gates and ADR-0002.
   stale-result rejection, save-invalid remains allowed, and strict validation
   over an explicit referenced AssetId set.
 
-## Script 4 contract
+### Script 4 contract
 
 - Authority: the ordered `ScriptComponent::attachments` collection lives only
   on each Object Type in `ProjectDocument`; `SceneInstanceDef` has no script
@@ -79,126 +175,23 @@ Engineering Gates and ADR-0002.
   files before either Play mode starts. A missing, unreadable or syntactically
   invalid linked source rejects Play atomically; open buffers are not sampled.
 - Tests: Command success/rejection/Undo/Redo, deterministic enabled/all
-  reference sets, referenced-delete guard, schema v8 round-trip/migration
-  (Script attachments introdotti in v7),
+  reference sets, referenced-delete guard, schema round-trip/migration,
   duplicate/missing/empty validation and native full-suite build gate.
 
-## Script 5 contract
+### Script 5–7
 
-- Authority: `ScriptProgram` in `script-core` is the immutable saved-source
-  snapshot for one Play session. `script-runtime` owns disposable VM state;
-  neither runtime module reads editor buffers, `ProjectDocument` or files.
-- Intent/Command: the application boundary snapshots the exact enabled AssetId
-  set before Start Play. Runtime callbacks do not dispatch authoring Commands
-  and cannot mutate project history.
-- Invariants: one isolated VM per `(entity, attachment)`; API version and return
-  shape validated before materialization; structural entity order then persisted
-  attachment order; generated Logic dispatch precedes manual callbacks; `on_start`
-  is emitted once; late scope installation is rejected.
-- Sandbox: no OS, filesystem, debug, dynamic loader, Raylib, network or threads;
-  controlled standard-library `require`; finite source, scope, memory,
-  instruction and call-depth limits. A callback failure disables only its scope.
-- Shared gameplay API: Logic Board and Script runtime use one
-  `IGameplayRuntimeHost` authority. Slice 5 exposes `ctx.self:set_visible` and
-  `ctx.self:set_position`; the remaining event/gameplay surface belongs to
-  Script 6.
-- Undo/Stop: runtime mutations are Play-only and have no Undo entry. Stop drops
-  all scopes and returns to the untouched authoring document.
-- Play/export: Editor Play reads every linked saved file once, then passes those
-  exact bytes through validation and materialization. Standalone loading uses
-  the same program model, sandbox and lifecycle, with confined bounded reads.
-- Tests: invalid API/shape, forbidden libraries, controlled `require`, exact
-  snapshot bytes, missing/extra programs, isolated VM state, lifecycle order,
-  runtime error isolation, caught limit violations, scope cancellation and
-  `ctx.self` mutation in a materialized PlaySession.
+See git history / prior roadmap revisions for the full Script 5–7 contract
+paragraphs (runtime base, gameplay events, Restart & Apply). Behaviour remains
+in force; IDE slices must not violate those authorities.
 
-## Script 6 contract
+</details>
 
-- Authority: the existing runtime input source and collision world produce one
-  immutable frame/edge projection; `ScriptRuntime` consumes that projection and
-  `IGameplayRuntimeHost` remains the sole authority for gameplay mutations.
-  Scripts never read `ProjectDocument`, editor buffers, RmlUi or files in a
-  callback.
-- Intent/Command: gameplay callbacks are Play-only runtime events. They do not
-  create authoring Intents or Commands, cannot advance project revision and do
-  not enter either project or script-buffer Undo history.
-- Callbacks: `on_key_pressed`, `on_key_released`, `on_key_held`,
-  `on_collision_enter` and `on_collision_exit` are optional and type-validated.
-  Input keys are canonicalized, filtered, sorted and deduplicated before
-  dispatch; collision callbacks receive the same `other` both as argument and
-  as `ctx.event.other`.
-- Shared gameplay API: `ctx.self` exposes visibility, absolute/relative
-  position and deferred destruction; `ctx.platformer` exposes move, jump and
-  grounded state; `ctx.animation` exposes play/stop/speed; `ctx.audio` exposes
-  bounded one-shot playback; `ctx.input` exposes down/pressed/released queries.
-  All operations delegate to the same host used by generated Logic Board code.
-- Ordering and lifetime: generated Logic consumes the complete immutable input
-  or collision snapshot before manual scopes. Manual scopes then run in scene
-  structural entity order and persisted attachment order. Destruction commits
-  only after every scope in that dispatch phase has run; one callback failure
-  disables only its `(entity, attachment)` scope and records source, entity and
-  exact callback.
-- Undo/Stop: runtime mutations remain disposable and have no Undo entry. Stop,
-  scene replacement and entity destruction cancel their owned scopes and clear
-  cached collision/input state deterministically.
-- Play/export: Editor materialization snapshots the registered animation and
-  static-audio catalogs before callbacks can run; runtime callbacks perform no
-  document or file lookup. Standalone uses the same `script-core`, Lua host,
-  callback contract and `script-runtime` implementation.
-- Tests: callback shape and canonical input queries, all shared API families,
-  invalid-key and invalid-volume isolation, Logic-before-Script ordering,
-  PlaySession input/update, collision `other`, deferred destroy across ordered
-  attachments, standalone linkage and native runtime regression coverage.
+## Current gate status (2026-07-19)
 
-## Script 7 contract
-
-- Authority: saved `.lua` files remain the only source eligible for apply and
-  the active `PlaySession` remains the runtime authority. The Coordinator owns
-  only content fingerprints of sources already materialized plus the derived
-  set of linked Script Asset IDs saved afterward; it never keeps a second copy
-  of source text or reads files.
-- Intent/Command: a successful file-service Save enters workspace state through
-  `MarkScriptBufferSavedIntent`. `Restart & Apply` is a Play lifecycle operation
-  orchestrated by `ProjectSessionController`, not an authoring Command; it does
-  not change project revision, dirty state or either Undo history.
-- Invariants: editing an unsaved buffer never changes the running game or shows
-  the restart banner; saving an unlinked script never invalidates the session;
-  saving linked bytes equal to the applied fingerprint removes divergence. No
-  automatic hot reload or callback replacement occurs.
-- Atomicity: the controller snapshots and validates every enabled saved source
-  while the old runtime remains alive. The Coordinator materializes a complete
-  replacement before the noexcept session swap; any validation/load failure
-  preserves the current runtime, target, navigation and restart-required state.
-- Play target and navigation: Project Play restarts as Project Play; Current
-  Scene remains pinned to the originally launched Scene ID even if editor focus
-  changes. Restart from Script switches to Scene and re-arms Stop → Script while
-  the existing buffers, active tab, cursor and scroll remain untouched.
-- Undo/Stop: Save and runtime restart create no authoring Undo entries. Stop
-  disposes the runtime and clears every play-scoped launch/fingerprint/divergence
-  projection without modifying the saved file or Script workspace.
-- Tests: dirty-versus-saved distinction, linked/unlinked sources, exact-source
-  reversion, failed restart atomicity, successful runtime replacement, pinned
-  Current Scene target, unchanged document revision/dirty state and exact
-  Script tab/cursor/scroll restoration.
-
-## Current gate status (2026-07-16)
-
-- `artcade-editor-native.exe`: builds successfully.
-- `editor_core_test`: passed through `scripts\build.bat --test`.
-- `sfx_synthesizer_test`: 12/12 passed.
-- `logic_board_editor_test`: 240 passed, 0 failed.
-- RmlUi smoke: Script empty state and an opened Lua source render without
-  parser warnings; the textarea remains a static document element.
-- Slice 6 diff review: no open P0/P1 violations. The shared Lua boundary owns
-  key and numeric validation; the volume range is identical in Editor and
-  standalone; platformer operations validate the same component contract; no
-  direct UI/document access, authoring mutation, duplicate script runtime,
-  editor-api bridge, React/Tauri or WASM editor code was introduced.
-- Standalone export parity: `runtime-cpp/build/src/app/Debug/game.exe` builds and
-  links with the shared Script modules; native `logic_board_test` passes 111/111.
-  The only warning is the pre-existing insecure development asset key, which
-  must not be shipped.
-- Slice 7 implementation, static architecture review and executable gates are
-  complete with no open P0/P1 finding. The only warning is the pre-existing
-  insecure development asset key, which must not be shipped.
-- Next authorized slice is Script 8 IDE polish.
+- Foundation Script 1–7: complete.
+- Product architecture written: `SCRIPT_EDITOR_ARCHITECTURE.md`.
+- **IDE-1** commercial editor surface: complete (in-process overlay behind
+  `ICodeEditorSurface`; no Scintilla HWND).
+- **IDE-2** Script API Catalog: complete (script-core descriptors, editor
+  language service, binding parity).
+- Next authorized work: **IDE-3** Semantic validation.
