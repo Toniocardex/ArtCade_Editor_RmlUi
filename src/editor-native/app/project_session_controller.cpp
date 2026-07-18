@@ -154,6 +154,9 @@ std::filesystem::path ProjectSessionController::assetRoot(
 }
 
 void ProjectSessionController::setCurrentProjectPath(std::filesystem::path path) {
+    // Every successful New/Open/Replace/Save-As boundary starts a distinct
+    // session even when the resulting path is textually identical.
+    sessionIdentity_.advance();
     currentProjectPath_ = std::move(path);
     refreshWindowTitle();
 }
@@ -174,10 +177,16 @@ void ProjectSessionController::refreshWindowTitleIfNeeded() {
 }
 
 bool ProjectSessionController::saveTo(const std::filesystem::path& path) {
+    const std::filesystem::path destination = normalizeProjectSavePath(path);
+    if (currentProjectPath_ != destination && projectRelocationAvailable_
+        && !projectRelocationAvailable_()) {
+        coordinator_.logWarning(
+            "Wait for the Generated SFX operation to finish before Save As");
+        return false;
+    }
     // Source buffers belong to the existing project root. Persist them there
     // before Save As copies the confined scripts tree to its new root.
     if (!currentProjectPath_.empty() && !saveAllScripts()) return false;
-    const std::filesystem::path destination = normalizeProjectSavePath(path);
     std::error_code ec;
     std::filesystem::create_directories(destination.parent_path(), ec);
     if (ec) {
@@ -191,13 +200,23 @@ bool ProjectSessionController::saveTo(const std::filesystem::path& path) {
         coordinator_.logError("Save failed: " + copyError);
         return false;
     }
+    const bool relocating = !previousRoot.empty()
+        && previousRoot != destination.parent_path();
+    if (relocating) {
+        const auto historyReady = coordinator_.validateCommandSideEffectRebase(
+            previousRoot, destination.parent_path());
+        if (!historyReady.ok) return false;
+    }
     const ProjectSaveResult result = saveProjectToFile(coordinator_, destination);
     if (!result.ok) {
         coordinator_.logError("Save failed: " + result.error.message);
         return false;
     }
-    currentProjectPath_ = destination;
-    refreshWindowTitle();
+    if (relocating)
+        coordinator_.rebaseCommandSideEffects(
+            previousRoot, destination.parent_path());
+    if (currentProjectPath_ != destination) setCurrentProjectPath(destination);
+    else refreshWindowTitle();
     coordinator_.logInfo("Saved " + destination.string());
     return true;
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "editor-native/commands/editor_command.h"
+#include "editor-native/app/editor_command_side_effect.h"
 
 #include <cstdint>
 #include <memory>
@@ -14,6 +15,7 @@ namespace ArtCade::EditorNative {
 // is correct across an undo/redo walk (it never just allocates a new revision).
 struct CommandEntry {
     std::unique_ptr<EditorCommand> command;
+    std::unique_ptr<EditorCommandSideEffect> sideEffect;
     uint64_t revisionBefore = 0;
     uint64_t revisionAfter = 0;
 };
@@ -26,9 +28,11 @@ struct CommandEntry {
 class CommandStack {
 public:
     void record(std::unique_ptr<EditorCommand> command,
+                std::unique_ptr<EditorCommandSideEffect> sideEffect,
                 uint64_t revisionBefore, uint64_t revisionAfter) {
         redo_.clear();   // a fresh command makes the redo branch unreachable
-        undo_.push_back(CommandEntry{std::move(command), revisionBefore, revisionAfter});
+        undo_.push_back(CommandEntry{
+            std::move(command), std::move(sideEffect), revisionBefore, revisionAfter});
     }
 
     bool canUndo() const { return !undo_.empty(); }
@@ -42,6 +46,33 @@ public:
     void clear() { undo_.clear(); redo_.clear(); }
     std::size_t size() const { return undo_.size(); }
     std::size_t redoSize() const { return redo_.size(); }
+
+    EditorCommandSideEffectResult validateSideEffectRebase(
+        const std::filesystem::path& previousRoot,
+        const std::filesystem::path& nextRoot) const {
+        const auto validate = [&](const std::vector<CommandEntry>& entries) {
+            for (const CommandEntry& entry : entries) {
+                if (!entry.sideEffect) continue;
+                const auto result = entry.sideEffect->validateProjectRootRebase(
+                    previousRoot, nextRoot);
+                if (!result.ok) return result;
+            }
+            return EditorCommandSideEffectResult::success();
+        };
+        const auto undoResult = validate(undo_);
+        return undoResult.ok ? validate(redo_) : undoResult;
+    }
+
+    void rebaseSideEffects(const std::filesystem::path& previousRoot,
+                           const std::filesystem::path& nextRoot) {
+        const auto rebase = [&](std::vector<CommandEntry>& entries) {
+            for (CommandEntry& entry : entries)
+                if (entry.sideEffect)
+                    entry.sideEffect->rebaseProjectRoot(previousRoot, nextRoot);
+        };
+        rebase(undo_);
+        rebase(redo_);
+    }
 
 private:
     static CommandEntry takeBack(std::vector<CommandEntry>& stack) {

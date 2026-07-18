@@ -1,4 +1,5 @@
 #include "editor-native/model/project_document.h"
+#include "editor-native/model/generated_sfx_policy.h"
 #include "editor-native/model/numeric_validation.h"
 #include "editor-native/model/path_confinement.h"
 
@@ -798,11 +799,7 @@ const artcade::sfx::GeneratedSfxDef* ProjectDocument::findGeneratedSfx(
 
 const artcade::sfx::GeneratedSfxDef* ProjectDocument::findGeneratedSfxByOutputAssetId(
     const AssetId& outputAssetId) const {
-    if (outputAssetId.empty()) return nullptr;
-    for (const artcade::sfx::GeneratedSfxDef& definition : doc_.generatedSfx) {
-        if (definition.outputAssetId == outputAssetId) return &definition;
-    }
-    return nullptr;
+    return findGeneratedSfxOutputOwner(doc_, outputAssetId);
 }
 
 std::string resolveAudioAssetDisplayName(const ProjectDocument& document,

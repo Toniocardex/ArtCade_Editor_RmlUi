@@ -12,6 +12,7 @@
 #include "editor-native/model/script_source_stamp.h"
 
 #include <memory>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -117,7 +118,15 @@ public:
     /** Run a command by value, e.g. execute(SetEntityPositionCommand{scene, id, pos}). */
     template <class CommandT>
     EditorOperationResult execute(CommandT command) {
-        return executeOwned(std::make_unique<CommandT>(std::move(command)));
+        return executeOwned(std::make_unique<CommandT>(std::move(command)), nullptr);
+    }
+
+    template <class CommandT>
+    EditorOperationResult executeWithSideEffect(
+        CommandT command,
+        std::unique_ptr<EditorCommandSideEffect> sideEffect) {
+        return executeOwned(std::make_unique<CommandT>(std::move(command)),
+                            std::move(sideEffect));
     }
 
     bool                  canUndo() const { return history_.canUndo(); }
@@ -128,6 +137,11 @@ public:
     EditorOperationResult redo();
     EditorOperationResult replaceProject(ProjectDocument replacement);
     EditorOperationResult markProjectSaved();
+    EditorCommandSideEffectResult validateCommandSideEffectRebase(
+        const std::filesystem::path& previousRoot,
+        const std::filesystem::path& nextRoot);
+    void rebaseCommandSideEffects(const std::filesystem::path& previousRoot,
+                                  const std::filesystem::path& nextRoot);
 
     // ---- Play / Stop (runtime session; the document is never mutated) --------
     // The two modes have distinct targets: Play Project uses the document's
@@ -174,6 +188,10 @@ public:
 
     // ---- intent path (workspace/editor state) -------------------------------
     EditorOperationResult apply(const SelectEntityIntent& intent);
+    EditorOperationResult apply(const CreateGeneratedSfxIntent& intent);
+    EditorOperationResult apply(const DuplicateGeneratedSfxIntent& intent);
+    EditorOperationResult apply(const RenameGeneratedSfxIntent& intent);
+    EditorOperationResult apply(const UpdateGeneratedSfxRecipeIntent& intent);
     EditorOperationResult apply(const SelectSceneIntent& intent);
     EditorOperationResult apply(const SwitchCenterWorkspaceIntent& intent);
     EditorOperationResult apply(const OpenLogicBoardIntent& intent);
@@ -264,7 +282,9 @@ public:
     EditorInvalidation pendingInvalidations() const { return pending_; }
 
 private:
-    EditorOperationResult executeOwned(std::unique_ptr<EditorCommand> command);
+    EditorOperationResult executeOwned(
+        std::unique_ptr<EditorCommand> command,
+        std::unique_ptr<EditorCommandSideEffect> sideEffect);
     // Workspace-only apply(SomeIntent) overloads funnel their result through
     // here. Authoring intents delegate to executeOwned() through one concrete
     // Command, which already reports rejected mutations as errors.

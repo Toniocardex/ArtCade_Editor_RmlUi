@@ -3,6 +3,7 @@
 #include "core/types.h"
 #include "editor-native/model/editor_state.h"
 #include "editor-native/model/editor_ui_state.h"
+#include "artcade/sfx/types.hpp"
 
 #include <cstddef>
 #include <optional>
@@ -16,6 +17,32 @@ namespace ArtCade::EditorNative {
 // by the Coordinator into exactly one EditorCommand. Plain value structs; no
 // UI pointers.
 // =============================================================================
+
+struct CreateGeneratedSfxIntent {
+    std::string id;
+    std::string name;
+    artcade::sfx::SfxRecipe recipe{};
+};
+
+struct DuplicateGeneratedSfxIntent {
+    std::string sourceId;
+    std::string newId;
+    std::string newName;
+};
+
+struct RenameGeneratedSfxIntent {
+    std::string id;
+    std::string name;
+};
+
+struct UpdateGeneratedSfxRecipeIntent {
+    std::string id;
+    artcade::sfx::SfxRecipe recipe{};
+};
+
+struct RemoveGeneratedSfxIntent {
+    std::string id;
+};
 
 struct SelectEntityIntent {
     EntityId entityId = INVALID_ENTITY;

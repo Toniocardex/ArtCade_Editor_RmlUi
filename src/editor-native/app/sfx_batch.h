@@ -1,5 +1,7 @@
 #pragma once
 
+#include "editor-native/app/project_session_id.h"
+
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -28,7 +30,7 @@ struct SfxBatchState {
     bool summaryVisible = false;
     std::size_t currentIndex = 0;
     std::vector<SfxBatchItem> items;
-    std::string projectPathAtStart;
+    ProjectSessionId projectSessionIdAtStart = 0;
     std::size_t succeeded = 0;
     std::size_t failed = 0;
     std::size_t skipped = 0;

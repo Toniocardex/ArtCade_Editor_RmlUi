@@ -2,6 +2,7 @@
 #include "artcade/sfx/recipe_json.hpp"
 #include "artcade/sfx/synthesizer.hpp"
 #include "logic-core.h"
+#include "editor-native/model/generated_sfx_policy.h"
 #include "editor-native/model/numeric_validation.h"
 #include "editor-native/model/path_confinement.h"
 #include "editor-native/model/sprite_render_view.h"
@@ -26,9 +27,11 @@ namespace ArtCade::EditorNative {
 
 namespace {
 
+// v8: Generated SFX has one-way output ownership. Linked AudioAssetDef entries
+// carry no mirrored display name; provenance is derived and validated.
 // v7: Object-Type-owned ordered Script attachments. Project JSON still stores
 // metadata only; source text remains in project-relative .lua files.
-constexpr int kCurrentSchemaVersion = 7;
+constexpr int kCurrentSchemaVersion = 8;
 
 class JsonReadError final : public std::runtime_error {
 public:
@@ -1170,17 +1173,6 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
         }
     }
 
-    // Legacy: linked outputs without provenance → stamp GeneratedSfx id.
-    for (const artcade::sfx::GeneratedSfxDef& definition : doc.generatedSfx) {
-        if (definition.outputAssetId.empty()) continue;
-        for (AudioAssetDef& asset : doc.audioAssets) {
-            if (asset.assetId != definition.outputAssetId) continue;
-            if (!asset.generatedFromSfxId || asset.generatedFromSfxId->empty())
-                asset.generatedFromSfxId = definition.id;
-            break;
-        }
-    }
-
     if (const nlohmann::json* fontAssets = optionalArray(root, "fontAssets", "fontAssets")) {
         for (const auto& item : *fontAssets) {
             requireObject(item, "fontAssets[]");
@@ -1298,9 +1290,12 @@ SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
 
     nlohmann::json audioAssets = nlohmann::json::array();
     for (const AudioAssetDef& asset : doc.audioAssets) {
+        const bool linkedGeneratedOutput =
+            audioIsLinkedGeneratedOutput(doc, asset.assetId);
         nlohmann::json entry{
             {"assetId", asset.assetId},
-            {"name", asset.name.empty() ? asset.assetId : asset.name},
+            {"name", linkedGeneratedOutput
+                ? std::string{} : (asset.name.empty() ? asset.assetId : asset.name)},
             {"sourcePath", asset.sourcePath},
             {"loadMode", audioLoadModeToString(asset.loadMode)},
         };
@@ -1368,6 +1363,7 @@ DeserializeResult ProjectMigration::migrate(ProjectDocument document) {
     if (version < kCurrentSchemaVersion) {
         ProjectDoc migrated = document.data();
         if (version < 4) migrateSpriteOwnershipToObjectTypes(migrated);
+        if (version < 8) migrateGeneratedSfxAuthority(migrated);
         migrated.formatVersion = kCurrentSchemaVersion;
         return DeserializeResult::success(ProjectDocument{std::move(migrated)});
     }
@@ -1497,6 +1493,10 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
         if (!audioAssetIds.insert(asset.assetId).second) {
             return DeserializeResult::failure("Duplicate audio asset id");
         }
+        if (!asset.name.empty()
+            && normalizeAudioDisplayName(asset.name) != asset.name) {
+            return DeserializeResult::failure("Audio asset name must be normalized");
+        }
         if (!isPortableAssetPath(asset.sourcePath)) {
             return DeserializeResult::failure("Audio asset path must be relative");
         }
@@ -1511,10 +1511,16 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
         if (definition.id.empty() || definition.name.empty()) {
             return DeserializeResult::failure("Generated SFX id and name cannot be empty");
         }
+        const std::string normalizedGeneratedName =
+            normalizeAudioDisplayName(definition.name);
+        if (normalizedGeneratedName != definition.name) {
+            return DeserializeResult::failure(
+                "Generated SFX name must be normalized");
+        }
         if (!generatedSfxIds.insert(definition.id).second) {
             return DeserializeResult::failure("Duplicate Generated SFX id");
         }
-        std::string foldedName = definition.name;
+        std::string foldedName = normalizedGeneratedName;
         std::transform(foldedName.begin(), foldedName.end(), foldedName.begin(),
             [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         if (!generatedSfxNames.insert(std::move(foldedName)).second) {
@@ -1526,28 +1532,32 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
                 "Generated SFX '" + definition.name + "' is invalid: "
                 + recipeValidation.error().message);
         }
-        const bool hasAsset = !definition.outputAssetId.empty();
-        const bool hasPath = !definition.outputPath.empty();
-        if (hasAsset != hasPath) {
-            return DeserializeResult::failure(
-                "Generated SFX output asset and path must be set together");
-        }
-        if (hasPath && !isPortableAssetPath(definition.outputPath)) {
+        if (!definition.outputPath.empty() && !isPortableAssetPath(definition.outputPath)) {
             return DeserializeResult::failure("Generated SFX output path must be relative");
         }
-        if (hasAsset) {
-            const auto audio = std::find_if(data.audioAssets.begin(), data.audioAssets.end(),
-                [&](const AudioAssetDef& asset) {
-                    return asset.assetId == definition.outputAssetId;
-                });
-            if (audio == data.audioAssets.end()) {
-                return DeserializeResult::failure(
-                    "Generated SFX output must reference an existing audio asset");
-            }
-            if (audio->sourcePath != definition.outputPath) {
-                return DeserializeResult::failure(
-                    "Generated SFX output path does not match its audio asset");
-            }
+    }
+
+    const GeneratedSfxAuthorityValidation generatedAuthority =
+        validateGeneratedSfxAuthority(data);
+    if (!generatedAuthority.ok)
+        return DeserializeResult::failure(generatedAuthority.error);
+
+    std::unordered_set<std::string> audioDisplayNames;
+    for (const artcade::sfx::GeneratedSfxDef& definition : data.generatedSfx) {
+        std::string normalized = normalizeAudioDisplayName(definition.name);
+        std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        audioDisplayNames.insert(std::move(normalized));
+    }
+    for (const AudioAssetDef& asset : data.audioAssets) {
+        if (audioIsLinkedGeneratedOutput(data, asset.assetId)) continue;
+        std::string normalized = normalizeAudioDisplayName(
+            asset.name.empty() ? asset.assetId : asset.name);
+        std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (!audioDisplayNames.insert(std::move(normalized)).second) {
+            return DeserializeResult::failure(
+                "Audio display names must be unique across audio and Generated SFX");
         }
     }
 

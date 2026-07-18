@@ -286,6 +286,18 @@
     overflow-y: auto;
 }
 
+.sfx-empty-workspace {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    color: #8b98aa;
+}
+.sfx-empty-title { display: block; color: #dfe5ee; font-size: 16px; font-weight: 600; }
+.sfx-empty-copy { display: block; margin-bottom: 6px; font-size: 11px; }
+
 /* Confirmed via RmlUi's Outlines debugger: this block's width collapsed to
    its padding alone (content width ~0) -- its flex children (.sfx-summary-
    row, .sfx-presets) render at their own natural size but entirely outside
@@ -348,7 +360,7 @@
 .sfx-preset { padding: 5px 10px; background: #232a35; border: 1px #394353; border-radius: 2px; color: #dfe5ee; }
 .sfx-preset:hover { background: #2d3745; }
 /* The preset that exactly matches the current recipe, if any -- cleared the
-   moment a macro edit makes the recipe diverge (see activeSfxPresetId). */
+   moment a macro edit makes the recipe diverge (see activeGeneratedSfxPresetId). */
 .sfx-preset.active { background: #1d2a44; border-color: #3b82f6; color: #dbe6ff; }
 /* Randomize is an operation, not a sound choice -- a divider plus a slightly
    muted tone keeps it from reading as a sixth preset and inviting stray clicks. */

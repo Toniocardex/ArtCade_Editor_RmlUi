@@ -78,6 +78,35 @@ using namespace ArtCade;
 using namespace ArtCade::EditorNative;
 using namespace ArtCade::EditorNative::CoreTest;
 
+namespace {
+
+class PreflightFilesystemProbe final : public GeneratedSfxOutputRepository {
+public:
+    GeneratedSfxFileInspection inspect(
+        const std::filesystem::path& path) const override {
+        std::error_code error;
+        const bool exists = std::filesystem::exists(path, error);
+        return error
+            ? GeneratedSfxFileInspection{false, false, false, error.message()}
+            : GeneratedSfxFileInspection{true, exists, exists, {}};
+    }
+
+    GeneratedSfxFileOperationResult moveNoReplace(
+        const std::filesystem::path&,
+        const std::filesystem::path&) override {
+        return GeneratedSfxFileOperationResult::failure(
+            "Preflight probe does not move files");
+    }
+
+    GeneratedSfxFileOperationResult removeIfExists(
+        const std::filesystem::path&) override {
+        return GeneratedSfxFileOperationResult::failure(
+            "Preflight probe does not remove files");
+    }
+};
+
+} // namespace
+
 int main() {
 
     using artcade::sfx::SfxRecipe;
@@ -100,7 +129,7 @@ int main() {
     CHECK(serialized.value.find("\"generatorVersion\": 2") != std::string::npos);
     const DeserializeResult decoded = ProjectSerializer::deserialize(serialized.value);
     CHECK(decoded.ok);
-        CHECK(decoded.value.data().formatVersion == 7);
+        CHECK(decoded.value.data().formatVersion == 8);
     CHECK(ProjectValidator::validate(decoded.value).ok);
     CHECK(generatedSfxRecipesEqual(
         decoded.value.findGeneratedSfx("sfx-jump")->recipe, recipe));
@@ -122,7 +151,7 @@ int main() {
     CHECK(coordinator.document().hasAudioAsset(output.assetId));
     CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId
           == output.assetId);
-    CHECK(coordinator.document().findAudioAsset(output.assetId)->name == "Jump");
+    CHECK(coordinator.document().findAudioAsset(output.assetId)->name.empty());
     CHECK(resolveAudioAssetDisplayName(
             coordinator.document(),
             *coordinator.document().findAudioAsset(output.assetId)) == "Jump");
@@ -130,7 +159,7 @@ int main() {
 
     CHECK(coordinator.execute(RenameGeneratedSfxCommand{"sfx-jump", "Hero Jump"}).ok);
     CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->name == "Hero Jump");
-    CHECK(coordinator.document().findAudioAsset(output.assetId)->name == "Hero Jump");
+    CHECK(coordinator.document().findAudioAsset(output.assetId)->name.empty());
     CHECK(resolveAudioAssetDisplayName(
             coordinator.document(),
             *coordinator.document().findAudioAsset(output.assetId)) == "Hero Jump");
@@ -142,7 +171,7 @@ int main() {
     // Recipe edit keeps the stable output link; status becomes Stale via fingerprint.
     CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId
           == output.assetId);
-    CHECK(coordinator.document().findAudioAsset(output.assetId)->name == "Hero Jump");
+    CHECK(coordinator.document().findAudioAsset(output.assetId)->name.empty());
     CHECK(generatedSfxOutputStatus(coordinator.document(),
             *coordinator.document().findGeneratedSfx("sfx-jump"))
           == GeneratedSfxOutputStatus::Stale);
@@ -160,7 +189,7 @@ int main() {
     CHECK(generatedSfxOutputStatus(coordinator.document(),
             *coordinator.document().findGeneratedSfx("sfx-jump"))
           == GeneratedSfxOutputStatus::Ready);
-    CHECK(coordinator.document().findAudioAsset(output.assetId)->name == "Hero Jump");
+    CHECK(coordinator.document().findAudioAsset(output.assetId)->name.empty());
     CHECK(coordinator.redo().ok);
     CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId
           == output.assetId);
@@ -175,7 +204,7 @@ int main() {
           == GeneratedSfxOutputStatus::Ready);
     CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->generatedRecipeFingerprint
           == artcade::sfx::recipeFingerprint(changed));
-    CHECK(coordinator.document().findAudioAsset(output.assetId)->name == "Hero Jump");
+    CHECK(coordinator.document().findAudioAsset(output.assetId)->name.empty());
     CHECK(resolveAudioAssetDisplayName(
             coordinator.document(),
             *coordinator.document().findAudioAsset(output.assetId))
@@ -228,10 +257,11 @@ int main() {
 
         artcade::sfx::GeneratedSfxDef prospective;
         prospective.id = "prospective";
+        PreflightFilesystemProbe repository;
         const auto available = preflightGeneratedSfxGeneration(
-            coordinator.document(), prospective, root);
-        CHECK(available.allowed);
-        CHECK(!available.regenerating);
+            coordinator.document(), prospective, root, repository);
+        CHECK(available.allowed());
+        CHECK(!available.regenerating());
         CHECK(!available.identity.finalPath.empty());
         {
             std::ofstream existing{available.identity.finalPath, std::ios::binary};
@@ -240,25 +270,27 @@ int main() {
         const std::uint64_t revisionBeforeBlockedPreflight =
             coordinator.document().revision();
         const auto blocked = preflightGeneratedSfxGeneration(
-            coordinator.document(), prospective, root);
-        CHECK(!blocked.allowed);
+            coordinator.document(), prospective, root, repository);
+        CHECK(!blocked.allowed());
         CHECK(blocked.error.find("already exists") != std::string::npos);
         CHECK(coordinator.document().revision() == revisionBeforeBlockedPreflight);
 
         const auto linked = preflightGeneratedSfxGeneration(
             coordinator.document(),
-            *coordinator.document().findGeneratedSfx("sfx-jump"), root);
-        CHECK(linked.allowed);
-        CHECK(linked.regenerating);
+            *coordinator.document().findGeneratedSfx("sfx-jump"), root,
+            repository);
+        CHECK(linked.allowed());
+        CHECK(linked.regenerating());
         {
             std::ofstream existingLinked{linked.identity.finalPath, std::ios::binary};
             existingLinked << "owned";
         }
         const auto linkedExisting = preflightGeneratedSfxGeneration(
             coordinator.document(),
-            *coordinator.document().findGeneratedSfx("sfx-jump"), root);
-        CHECK(linkedExisting.allowed);
-        CHECK(linkedExisting.regenerating);
+            *coordinator.document().findGeneratedSfx("sfx-jump"), root,
+            repository);
+        CHECK(linkedExisting.allowed());
+        CHECK(linkedExisting.regenerating());
     }
 
     // Cross-catalog case-insensitive name uniqueness.
@@ -278,27 +310,21 @@ int main() {
     CHECK(uniqueGeneratedSfxName(coordinator.document(), "Hero Jump 02")
           == "Hero Jump 02");
 
-    CHECK(coordinator.execute(RemoveAudioAssetCommand{output.assetId}).ok);
-    CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId.empty());
-    CHECK(generatedSfxOutputStatus(coordinator.document(),
-            *coordinator.document().findGeneratedSfx("sfx-jump"))
-          == GeneratedSfxOutputStatus::NeedsGeneration);
-    CHECK(coordinator.undo().ok);
+    // A linked output cannot be removed through the generic Audio writer.
+    // Hard delete remains owned by RemoveGeneratedSfxCommand below.
+    CHECK(!coordinator.execute(RemoveAudioAssetCommand{output.assetId}).ok);
     CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId
           == output.assetId);
+    CHECK(generatedSfxOutputStatus(coordinator.document(),
+            *coordinator.document().findGeneratedSfx("sfx-jump"))
+          == GeneratedSfxOutputStatus::Ready);
 
     CHECK(coordinator.execute(RemoveGeneratedSfxCommand{"sfx-jump"}).ok);
     CHECK(!coordinator.document().hasGeneratedSfx("sfx-jump"));
-    CHECK(coordinator.document().hasAudioAsset(output.assetId));
-    CHECK(coordinator.document().findAudioAsset(output.assetId)->name == "Hero Jump");
-    CHECK(resolveAudioAssetDisplayName(
-            coordinator.document(),
-            *coordinator.document().findAudioAsset(output.assetId)) == "Hero Jump");
-    CHECK(!coordinator.execute(
-        CreateGeneratedSfxCommand{"sfx-jump", "Replacement", changedAgain}).ok);
+    CHECK(!coordinator.document().hasAudioAsset(output.assetId));
     CHECK(coordinator.undo().ok);
     CHECK(coordinator.document().hasGeneratedSfx("sfx-jump"));
-    CHECK(coordinator.document().findAudioAsset(output.assetId)->name == "Hero Jump");
+    CHECK(coordinator.document().findAudioAsset(output.assetId)->name.empty());
     CHECK(coordinator.document().findGeneratedSfx("sfx-jump")->outputAssetId
           == output.assetId);
 

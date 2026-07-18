@@ -79,7 +79,8 @@ Engineering Gates and ADR-0002.
   files before either Play mode starts. A missing, unreadable or syntactically
   invalid linked source rejects Play atomically; open buffers are not sampled.
 - Tests: Command success/rejection/Undo/Redo, deterministic enabled/all
-  reference sets, referenced-delete guard, schema v7 round-trip/migration,
+  reference sets, referenced-delete guard, schema v8 round-trip/migration
+  (Script attachments introdotti in v7),
   duplicate/missing/empty validation and native full-suite build gate.
 
 ## Script 5 contract

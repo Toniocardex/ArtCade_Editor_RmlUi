@@ -6,6 +6,7 @@
 #include "editor-native/app/sfx_batch.h"
 #include "editor-native/ui/assets_panel.h"
 #include "editor-native/ui/console_panel.h"
+#include "editor-native/ui/generated_sfx_editor_controller.h"
 #include "editor-native/ui/hierarchy_panel.h"
 #include "editor-native/ui/inspector_panel.h"
 #include "editor-native/ui/logic_board_editor_controller.h"
@@ -127,15 +128,22 @@ public:
         std::function<std::optional<std::pair<int, int>>(const AssetId&)>;
     void setTilesetImageSizeProvider(ImageSizeProvider imageSize);
 
-    using GeneratedSfxRequest = std::function<void(const std::string&)>;
+    using GeneratedSfxRequest = GeneratedSfxEditorController::GeneratedSfxRequest;
     void setGeneratedSfxHandlers(GeneratedSfxRequest preview,
                                  WorkspaceRequest stopPreview,
                                  GeneratedSfxRequest generate);
+    void setGeneratedSfxDiagnosticHandler(GeneratedSfxRequest dismissDiagnostic);
+    using GeneratedSfxCreateFromCurrentRequest =
+        GeneratedSfxEditorController::CreateFromCurrentRequest;
+    void setGeneratedSfxCreateFromCurrentHandler(
+        GeneratedSfxCreateFromCurrentRequest request);
+    using GeneratedSfxDeleteRequest = GeneratedSfxEditorController::DeleteRequest;
+    void setGeneratedSfxDeleteHandler(GeneratedSfxDeleteRequest request);
     void setSfxBatchHandlers(WorkspaceRequest regenerateAllStale,
                              WorkspaceRequest cancelBatch,
                              WorkspaceRequest dismissSummary);
     void setSfxBatchState(SfxBatchState state);
-    // Generate writes into the project's own folder (assets/audio/generated/),
+    // Generate writes into the project's canonical generated-audio folder,
     // which requires a saved project path -- a constraint the application
     // layer already enforces (it logs a Console error and no-ops otherwise).
     // Surfacing it here too means the SFX panel's own status line explains
@@ -143,18 +151,19 @@ public:
     // message the user has to go looking for.
     using ProjectSavedQuery = std::function<bool()>;
     void setProjectSavedQuery(ProjectSavedQuery query);
-    struct GeneratedSfxGenerationAvailability {
-        bool allowed = true;
-        std::string reason;
-    };
+    using GeneratedSfxGenerationAvailability =
+        ArtCade::EditorNative::GeneratedSfxGenerationAvailability;
     using GeneratedSfxGenerationAvailabilityQuery =
         std::function<GeneratedSfxGenerationAvailability(const std::string&)>;
     void setGeneratedSfxGenerationAvailabilityQuery(
         GeneratedSfxGenerationAvailabilityQuery query);
+    using GeneratedSfxStatusQuery = GeneratedSfxEditorController::StatusQuery;
+    void setGeneratedSfxStatusQuery(GeneratedSfxStatusQuery query);
     // Called by the application right after RegisterGeneratedSfxOutputCommand
     // commits. Shows a one-shot "Audio asset generated" confirmation until
     // the next SFX panel interaction of any kind.
     void notifyGeneratedSfxOutputReady(const std::string& id);
+    void notifyGeneratedSfxStatusChanged();
     void validateSfxCreateFromCurrentName(const std::string& value);
     void confirmSfxCreateFromCurrent(const std::string& value);
     void closeSfxCreateFromCurrentDialog();
@@ -291,6 +300,7 @@ private:
     TilesetEditorController             tilesetEditor_;
     LogicBoardEditorController          logicBoardEditor_;
     ScriptEditorController              scriptEditor_;
+    GeneratedSfxEditorController        generatedSfxEditor_;
     HierarchyPanel                      hierarchy_;
     InspectorPanel                      inspector_;
     ConsolePanel                        console_;
@@ -314,15 +324,6 @@ private:
     EntityPlacementRequest              createEntityHereRequest_;
     EntityPlacementRequest              createInstanceHereRequest_;
     WorkspaceRequest                    fitViewRequest_;
-    GeneratedSfxRequest                 previewGeneratedSfxRequest_;
-    WorkspaceRequest                    stopGeneratedSfxPreviewRequest_;
-    GeneratedSfxRequest                 generateSfxOutputRequest_;
-    WorkspaceRequest                    regenerateAllStaleSfxRequest_;
-    WorkspaceRequest                    cancelSfxBatchRequest_;
-    WorkspaceRequest                    dismissSfxBatchSummaryRequest_;
-    SfxBatchState                       sfxBatchState_;
-    ProjectSavedQuery                   projectSavedQuery_;
-    GeneratedSfxGenerationAvailabilityQuery sfxGenerationAvailabilityQuery_;
     bool                                viewportContextMenuVisible_ = false;
     bool                                hierarchyContextMenuVisible_ = false;
     // Deferred hierarchy menu request (applied on the next processFrame).
@@ -345,37 +346,8 @@ private:
     bool                                logicTypeMenuVisible_ = false;
     bool                                logicMoreMenuVisible_ = false;
     std::string                         pointerReadout_;   // last coords text shown
-    std::optional<std::string>          openGeneratedSfxId_;
-    // Simple/Advanced is a workspace view, not document state -- no dirty, no
-    // Undo, same contract as openGeneratedSfxId_ itself.
-    bool                                sfxAdvancedMode_ = false;
-    /** Browser search buffer (workspace-only). */
-    std::string                         sfxBrowserFilter_;
-    /** "+" create-from-preset menu open state (workspace-only). */
-    bool                                sfxCreateMenuOpen_ = false;
-    /** Header ⋯ menu (workspace-only). */
-    bool                                sfxMoreMenuOpen_ = false;
-    /** Create New Sound from Current dialog (workspace-only). */
-    bool                                sfxCreateFromCurrentOpen_ = false;
-    std::string                         sfxCreateFromCurrentName_;
-    std::string                         sfxCreateFromCurrentError_;
-    std::string                         sfxCreateFromCurrentSourceId_;
-    bool                                sfxFocusCreateFromCurrentName_ = false;
+    // Modal RML rebuild is deferred until the active event dispatch ends.
     bool                                generatedSfxRefreshPending_ = false;
-    /** After Rename from the browser, focus the name field once. */
-    bool                                sfxFocusNameField_ = false;
-    std::unordered_set<std::string>     sfxCollapsedSections_{"secondary-voice", "noise-layer"};
-    // Live state for an in-progress macro-slider drag; see handleSfxMacroDrag.
-    struct SfxMacroDragSession {
-        std::string assetId;      // GeneratedSfxDef::id this session belongs to
-        std::string macroId;
-        float       baselineValue = 0.f;
-        float       liveValue = 0.f;
-    };
-    std::optional<SfxMacroDragSession>  sfxMacroDrag_;
-    // Non-empty right after a successful Generate, until the next SFX panel
-    // interaction; see notifyGeneratedSfxOutputReady().
-    std::string                         sfxJustGeneratedId_;
 };
 
 } // namespace ArtCade::EditorNative

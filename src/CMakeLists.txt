@@ -9,6 +9,8 @@
 
 add_library(artcade-editor-core STATIC
     editor-native/model/project_document.cpp
+    editor-native/model/generated_sfx_policy.cpp
+    editor-native/model/generated_sfx_preset_catalog.cpp
     editor-native/model/project_io.cpp
     editor-native/model/path_confinement.cpp
     editor-native/model/script_editor_state.cpp
@@ -63,6 +65,7 @@ add_library(artcade-editor-core STATIC
     editor-native/app/script_asset_workflow.cpp
     editor-native/app/project_load.cpp
     editor-native/app/new_project_transaction.cpp
+    editor-native/ui/generated_sfx_editor_controller.cpp
 )
 
 target_include_directories(artcade-editor-core PUBLIC
@@ -129,6 +132,9 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/app/main.cpp
     editor-native/app/editor_app.cpp
     editor-native/app/generated_sfx_generation_preflight.cpp
+    editor-native/app/generated_sfx_generation_service.cpp
+    editor-native/app/generated_sfx_status_projection.cpp
+    editor-native/app/generated_sfx_output_transaction.cpp
     editor-native/app/project_session_controller.cpp
     editor-native/app/scene_view_interaction.cpp
     ${rmlui_SOURCE_DIR}/Backends/RmlUi_Renderer_GL3.cpp

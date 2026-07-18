@@ -16,28 +16,40 @@ function(artcade_editor_core_suite TARGET SOURCE)
     target_sources(${TARGET} PRIVATE
         ${ARTCADE_EDITOR_CORE_TEST_HARNESS}
         ${CMAKE_SOURCE_DIR}/src/editor-native/app/generated_sfx_generation_preflight.cpp)
+    if(MSVC)
+        target_link_options(${TARGET} PRIVATE /STACK:8388608)
+    endif()
 endfunction()
 
 artcade_editor_core_suite(editor_core_test
     editor-core-test.cpp)
-if(MSVC)
-    target_link_options(editor_core_test PRIVATE /STACK:8388608)
-endif()
 
 artcade_editor_core_suite(sprite_animation_test
     sprite-animation-test.cpp)
 
 artcade_editor_core_suite(tileset_tilemap_test
     tileset-tilemap-test.cpp)
-if(MSVC)
-    target_link_options(tileset_tilemap_test PRIVATE /STACK:8388608)
-endif()
 
 artcade_editor_core_suite(generated_sfx_model_test
     generated-sfx-model-test.cpp)
 
 artcade_editor_core_suite(script_asset_test
     script-asset-test.cpp)
+
+artcade_test(generated_sfx_editor_controller_test
+    generated-sfx-editor-controller-test.cpp
+    artcade-editor-core)
+target_compile_definitions(generated_sfx_editor_controller_test PRIVATE
+    ARTCADE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
+artcade_test(generated_sfx_generation_service_test
+    generated-sfx-generation-service-test.cpp
+    artcade-editor-core)
+target_sources(generated_sfx_generation_service_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/editor-native/app/generated_sfx_generation_preflight.cpp
+    ${CMAKE_SOURCE_DIR}/src/editor-native/app/generated_sfx_generation_service.cpp
+    ${CMAKE_SOURCE_DIR}/src/editor-native/app/generated_sfx_output_transaction.cpp
+    ${CMAKE_SOURCE_DIR}/src/editor-native/app/generated_sfx_status_projection.cpp)
 
 artcade_test(logic_board_editor_test
     logic-board-editor-test.cpp

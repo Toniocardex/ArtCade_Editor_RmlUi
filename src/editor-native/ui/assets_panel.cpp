@@ -1,7 +1,6 @@
 #include "editor-native/ui/assets_panel.h"
 
 #include "editor-native/app/editor_coordinator.h"
-#include "editor-native/commands/generated_sfx_commands.h"
 #include "editor-native/ui/editor_ui.h"
 
 #include <RmlUi/Core/Element.h>
@@ -27,9 +26,12 @@ const char* btnClass(bool disabled) { return disabled ? "panel-btn disabled" : "
 // One import entry point for every asset kind (audit 4.6): a hover dropdown in
 // the same local-visual-state pattern as the hierarchy "+ Create" menu.
 std::string importMenu(bool disabled) {
-    const auto entry = [&](const char* action, const char* label) {
+    const auto entry = [&](const char* action, const char* label,
+                           const char* arg = nullptr) {
         return std::string("<div class=\"menu-entry") + (disabled ? " disabled" : "")
-             + "\" data-action=\"" + action + "\">" + label + "</div>";
+             + "\" data-action=\"" + action + "\""
+             + (arg ? std::string(" data-arg=\"") + arg + "\"" : std::string{})
+             + ">" + label + "</div>";
     };
     return std::string("<div class=\"create-menu asset-import\">")
          + "<button class=\"asset-import-trigger " + btnClass(disabled)
@@ -41,7 +43,7 @@ std::string importMenu(bool disabled) {
          + entry("import-font",  "Font")
          + entry("import-script", "Lua Script")
          + entry("create-script", "Create Lua Script")
-         + entry("create-generated-sfx", "Generated SFX")
+         + entry("create-generated-sfx", "Generated SFX", "coin")
          + "</div></div>";
 }
 
@@ -105,7 +107,8 @@ bool matchesAssetFilter(const std::string& filter,
 } // namespace
 
 void AssetsPanel::refresh(Rml::ElementDocument* document,
-                          const EditorCoordinator& coordinator) const {
+                          const EditorCoordinator& coordinator,
+                          const GeneratedSfxStatusQuery& generatedSfxStatus) const {
     if (!document) return;
     Rml::Element* list = document->GetElementById("assets-list");
     if (!list) return;
@@ -182,19 +185,20 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
     for (const artcade::sfx::GeneratedSfxDef& definition : doc.generatedSfx) {
         if (matchesAssetFilter(filter, {definition.name, definition.id,
                                         "Generated SFX", definition.outputPath})) {
-            const GeneratedSfxOutputStatus status =
-                generatedSfxOutputStatus(coordinator.document(), definition);
+            const GeneratedSfxStatusProjection status = generatedSfxStatus
+                ? generatedSfxStatus(definition.id)
+                : GeneratedSfxStatusProjection{};
             groups += assetRow("&#xed46;", definition.name, definition.id,
                                "open-generated-sfx", definition.id,
                                "<span class=\"asset-meta\">"
-                                   + std::string(generatedSfxOutputStatusLabel(status))
+                                   + std::string(generatedSfxObservedStatusLabel(status.status))
                                    + "</span>",
                                menuAffordance("sfx", definition.id));
             ++shown;
         }
     }
 
-    // -- Audio: independent / detached assets only (linked SFX outputs stay
+    // -- Audio: independent/imported assets only (linked SFX outputs stay
     // under Generated SFX so one logical asset does not appear twice). --------
     std::size_t independentAudioCount = 0;
     for (const AudioAssetDef& asset : doc.audioAssets) {

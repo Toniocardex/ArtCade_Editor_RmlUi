@@ -6,13 +6,15 @@
 #include "editor-native/app/editor_input.h"
 #include "editor-native/app/file_dialog.h"
 #include "editor-native/app/generated_sfx_generation_preflight.h"
+#include "editor-native/app/generated_sfx_generation_service.h"
+#include "editor-native/app/generated_sfx_output_transaction.h"
+#include "editor-native/app/generated_sfx_status_projection.h"
 #include "editor-native/app/hierarchy_actions.h"
 #include "editor-native/app/input_routing.h"
 #include "editor-native/app/new_project_transaction.h"
 #include "editor-native/app/project_file.h"
 #include "editor-native/app/project_session_controller.h"
 #include "editor-native/app/rml_host.h"
-#include "editor-native/app/sfx_batch.h"
 #include "editor-native/app/scene_view_interaction.h"
 #include "editor-native/app/sprite_animation_canvas_input.h"
 #include "editor-native/app/sprite_animation_preview_renderer.h"
@@ -42,8 +44,6 @@
 #include "editor-native/view/tilemap_paint_overlay.h"
 
 #include "artcade/sfx/raylib_preview.hpp"
-#include "artcade/sfx/synthesizer.hpp"
-#include "artcade/sfx/wav_encoder.hpp"
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -53,15 +53,14 @@
 #include <raylib.h>
 
 #include <algorithm>
-#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <functional>
-#include <future>
+#include <memory>
 #include <optional>
 #include <string>
-#include <system_error>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -81,73 +80,12 @@ extern "C" void* glfwGetCurrentContext(void);
 // on Windows builds that predate an attribute they fail and are ignored.
 extern "C" __declspec(dllimport) long __stdcall DwmSetWindowAttribute(
     void* hwnd, unsigned long attribute, const void* value, unsigned long size);
-extern "C" __declspec(dllimport) int __stdcall MoveFileExW(
-    const wchar_t* existing, const wchar_t* replacement, unsigned long flags);
-extern "C" __declspec(dllimport) unsigned long __stdcall GetLastError();
 #pragma comment(lib, "dwmapi")
 #endif
 
 namespace ArtCade::EditorNative {
 
 namespace {
-
-enum class SfxJobKind { Preview, Generate };
-
-struct SfxJobResult {
-    SfxJobKind kind = SfxJobKind::Preview;
-    std::string id;
-    artcade::sfx::SfxRecipe recipe{};
-    artcade::sfx::FloatAudioBuffer audio{};
-    std::filesystem::path projectPath;
-    std::filesystem::path stagingPath;
-    std::filesystem::path finalPath;
-    std::string relativePath;
-    std::string outputAssetId;
-    bool ok = false;
-    std::string error;
-};
-
-bool finalizeNewGeneratedOutput(const std::filesystem::path& staging,
-                                const std::filesystem::path& destination,
-                                std::string& error) {
-    std::error_code existsError;
-    if (std::filesystem::exists(destination, existsError)) {
-        error = "Generated audio destination already exists";
-        return false;
-    }
-#if defined(_WIN32)
-    constexpr unsigned long kWriteThrough = 0x8u;
-    if (MoveFileExW(staging.c_str(), destination.c_str(), kWriteThrough)) return true;
-    error = std::system_category().message(static_cast<int>(GetLastError()));
-    return false;
-#else
-    std::error_code filesystemError;
-    std::filesystem::rename(staging, destination, filesystemError);
-    if (!filesystemError) return true;
-    error = filesystemError.message();
-    return false;
-#endif
-}
-
-bool replaceGeneratedOutputAtomically(
-    const std::filesystem::path& staging,
-    const std::filesystem::path& destination,
-    std::string& error) {
-#if defined(_WIN32)
-    constexpr unsigned long kReplaceExisting = 0x1u;
-    constexpr unsigned long kWriteThrough = 0x8u;
-    if (MoveFileExW(staging.c_str(), destination.c_str(),
-                    kReplaceExisting | kWriteThrough)) return true;
-    error = std::system_category().message(static_cast<int>(GetLastError()));
-    return false;
-#else
-    std::error_code filesystemError;
-    std::filesystem::rename(staging, destination, filesystemError);
-    if (!filesystemError) return true;
-    error = filesystemError.message();
-    return false;
-#endif
-}
 
 void collectLogicKeyPresses(RuntimeInputSnapshot& input) {
     static constexpr std::pair<LogicKey, int> kKeys[] = {
@@ -362,52 +300,33 @@ int EditorApp::run(int argc, char** argv) {
 
     artcade::sfx::RaylibPreview sfxPreview;
     bool ownsSfxAudioDevice = false;
-    std::optional<std::future<SfxJobResult>> sfxJob;
-    SfxBatchState sfxBatch;
+    auto sfxOutputRepository =
+        std::make_shared<FilesystemGeneratedSfxOutputRepository>();
+    GeneratedSfxGenerationService sfxGeneration{sfxOutputRepository};
+    projectSession.setProjectRelocationAvailabilityQuery(
+        [&] { return !sfxGeneration.busy(); });
+    GeneratedSfxOutputTransaction sfxOutputTransaction{
+        coordinator, sfxOutputRepository};
+    bool sfxBatchWasActive = false;
     // Play Sound's Raylib-side cache: loaded once per referenced audio asset,
     // reused for every subsequent firing this Play session. Keyed by AssetId,
     // matching RuntimeAudioCommand/PlayAssetCatalogSnapshot::audioAssets.
     std::unordered_map<AssetId, Sound> playSoundCache;
+    std::unordered_set<std::string> playAudioDiagnostics;
+    const auto logPlayAudioErrorOnce = [&](const AssetId& id,
+                                            const std::string& reason) {
+        const std::string key = id + "\n" + reason;
+        if (playAudioDiagnostics.insert(key).second)
+            coordinator.logError("Play Sound '" + id + "': " + reason);
+    };
     const auto clearPlaySoundCache = [&] {
         for (auto& [unused, sound] : playSoundCache) {
             (void)unused;
             UnloadSound(sound);
         }
         playSoundCache.clear();
+        playAudioDiagnostics.clear();
     };
-
-    const auto publishSfxBatch = [&] {
-        ui.setSfxBatchState(sfxBatch);
-    };
-
-    const auto finishSfxBatch = [&] {
-        sfxBatch.active = false;
-        sfxBatch.cancelRequested = false;
-        sfxBatch.summaryVisible = true;
-        sfxBatch.succeeded = 0;
-        sfxBatch.failed = 0;
-        sfxBatch.skipped = 0;
-        sfxBatch.cancelled = 0;
-        for (const SfxBatchItem& item : sfxBatch.items) {
-            switch (item.status) {
-            case SfxBatchItemStatus::Succeeded: ++sfxBatch.succeeded; break;
-            case SfxBatchItemStatus::Failed: ++sfxBatch.failed; break;
-            case SfxBatchItemStatus::Skipped: ++sfxBatch.skipped; break;
-            case SfxBatchItemStatus::Cancelled: ++sfxBatch.cancelled; break;
-            default: break;
-            }
-        }
-        coordinator.logInfo(
-            "SFX batch complete: "
-            + std::to_string(sfxBatch.succeeded) + " succeeded, "
-            + std::to_string(sfxBatch.skipped) + " skipped, "
-            + std::to_string(sfxBatch.failed) + " failed, "
-            + std::to_string(sfxBatch.cancelled) + " cancelled");
-        publishSfxBatch();
-    };
-
-    std::function<void(SfxJobKind, const std::string&)> startSfxJob;
-    std::function<void()> pumpSfxBatch;
 
     // One preflight authority for UI capability and click-time revalidation.
     // Unknown ids are prospective Create-from-Current identities; existing ids
@@ -423,212 +342,106 @@ int EditorApp::run(int argc, char** argv) {
         const std::filesystem::path projectPath = projectSession.currentProjectPath();
         return preflightGeneratedSfxGeneration(
             coordinator.document(), *definition,
-            projectPath.empty() ? std::filesystem::path{} : projectPath.parent_path());
+            projectPath.empty() ? std::filesystem::path{} : projectPath.parent_path(),
+            *sfxOutputRepository);
     };
 
-    startSfxJob = [&](SfxJobKind kind, const std::string& id) {
-        if (coordinator.isPlaying()) {
-            coordinator.logWarning("Stop Play before previewing or generating SFX");
-            return;
-        }
-        if (sfxJob) {
-            coordinator.logWarning("A Generated SFX job is already running");
-            return;
-        }
-        if (sfxBatch.active && kind == SfxJobKind::Generate) {
-            // Batch owns serial Generate jobs; single-shot Generate is blocked.
-            bool ownedByBatch = false;
-            for (const SfxBatchItem& item : sfxBatch.items) {
-                if (item.id == id && item.status == SfxBatchItemStatus::Generating) {
-                    ownedByBatch = true;
-                    break;
-                }
-            }
-            if (!ownedByBatch) {
-                coordinator.logWarning("Finish or cancel the regenerate queue first");
-                return;
-            }
-        }
-        const artcade::sfx::GeneratedSfxDef* definition =
-            coordinator.document().findGeneratedSfx(id);
-        if (!definition) {
-            coordinator.logError("Generated SFX no longer exists: " + id);
-            return;
-        }
-
-        SfxJobResult request;
-        request.kind = kind;
-        request.id = id;
-        request.recipe = definition->recipe;
-        bool regenerating = false;
-        if (kind == SfxJobKind::Generate) {
-            request.projectPath = projectSession.currentProjectPath();
-            GeneratedSfxGenerationPreflight preflight = sfxGenerationPreflight(id);
-            if (!preflight.allowed) {
-                coordinator.logError(preflight.error);
-                return;
-            }
-            regenerating = preflight.regenerating;
-            request.outputAssetId = std::move(preflight.identity.assetId);
-            request.relativePath = std::move(preflight.identity.relativePath);
-            request.finalPath = std::move(preflight.identity.finalPath);
-            request.stagingPath = std::move(preflight.identity.stagingPath);
-        }
-
-        if (!sfxBatch.active || kind != SfxJobKind::Generate) {
-            coordinator.logInfo(kind == SfxJobKind::Preview
-                ? "Rendering SFX preview..."
-                : (regenerating ? "Regenerating SFX WAV..." : "Generating SFX WAV..."));
-        }
-        sfxJob.emplace(std::async(std::launch::async,
-            [request = std::move(request)]() mutable {
-                artcade::sfx::SfxSynthesizer synthesizer;
-                auto rendered = synthesizer.render(request.recipe);
-                if (!rendered.ok()) {
-                    request.error = rendered.error().message;
-                    return request;
-                }
-                request.audio = rendered.takeValue();
-                if (request.kind == SfxJobKind::Generate) {
-                    artcade::sfx::WavEncoder encoder;
-                    auto encoded = encoder.encode(request.audio, request.stagingPath);
-                    if (!encoded.ok()) {
-                        request.error = encoded.error().message;
-                        return request;
-                    }
-                    request.audio.samples.clear();
-                    request.audio.samples.shrink_to_fit();
-                }
-                request.ok = true;
-                return request;
-            }));
-    };
-
-    pumpSfxBatch = [&] {
-        while (sfxBatch.active && !sfxJob) {
-            if (sfxBatch.cancelRequested) {
-                for (SfxBatchItem& item : sfxBatch.items) {
-                    if (item.status == SfxBatchItemStatus::Pending) {
-                        item.status = SfxBatchItemStatus::Cancelled;
-                        item.message = "Cancelled";
-                    }
-                }
-            }
-
-            std::optional<std::size_t> nextIndex;
-            for (std::size_t i = 0; i < sfxBatch.items.size(); ++i) {
-                if (sfxBatch.items[i].status == SfxBatchItemStatus::Pending) {
-                    nextIndex = i;
-                    break;
-                }
-            }
-            if (!nextIndex) {
-                finishSfxBatch();
-                return;
-            }
-
-            SfxBatchItem& item = sfxBatch.items[*nextIndex];
-            sfxBatch.currentIndex = *nextIndex;
-            const artcade::sfx::GeneratedSfxDef* definition =
-                coordinator.document().findGeneratedSfx(item.id);
-            if (!definition) {
-                item.status = SfxBatchItemStatus::Skipped;
-                item.message = "Deleted";
-                continue;
-            }
-            if (generatedSfxOutputStatus(coordinator.document(), *definition)
-                != GeneratedSfxOutputStatus::Stale) {
-                item.status = SfxBatchItemStatus::Skipped;
-                item.message = "No longer stale";
-                continue;
-            }
-            if (projectSession.currentProjectPath().empty()
-                || projectSession.currentProjectPath().u8string()
-                    != sfxBatch.projectPathAtStart) {
-                item.status = SfxBatchItemStatus::Skipped;
-                item.message = "Project changed";
-                for (SfxBatchItem& remaining : sfxBatch.items) {
-                    if (remaining.status == SfxBatchItemStatus::Pending) {
-                        remaining.status = SfxBatchItemStatus::Cancelled;
-                        remaining.message = "Project changed";
-                    }
-                }
-                finishSfxBatch();
-                return;
-            }
-
-            item.status = SfxBatchItemStatus::Generating;
-            item.message.clear();
-            publishSfxBatch();
-            startSfxJob(SfxJobKind::Generate, item.id);
-            if (!sfxJob) {
-                item.status = SfxBatchItemStatus::Failed;
-                item.message = "Could not start generation";
-                continue;
-            }
-            return;
-        }
-        publishSfxBatch();
-    };
-
-    const auto startRegenerateAllStale = [&] {
-        if (coordinator.isPlaying()) {
-            coordinator.logWarning("Stop Play before regenerating SFX");
-            return;
-        }
-        if (sfxJob || sfxBatch.active) {
-            coordinator.logWarning("A Generated SFX job is already running");
-            return;
-        }
-        if (projectSession.currentProjectPath().empty()) {
-            coordinator.logError("Save the project before regenerating WAV assets");
-            return;
-        }
-        SfxBatchState next;
-        next.active = true;
-        next.projectPathAtStart = projectSession.currentProjectPath().u8string();
-        for (const artcade::sfx::GeneratedSfxDef& definition :
-             coordinator.document().data().generatedSfx) {
-            if (generatedSfxOutputStatus(coordinator.document(), definition)
-                != GeneratedSfxOutputStatus::Stale) {
-                continue;
-            }
-            SfxBatchItem item;
-            item.id = definition.id;
-            next.items.push_back(std::move(item));
-        }
-        if (next.items.empty()) {
-            coordinator.logInfo("No stale Generated SFX to regenerate");
-            return;
-        }
-        sfxBatch = std::move(next);
-        coordinator.logInfo(
-            "Regenerating " + std::to_string(sfxBatch.items.size()) + " stale Generated SFX...");
-        publishSfxBatch();
-        pumpSfxBatch();
+    const auto requestSfxGeneration = [&](const std::string& id) {
+        const auto result = sfxGeneration.requestGenerate(
+            coordinator.document(), projectSession.projectSessionId(),
+            projectSession.currentProjectPath(), GenerateGeneratedSfxIntent{id},
+            coordinator.isPlaying());
+        if (result.accepted) coordinator.logInfo(result.message);
+        else coordinator.logError(result.message);
+        return result;
     };
 
     ui.setGeneratedSfxHandlers(
-        [&](const std::string& id) { startSfxJob(SfxJobKind::Preview, id); },
+        [&](const std::string& id) {
+            const auto result = sfxGeneration.requestPreview(
+                coordinator.document(), projectSession.projectSessionId(),
+                PreviewGeneratedSfxIntent{id},
+                coordinator.isPlaying());
+            if (result.accepted) coordinator.logInfo(result.message);
+            else coordinator.logWarning(result.message);
+        },
         [&]() { sfxPreview.stop(); },
-        [&](const std::string& id) { startSfxJob(SfxJobKind::Generate, id); });
+        [&](const std::string& id) {
+            (void)requestSfxGeneration(id);
+        });
+    ui.setGeneratedSfxDiagnosticHandler([&](const std::string& id) {
+        sfxGeneration.dismissDiagnostic(id);
+    });
+    ui.setGeneratedSfxCreateFromCurrentHandler(
+        [&](const std::string& sourceId, const std::string& newId,
+            const std::string& name) {
+            const GeneratedSfxGenerationPreflight preflight =
+                sfxGenerationPreflight(newId);
+            if (!preflight.allowed())
+                return EditorOperationResult::failure(preflight.error);
+            const auto duplicated = coordinator.apply(
+                DuplicateGeneratedSfxIntent{sourceId, newId, name});
+            if (!duplicated.ok) return duplicated;
+            coordinator.logInfo(
+                "Created Generated SFX \"" + name
+                + "\"; generation failure remains recoverable through Retry Generate");
+            (void)requestSfxGeneration(newId);
+            return duplicated;
+        });
+    ui.setGeneratedSfxDeleteHandler(
+        [&](const RemoveGeneratedSfxIntent& intent) {
+            const std::filesystem::path projectPath =
+                projectSession.currentProjectPath();
+            const auto removed = sfxOutputTransaction.remove(
+                intent, projectPath.empty() ? std::filesystem::path{}
+                                            : projectPath.parent_path());
+            if (removed.ok) {
+                sfxPreview.stop();
+                sfxGeneration.cancelAll("Generated SFX deleted");
+                ui.setSfxBatchState(sfxGeneration.batchState());
+                coordinator.logInfo(
+                    "Deleted Generated SFX, linked audio, project references and WAV");
+            }
+            return removed;
+        });
     ui.setSfxBatchHandlers(
-        [&] { startRegenerateAllStale(); },
         [&] {
-            if (!sfxBatch.active) return;
-            sfxBatch.cancelRequested = true;
-            publishSfxBatch();
+            const auto result = sfxGeneration.requestRegenerateAllStale(
+                coordinator.document(), projectSession.projectSessionId(),
+                projectSession.currentProjectPath(), RegenerateAllStaleSfxIntent{},
+                coordinator.isPlaying());
+            if (result.accepted) coordinator.logInfo(result.message);
+            else if (result.message == "No stale Generated SFX to regenerate")
+                coordinator.logInfo(result.message);
+            else coordinator.logError(result.message);
+            ui.setSfxBatchState(sfxGeneration.batchState());
+        },
+        [&] {
+            if (!sfxGeneration.batchState().active) return;
+            sfxGeneration.cancelBatch();
+            ui.setSfxBatchState(sfxGeneration.batchState());
             coordinator.logInfo("SFX queue will stop after the current item");
         },
         [&] {
-            sfxBatch.summaryVisible = false;
-            publishSfxBatch();
+            sfxGeneration.dismissBatchSummary();
+            ui.setSfxBatchState(sfxGeneration.batchState());
         });
     ui.setProjectSavedQuery([&] { return !projectSession.currentProjectPath().empty(); });
     ui.setGeneratedSfxGenerationAvailabilityQuery([&](const std::string& id) {
         const GeneratedSfxGenerationPreflight preflight = sfxGenerationPreflight(id);
         return EditorUi::GeneratedSfxGenerationAvailability{
-            preflight.allowed, preflight.error};
+            preflight.allowed(), preflight.error};
+    });
+    ui.setGeneratedSfxStatusQuery([&](const std::string& id) {
+        const auto* definition = coordinator.document().findGeneratedSfx(id);
+        if (!definition) return GeneratedSfxStatusProjection{
+            GeneratedSfxObservedStatus::MissingOutput,
+            "Generated SFX no longer exists"};
+        const std::filesystem::path projectPath = projectSession.currentProjectPath();
+        return projectGeneratedSfxStatus(
+            coordinator.document(), *definition,
+            projectPath.empty() ? std::filesystem::path{} : projectPath.parent_path(),
+            *sfxOutputRepository, sfxGeneration.snapshot());
     });
 
     // Fit View / auto-fit: frame the active scene, centred, with a small padding.
@@ -1050,7 +863,7 @@ int EditorApp::run(int argc, char** argv) {
         }
     }
     if (!shotPath.empty() && shotSfx) {
-        ui.handleAction("create-generated-sfx", "", "");
+        ui.handleAction("create-generated-sfx", "coin", "");
         ui.processFrame();
     }
 
@@ -1234,16 +1047,40 @@ int EditorApp::run(int argc, char** argv) {
                 const auto& runtimeAudioAssets = coordinator.playSession()->assets().audioAssets;
                 for (const RuntimeAudioCommand& command : audioCommands) {
                     const auto assetIt = runtimeAudioAssets.find(command.audioAssetId);
-                    if (assetIt == runtimeAudioAssets.end()) continue;
+                    if (assetIt == runtimeAudioAssets.end()) {
+                        logPlayAudioErrorOnce(command.audioAssetId,
+                            "audio asset is not in the Play snapshot");
+                        continue;
+                    }
+                    if (!IsAudioDeviceReady()) {
+                        logPlayAudioErrorOnce(command.audioAssetId,
+                            "audio device is unavailable");
+                        continue;
+                    }
                     auto cacheIt = playSoundCache.find(command.audioAssetId);
                     if (cacheIt == playSoundCache.end()) {
                         const PathConfinementResult resolved = resolvePathInsideRoot(
                             audioAssetRoot, std::filesystem::u8path(assetIt->second.sourcePath));
-                        if (!resolved.ok) continue;
+                        if (!resolved.ok) {
+                            logPlayAudioErrorOnce(command.audioAssetId,
+                                "asset path is invalid: " + resolved.error);
+                            continue;
+                        }
                         const std::string resolvedPath = resolved.value.string();
-                        if (!FileExists(resolvedPath.c_str())) continue;
+                        if (!FileExists(resolvedPath.c_str())) {
+                            logPlayAudioErrorOnce(command.audioAssetId,
+                                "audio file is missing: " + assetIt->second.sourcePath);
+                            continue;
+                        }
+                        Sound loaded = LoadSound(resolvedPath.c_str());
+                        if (!IsSoundReady(loaded)) {
+                            logPlayAudioErrorOnce(command.audioAssetId,
+                                "audio file could not be decoded: "
+                                + assetIt->second.sourcePath);
+                            continue;
+                        }
                         cacheIt = playSoundCache.emplace(
-                            command.audioAssetId, LoadSound(resolvedPath.c_str())).first;
+                            command.audioAssetId, loaded).first;
                     }
                     SetSoundVolume(cacheIt->second, command.volume);
                     PlaySound(cacheIt->second);
@@ -1322,147 +1159,72 @@ int EditorApp::run(int argc, char** argv) {
         }
         prevTextFocus = rml.textFocus;
 
-        // Worker jobs own only immutable recipe snapshots and CPU/file work.
-        // Completion, stale checks, Command mutation and Raylib resources stay
-        // on this owner thread.
-        if (sfxJob
-            && sfxJob->wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            SfxJobResult completed = sfxJob->get();
-            sfxJob.reset();
-
-            SfxBatchItem* batchItem = nullptr;
-            if (sfxBatch.active && completed.kind == SfxJobKind::Generate) {
-                for (SfxBatchItem& item : sfxBatch.items) {
-                    if (item.id == completed.id
-                        && item.status == SfxBatchItemStatus::Generating) {
-                        batchItem = &item;
-                        break;
-                    }
+        // The service owns worker/token/batch state and returns only completions
+        // validated against session, revision, asset and recipe. Raylib and the
+        // persistent Command remain on this owner thread.
+        if (auto completed = sfxGeneration.poll(
+                coordinator.document(), projectSession.projectSessionId(),
+                projectSession.currentProjectPath(), coordinator.isPlaying())) {
+            if (completed->kind == GeneratedSfxServiceEventKind::Failed) {
+                coordinator.logError("Generated SFX failed: " + completed->message);
+                ui.notifyGeneratedSfxStatusChanged();
+            } else if (completed->kind == GeneratedSfxServiceEventKind::Discarded) {
+                coordinator.logWarning(
+                    "Discarded Generated SFX result: " + completed->message);
+            } else if (completed->kind == GeneratedSfxServiceEventKind::PreviewReady) {
+                if (!IsAudioDeviceReady()) {
+                    InitAudioDevice();
+                    ownsSfxAudioDevice = IsAudioDeviceReady();
                 }
-            }
-
-            const auto markBatch = [&](SfxBatchItemStatus status, std::string message) {
-                if (!batchItem) return;
-                batchItem->status = status;
-                batchItem->message = std::move(message);
-            };
-
-            if (!completed.ok) {
-                coordinator.logError("Generated SFX failed: " + completed.error);
-                markBatch(SfxBatchItemStatus::Failed, completed.error);
-            } else if (completed.kind == SfxJobKind::Preview) {
-                const auto* current = coordinator.document().findGeneratedSfx(completed.id);
-                if (!current || !generatedSfxRecipesEqual(current->recipe, completed.recipe)) {
-                    coordinator.logWarning("Discarded stale SFX preview");
-                } else {
-                    if (!IsAudioDeviceReady()) {
-                        InitAudioDevice();
-                        ownsSfxAudioDevice = IsAudioDeviceReady();
-                    }
-                    const auto loaded = sfxPreview.load(completed.audio);
-                    if (!loaded.ok()) coordinator.logError(loaded.error().message);
-                    else {
-                        sfxPreview.play();
-                        coordinator.logInfo("Playing SFX preview: " + current->name);
-                    }
+                const auto loaded = sfxPreview.load(completed->audio);
+                if (!loaded.ok()) coordinator.logError(loaded.error().message);
+                else {
+                    sfxPreview.play();
+                    const auto* current = coordinator.document().findGeneratedSfx(
+                        completed->stamp.assetId);
+                    coordinator.logInfo("Playing SFX preview: "
+                        + (current ? current->name : completed->stamp.assetId));
                 }
             } else {
-                const auto* current = coordinator.document().findGeneratedSfx(completed.id);
-                const bool sameProject = projectSession.currentProjectPath()
-                    == completed.projectPath;
-                if (!sameProject || !current
-                    || !generatedSfxRecipesEqual(current->recipe, completed.recipe)
-                    || completed.outputAssetId.empty()) {
-                    std::error_code cleanupError;
-                    std::filesystem::remove(completed.stagingPath, cleanupError);
-                    if (!current) {
-                        coordinator.logWarning("Discarded Generated SFX output (deleted)");
-                        markBatch(SfxBatchItemStatus::Skipped, "Deleted");
-                    } else if (!sameProject) {
-                        coordinator.logWarning("Discarded Generated SFX output (project changed)");
-                        markBatch(SfxBatchItemStatus::Skipped, "Project changed");
-                    } else {
-                        coordinator.logWarning(
-                            "Discarded stale Generated SFX output (changed during generation)");
-                        markBatch(SfxBatchItemStatus::Skipped, "Changed during generation");
-                    }
+                const auto registered = sfxOutputTransaction.commit(
+                    completed->stamp.assetId, completed->stamp.recipe,
+                    completed->output, completed->regenerating,
+                    completed->stamp.token);
+                const SfxBatchItemStatus resolution = registered.ok
+                    ? SfxBatchItemStatus::Succeeded : SfxBatchItemStatus::Failed;
+                const std::string resolutionMessage = registered.ok
+                    ? "Ready" : (registered.error.empty()
+                        ? "Output transaction failed" : registered.error);
+                if (registered.ok) {
+                    coordinator.logInfo(
+                        (completed->regenerating ? "Regenerated WAV: "
+                                                 : "Generated WAV: ")
+                        + completed->output.relativePath);
+                    ui.notifyGeneratedSfxOutputReady(completed->stamp.assetId);
                 } else {
-                    const bool regenerating = !current->outputAssetId.empty()
-                        && coordinator.document().hasAudioAsset(current->outputAssetId);
-                    if (!regenerating
-                        && (coordinator.document().hasAudioAsset(completed.outputAssetId)
-                            || generatedSfxOutputPathTaken(coordinator.document(),
-                                                           completed.relativePath))) {
-                        std::error_code cleanupError;
-                        std::filesystem::remove(completed.stagingPath, cleanupError);
-                        coordinator.logError(
-                            "Generated SFX output id or path already exists");
-                        markBatch(SfxBatchItemStatus::Failed,
-                                  "Output id or path already exists");
-                    } else {
-                        std::string finalizeError;
-                        const bool finalized = regenerating
-                            ? replaceGeneratedOutputAtomically(
-                                  completed.stagingPath, completed.finalPath, finalizeError)
-                            : finalizeNewGeneratedOutput(
-                                  completed.stagingPath, completed.finalPath, finalizeError);
-                        if (!finalized) {
-                            std::error_code cleanupError;
-                            std::filesystem::remove(completed.stagingPath, cleanupError);
-                            coordinator.logError(
-                                "Could not finalize Generated SFX WAV: " + finalizeError);
-                            markBatch(SfxBatchItemStatus::Failed, finalizeError);
-                        } else {
-                            AudioAssetDef output;
-                            output.assetId = completed.outputAssetId;
-                            output.name.clear();
-                            output.sourcePath = completed.relativePath;
-                            output.loadMode = AudioLoadMode::StaticSound;
-                            const auto registered = coordinator.execute(
-                                RegisterGeneratedSfxOutputCommand{
-                                    completed.id, completed.recipe, std::move(output)});
-                            if (registered.ok) {
-                                coordinator.logInfo(
-                                    (regenerating ? "Regenerated WAV: " : "Generated WAV: ")
-                                    + completed.relativePath);
-                                ui.notifyGeneratedSfxOutputReady(completed.id);
-                                markBatch(SfxBatchItemStatus::Succeeded, "Ready");
-                            } else {
-                                std::error_code cleanupError;
-                                if (!regenerating)
-                                    std::filesystem::remove(completed.finalPath, cleanupError);
-                                markBatch(SfxBatchItemStatus::Failed,
-                                          registered.error.empty()
-                                              ? "Register failed"
-                                              : registered.error);
-                                coordinator.logError(
-                                    "Could not register generated audio asset: "
-                                    + registered.error);
-                            }
-                        }
-                    }
+                    coordinator.logError(
+                        "Could not commit generated audio asset: "
+                        + resolutionMessage);
                 }
+                sfxGeneration.resolveGeneration(
+                    completed->stamp.token, resolution, resolutionMessage,
+                    registered.failure == GeneratedSfxOutputCommitFailure::Collision
+                        ? GeneratedSfxGenerationFailureKind::Collision
+                        : GeneratedSfxGenerationFailureKind::Failed);
+                if (!registered.ok) ui.notifyGeneratedSfxStatusChanged();
             }
-
-            if (sfxBatch.active && completed.kind == SfxJobKind::Generate)
-                pumpSfxBatch();
-            else if (batchItem)
-                publishSfxBatch();
         }
 
-        if (sfxBatch.active
-            && !sfxBatch.projectPathAtStart.empty()
-            && projectSession.currentProjectPath().u8string() != sfxBatch.projectPathAtStart) {
-            sfxBatch.cancelRequested = true;
-            for (SfxBatchItem& item : sfxBatch.items) {
-                if (item.status == SfxBatchItemStatus::Pending) {
-                    item.status = SfxBatchItemStatus::Cancelled;
-                    item.message = "Project changed";
-                }
-            }
-            if (!sfxJob) finishSfxBatch();
-            else publishSfxBatch();
+        ui.setSfxBatchState(sfxGeneration.batchState());
+        if (sfxBatchWasActive && !sfxGeneration.batchState().active) {
+            const auto& summary = sfxGeneration.batchState();
+            coordinator.logInfo(
+                "SFX batch complete: " + std::to_string(summary.succeeded)
+                + " succeeded, " + std::to_string(summary.skipped) + " skipped, "
+                + std::to_string(summary.failed) + " failed, "
+                + std::to_string(summary.cancelled) + " cancelled");
         }
+        sfxBatchWasActive = sfxGeneration.batchState().active;
 
         ui.processFrame();
         ui.syncGeneratedSfxPreviewPlaying(sfxPreview.playing());
@@ -1745,7 +1507,13 @@ int EditorApp::run(int argc, char** argv) {
             // the real RmlUi click from markup that closes on success; its
             // rebuild must wait for processFrame so the event target survives.
             ui.setProjectSavedQuery([] { return true; });
-            ui.handleAction("create-generated-sfx", "", "");
+            ui.setGeneratedSfxCreateFromCurrentHandler(
+                [&](const std::string& sourceId, const std::string& newId,
+                    const std::string& name) {
+                    return coordinator.apply(DuplicateGeneratedSfxIntent{
+                        sourceId, newId, name});
+                });
+            ui.handleAction("create-generated-sfx", "coin", "");
             const std::size_t sfxBeforeCreateFromCurrent =
                 coordinator.document().data().generatedSfx.size();
             ui.setGeneratedSfxGenerationAvailabilityQuery([](const std::string&) {
@@ -1770,14 +1538,57 @@ int EditorApp::run(int argc, char** argv) {
             createFromCurrent = host.document()
                 ? host.document()->GetElementById("btn-sfx-create-from-current-confirm")
                 : nullptr;
+            Rml::Element* createNameInput = host.document()
+                ? host.document()->GetElementById("sfx-create-from-current-name")
+                : nullptr;
+            if (createNameInput) {
+                createNameInput->Focus(true);
+                createNameInput->Blur();
+            }
+            // Reproduce a real press/release spanning frames. Blur must not
+            // rebuild and invalidate the button that is about to receive click.
+            ui.processFrame();
+            const bool sfxTargetSurvivedBlurFrame = createFromCurrent
+                && host.document()
+                && host.document()->GetElementById(
+                    "btn-sfx-create-from-current-confirm") == createFromCurrent;
             const bool hadCreateFromCurrentButton = createFromCurrent != nullptr;
             if (createFromCurrent)
                 createFromCurrent->DispatchEvent("click", Rml::Dictionary{});
             ui.processFrame();
             const bool sfxCreateFromCurrentDispatch = sfxCreationBlocked
                 && hadCreateFromCurrentButton
+                && sfxTargetSurvivedBlurFrame
                 && coordinator.document().data().generatedSfx.size()
                     == sfxBeforeCreateFromCurrent + 1;
+
+            // Deleting the last browser item clears only the selection. The
+            // audio workspace is independent and remains open until Close.
+            std::vector<std::string> lifecycleSfxIds;
+            for (const auto& definition :
+                 coordinator.document().data().generatedSfx) {
+                lifecycleSfxIds.push_back(definition.id);
+            }
+            bool sfxDeleteClicksDispatched = !lifecycleSfxIds.empty();
+            for (const std::string& id : lifecycleSfxIds) {
+                Rml::Element* remove = host.document()
+                    ? host.document()->GetElementById("sfx-delete-" + id)
+                    : nullptr;
+                sfxDeleteClicksDispatched = sfxDeleteClicksDispatched
+                    && remove != nullptr;
+                if (remove) remove->DispatchEvent("click", Rml::Dictionary{});
+                ui.processFrame();
+            }
+            Rml::Element* sfxWorkspace = host.document()
+                ? host.document()->GetElementById("sfx-editor") : nullptr;
+            Rml::Element* sfxEmptyBody = host.document()
+                ? host.document()->GetElementById("sfx-editor-body") : nullptr;
+            const bool sfxDeleteKeepsWorkspaceOpen = sfxDeleteClicksDispatched
+                && coordinator.document().data().generatedSfx.empty()
+                && sfxWorkspace && !sfxWorkspace->IsClassSet("hidden")
+                && sfxEmptyBody
+                && sfxEmptyBody->GetInnerRML().find("No Generated SFX selected")
+                    != std::string::npos;
 
             ui.detach();
             if (probe) probe->DispatchEvent("click", Rml::Dictionary{});
@@ -1796,6 +1607,7 @@ int EditorApp::run(int argc, char** argv) {
 
             if (!requiredElementsPresent || !collapsedOnce || !expandedAgain
                 || !exactlyOneCallback || !changeCallback || !sfxCreateFromCurrentDispatch
+                || !sfxDeleteKeepsWorkspaceOpen
                 || !noCallbackAfterDetach || !noChangeCallbackAfterDetach || ui.isBound()) {
                 TraceLog(LOG_ERROR, "[editor] RmlUi lifecycle smoke failed");
                 exitCode = 1;
@@ -1815,18 +1627,8 @@ int EditorApp::run(int argc, char** argv) {
         }
     }
 
-    if (sfxJob) {
-        SfxJobResult abandoned = sfxJob->get();
-        if (!abandoned.stagingPath.empty()) {
-            std::error_code cleanupError;
-            std::filesystem::remove(abandoned.stagingPath, cleanupError);
-        }
-        sfxJob.reset();
-    }
-    if (sfxBatch.active) {
-        resetSfxBatch(sfxBatch);
-        ui.setSfxBatchState(sfxBatch);
-    }
+    sfxGeneration.shutdown();
+    ui.setSfxBatchState(sfxGeneration.batchState());
     sfxPreview.unload();
     clearPlaySoundCache();
     if (ownsSfxAudioDevice && IsAudioDeviceReady()) CloseAudioDevice();

@@ -237,7 +237,7 @@
                 <div id="sfx-editor-title" class="sfx-editor-title">Generated SFX</div>
             </div>
             <div class="sfx-header-actions">
-                <button class="panel-btn" data-action="preview-generated-sfx"><span class="icon">&#xed46;</span>Preview</button>
+                <button id="btn-sfx-preview" class="panel-btn" data-action="preview-generated-sfx"><span class="icon">&#xed46;</span>Preview</button>
                 <button id="btn-sfx-stop" class="panel-btn disabled" data-action="stop-generated-sfx-preview">Stop</button>
                 <button id="btn-sfx-generate" class="panel-btn primary" data-action="generate-sfx-output">Generate Audio Asset</button>
                 <div class="sfx-more-wrap">

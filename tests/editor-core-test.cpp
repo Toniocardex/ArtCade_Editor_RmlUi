@@ -482,7 +482,7 @@ int main() {
         CHECK(decoded.ok);
         DeserializeResult migrated = ProjectMigration::migrate(std::move(decoded.value));
         CHECK(migrated.ok);
-        CHECK(migrated.value.data().formatVersion == 7);
+        CHECK(migrated.value.data().formatVersion == 8);
 
         const EntityDef& type = migrated.value.data().objectTypes.at("Hero");
         CHECK(type.spriteRenderer && type.spriteRenderer->imageAssetId == "blue");

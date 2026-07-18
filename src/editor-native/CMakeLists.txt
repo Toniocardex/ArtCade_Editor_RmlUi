@@ -14,6 +14,8 @@
 
 add_library(artcade-editor-core STATIC
     model/project_document.cpp
+    model/generated_sfx_policy.cpp
+    model/generated_sfx_preset_catalog.cpp
     model/project_io.cpp
     model/play_session.cpp
     model/box_collider_geometry.cpp
@@ -44,6 +46,7 @@ add_library(artcade-editor-core STATIC
     app/hierarchy_actions.cpp
     app/inspector_actions.cpp
     app/inspector_commit.cpp
+    ui/generated_sfx_editor_controller.cpp
     app/project_file.cpp
     app/project_load.cpp
 )
@@ -113,6 +116,10 @@ if(ARTCADE_BUILD_NATIVE_EDITOR)
     set(ARTCADE_EDITOR_NATIVE_SOURCES
         app/main.cpp
         app/editor_app.cpp
+        app/generated_sfx_generation_preflight.cpp
+        app/generated_sfx_generation_service.cpp
+        app/generated_sfx_status_projection.cpp
+        app/generated_sfx_output_transaction.cpp
         app/project_session_controller.cpp
         app/scene_view_interaction.cpp
         ${rmlui_SOURCE_DIR}/Backends/RmlUi_Renderer_GL3.cpp

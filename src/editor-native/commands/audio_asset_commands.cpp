@@ -4,7 +4,6 @@
 #include "editor-native/model/project_document.h"
 
 #include <algorithm>
-#include <cctype>
 #include <optional>
 #include <utility>
 
@@ -51,15 +50,18 @@ RenameAudioAssetCommand::RenameAudioAssetCommand(AssetId assetId, std::string na
 
 EditorOperationResult RenameAudioAssetCommand::apply(ProjectDocument& document) {
     if (!captured_) {
-        std::string name = name_;
-        while (!name.empty() && std::isspace(static_cast<unsigned char>(name.front())))
-            name.erase(name.begin());
-        while (!name.empty() && std::isspace(static_cast<unsigned char>(name.back())))
-            name.pop_back();
+        const std::string name = normalizeAudioDisplayName(name_);
         if (name.empty()) return EditorOperationResult::failure("Audio name cannot be empty");
         if (!document.hasAudioAsset(assetId_)) {
             return EditorOperationResult::failure("Unknown audio asset: " + assetId_);
         }
+        if (audioIsLinkedGeneratedOutput(document.data(), assetId_)) {
+            return EditorOperationResult::failure(
+                "Rename the owning Generated SFX instead of its linked audio output");
+        }
+        const AudioAssetDef* current = document.findAudioAsset(assetId_);
+        if (current && current->name == name)
+            return EditorOperationResult::success(EditorInvalidation::None);
         if (audioDisplayNameExists(document.data(), name, std::nullopt, assetId_)) {
             return EditorOperationResult::failure("Audio name already exists: " + name);
         }
@@ -89,6 +91,10 @@ RemoveAudioAssetCommand::RemoveAudioAssetCommand(AssetId assetId)
 EditorOperationResult RemoveAudioAssetCommand::apply(ProjectDocument& document) {
     const AudioAssetDef* current = document.findAudioAsset(assetId_);
     if (!current) return EditorOperationResult::failure("Unknown audio asset: " + assetId_);
+    if (audioIsLinkedGeneratedOutput(document.data(), assetId_)) {
+        return EditorOperationResult::failure(
+            "Delete the owning Generated SFX instead of its linked audio output");
+    }
     if (!captured_) {
         before_ = document.data();
         after_ = before_;
@@ -96,13 +102,6 @@ EditorOperationResult RemoveAudioAssetCommand::apply(ProjectDocument& document) 
             after_.audioAssets.begin(), after_.audioAssets.end(),
             [&](const AudioAssetDef& asset) { return asset.assetId == assetId_; }),
             after_.audioAssets.end());
-        for (artcade::sfx::GeneratedSfxDef& definition : after_.generatedSfx) {
-            if (definition.outputAssetId == assetId_) {
-                definition.outputAssetId.clear();
-                definition.outputPath.clear();
-                definition.generatedRecipeFingerprint.clear();
-            }
-        }
         captured_ = true;
     }
     document.commitStagedCommand(after_);

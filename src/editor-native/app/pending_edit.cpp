@@ -31,7 +31,7 @@ bool isNumericCommit(const std::string& action) {
         "commit-logic-position-x", "commit-logic-position-y",
         "commit-logic-offset-x", "commit-logic-offset-y",
         "commit-logic-animation-speed",
-        "commit-sfx-field",
+        "commit-sfx-field", "commit-sfx-macro",
     };
     return std::find(std::begin(actions), std::end(actions), action) != std::end(actions);
 }

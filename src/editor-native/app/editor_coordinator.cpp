@@ -1,6 +1,7 @@
 #include "editor-native/app/editor_coordinator.h"
 
 #include "editor-native/commands/logic_board_commands.h"
+#include "editor-native/commands/generated_sfx_commands.h"
 #include "editor-native/view/scene_grid.h"
 #include "logic-core.h"
 
@@ -126,8 +127,15 @@ bool EditorCoordinator::cancelPendingTilemapGesture() {
 // Command path
 // ----------------------------------------------------------------------------
 EditorOperationResult EditorCoordinator::executeOwned(
-    std::unique_ptr<EditorCommand> command) {
+    std::unique_ptr<EditorCommand> command,
+    std::unique_ptr<EditorCommandSideEffect> sideEffect) {
     if (isPlaying()) {
+        if (sideEffect) {
+            const auto rollback = sideEffect->rollbackInitial();
+            if (!rollback.ok) appendConsole(
+                ConsoleMessage::Level::Error,
+                "Could not roll back external artifact: " + rollback.error);
+        }
         appendConsole(ConsoleMessage::Level::Warning,
                       "Stop Play before editing the authoring document");
         return EditorOperationResult::failure("Cannot edit project while Play is running");
@@ -143,6 +151,11 @@ EditorOperationResult EditorCoordinator::executeOwned(
     if (!result.ok) {
         // A failed command must not mutate the document.
         assert(revisionAfter == revisionBefore && "failed command mutated the document");
+        if (sideEffect) {
+            const auto rollback = sideEffect->rollbackInitial();
+            if (!rollback.ok)
+                result.error += "; external rollback failed: " + rollback.error;
+        }
         appendConsole(ConsoleMessage::Level::Error, result.error);
         return result;
     }
@@ -164,7 +177,8 @@ EditorOperationResult EditorCoordinator::executeOwned(
     accumulate(result.invalidation);
     reconcileWorkspaceAndAnnounce();   // keep EditorState valid in the same op
     accumulate(EditorInvalidation::Toolbar);   // undo became available
-    history_.record(std::move(command), revisionBefore, revisionAfter);
+    history_.record(std::move(command), std::move(sideEffect),
+                    revisionBefore, revisionAfter);
     return result;
 }
 
@@ -183,6 +197,14 @@ EditorOperationResult EditorCoordinator::undo() {
     // failed undo must not mutate; a successful one must mutate and declare a
     // change + invalidation. (asserts compile out in release.)
     CommandEntry entry = history_.takeUndo();
+    if (entry.sideEffect) {
+        const auto prepared = entry.sideEffect->prepareUndo();
+        if (!prepared.ok) {
+            appendConsole(ConsoleMessage::Level::Error, prepared.error);
+            history_.pushUndo(std::move(entry));
+            return EditorOperationResult::failure(prepared.error);
+        }
+    }
     const uint64_t before = document_.revision();
     EditorOperationResult result = entry.command->undo(document_);
     const uint64_t after = document_.revision();
@@ -190,6 +212,11 @@ EditorOperationResult EditorCoordinator::undo() {
     (void)after;
     if (!result.ok) {
         assert(after == before && "failed undo mutated the document");
+        if (entry.sideEffect) {
+            const auto rollback = entry.sideEffect->rollbackUndo();
+            if (!rollback.ok)
+                result.error += "; external rollback failed: " + rollback.error;
+        }
         appendConsole(ConsoleMessage::Level::Error, result.error);
         history_.pushUndo(std::move(entry));               // unchanged: keep it undoable
         return result;
@@ -198,6 +225,7 @@ EditorOperationResult EditorCoordinator::undo() {
     assert(!result.change.isNone() && "undo reported no DomainChange");
     assert(result.invalidation != EditorInvalidation::None && "undo reported no invalidation");
     document_.restoreRevision(entry.revisionBefore);   // dirty reflects state A
+    if (entry.sideEffect) entry.sideEffect->commitUndo();
     accumulate(result.invalidation);
     reconcileWorkspaceAndAnnounce();
     accumulate(EditorInvalidation::Toolbar);           // undo/redo availability changed
@@ -220,6 +248,14 @@ EditorOperationResult EditorCoordinator::redo() {
     // not build an inverse or re-read the UI. restoreRevision returns to the
     // command's recorded post-state, so a redo back to the saved revision is clean.
     CommandEntry entry = history_.takeRedo();
+    if (entry.sideEffect) {
+        const auto prepared = entry.sideEffect->prepareRedo();
+        if (!prepared.ok) {
+            appendConsole(ConsoleMessage::Level::Error, prepared.error);
+            history_.pushRedo(std::move(entry));
+            return EditorOperationResult::failure(prepared.error);
+        }
+    }
     const uint64_t before = document_.revision();
     EditorOperationResult result = entry.command->apply(document_);
     const uint64_t after = document_.revision();
@@ -227,6 +263,11 @@ EditorOperationResult EditorCoordinator::redo() {
     (void)after;
     if (!result.ok) {
         assert(after == before && "failed redo mutated the document");
+        if (entry.sideEffect) {
+            const auto rollback = entry.sideEffect->rollbackRedo();
+            if (!rollback.ok)
+                result.error += "; external rollback failed: " + rollback.error;
+        }
         appendConsole(ConsoleMessage::Level::Error, result.error);
         history_.pushRedo(std::move(entry));               // unchanged: keep it redoable
         return result;
@@ -235,6 +276,7 @@ EditorOperationResult EditorCoordinator::redo() {
     assert(!result.change.isNone() && "redo reported no DomainChange");
     assert(result.invalidation != EditorInvalidation::None && "redo reported no invalidation");
     document_.restoreRevision(entry.revisionAfter);    // dirty reflects state B
+    if (entry.sideEffect) entry.sideEffect->commitRedo();
     accumulate(result.invalidation);
     reconcileWorkspaceAndAnnounce();
     accumulate(EditorInvalidation::Toolbar);
@@ -495,6 +537,44 @@ EditorOperationResult EditorCoordinator::markProjectSaved() {
     document_.markSaved();
     accumulate(EditorInvalidation::Toolbar);
     return EditorOperationResult::success(EditorInvalidation::Toolbar);
+}
+
+EditorOperationResult EditorCoordinator::apply(
+    const CreateGeneratedSfxIntent& intent) {
+    return execute(CreateGeneratedSfxCommand{
+        intent.id, intent.name, intent.recipe});
+}
+
+EditorOperationResult EditorCoordinator::apply(
+    const DuplicateGeneratedSfxIntent& intent) {
+    return execute(DuplicateGeneratedSfxCommand{
+        intent.sourceId, intent.newId, intent.newName});
+}
+
+EditorOperationResult EditorCoordinator::apply(
+    const RenameGeneratedSfxIntent& intent) {
+    return execute(RenameGeneratedSfxCommand{intent.id, intent.name});
+}
+
+EditorOperationResult EditorCoordinator::apply(
+    const UpdateGeneratedSfxRecipeIntent& intent) {
+    return execute(UpdateGeneratedSfxRecipeCommand{intent.id, intent.recipe});
+}
+
+EditorCommandSideEffectResult EditorCoordinator::validateCommandSideEffectRebase(
+    const std::filesystem::path& previousRoot,
+    const std::filesystem::path& nextRoot) {
+    const auto result = history_.validateSideEffectRebase(previousRoot, nextRoot);
+    if (!result.ok) appendConsole(
+        ConsoleMessage::Level::Error,
+        "Save As cannot preserve external Undo/Redo history: " + result.error);
+    return result;
+}
+
+void EditorCoordinator::rebaseCommandSideEffects(
+    const std::filesystem::path& previousRoot,
+    const std::filesystem::path& nextRoot) {
+    history_.rebaseSideEffects(previousRoot, nextRoot);
 }
 
 // ----------------------------------------------------------------------------

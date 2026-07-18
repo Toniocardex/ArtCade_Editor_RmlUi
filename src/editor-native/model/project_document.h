@@ -420,7 +420,7 @@ private:
 
 /** Single display-name query for Audio assets.
  *  Linked Generated SFX output → GeneratedSfxDef.name.
- *  Imported / detached audio → AudioAssetDef.name (fallback assetId). */
+ *  Independent/imported audio → AudioAssetDef.name (fallback assetId). */
 [[nodiscard]] std::string resolveAudioAssetDisplayName(
     const ProjectDocument& document,
     const AudioAssetDef& audio);
