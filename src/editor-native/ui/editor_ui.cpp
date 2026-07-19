@@ -22,7 +22,9 @@
 #include "editor-native/commands/sprite_animation_commands.h"
 #include "editor-native/commands/sprite_presentation_commands.h"
 #include "editor-native/model/sprite_render_view.h"
+#include "editor-native/model/tile_palette_projection.h"
 #include "editor-native/model/tileset_slicing.h"
+#include "editor-native/app/scene_view_interaction.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view_camera.h"
 
@@ -563,6 +565,7 @@ void EditorUi::applyInvalidations(EditorInvalidation flags) {
     if (has(flags, EditorInvalidation::Inspector)) {
         inspector_.refresh(document_, coordinator_);
         inspector_.consumeInspectorReveal(document_, coordinator_);
+        tilePaletteDock_.refresh(document_, coordinator_);
     }
     if (has(flags, EditorInvalidation::Console))
         console_.refresh(document_, coordinator_);
@@ -598,8 +601,19 @@ void EditorUi::applyInvalidations(EditorInvalidation flags) {
         refreshLayout();
     if (has(flags, EditorInvalidation::LogicBoard) || has(flags, EditorInvalidation::Viewport)
         || has(flags, EditorInvalidation::Project)
-        || has(flags, EditorInvalidation::ScriptEditor))
+        || has(flags, EditorInvalidation::ScriptEditor)) {
         refreshCenterWorkspace();
+    }
+    // Tile Palette dock: full refresh on Inspector (stamp/zoom/grid/selection).
+    // Also sync when Scene↔Logic/Script or Project changes without Inspector —
+    // never on bare Viewport/Layout (pan, zoom, splitter) which would
+    // SetInnerRML-rebuild #tile-palette every frame.
+    if (!has(flags, EditorInvalidation::Inspector)
+        && (has(flags, EditorInvalidation::LogicBoard)
+            || has(flags, EditorInvalidation::ScriptEditor)
+            || has(flags, EditorInvalidation::Project))) {
+        tilePaletteDock_.refresh(document_, coordinator_);
+    }
 }
 
 void EditorUi::refreshCenterWorkspace() {
@@ -631,6 +645,14 @@ void EditorUi::refreshLayout() {
         console->SetClass("hidden", !consoleVisible);
     if (Rml::Element* splitter = document_->GetElementById("split-console"))
         splitter->SetClass("hidden", !consoleVisible);
+    if (Rml::Element* dock = document_->GetElementById("tile-palette-dock")) {
+        if (!dock->IsClassSet("hidden")) {
+            dock->SetProperty(
+                "height",
+                std::to_string(static_cast<int>(coordinator_.uiState().tilePaletteDockHeight))
+                    + "px");
+        }
+    }
 }
 
 
@@ -1745,10 +1767,9 @@ void EditorUi::refreshToolbar() {
     setEnabled("btn-script-save", scriptWorkspace && scriptBuffer && scriptBuffer->dirty());
     setEnabled("btn-script-save-all", scriptWorkspace
         && coordinator_.state().scriptEditor.anyDirty());
-    // Select/Pan are always present, unlike the Tilemap tools (Brush/Eraser/
-    // Picker/Rectangle/Fill), which only render inside a selected tilemap's
-    // own Inspector section - both read and write the same EditorState
-    // ::activeTool, no second local state.
+    // Select/Pan are always present. Tilemap paint tools (Brush/Eraser/…)
+    // appear only when the selection supports tilemap editing — same
+    // EditorState::activeTool / effectiveTilemapTool(), no second authority.
     {
         const bool toolActionable = !playing && sceneWorkspace
             && coordinator_.document().findScene(coordinator_.state().activeSceneId) != nullptr;
@@ -1759,6 +1780,69 @@ void EditorUi::refreshToolbar() {
             el->SetClass("active", toolActionable && activeTool == EditorTool::Select);
         if (Rml::Element* el = document_->GetElementById("btn-tool-pan"))
             el->SetClass("active", toolActionable && activeTool == EditorTool::Pan);
+
+        const bool tilemapToolsVisible = toolActionable
+            && selectionSupportsTilemapEditing(
+                   coordinator_.document(), coordinator_.state(),
+                   coordinator_.state().activeSceneId);
+        if (Rml::Element* el = document_->GetElementById("tilemap-context-tools"))
+            el->SetClass("hidden", !tilemapToolsVisible);
+        if (Rml::Element* el = document_->GetElementById("tilemap-tool-sep"))
+            el->SetClass("hidden", !tilemapToolsVisible);
+
+        const EditorTool paintTool = coordinator_.effectiveTilemapTool();
+        const auto setTilemapTool = [&](const char* id, EditorTool tool) {
+            setEnabled(id, tilemapToolsVisible);
+            if (Rml::Element* el = document_->GetElementById(id))
+                el->SetClass("active", tilemapToolsVisible && paintTool == tool);
+        };
+        setTilemapTool("btn-tool-brush", EditorTool::Brush);
+        setTilemapTool("btn-tool-eraser", EditorTool::Eraser);
+        setTilemapTool("btn-tool-picker", EditorTool::Picker);
+        setTilemapTool("btn-tool-rectangle", EditorTool::Rectangle);
+        setTilemapTool("btn-tool-fill", EditorTool::Fill);
+
+        const bool rectangleActive =
+            tilemapToolsVisible && paintTool == EditorTool::Rectangle;
+        if (Rml::Element* el = document_->GetElementById("tilemap-shape-sep"))
+            el->SetClass("hidden", !rectangleActive);
+        if (Rml::Element* el = document_->GetElementById("btn-tilemap-rect-solid")) {
+            el->SetClass("hidden", !rectangleActive);
+            el->SetClass("disabled", !rectangleActive);
+            el->SetClass("active", rectangleActive
+                && !coordinator_.state().tilemapEditor.rectangleOutlineMode);
+        }
+        if (Rml::Element* el = document_->GetElementById("btn-tilemap-rect-outline")) {
+            el->SetClass("hidden", !rectangleActive);
+            el->SetClass("disabled", !rectangleActive);
+            el->SetClass("active", rectangleActive
+                && coordinator_.state().tilemapEditor.rectangleOutlineMode);
+        }
+
+        if (Rml::Element* stampEl = document_->GetElementById("toolbar-tilemap-stamp")) {
+            stampEl->SetClass("hidden", !tilemapToolsVisible);
+            if (!tilemapToolsVisible) {
+                stampEl->SetInnerRML("");
+            } else {
+                const SceneInstanceDef* stampInst =
+                    coordinator_.document().findInstanceInScene(
+                        coordinator_.state().activeSceneId,
+                        coordinator_.selection().primaryEntity);
+                const std::optional<TilemapTileStamp>& stamp =
+                    coordinator_.state().tilemapEditor.stamp;
+                if (!stampInst || !stampInst->tilemap.has_value()
+                    || !stamp
+                    || stamp->sourceTilesetAssetId != stampInst->tilemap->tilesetAssetId) {
+                    stampEl->SetInnerRML("Stamp: <span class=\"value\">none</span>");
+                } else if (stamp->width == 1 && stamp->height == 1) {
+                    stampEl->SetInnerRML("Stamp: <span class=\"value\">1&#215;1</span>");
+                } else {
+                    stampEl->SetInnerRML(
+                        "Stamp: <span class=\"value\">" + std::to_string(stamp->width)
+                        + "&#215;" + std::to_string(stamp->height) + "</span>");
+                }
+            }
+        }
     }
     {
         const EntityId primarySel = coordinator_.selection().primaryEntity;
@@ -2783,6 +2867,67 @@ bool EditorUi::handleConsoleAction(const std::string& action, const std::string&
         coordinator_.clearConsole();
     } else if (action == "toggle-console") {
         coordinator_.apply(ToggleConsoleIntent{});
+    } else if (action == "toggle-tile-palette-dock") {
+        coordinator_.apply(ToggleTilePaletteDockIntent{});
+    } else if (action == "show-tile-palette-dock") {
+        coordinator_.apply(SetTilePaletteDockVisibleIntent{true});
+    } else if (action == "tile-palette-fit-content"
+               || action == "tile-palette-fit-selection"
+               || action == "tile-palette-fit-sheet"
+               || action == "tile-palette-zoom-1"
+               || action == "tile-palette-zoom-2"
+               || action == "tile-palette-zoom-3"
+               || action == "tile-palette-zoom-4"
+               || action == "tile-palette-toggle-grid") {
+        if (coordinator_.isPlaying()) return true;
+        const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
+            coordinator_.state().activeSceneId, coordinator_.selection().primaryEntity);
+        if (!inst || !inst->tilemap.has_value()) return true;
+        const AssetId tilesetId = inst->tilemap->tilesetAssetId;
+        if (action == "tile-palette-fit-content") {
+            if (!coordinator_.uiState().tilePaletteDockVisible) {
+                coordinator_.apply(SetTilePaletteDockVisibleIntent{true});
+            }
+            coordinator_.apply(RequestTilePaletteFitIntent{tilesetId, TilePaletteFitKind::Content});
+        } else if (action == "tile-palette-fit-selection") {
+            if (!coordinator_.uiState().tilePaletteDockVisible) {
+                coordinator_.apply(SetTilePaletteDockVisibleIntent{true});
+            }
+            coordinator_.apply(RequestTilePaletteFitIntent{tilesetId, TilePaletteFitKind::Selection});
+        } else if (action == "tile-palette-fit-sheet") {
+            if (!coordinator_.uiState().tilePaletteDockVisible) {
+                coordinator_.apply(SetTilePaletteDockVisibleIntent{true});
+            }
+            coordinator_.apply(RequestTilePaletteFitIntent{tilesetId, TilePaletteFitKind::Sheet});
+        } else if (action == "tile-palette-toggle-grid") {
+            const auto it = coordinator_.state().tilemapEditor.paletteViews.find(tilesetId);
+            const bool visible = it == coordinator_.state().tilemapEditor.paletteViews.end()
+                || it->second.gridVisible;
+            coordinator_.apply(SetTilePaletteGridVisibleIntent{tilesetId, !visible});
+        } else {
+            int step = 2;
+            if (action == "tile-palette-zoom-1") step = 1;
+            else if (action == "tile-palette-zoom-2") step = 2;
+            else if (action == "tile-palette-zoom-3") step = 3;
+            else step = 4;
+            const float scaleAfter = tilePaletteScaleForStep(step);
+            const auto viewIt = coordinator_.state().tilemapEditor.paletteViews.find(tilesetId);
+            const TilePaletteViewState before = viewIt != coordinator_.state().tilemapEditor.paletteViews.end()
+                ? viewIt->second : TilePaletteViewState{};
+            const ViewportRect hole = elementContentRectFromDocument(document_, "tile-palette");
+            if (hole.valid() && before.textureScale > 0.f
+                && before.textureScale != scaleAfter) {
+                // Remap only — leave clamp to the next input frame, which has
+                // the real texture size via tilePaletteProjectionForHole.
+                const Vec2 scroll = remapTilePaletteScrollForZoom(
+                    before.textureScale, scaleAfter, before.scrollOffset,
+                    static_cast<float>(hole.width) * 0.5f,
+                    static_cast<float>(hole.height) * 0.5f);
+                coordinator_.apply(SetTilePaletteViewIntent{tilesetId, scaleAfter, scroll});
+            } else {
+                coordinator_.apply(SetTilePaletteZoomIntent{tilesetId, scaleAfter});
+            }
+        }
     } else if (action == "open-console-issues") {
         // #status-health's own click: force the console open (never close it
         // if it's already open -- unlike the generic toggle-console the View
@@ -2861,6 +3006,18 @@ void EditorUi::handleDrag(const std::string& action, float mouseX, float mouseY)
                                              static_cast<float>(dims.y) - mouseY});
         if (Rml::Element* el = document_->GetElementById("console"))
             el->SetProperty("height", px(coordinator_.uiState().consoleHeight));
+    } else if (action == "resize-tile-palette") {
+        // Splitter sits above the dock; drag up → taller dock (distance from
+        // mouse to the bottom of #center-content), matching console resize.
+        float contentBottom = static_cast<float>(dims.y);
+        if (Rml::Element* content = document_->GetElementById("center-content")) {
+            const Rml::Vector2f off = content->GetAbsoluteOffset(Rml::BoxArea::Border);
+            contentBottom = off.y + content->GetBox().GetSize(Rml::BoxArea::Border).y;
+        }
+        coordinator_.apply(ResizePanelIntent{ResizePanelIntent::Panel::TilePaletteDock,
+                                             contentBottom - mouseY});
+        if (Rml::Element* el = document_->GetElementById("tile-palette-dock"))
+            el->SetProperty("height", px(coordinator_.uiState().tilePaletteDockHeight));
     }
 }
 

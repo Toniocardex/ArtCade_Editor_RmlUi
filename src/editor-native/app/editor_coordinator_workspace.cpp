@@ -13,7 +13,7 @@ namespace ArtCade::EditorNative {
 namespace {
 constexpr EditorInvalidation kSelectionInvalidation =
     EditorInvalidation::Hierarchy | EditorInvalidation::Inspector
-    | EditorInvalidation::Viewport;
+    | EditorInvalidation::Viewport | EditorInvalidation::Toolbar;
 
 constexpr EditorInvalidation kSceneChangeInvalidation =
     kSelectionInvalidation | EditorInvalidation::Toolbar;
@@ -48,8 +48,15 @@ EditorOperationResult EditorCoordinator::apply(const SelectEntityIntent& intent)
     // two tilemaps), the tool is deliberately left alone and only the tile
     // selection is reconciled against the new target's tileset.
     reconcileTilemapEditingContext();
-    accumulate(kSelectionInvalidation);
-    return EditorOperationResult::success(kSelectionInvalidation);
+    // Slice 5: selecting a Tilemap always reveals the Tile Palette dock
+    // (session layout only — height/visibility stay in EditorUiState).
+    EditorInvalidation inv = kSelectionInvalidation;
+    if (inst->tilemap.has_value()) {
+        uiState_.tilePaletteDockVisible = true;
+        inv = inv | EditorInvalidation::Layout;
+    }
+    accumulate(inv);
+    return EditorOperationResult::success(inv);
 }
 
 EditorOperationResult EditorCoordinator::apply(const SelectSceneIntent& intent) {
@@ -878,23 +885,24 @@ EditorOperationResult EditorCoordinator::apply(const SetActiveToolIntent& intent
     }
     state_.activeTool = intent.tool;
     // Defence in depth: nothing in this codebase currently offers a tilemap
-    // tool button without a selection that supports it (the Inspector's Tool
-    // row only renders inside a selected tilemap's own section), but the B/E
-    // /I/R/F keyboard shortcuts (editor_app.cpp) reach this with no such
-    // guard - so if the requested tool doesn't fit the current selection,
-    // this immediately falls it back to Select rather than sticking.
+    // tool button without a selection that supports it (the Tile Palette dock
+    // only renders tools for a selected tilemap), but the B/E/I/R/F keyboard
+    // shortcuts (editor_app.cpp) reach this with no such guard - so if the
+    // requested tool doesn't fit the current selection, this immediately falls
+    // it back to Select rather than sticking.
     reconcileTilemapEditingContext();
-    // The active tool is rendered as button state in the Inspector's Tool
-    // row (inspector_panel.cpp) and, for Select/Pan, the top toolbar - both
-    // read EditorState::activeTool directly, so both invalidations fire.
+    // The active tool is rendered as button state on the Scene toolbar
+    // (Select/Pan always; Brush/Eraser/… when a Tilemap is selected). Both
+    // read EditorState::activeTool / effectiveTilemapTool(), so Inspector
+    // (dock stamp readout) and Toolbar invalidations fire together.
     accumulate(EditorInvalidation::Inspector | EditorInvalidation::Toolbar);
     return EditorOperationResult::success(EditorInvalidation::Inspector | EditorInvalidation::Toolbar);
 }
 
 EditorOperationResult EditorCoordinator::apply(const BeginTemporaryToolOverrideIntent& intent) {
     state_.tilemapEditor.temporaryToolOverride = intent.tool;
-    accumulate(EditorInvalidation::Inspector);
-    return EditorOperationResult::success(EditorInvalidation::Inspector);
+    accumulate(EditorInvalidation::Inspector | EditorInvalidation::Toolbar);
+    return EditorOperationResult::success(EditorInvalidation::Inspector | EditorInvalidation::Toolbar);
 }
 
 EditorOperationResult EditorCoordinator::apply(const EndTemporaryToolOverrideIntent&) {
@@ -902,8 +910,8 @@ EditorOperationResult EditorCoordinator::apply(const EndTemporaryToolOverrideInt
         return EditorOperationResult::success(EditorInvalidation::None);
     }
     state_.tilemapEditor.temporaryToolOverride.reset();
-    accumulate(EditorInvalidation::Inspector);
-    return EditorOperationResult::success(EditorInvalidation::Inspector);
+    accumulate(EditorInvalidation::Inspector | EditorInvalidation::Toolbar);
+    return EditorOperationResult::success(EditorInvalidation::Inspector | EditorInvalidation::Toolbar);
 }
 
 } // namespace ArtCade::EditorNative

@@ -2,7 +2,8 @@
 
 #include "core/types.h"
 #include "editor-native/model/editor_state.h"
-#include "editor-native/model/tile_palette_scale.h"
+#include "editor-native/model/tile_palette_projection.h"
+#include "editor-native/view/canvas_font.h"
 #include "editor-native/view/scene_view_camera.h"
 #include "editor-native/view/texture_cache.h"
 #include "editor-native/view/tileset_empty_tiles.h"
@@ -23,29 +24,29 @@ struct TilePaletteMarquee {
     int row1 = 0;
 };
 
-// Where the whole sheet lands inside the palette hole. Base scale is
-// tilePaletteBaseScale (fit-to-hole floored by a readable per-tile minimum),
-// multiplied by the per-tileset view zoom, centered, then offset by pan.
-// Input hit-testing uses this exact mapping so a click lands on what is drawn.
+// Canonical projection for this hole + view (shared by render and input).
+TilePaletteViewportProjection tilePaletteProjectionForHole(
+    const TextureResource& texture,
+    const ViewportRect& holeRect,
+    const TilePaletteViewState& view);
+
+// Convenience: sheet destination rectangle from the shared projection.
 Rectangle tilePaletteSheetDestination(const TextureResource& texture,
                                       const ViewportRect& holeRect,
                                       const TilePaletteViewState& view,
-                                      int tileWidthPx, int tileHeightPx);
+                                      int tileWidthPx = 0, int tileHeightPx = 0);
 
-// Draws the palette sheet: checker, the sheet texture once, dimmed empty
-// tiles, the per-tile grid, the committed stamp's N x M region (border +
-// per-slot fill, holes hatched), the hover highlight and the live marquee.
-//
-// Presentation only, over already-resolved data: the caller (EditorApp) owns
-// texture preparation and mask resolution - this function never touches the
-// TextureCache, the ProjectDocument, or the filesystem. `texture` may be
-// null/unloaded (nothing is drawn but the hole background).
+// Draws the palette sheet from one projection: checker, texture, empties,
+// adaptive grid, stamp, marquee, scrollbars, and loading/error overlays.
+// Presentation only — never mutates ProjectDocument or workspace stamp state.
+// `canvasFont` may be null (status text falls back to raylib's default font).
 void renderTilePaletteSheet(const TilesetAsset& tileset,
                             const TilemapEditorState& tilemapEditor,
                             const ViewportRect& holeRect,
                             const ViewportRect& clipRect,
                             const TextureResource* texture,
                             const TilesetEmptyMaskView& emptyMask,
-                            const TilePaletteMarquee& marquee);
+                            const TilePaletteMarquee& marquee,
+                            const CanvasFont* canvasFont = nullptr);
 
 } // namespace ArtCade::EditorNative

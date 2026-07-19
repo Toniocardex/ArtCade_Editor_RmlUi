@@ -195,15 +195,33 @@ struct PendingTileRectangle {
     std::vector<TilemapCellChange> previewChanges;
 };
 
-// Per-tileset view of the Inspector's Tile Palette sheet (workspace-only,
-// never persisted, never dirties). Keyed by tileset asset id so two tilemaps
+// Per-tileset view of the Tile Palette sheet (workspace-only, never
+// persisted, never dirties). Keyed by tileset asset id so two tilemaps
 // sharing a tileset share the view, while switching to a different tileset
-// never inherits a far-off pan/zoom meant for another sheet. Stale entries
+// never inherits a far-off scroll/zoom meant for another sheet. Stale entries
 // (deleted tilesets) are pruned by reconcileTilemapEditingContext.
+//
+// textureScale is absolute (screen pixels per texture pixel): 1× / 2× / 3×
+// are integer steps for pixel art. scrollOffset positions the sheet's
+// top-left inside the hole (scrollbar authority is this vector alone).
 struct TilePaletteViewState {
-    float zoom = 1.0f;   // multiplies the fit-to-hole base scale
-    Vec2  pan{};
-    bool  initialized = false;   // true once the user has zoomed/panned
+    float textureScale = 2.0f;
+    Vec2  scrollOffset{};
+    bool  initialized = false;
+    bool  gridVisible = true;
+};
+
+enum class TilePaletteFitKind {
+    Sheet = 0,
+    Content = 1,
+    Selection = 2,
+};
+
+// One-shot Fit request consumed by the app once hole + empty-mask are known.
+// Never persisted; cleared after apply.
+struct TilePalettePendingFit {
+    AssetId tilesetAssetId;
+    TilePaletteFitKind kind = TilePaletteFitKind::Content;
 };
 
 // Workspace state for tilemap painting. Invariants: no ProjectDocument copy;
@@ -219,6 +237,7 @@ struct TilePaletteViewState {
 struct TilemapEditorState {
     std::optional<TilemapTileStamp>     stamp;
     std::unordered_map<AssetId, TilePaletteViewState> paletteViews;
+    std::optional<TilePalettePendingFit> pendingPaletteFit;
     std::optional<TilemapCellCoord>     hoveredCell;
     std::optional<PendingTileStroke>    pendingStroke;
     std::optional<PendingTileRectangle> pendingRectangle;

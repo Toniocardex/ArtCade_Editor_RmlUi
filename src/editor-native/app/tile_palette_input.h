@@ -15,34 +15,36 @@ namespace ArtCade::EditorNative {
 
 class EditorCoordinator;
 
-// App-side gesture state for the Tile Palette sheet (mirrors ViewportDrag:
-// the single authority of the not-yet-committed gesture, never workspace or
-// document state). The marquee is cancelled - never committed - on Escape,
-// focus loss, workspace/entity/tileset changes, Play, or the hole vanishing;
-// the caller invokes cancelTilePaletteGesture() whenever it stops routing.
 struct TilePaletteInputState {
     TilePaletteMarquee marquee;
-    AssetId            marqueeTilesetAssetId;   // tileset the marquee started on
-    double             lastClickTime = 0.0;     // app-side double-click detection
+    AssetId            marqueeTilesetAssetId;
+    double             lastClickTime = 0.0;
     Vector2            lastClickPos{};
-    // Change detection for pan-selected-into-view (Picker sync).
     std::optional<TilemapTileStamp> lastPannedStamp;
+
+    // Scrollbar thumb drag (projection of scrollOffset — not a second authority).
+    enum class ScrollDrag { None, Horizontal, Vertical };
+    ScrollDrag scrollDrag = ScrollDrag::None;
+    float      scrollDragGrab = 0.f;   // mouse pos along axis at press
+    float      scrollDragOrigin = 0.f; // scrollOffset component at press
 };
 
 inline void cancelTilePaletteGesture(TilePaletteInputState& state) {
     state.marquee.active = false;
+    state.scrollDrag = TilePaletteInputState::ScrollDrag::None;
 }
 
-// Routes one frame of mouse input over the palette hole: Ctrl+wheel =
-// cursor-anchored zoom (plain wheel stays RmlUi's - the Inspector scrolls),
-// middle-mouse or Space+left = pan, left drag = marquee committed as a
-// SelectPaintStampIntent on release (blocked while the empty mask is not
-// conclusive - Ready selects with holes, Failed selects unfiltered),
-// double-click = OpenTilesetEditorIntent. The hole element carries no RmlUi
-// data-action, so this router is the only click handler - no double-fire.
-//
-// Also pans the committed stamp's whole source region into view when the
-// selection changed from outside the palette (the scene Picker).
+// Routes one frame of mouse input over the palette hole:
+//   wheel           → vertical scroll
+//   Shift+wheel     → horizontal scroll
+//   Ctrl+wheel      → integer zoom step, cursor-anchored
+//   middle / Space+LMB → pan
+//   scrollbar thumb → drag scroll
+//   scrollbar track → jump scroll (never marquee)
+//   left drag       → marquee → SelectPaintStampIntent
+//   double-click    → OpenTilesetEditorIntent
+// Also applies first-open init and pending Fit requests (baked once; never
+// re-fit on resize).
 void routeTilePaletteInput(EditorCoordinator& coordinator,
                            const TilesetAsset& tileset,
                            const ViewportRect& holeRect,

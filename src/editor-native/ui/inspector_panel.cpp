@@ -3,7 +3,6 @@
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/commands/scene_layer_commands.h"
 #include "editor-native/model/authored_transform.h"
-#include "editor-native/model/tile_stamp.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_render_view.h"
 #include "editor-native/ui/editor_ui.h"
@@ -957,99 +956,22 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Chunk Size</span>"
                 "<span class=\"prop-readonly\">" + std::to_string(tm.chunkSize) + "</span></div>";
 
-        // Contextual paint toolbar + tile palette - only meaningful once the
-        // tileset resolves and has at least one sliced tile.
-        if (!tmTileset) {
-            html += "<div class=\"tile-palette-empty\">Tileset is missing.</div>";
-        } else if (!coordinator.document().findImageAsset(tmTileset->imageAssetId)) {
-            html += "<div class=\"tile-palette-empty\">Tileset image is missing.</div>";
-        } else if (tmTileset->tiles.empty()) {
-            html += "<div class=\"tile-palette-empty\">This tileset has no sliced tiles."
-                    "<br/><button class=\"panel-btn\" data-action=\"open-tilemap-tileset-editor\">"
-                    "Open Tileset Editor</button></div>";
-        } else {
-            // Reads the *effective* tool (persistent selection, or the
-            // momentary Eraser-via-right-click override while it's active) so
-            // the Eraser button visibly lights up during that gesture without
-            // the persistent selection (e.g. Brush) ever actually changing.
-            const EditorTool activeTool = coordinator.effectiveTilemapTool();
-            html += "<div class=\"mode-block\"><span class=\"mode-label\">Tool</span>"
-                    "<div class=\"mode-options\">";
-            const auto toolOption = [&](EditorTool tool, const char* action, const char* label) {
-                html += "<button class=\"panel-btn mode-option";
-                if (activeTool == tool) html += " active";
-                if (instanceDisabled) html += " disabled";
-                html += "\" data-action=\"";
-                html += action;
-                html += "\">";
-                html += label;
-                html += "</button>";
-            };
-            toolOption(EditorTool::Brush, "select-tilemap-brush", "Brush");
-            toolOption(EditorTool::Eraser, "select-tilemap-eraser", "Eraser");
-            toolOption(EditorTool::Picker, "select-tilemap-picker", "Picker");
-            toolOption(EditorTool::Rectangle, "select-tilemap-rectangle", "Rectangle");
-            toolOption(EditorTool::Fill, "select-tilemap-fill", "Fill");
-            html += "</div></div>";
-
-            if (activeTool == EditorTool::Rectangle) {
-                const bool outline = coordinator.state().tilemapEditor.rectangleOutlineMode;
-                html += "<div class=\"mode-block\"><span class=\"mode-label\">Shape</span>"
-                        "<div class=\"mode-options\">";
-                const auto shapeOption = [&](bool isOutline, const char* action, const char* label) {
-                    html += "<button class=\"panel-btn mode-option";
-                    if (outline == isOutline) html += " active";
-                    if (instanceDisabled) html += " disabled";
-                    html += "\" data-action=\"";
-                    html += action;
-                    html += "\">";
-                    html += label;
-                    html += "</button>";
-                };
-                shapeOption(false, "select-tilemap-rectangle-solid", "Solid");
-                shapeOption(true, "select-tilemap-rectangle-outline", "Outline");
-                html += "</div></div>";
+        // Paint tools and the Tile Palette live in the Scene workspace dock
+        // (Tile Palette), not among persistent Tilemap properties. Offer a
+        // one-click affordance when the dock is hidden for this session.
+        if (!instanceDisabled) {
+            if (!tmTileset) {
+                html += "<div class=\"tile-palette-empty\">Tileset is missing.</div>";
+            } else if (!coordinator.document().findImageAsset(tmTileset->imageAssetId)) {
+                html += "<div class=\"tile-palette-empty\">Tileset image is missing.</div>";
+            } else if (tmTileset->tiles.empty()) {
+                html += "<div class=\"tile-palette-empty\">This tileset has no sliced tiles."
+                        "<br/><button class=\"panel-btn\" data-action=\"open-tilemap-tileset-editor\">"
+                        "Open Tileset Editor</button></div>";
+            } else if (!coordinator.uiState().tilePaletteDockVisible) {
+                html += "<button class=\"panel-btn\" data-action=\"show-tile-palette-dock\">"
+                        "Show Tile Palette</button>";
             }
-
-            // Sheet-view palette: one transparent hole raylib paints the whole
-            // tileset sheet into, preserving its spatial layout - grid, dimmed
-            // empty tiles, the committed N x M stamp region and the live
-            // marquee (tile_palette_sheet_renderer.h). All pointer interaction
-            // is routed app-side against the same canonical geometry
-            // (tile_palette_input.h); the hole deliberately carries NO
-            // data-action, or RmlUi and the raylib hit-test would both fire
-            // on every click.
-            const std::optional<TilemapTileStamp>& stamp = coordinator.state().tilemapEditor.stamp;
-            if (stamp && stamp->sourceTilesetAssetId == tm.tilesetAssetId) {
-                html += "<div class=\"tile-palette-selected\">Selected: <span class=\"value\">";
-                if (stamp->width == 1 && stamp->height == 1) {
-                    // "Tile N" reflects the tile's palette position (no
-                    // authored display name until per-tile metadata ships);
-                    // the stable TileId stays visible, but secondary.
-                    std::string label = "Tile";
-                    const std::optional<TileId> id = stampPrimaryTileId(*stamp);
-                    for (std::size_t i = 0; id && i < tmTileset->tiles.size(); ++i) {
-                        if (tmTileset->tiles[i].id == *id) {
-                            label = "Tile " + std::to_string(i + 1);
-                            break;
-                        }
-                    }
-                    html += escapeRml(label) + "</span>";
-                    if (const std::optional<TileId> id2 = stampPrimaryTileId(*stamp)) {
-                        html += " - " + escapeRml(*id2);
-                    }
-                } else {
-                    html += std::to_string(stamp->width) + "&#215;"
-                          + std::to_string(stamp->height) + " block</span>";
-                }
-                html += "</div>";
-            }
-            html += "<div class=\"tile-palette-head\">"
-                    "<span class=\"asset-group-title\">Tiles ("
-                  + std::to_string(tmTileset->tiles.size()) + ")</span></div>";
-            html += "<div class=\"tile-palette-sheet\" id=\"tile-palette\" title=\""
-                    "Drag to select a block &#183; Ctrl+Wheel to zoom &#183; "
-                    "Middle mouse or Space+drag to pan &#183; Double-click to edit tileset\"></div>";
         }
     }
 

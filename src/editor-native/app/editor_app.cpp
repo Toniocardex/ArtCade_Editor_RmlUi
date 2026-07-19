@@ -1072,8 +1072,7 @@ int EditorApp::run(int argc, char** argv) {
 
         RmlInputSuppression inputSuppression;
         inputSuppression.mouseWheel =
-            (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL))
-            && prevPaletteClipRect.valid()
+            prevPaletteClipRect.valid()
             && prevPaletteClipRect.contains(GetMouseX(), GetMouseY());
         const RmlInputResult rml = pumpRmlInput(host.context(), inputSuppression);
         const bool nonSceneWorkspace = coordinator.state().centerWorkspaceMode
@@ -1129,6 +1128,26 @@ int EditorApp::run(int argc, char** argv) {
             else if (IsKeyPressed(KEY_I)) coordinator.apply(SetActiveToolIntent{EditorTool::Picker});
             else if (IsKeyPressed(KEY_R)) coordinator.apply(SetActiveToolIntent{EditorTool::Rectangle});
             else if (IsKeyPressed(KEY_F)) coordinator.apply(SetActiveToolIntent{EditorTool::Fill});
+        }
+        // Tile Palette Fit shortcuts (Slice 5). Home = Fit Content; Shift+Home
+        // = Fit Selection — never bare F, which stays Fill above. Reveal the
+        // dock first so consumePendingFit can run on the next frame.
+        if (!nonSceneWorkspace && !rml.textFocus && !coordinator.isPlaying()
+            && selectionSupportsTilemapEditing(coordinator.document(), coordinator.state(),
+                                               coordinator.state().activeSceneId)
+            && IsKeyPressed(KEY_HOME)) {
+            const SceneInstanceDef* tmInst = coordinator.document().findInstanceInScene(
+                coordinator.state().activeSceneId, coordinator.selection().primaryEntity);
+            if (tmInst && tmInst->tilemap.has_value()) {
+                const AssetId tilesetId = tmInst->tilemap->tilesetAssetId;
+                const bool shift = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+                if (!coordinator.uiState().tilePaletteDockVisible) {
+                    coordinator.apply(SetTilePaletteDockVisibleIntent{true});
+                }
+                coordinator.apply(RequestTilePaletteFitIntent{
+                    tilesetId,
+                    shift ? TilePaletteFitKind::Selection : TilePaletteFitKind::Content});
+            }
         }
         // Delete: KEY_DELETE is also forwarded into RmlUi's own text editing
         // (editor_input.cpp), but only takes effect there while a field has
@@ -1297,7 +1316,7 @@ int EditorApp::run(int argc, char** argv) {
             }
         }
 
-        // -- Tile Palette (Inspector sheet view) -----------------------------
+        // -- Tile Palette (Scene workspace dock) -----------------------------
         // One resolution per frame, shared by input (here, against the last
         // completed layout - the editor canvases' own convention) and by
         // painting (which re-reads the rects after host.update()). The
@@ -1307,7 +1326,7 @@ int EditorApp::run(int argc, char** argv) {
             const ViewportRect hole =
                 elementContentRectFromDocument(host.document(), "tile-palette");
             const ViewportRect body =
-                elementContentRectFromDocument(host.document(), "inspector-body");
+                elementContentRectFromDocument(host.document(), "tile-palette-dock-body");
             if (!hole.valid() || !body.valid()) return {ViewportRect{}, ViewportRect{}};
             ViewportRect clip;
             clip.x = std::max(body.x, hole.x);
@@ -1609,7 +1628,8 @@ int EditorApp::run(int argc, char** argv) {
         if (tilePaletteTileset) {
             renderTilePaletteSheet(*tilePaletteTileset, coordinator.state().tilemapEditor,
                                    tilePaletteHoleRect, tilePaletteClipRect,
-                                   tilePaletteTexture, tilePaletteMask, paletteInput.marquee);
+                                   tilePaletteTexture, tilePaletteMask, paletteInput.marquee,
+                                   &canvasFont);
         }
         EndDrawing();
 

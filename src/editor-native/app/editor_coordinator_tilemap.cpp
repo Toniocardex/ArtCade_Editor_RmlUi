@@ -213,8 +213,8 @@ EditorOperationResult EditorCoordinator::apply(const SelectPaintStampIntent& int
         return finishIntent(EditorOperationResult::failure("Selected tile does not belong to the active tileset"));
     }
     state_.tilemapEditor.stamp = intent.stamp;
-    accumulate(EditorInvalidation::Inspector);
-    return EditorOperationResult::success(EditorInvalidation::Inspector);
+    accumulate(EditorInvalidation::Inspector | EditorInvalidation::Toolbar);
+    return EditorOperationResult::success(EditorInvalidation::Inspector | EditorInvalidation::Toolbar);
 }
 
 EditorOperationResult EditorCoordinator::apply(const SelectPaintTileIntent& intent) {
@@ -246,14 +246,14 @@ EditorOperationResult EditorCoordinator::apply(const SelectPaintTileIntent& inte
 }
 
 EditorOperationResult EditorCoordinator::apply(const SetTilePaletteZoomIntent& intent) {
-    if (!NumericValidation::isFinite(intent.zoom) || intent.zoom <= 0.f) {
+    if (!NumericValidation::isFinite(intent.textureScale) || intent.textureScale <= 0.f) {
         return finishIntent(EditorOperationResult::failure("Tile palette zoom must be positive"));
     }
     if (!document_.findTilesetAsset(intent.tilesetAssetId)) {
         return finishIntent(EditorOperationResult::failure("Tile palette zoom targets a missing tileset"));
     }
     TilePaletteViewState& view = state_.tilemapEditor.paletteViews[intent.tilesetAssetId];
-    view.zoom = clampTilePaletteZoom(intent.zoom);
+    view.textureScale = clampTilePaletteZoom(intent.textureScale);
     view.initialized = true;
     accumulate(EditorInvalidation::Inspector);
     return EditorOperationResult::success(EditorInvalidation::Inspector);
@@ -267,12 +267,68 @@ EditorOperationResult EditorCoordinator::apply(const PanTilePaletteIntent& inten
         return finishIntent(EditorOperationResult::failure("Tile palette pan targets a missing tileset"));
     }
     TilePaletteViewState& view = state_.tilemapEditor.paletteViews[intent.tilesetAssetId];
-    const Vec2 next{view.pan.x + intent.delta.x, view.pan.y + intent.delta.y};
+    const Vec2 next{view.scrollOffset.x + intent.delta.x, view.scrollOffset.y + intent.delta.y};
     if (!NumericValidation::isFinite(next)) {
         return finishIntent(EditorOperationResult::failure("Tile palette pan must be finite"));
     }
-    view.pan = next;
+    view.scrollOffset = next;
     view.initialized = true;
+    accumulate(EditorInvalidation::Inspector);
+    return EditorOperationResult::success(EditorInvalidation::Inspector);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetTilePaletteScrollIntent& intent) {
+    if (!NumericValidation::isFinite(intent.scrollOffset)) {
+        return finishIntent(EditorOperationResult::failure("Tile palette scroll must be finite"));
+    }
+    if (!document_.findTilesetAsset(intent.tilesetAssetId)) {
+        return finishIntent(EditorOperationResult::failure("Tile palette scroll targets a missing tileset"));
+    }
+    TilePaletteViewState& view = state_.tilemapEditor.paletteViews[intent.tilesetAssetId];
+    view.scrollOffset = intent.scrollOffset;
+    view.initialized = true;
+    accumulate(EditorInvalidation::Inspector);
+    return EditorOperationResult::success(EditorInvalidation::Inspector);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetTilePaletteViewIntent& intent) {
+    if (!NumericValidation::isFinite(intent.textureScale) || intent.textureScale <= 0.f) {
+        return finishIntent(EditorOperationResult::failure("Tile palette zoom must be positive"));
+    }
+    if (!NumericValidation::isFinite(intent.scrollOffset)) {
+        return finishIntent(EditorOperationResult::failure("Tile palette scroll must be finite"));
+    }
+    if (!document_.findTilesetAsset(intent.tilesetAssetId)) {
+        return finishIntent(EditorOperationResult::failure("Tile palette view targets a missing tileset"));
+    }
+    TilePaletteViewState& view = state_.tilemapEditor.paletteViews[intent.tilesetAssetId];
+    view.textureScale = clampTilePaletteZoom(intent.textureScale);
+    view.scrollOffset = intent.scrollOffset;
+    view.initialized = true;
+    if (state_.tilemapEditor.pendingPaletteFit
+        && state_.tilemapEditor.pendingPaletteFit->tilesetAssetId == intent.tilesetAssetId) {
+        state_.tilemapEditor.pendingPaletteFit.reset();
+    }
+    accumulate(EditorInvalidation::Inspector);
+    return EditorOperationResult::success(EditorInvalidation::Inspector);
+}
+
+EditorOperationResult EditorCoordinator::apply(const RequestTilePaletteFitIntent& intent) {
+    if (!document_.findTilesetAsset(intent.tilesetAssetId)) {
+        return finishIntent(EditorOperationResult::failure("Tile palette fit targets a missing tileset"));
+    }
+    state_.tilemapEditor.pendingPaletteFit = TilePalettePendingFit{
+        intent.tilesetAssetId, intent.kind};
+    accumulate(EditorInvalidation::Inspector);
+    return EditorOperationResult::success(EditorInvalidation::Inspector);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetTilePaletteGridVisibleIntent& intent) {
+    if (!document_.findTilesetAsset(intent.tilesetAssetId)) {
+        return finishIntent(EditorOperationResult::failure("Tile palette grid targets a missing tileset"));
+    }
+    TilePaletteViewState& view = state_.tilemapEditor.paletteViews[intent.tilesetAssetId];
+    view.gridVisible = intent.visible;
     accumulate(EditorInvalidation::Inspector);
     return EditorOperationResult::success(EditorInvalidation::Inspector);
 }
@@ -285,8 +341,8 @@ EditorOperationResult EditorCoordinator::apply(const SetHoveredTilemapCellIntent
 
 EditorOperationResult EditorCoordinator::apply(const SetRectangleShapeModeIntent& intent) {
     state_.tilemapEditor.rectangleOutlineMode = intent.outlineOnly;
-    accumulate(EditorInvalidation::Inspector);
-    return EditorOperationResult::success(EditorInvalidation::Inspector);
+    accumulate(EditorInvalidation::Inspector | EditorInvalidation::Toolbar);
+    return EditorOperationResult::success(EditorInvalidation::Inspector | EditorInvalidation::Toolbar);
 }
 
 EditorOperationResult EditorCoordinator::apply(const BeginTileRectangleIntent& intent) {

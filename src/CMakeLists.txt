@@ -29,6 +29,7 @@ add_library(artcade-editor-core STATIC
     editor-native/model/tileset_grid_geometry.cpp
     editor-native/model/tileset_empty_scan.cpp
     editor-native/model/tile_stamp.cpp
+    editor-native/model/tile_palette_projection.cpp
     editor-native/model/tilemap_chunk_math.cpp
     editor-native/model/tilemap_validation.cpp
     editor-native/model/tilemap_render_view.cpp
@@ -176,6 +177,7 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/ui/editor_fonts.cpp
     editor-native/ui/hierarchy_panel.cpp
     editor-native/ui/inspector_panel.cpp
+    editor-native/ui/tile_palette_dock_panel.cpp
     editor-native/ui/logic_board_panel.cpp
     editor-native/ui/console_panel.cpp
     editor-native/ui/assets_panel.cpp

@@ -131,13 +131,17 @@ body {
 
 #center-content {
     flex: 1;
+    display: flex;
+    flex-direction: column;
     position: relative;
     overflow: hidden;
+    min-height: 0;
 }
 
 #viewport {
+    flex: 1;
+    min-height: 0;
     width: 100%;
-    height: 100%;
     position: relative;
     overflow: hidden;
     background-color: transparent;
@@ -154,6 +158,100 @@ body {
 }
 
 #viewport.hidden { display: none; }
+
+/* Tile Palette dock: full Scene View width under the viewport (session layout
+   only — height/visibility from EditorUiState, never ProjectDocument). */
+#split-tile-palette {
+    flex: 0 0 auto;
+    z-index: 5;
+}
+#split-tile-palette.hidden { display: none; }
+
+#tile-palette-dock {
+    flex: 0 0 auto;
+    height: 300dp;
+    min-height: 160dp;
+    max-height: 480dp;
+    display: flex;
+    flex-direction: column;
+    background-color: #161619;
+    border-top: 1px #27272a;
+    overflow: hidden;
+    pointer-events: auto;
+}
+#tile-palette-dock.hidden { display: none; }
+
+.tile-palette-dock-header {
+    flex: 0 0 auto;
+    height: 28dp;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 0 10dp;
+    background-color: #18181b;
+    border-bottom: 1px #27272a;
+    color: #a1a1aa;
+    font-size: 11dp;
+}
+.tile-palette-dock-header .icon { margin-right: 6dp; color: #71717a; }
+.tile-palette-dock-title {
+    flex: 1;
+    min-width: 0;
+    color: #d4d4d8;
+    font-size: 11dp;
+    font-weight: 600;
+}
+.tile-palette-dock-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 6dp 10dp 8dp 10dp;
+    overflow: hidden;
+}
+.tile-palette-dock-meta {
+    flex: 0 0 auto;
+    margin: 0 0 4dp 0;
+    color: #8a8a93;
+    font-size: 11dp;
+}
+.tile-palette-dock-meta-name { color: #d4d4d8; font-weight: 600; }
+.tile-palette-dock-tools {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4dp;
+    margin: 0 0 6dp 0;
+}
+.tile-palette-dock-tools-label {
+    margin-right: 4dp;
+    color: #8a8a93;
+    font-size: 11dp;
+}
+.tile-palette-dock-tools .mode-option { margin: 0; }
+.tile-palette-dock-zoom {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4dp;
+    margin: 0 0 6dp 0;
+}
+.tile-palette-dock-hints {
+    flex: 0 0 auto;
+    margin: 0 0 6dp 0;
+    color: #6b6b73;
+    font-size: 10dp;
+}
+
+/* Logic/Script fill the center column when Scene (and the palette dock) are hidden. */
+#logic-board-panel,
+#script-editor-panel {
+    flex: 1;
+    min-height: 0;
+}
 
 #right-col {
     width: 312dp;

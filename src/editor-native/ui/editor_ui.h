@@ -9,6 +9,7 @@
 #include "editor-native/ui/generated_sfx_editor_controller.h"
 #include "editor-native/ui/hierarchy_panel.h"
 #include "editor-native/ui/inspector_panel.h"
+#include "editor-native/ui/tile_palette_dock_panel.h"
 #include "editor-native/ui/logic_board_editor_controller.h"
 #include "editor-native/ui/script_editor_controller.h"
 #include "editor-native/ui/sprite_animation_editor_controller.h"
@@ -304,6 +305,7 @@ private:
     GeneratedSfxEditorController        generatedSfxEditor_;
     HierarchyPanel                      hierarchy_;
     InspectorPanel                      inspector_;
+    TilePaletteDockPanel                tilePaletteDock_;
     ConsolePanel                        console_;
     AssetsPanel                         assets_;
     std::unique_ptr<Rml::EventListener> listener_;

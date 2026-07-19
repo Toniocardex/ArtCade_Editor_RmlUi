@@ -261,6 +261,10 @@ public:
     EditorOperationResult apply(const SelectPaintTileIntent& intent);
     EditorOperationResult apply(const SetTilePaletteZoomIntent& intent);
     EditorOperationResult apply(const PanTilePaletteIntent& intent);
+    EditorOperationResult apply(const SetTilePaletteScrollIntent& intent);
+    EditorOperationResult apply(const SetTilePaletteViewIntent& intent);
+    EditorOperationResult apply(const RequestTilePaletteFitIntent& intent);
+    EditorOperationResult apply(const SetTilePaletteGridVisibleIntent& intent);
     EditorOperationResult apply(const SetHoveredTilemapCellIntent& intent);
     EditorOperationResult apply(const SetRectangleShapeModeIntent& intent);
     EditorOperationResult apply(const BeginTileRectangleIntent& intent);
@@ -269,6 +273,8 @@ public:
     EditorOperationResult apply(const CancelTileRectangleIntent& intent);
     EditorOperationResult apply(const FillTilemapIntent& intent);
     EditorOperationResult apply(const ToggleConsoleIntent& intent);
+    EditorOperationResult apply(const ToggleTilePaletteDockIntent& intent);
+    EditorOperationResult apply(const SetTilePaletteDockVisibleIntent& intent);
     EditorOperationResult apply(const RevealInspectorPropertyIntent& intent);
     EditorOperationResult apply(const ResizePanelIntent& intent);
 

@@ -11,6 +11,25 @@ EditorOperationResult EditorCoordinator::apply(const ToggleConsoleIntent&) {
     return EditorOperationResult::success(inv);
 }
 
+EditorOperationResult EditorCoordinator::apply(const ToggleTilePaletteDockIntent&) {
+    uiState_.tilePaletteDockVisible = !uiState_.tilePaletteDockVisible;
+    const EditorInvalidation inv = EditorInvalidation::Layout | EditorInvalidation::Viewport
+                                 | EditorInvalidation::Inspector;
+    accumulate(inv);
+    return EditorOperationResult::success(inv);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetTilePaletteDockVisibleIntent& intent) {
+    if (uiState_.tilePaletteDockVisible == intent.visible) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+    uiState_.tilePaletteDockVisible = intent.visible;
+    const EditorInvalidation inv = EditorInvalidation::Layout | EditorInvalidation::Viewport
+                                 | EditorInvalidation::Inspector;
+    accumulate(inv);
+    return EditorOperationResult::success(inv);
+}
+
 EditorOperationResult EditorCoordinator::apply(const RevealInspectorPropertyIntent& intent) {
     if (isPlaying()) {
         return finishIntent(EditorOperationResult::failure("Stop Play before editing tilemap properties"));
@@ -58,6 +77,9 @@ EditorOperationResult EditorCoordinator::apply(const ResizePanelIntent& intent) 
             break;
         case ResizePanelIntent::Panel::Console:
             uiState_.consoleHeight = clampConsole(intent.size);
+            break;
+        case ResizePanelIntent::Panel::TilePaletteDock:
+            uiState_.tilePaletteDockHeight = clampTilePaletteDock(intent.size);
             break;
     }
     // A splitter drag relays out the shell but refreshes no panel content.

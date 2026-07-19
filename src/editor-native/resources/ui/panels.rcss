@@ -500,22 +500,24 @@
     font-size: 10dp;
 }
 
-/* -- Tile Palette (Tilemap component, Inspector) ---------------------------
+/* -- Tile Palette sheet (workspace dock under Scene View) ------------------
    One transparent hole: raylib paints the whole tileset sheet into it after
    RmlUi renders (same pattern as the Scene View viewport and the Tileset
    Editor canvas), preserving the sheet's spatial layout. No data-action here
    — every click/drag/wheel is routed app-side (tile_palette_input.cpp), so
-   RmlUi never double-fires on the same gesture. Fixed height, no nested
-   scroll: sheets larger than the hole are navigated with Ctrl+Wheel zoom and
-   middle/Space pan, exactly like the Tileset Editor's canvas. Base scale also
-   floors each tile at a readable on-screen size (see tilePaletteBaseScale). */
+   RmlUi never double-fires on the same gesture. Fills the dock body under
+   the chrome; sheets larger than the hole use Ctrl+Wheel zoom and
+   middle/Space pan (Slice 1 — professional zoom/scrollbars land in Slice 3). */
 .tile-palette-sheet {
     display: block;
-    height: 300dp;
-    margin: 4dp 0 6dp 0;
+    flex: 1;
+    min-height: 80dp;
+    margin: 4dp 0 0 0;
     background-color: #131316;
     border: 1px #27272a;
     border-radius: 2dp;
+    /* Raylib owns clicks inside the hole. */
+    pointer-events: none;
 }
 /* Palette header row (tile count). */
 .tile-palette-head {

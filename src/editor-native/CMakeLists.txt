@@ -140,6 +140,7 @@ if(ARTCADE_BUILD_NATIVE_EDITOR)
         ui/editor_fonts.cpp
         ui/hierarchy_panel.cpp
         ui/inspector_panel.cpp
+        ui/tile_palette_dock_panel.cpp
         ui/console_panel.cpp
         ui/assets_panel.cpp
     )

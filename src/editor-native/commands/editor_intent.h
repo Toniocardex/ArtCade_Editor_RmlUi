@@ -392,17 +392,41 @@ struct SelectPaintTileIntent {
 };
 
 // Tile Palette sheet navigation (workspace, per source tileset - see
-// TilePaletteViewState). Mirrors SetTilesetEditorZoomIntent/
-// PanTilesetEditorIntent, but keyed by tileset because the palette is not a
-// modal editor: whatever tileset the selected tilemap uses is the one shown.
+// TilePaletteViewState). textureScale is absolute (1 = 1:1 texture pixels).
 struct SetTilePaletteZoomIntent {
     AssetId tilesetAssetId;
-    float   zoom = 1.0f;
+    float   textureScale = 2.0f;
 };
 
 struct PanTilePaletteIntent {
     AssetId tilesetAssetId;
-    Vec2    delta;
+    Vec2    delta;   // added to scrollOffset, then clamped by the caller/app
+};
+
+// Absolute scroll write (scrollbar thumb, Fit/init bake). Stored as-is;
+// callers clamp with clampTilePaletteScrollOffset before applying when the
+// hole/sheet sizes are known (input/render path clamps again if needed).
+struct SetTilePaletteScrollIntent {
+    AssetId tilesetAssetId;
+    Vec2    scrollOffset{};
+};
+
+// Requests a one-shot Fit. App resolves hole + content bounds (empty mask)
+// and applies SetTilePaletteViewIntent — coordinator never touches textures.
+struct RequestTilePaletteFitIntent {
+    AssetId            tilesetAssetId;
+    TilePaletteFitKind kind = TilePaletteFitKind::Content;
+};
+
+struct SetTilePaletteViewIntent {
+    AssetId tilesetAssetId;
+    float   textureScale = 2.0f;
+    Vec2    scrollOffset{};
+};
+
+struct SetTilePaletteGridVisibleIntent {
+    AssetId tilesetAssetId;
+    bool    visible = true;
 };
 
 // Hover highlight + "Empty cell" status text, updated every frame a paint
@@ -469,6 +493,13 @@ struct FillTilemapIntent {
 
 struct ToggleConsoleIntent {};
 
+// Session-only: show/hide the Tile Palette dock under the Scene View.
+// Layout lives in EditorUiState — never ProjectDocument.
+struct ToggleTilePaletteDockIntent {};
+struct SetTilePaletteDockVisibleIntent {
+    bool visible = true;
+};
+
 // Workspace/UI navigation: scroll the Inspector to a property on an entity.
 // No document mutation, undo, or dirty flag.
 struct RevealInspectorPropertyIntent {
@@ -477,7 +508,7 @@ struct RevealInspectorPropertyIntent {
 };
 
 struct ResizePanelIntent {
-    enum class Panel { Left, Right, Console };
+    enum class Panel { Left, Right, Console, TilePaletteDock };
     Panel panel = Panel::Left;
     float size  = 0.0f;
 };

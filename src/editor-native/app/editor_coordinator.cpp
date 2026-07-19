@@ -493,11 +493,11 @@ void EditorCoordinator::reconcileTilemapEditingContext() {
     cancelPendingTilemapGesture();
     if (state_.tilemapEditor.stamp) {
         state_.tilemapEditor.stamp.reset();
-        accumulate(EditorInvalidation::Inspector);
+        accumulate(EditorInvalidation::Inspector | EditorInvalidation::Toolbar);
     }
     if (isTilemapTool(state_.activeTool)) {
         state_.activeTool = EditorTool::Select;
-        accumulate(EditorInvalidation::Inspector);
+        accumulate(EditorInvalidation::Inspector | EditorInvalidation::Toolbar);
     }
 }
 
@@ -529,7 +529,7 @@ void EditorCoordinator::reconcileStampAgainstTileset() {
     // silently paint something the user never chose.
     if (!valid) {
         state_.tilemapEditor.stamp.reset();
-        accumulate(EditorInvalidation::Inspector);
+        accumulate(EditorInvalidation::Inspector | EditorInvalidation::Toolbar);
     }
 }
 

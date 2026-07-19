@@ -12,10 +12,9 @@ struct RmlInputResult {
 };
 
 // Input the application claims for itself this frame, withheld from RmlUi.
-// Today: the wheel while Ctrl is held over the Tile Palette hole (palette
-// zoom) — without this RmlUi would also scroll the Inspector. The claim must
-// be dropped whenever its justifying rect is invalid or stale, so plain
-// scrolling is never stolen from the panel.
+// Today: the wheel while the pointer is over the Tile Palette hole (scroll /
+// zoom) — without this RmlUi would also scroll dock chrome. The claim must
+// be dropped whenever its justifying rect is invalid or stale.
 struct RmlInputSuppression {
     bool mouseWheel = false;
 };

@@ -147,6 +147,22 @@
     margin: 0 7dp;
     background-color: #323236;
 }
+.tool-sep.hidden { display: none; }
+
+/* Tilemap paint tools: Scene toolbar only (workspace tools, not Inspector). */
+.tilemap-context-tools.hidden { display: none; }
+.toolbar-tilemap-stamp {
+    display: inline-block;
+    flex: 0 0 auto;
+    margin: 3dp 6dp;
+    padding: 0 4dp;
+    color: #8a8a93;
+    font-size: 12dp;
+    line-height: 28dp;
+    white-space: nowrap;
+}
+.toolbar-tilemap-stamp.hidden { display: none; }
+.toolbar-tilemap-stamp .value { color: #d4d4d8; font-weight: 600; }
 
 /* Icon-only toolbar buttons (zoom +/-): tighter padding, no icon gap. */
 .tool-icon { padding: 0 10dp; }

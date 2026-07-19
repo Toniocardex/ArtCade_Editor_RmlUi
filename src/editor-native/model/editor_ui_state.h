@@ -35,12 +35,16 @@ namespace PanelLimits {
 constexpr float kLeftMin    = 180.0f, kLeftMax    = 480.0f;
 constexpr float kRightMin   = 220.0f, kRightMax   = 520.0f;
 constexpr float kConsoleMin = 80.0f,  kConsoleMax = 600.0f;
+constexpr float kTilePaletteDockMin = 160.0f, kTilePaletteDockMax = 480.0f;
 } // namespace PanelLimits
 
 struct EditorUiState {
     float leftPanelWidth  = 280.0f;
     float rightPanelWidth = 320.0f;
     float consoleHeight   = 220.0f;
+    // Session-only Tile Palette dock under the Scene View (not ProjectDocument).
+    float tilePaletteDockHeight = 300.0f;
+    bool  tilePaletteDockVisible = true;
 
     std::string hierarchyFilter;
     std::string assetFilter;
@@ -58,5 +62,8 @@ struct EditorUiState {
 inline float clampLeftPanel(float v)    { return std::clamp(v, PanelLimits::kLeftMin,    PanelLimits::kLeftMax); }
 inline float clampRightPanel(float v)   { return std::clamp(v, PanelLimits::kRightMin,   PanelLimits::kRightMax); }
 inline float clampConsole(float v)      { return std::clamp(v, PanelLimits::kConsoleMin, PanelLimits::kConsoleMax); }
+inline float clampTilePaletteDock(float v) {
+    return std::clamp(v, PanelLimits::kTilePaletteDockMin, PanelLimits::kTilePaletteDockMax);
+}
 
 } // namespace ArtCade::EditorNative

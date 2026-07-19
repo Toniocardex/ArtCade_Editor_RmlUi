@@ -48,7 +48,7 @@
 #include "editor-native/model/tile_stamp.h"
 #include "editor-native/model/tileset_empty_scan.h"
 #include "editor-native/model/tileset_grid_geometry.h"
-#include "editor-native/model/tile_palette_scale.h"
+#include "editor-native/model/tile_palette_projection.h"
 #include "editor-native/model/tileset_slicing.h"
 #include "editor-native/model/tilemap_chunk_math.h"
 #include "editor-native/model/tilemap_cell_access.h"
@@ -62,6 +62,7 @@
 #include "script-runtime.h"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include "artcade/sfx/presets.hpp"
@@ -1833,11 +1834,12 @@ int main() {
         CHECK(c.apply(SetTilePaletteZoomIntent{"tiles-1", 4.f}).ok);
         CHECK(c.apply(PanTilePaletteIntent{"tiles-1", Vec2{10.f, -5.f}}).ok);
         const auto& views = c.state().tilemapEditor.paletteViews;
-        CHECK(views.at("tiles-1").zoom == 4.f);
-        CHECK(views.at("tiles-1").pan.x == 10.f && views.at("tiles-1").pan.y == -5.f);
+        CHECK(views.at("tiles-1").textureScale == 4.f);
+        CHECK(views.at("tiles-1").scrollOffset.x == 10.f
+              && views.at("tiles-1").scrollOffset.y == -5.f);
         CHECK(views.at("tiles-1").initialized);
         CHECK(c.apply(SetTilePaletteZoomIntent{"tiles-1", 100.f}).ok);           // clamped
-        CHECK(views.at("tiles-1").zoom == TilePaletteViewLimits::kZoomMax);
+        CHECK(views.at("tiles-1").textureScale == TilePaletteViewLimits::kZoomMax);
         CHECK(c.document().revision() == revision);   // workspace-only, never dirties
 
         // Deleting the tileset prunes its view on the next reconcile.
@@ -1846,17 +1848,130 @@ int main() {
         CHECK(views.find("tiles-1") == views.end());
     }
 
-    // -- Palette base scale: fit-to-hole floors below a readable tile size -----
+    // -- Palette projection: absolute texture scale + scroll (no fit×min floor) -
     {
-        // Dense 16px atlas that would otherwise collapse to ~8 px in a 220 hole.
-        const float fitOnly = tilePaletteBaseScale(280.f, 220.f, 512.f, 512.f, 0, 0);
-        CHECK(fitOnly < 0.5f);
-        const float readable = tilePaletteBaseScale(280.f, 220.f, 512.f, 512.f, 16, 16);
-        CHECK(readable >= kMinOnScreenTilePx / 16.f);
-        CHECK(readable * 16.f >= kMinOnScreenTilePx - 0.01f);
-        // Small sheet that already fits large: keep integer fit (>= 1).
-        const float enlarged = tilePaletteBaseScale(280.f, 300.f, 64.f, 64.f, 16, 16);
-        CHECK(enlarged >= 1.f);
+        TilePaletteViewState view;
+        view.textureScale = 2.f;
+        view.scrollOffset = Vec2{12.f, -4.f};
+        const TilePaletteViewportProjection proj =
+            computeTilePaletteProjection(view, 0.f, 0.f, 400.f, 300.f, 256.f, 128.f);
+        CHECK(proj.textureScale == 2.f);
+        CHECK(proj.sheetWidth == 512.f);
+        CHECK(proj.sheetHeight == 256.f);
+        CHECK(proj.sheetX == 12.f);
+        CHECK(proj.sheetY == -4.f);
+
+        // 16px tiles: readable step prefers 2× (32 px on screen).
+        CHECK(tilePaletteStepForReadableTiles(16, 16) == 2);
+
+        const TilePaletteSourceBounds content{16, 16, 64, 32};
+        const TilePaletteViewState fitted = makeInitialTilePaletteView(
+            200.f, 100.f, 256.f, 128.f, 16, 16, content);
+        CHECK(fitted.initialized);
+        CHECK(fitted.textureScale >= 1.f);
+    }
+
+    // -- Slice 5: Tile Palette dock auto-opens on Tilemap select; height stays
+    // session-only memory in EditorUiState (clamped); Fit requests are pending
+    // Intents; sparse empty masks shrink content bounds; large sheets clamp scroll.
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        CHECK(c.apply(SetTilePaletteDockVisibleIntent{false}).ok);
+        CHECK(!c.uiState().tilePaletteDockVisible);
+        setUpTilemapForPainting(c);   // SelectEntity on Tilemap → dock visible
+        CHECK(c.uiState().tilePaletteDockVisible);
+
+        // Manual hide sticks until the next Tilemap select.
+        CHECK(c.apply(SetTilePaletteDockVisibleIntent{false}).ok);
+        CHECK(!c.uiState().tilePaletteDockVisible);
+        CHECK(c.apply(SelectEntityIntent{kHero}).ok);
+        CHECK(c.uiState().tilePaletteDockVisible);
+
+        // Selecting a non-Tilemap entity does not force the dock closed.
+        CHECK(c.apply(SetTilePaletteDockVisibleIntent{false}).ok);
+        CHECK(c.execute(CreateEntityCommand{kSceneA, 777, "Enemy", "plain", {}}).ok);
+        CHECK(c.apply(SelectEntityIntent{777}).ok);
+        CHECK(!c.uiState().tilePaletteDockVisible);
+
+        // Dock height memory + clamp (UiState only — never ProjectDocument).
+        const uint64_t revision = c.document().revision();
+        CHECK(c.apply(ResizePanelIntent{ResizePanelIntent::Panel::TilePaletteDock, 9999.f}).ok);
+        CHECK(c.uiState().tilePaletteDockHeight == PanelLimits::kTilePaletteDockMax);
+        CHECK(c.apply(ResizePanelIntent{ResizePanelIntent::Panel::TilePaletteDock, 1.f}).ok);
+        CHECK(c.uiState().tilePaletteDockHeight == PanelLimits::kTilePaletteDockMin);
+        CHECK(c.apply(ResizePanelIntent{ResizePanelIntent::Panel::TilePaletteDock, 280.f}).ok);
+        CHECK(c.uiState().tilePaletteDockHeight == 280.f);
+        CHECK(c.document().revision() == revision);
+
+        // Fit Intent only queues pendingPaletteFit; app bakes SetTilePaletteView.
+        CHECK(c.apply(RequestTilePaletteFitIntent{"tiles-1", TilePaletteFitKind::Content}).ok);
+        CHECK(c.state().tilemapEditor.pendingPaletteFit.has_value());
+        CHECK(c.state().tilemapEditor.pendingPaletteFit->kind == TilePaletteFitKind::Content);
+        CHECK(c.apply(RequestTilePaletteFitIntent{"tiles-1", TilePaletteFitKind::Selection}).ok);
+        CHECK(c.state().tilemapEditor.pendingPaletteFit->kind == TilePaletteFitKind::Selection);
+        CHECK(c.document().revision() == revision);
+
+        const TilesetAsset* tileset = c.document().findTilesetAsset("tiles-1");
+        CHECK(tileset != nullptr);
+        CHECK(tileset->tiles.size() == 4);
+        // Sparse sheet: only tile-4 (bottom-right) is non-empty → content shrinks.
+        std::vector<bool> empties{true, true, true, false};
+        const TilePaletteSourceBounds sparse =
+            tilePaletteContentBounds(*tileset, nullptr, &empties);
+        CHECK(sparse.valid());
+        CHECK(sparse.x == tileset->tiles[3].x);
+        CHECK(sparse.y == tileset->tiles[3].y);
+        CHECK(sparse.width == tileset->tiles[3].width);
+        CHECK(sparse.height == tileset->tiles[3].height);
+
+        const TilePaletteSourceBounds fullSheet{0, 0, 256, 128};
+        const TilePaletteSourceBounds contentIsland{64, 32, 32, 32};
+        const TilePaletteViewState fitContent = makeFitTilePaletteView(
+            TilePaletteFitKind::Content, 200.f, 100.f, 256.f, 128.f, 16, 16,
+            fullSheet, contentIsland, std::nullopt);
+        const TilePaletteViewState fitSheet = makeFitTilePaletteView(
+            TilePaletteFitKind::Sheet, 200.f, 100.f, 256.f, 128.f, 16, 16,
+            fullSheet, contentIsland, std::nullopt);
+        CHECK(fitContent.initialized && fitSheet.initialized);
+        // Framing a small island yields a larger scale than fitting the whole sheet.
+        CHECK(fitContent.textureScale >= fitSheet.textureScale);
+
+        // Fit Selection without stamp bounds falls back to Content, never Sheet.
+        const TilePaletteViewState fitSelFallback = makeFitTilePaletteView(
+            TilePaletteFitKind::Selection, 200.f, 100.f, 256.f, 128.f, 16, 16,
+            fullSheet, contentIsland, std::nullopt);
+        CHECK(fitSelFallback.initialized);
+        CHECK(fitSelFallback.textureScale == fitContent.textureScale);
+        CHECK(fitSelFallback.scrollOffset.x == fitContent.scrollOffset.x);
+        CHECK(fitSelFallback.scrollOffset.y == fitContent.scrollOffset.y);
+
+        // Zoom remapping keeps the texture point under the viewport centre.
+        const Vec2 beforeScroll{-40.f, -10.f};
+        const Vec2 remapped = remapTilePaletteScrollForZoom(
+            2.f, 4.f, beforeScroll, 100.f, 50.f);
+        CHECK(std::fabs(remapped.x - (100.f - (100.f - beforeScroll.x) * 2.f)) < 0.01f);
+        CHECK(std::fabs(remapped.y - (50.f - (50.f - beforeScroll.y) * 2.f)) < 0.01f);
+
+        // Fractional fit scale: wheel steps to the adjacent integer, not lround.
+        CHECK(tilePaletteNextZoomStep(1.4f, true) == 2);
+        CHECK(tilePaletteNextZoomStep(1.4f, false) == 1);
+        CHECK(tilePaletteNextZoomStep(2.0f, true) == 3);
+        CHECK(tilePaletteNextZoomStep(2.0f, false) == 1);
+        CHECK(tilePaletteNextZoomStep(1.0f, false) == 1);
+
+        // Large sheet at high zoom: scroll clamps into reachable range.
+        TilePaletteViewState huge;
+        huge.textureScale = 8.f;
+        huge.scrollOffset = Vec2{-99999.f, 99999.f};
+        const TilePaletteViewportProjection bigProj =
+            computeTilePaletteProjection(huge, 0.f, 0.f, 320.f, 180.f, 2048.f, 2048.f);
+        const Vec2 clamped = clampTilePaletteScrollOffset(
+            huge.scrollOffset, bigProj.viewportWidth, bigProj.viewportHeight,
+            bigProj.sheetWidth, bigProj.sheetHeight);
+        CHECK(clamped.x == 320.f - bigProj.sheetWidth);
+        CHECK(clamped.y == 0.f);
+        CHECK(clamped.x > huge.scrollOffset.x);
+        CHECK(clamped.y < huge.scrollOffset.y);
     }
 
     // -- PaintTilemapCellsCommand: paints a multi-chunk, negative-coordinate
@@ -2078,7 +2193,7 @@ int main() {
         c.apply(SetActiveToolIntent{EditorTool::Brush});
         const auto begin = c.apply(BeginTemporaryToolOverrideIntent{EditorTool::Eraser});
         CHECK(begin.ok);
-        CHECK(begin.invalidation == EditorInvalidation::Inspector);
+        CHECK(begin.invalidation == (EditorInvalidation::Inspector | EditorInvalidation::Toolbar));
         CHECK(c.effectiveTilemapTool() == EditorTool::Eraser);
         CHECK(c.state().activeTool == EditorTool::Brush);   // persistent selection untouched
     }

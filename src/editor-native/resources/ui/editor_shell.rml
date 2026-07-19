@@ -42,6 +42,7 @@
                 <div id="menu-grid-snap" class="menu-entry" data-action="toggle-grid-snap"><span class="icon">&#xeae3;</span>Snap to Grid</div>
                 <div class="menu-separator"></div>
                 <div class="menu-entry" data-action="toggle-console"><span class="icon">&#xebdc;</span>Toggle Console</div>
+                <div id="menu-tile-palette" class="menu-entry" data-action="toggle-tile-palette-dock"><span class="icon">&#xf22f;</span>Tile Palette</div>
             </div>
         </div>
     </div>
@@ -62,6 +63,18 @@
             <div class="tool-group scene-tool-tools">
                 <button id="btn-tool-select" class="tool-btn" data-action="select-tool-select" title="Select"><span class="icon">&#xf265;</span>Select</button>
                 <button id="btn-tool-pan" class="tool-btn" data-action="select-tool-pan" title="Pan"><span class="icon">&#xec2e;</span>Pan</button>
+            </div>
+            <span id="tilemap-tool-sep" class="tool-sep hidden"></span>
+            <div id="tilemap-context-tools" class="tool-group tilemap-context-tools hidden">
+                <button id="btn-tool-brush" class="tool-btn" data-action="select-tilemap-brush" title="Brush (B)"><span class="icon">&#xebb8;</span>Brush</button>
+                <button id="btn-tool-eraser" class="tool-btn" data-action="select-tilemap-eraser" title="Eraser (E)"><span class="icon">&#xeb8b;</span>Eraser</button>
+                <button id="btn-tool-picker" class="tool-btn" data-action="select-tilemap-picker" title="Picker (I)"><span class="icon">&#xebe6;</span>Picker</button>
+                <button id="btn-tool-rectangle" class="tool-btn" data-action="select-tilemap-rectangle" title="Rectangle (R)"><span class="icon">&#xed37;</span>Rectangle</button>
+                <button id="btn-tool-fill" class="tool-btn" data-action="select-tilemap-fill" title="Fill (F)"><span class="icon">&#xea47;</span>Fill</button>
+                <span id="tilemap-shape-sep" class="tool-sep hidden"></span>
+                <button id="btn-tilemap-rect-solid" class="tool-btn hidden" data-action="select-tilemap-rectangle-solid" title="Solid rectangle">Solid</button>
+                <button id="btn-tilemap-rect-outline" class="tool-btn hidden" data-action="select-tilemap-rectangle-outline" title="Outline rectangle">Outline</button>
+                <span id="toolbar-tilemap-stamp" class="toolbar-tilemap-stamp hidden" title="Paint stamp from the Tile Palette"></span>
             </div>
             <span class="tool-sep"></span>
             <div class="tool-group scene-view-tools">
@@ -174,6 +187,15 @@
                             <button class="viewport-empty-btn" data-action="add-scene"><span class="icon">&#xeb0b;</span>Create Scene</button>
                         </div>
                     </div>
+                </div>
+                <div id="split-tile-palette" class="hsplit hidden" data-action="resize-tile-palette"></div>
+                <div id="tile-palette-dock" class="hidden">
+                    <div class="tile-palette-dock-header">
+                        <span class="icon">&#xf22f;</span>
+                        <span id="tile-palette-dock-title" class="tile-palette-dock-title">TILE PALETTE</span>
+                        <button class="header-btn" data-action="toggle-tile-palette-dock" title="Hide Tile Palette">Hide</button>
+                    </div>
+                    <div id="tile-palette-dock-body" class="tile-palette-dock-body"></div>
                 </div>
                 <div id="logic-board-panel" class="logic-board-panel hidden"></div>
                 <div id="script-editor-panel" class="script-editor-panel hidden">
