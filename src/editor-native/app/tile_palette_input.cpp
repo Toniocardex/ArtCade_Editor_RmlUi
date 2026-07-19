@@ -91,7 +91,8 @@ void panStampIntoView(EditorCoordinator& coordinator, const TilesetAsset& tilese
     const auto viewIt = coordinator.state().tilemapEditor.paletteViews.find(tileset.assetId);
     const TilePaletteViewState view = viewIt != coordinator.state().tilemapEditor.paletteViews.end()
         ? viewIt->second : TilePaletteViewState{};
-    const Rectangle dest = tilePaletteSheetDestination(texture, holeRect, view);
+    const Rectangle dest = tilePaletteSheetDestination(
+        texture, holeRect, view, tileset.slicing.tileWidth, tileset.slicing.tileHeight);
     const std::optional<Rectangle> region =
         stampScreenRegion(*stamp, tileset, *geometry, texture, dest);
     if (!region) return;
@@ -159,12 +160,16 @@ void routeTilePaletteInput(EditorCoordinator& coordinator,
     const float wheel = GetMouseWheelMove();
     if (ctrlDown && wheel != 0.0f && mouseInClip) {
         const TilePaletteViewState before = currentView();
-        const Rectangle destBefore = tilePaletteSheetDestination(*texture, holeRect, before);
+        const Rectangle destBefore = tilePaletteSheetDestination(
+            *texture, holeRect, before,
+            tileset.slicing.tileWidth, tileset.slicing.tileHeight);
         const float scaleBefore = destBefore.width / static_cast<float>(texture->texture.width);
         coordinator.apply(SetTilePaletteZoomIntent{
             tileset.assetId, before.zoom * (1.0f + wheel * 0.1f)});
         const TilePaletteViewState zoomed = currentView();
-        const Rectangle destAfter = tilePaletteSheetDestination(*texture, holeRect, zoomed);
+        const Rectangle destAfter = tilePaletteSheetDestination(
+            *texture, holeRect, zoomed,
+            tileset.slicing.tileWidth, tileset.slicing.tileHeight);
         const float scaleAfter = destAfter.width / static_cast<float>(texture->texture.width);
         const float u = (mouseX - destBefore.x) / scaleBefore;
         const float v = (mouseY - destBefore.y) / scaleBefore;
@@ -185,7 +190,9 @@ void routeTilePaletteInput(EditorCoordinator& coordinator,
     }
 
     if (!geometry) return;
-    const Rectangle dest = tilePaletteSheetDestination(*texture, holeRect, currentView());
+    const Rectangle dest = tilePaletteSheetDestination(
+        *texture, holeRect, currentView(),
+        tileset.slicing.tileWidth, tileset.slicing.tileHeight);
 
     // Marquee start: left press on a grid cell (gutters and margins miss).
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && mouseInClip && !state.marquee.active) {

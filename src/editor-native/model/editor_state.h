@@ -36,8 +36,8 @@ constexpr float kZoomMin = 0.25f;
 constexpr float kZoomMax = 16.0f;
 } // namespace TilesetEditorViewLimits
 
-// Inspector Tile Palette sheet view (zoom 1.0 = fit-to-hole, like the Tileset
-// Editor's canvas whose limits it mirrors).
+// Inspector Tile Palette sheet view (zoom 1.0 = max(fit-to-hole,
+// min-readable-tile), like the Tileset Editor's canvas whose limits it mirrors).
 namespace TilePaletteViewLimits {
 constexpr float kZoomMin = 0.25f;
 constexpr float kZoomMax = 16.0f;

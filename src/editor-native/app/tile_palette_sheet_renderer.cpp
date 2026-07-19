@@ -64,7 +64,8 @@ void drawHoleHatch(const Rectangle& cell, Color color) {
 
 Rectangle tilePaletteSheetDestination(const TextureResource& texture,
                                       const ViewportRect& holeRect,
-                                      const TilePaletteViewState& view) {
+                                      const TilePaletteViewState& view,
+                                      int tileWidthPx, int tileHeightPx) {
     Rectangle area{
         static_cast<float>(holeRect.x),
         static_cast<float>(holeRect.y),
@@ -73,9 +74,8 @@ Rectangle tilePaletteSheetDestination(const TextureResource& texture,
     };
     const float textureW = static_cast<float>(texture.texture.width);
     const float textureH = static_cast<float>(texture.texture.height);
-    float scale = std::min(area.width / textureW, area.height / textureH);
-    if (scale > 1.f) scale = std::floor(scale);
-    scale = std::clamp(scale, 0.25f, 16.f);
+    float scale = tilePaletteBaseScale(
+        area.width, area.height, textureW, textureH, tileWidthPx, tileHeightPx);
     scale *= clampTilePaletteZoom(view.zoom);
     const float destW = textureW * scale;
     const float destH = textureH * scale;
@@ -102,7 +102,8 @@ void renderTilePaletteSheet(const TilesetAsset& tileset,
         viewIt != tilemapEditor.paletteViews.end() ? viewIt->second : TilePaletteViewState{};
 
     BeginScissorMode(clipRect.x, clipRect.y, clipRect.width, clipRect.height);
-    const Rectangle dest = tilePaletteSheetDestination(*texture, holeRect, view);
+    const Rectangle dest = tilePaletteSheetDestination(
+        *texture, holeRect, view, tileset.slicing.tileWidth, tileset.slicing.tileHeight);
     const Rectangle clip{
         static_cast<float>(clipRect.x), static_cast<float>(clipRect.y),
         static_cast<float>(clipRect.width), static_cast<float>(clipRect.height)};

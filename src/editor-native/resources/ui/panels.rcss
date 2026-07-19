@@ -507,10 +507,11 @@
    — every click/drag/wheel is routed app-side (tile_palette_input.cpp), so
    RmlUi never double-fires on the same gesture. Fixed height, no nested
    scroll: sheets larger than the hole are navigated with Ctrl+Wheel zoom and
-   middle/Space pan, exactly like the Tileset Editor's canvas. */
+   middle/Space pan, exactly like the Tileset Editor's canvas. Base scale also
+   floors each tile at a readable on-screen size (see tilePaletteBaseScale). */
 .tile-palette-sheet {
     display: block;
-    height: 220dp;
+    height: 300dp;
     margin: 4dp 0 6dp 0;
     background-color: #131316;
     border: 1px #27272a;

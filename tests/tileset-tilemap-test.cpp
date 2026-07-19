@@ -48,6 +48,7 @@
 #include "editor-native/model/tile_stamp.h"
 #include "editor-native/model/tileset_empty_scan.h"
 #include "editor-native/model/tileset_grid_geometry.h"
+#include "editor-native/model/tile_palette_scale.h"
 #include "editor-native/model/tileset_slicing.h"
 #include "editor-native/model/tilemap_chunk_math.h"
 #include "editor-native/model/tilemap_cell_access.h"
@@ -1843,6 +1844,19 @@ int main() {
         CHECK(c.execute(RemoveTilemapComponentCommand{kSceneA, kHero}).ok);
         CHECK(c.execute(RemoveTilesetAssetCommand{"tiles-1"}).ok);
         CHECK(views.find("tiles-1") == views.end());
+    }
+
+    // -- Palette base scale: fit-to-hole floors below a readable tile size -----
+    {
+        // Dense 16px atlas that would otherwise collapse to ~8 px in a 220 hole.
+        const float fitOnly = tilePaletteBaseScale(280.f, 220.f, 512.f, 512.f, 0, 0);
+        CHECK(fitOnly < 0.5f);
+        const float readable = tilePaletteBaseScale(280.f, 220.f, 512.f, 512.f, 16, 16);
+        CHECK(readable >= kMinOnScreenTilePx / 16.f);
+        CHECK(readable * 16.f >= kMinOnScreenTilePx - 0.01f);
+        // Small sheet that already fits large: keep integer fit (>= 1).
+        const float enlarged = tilePaletteBaseScale(280.f, 300.f, 64.f, 64.f, 16, 16);
+        CHECK(enlarged >= 1.f);
     }
 
     // -- PaintTilemapCellsCommand: paints a multi-chunk, negative-coordinate

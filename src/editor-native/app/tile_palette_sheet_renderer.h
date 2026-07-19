@@ -2,6 +2,7 @@
 
 #include "core/types.h"
 #include "editor-native/model/editor_state.h"
+#include "editor-native/model/tile_palette_scale.h"
 #include "editor-native/view/scene_view_camera.h"
 #include "editor-native/view/texture_cache.h"
 #include "editor-native/view/tileset_empty_tiles.h"
@@ -22,14 +23,14 @@ struct TilePaletteMarquee {
     int row1 = 0;
 };
 
-// Where the whole sheet lands inside the palette hole: fit-to-hole scale
-// (integer upscale floored, pixel-crisp), multiplied by the per-tileset view
-// zoom, centered, then offset by the view pan. Mirrors tilesetSheetDestination
-// so the two sheet canvases behave identically; input hit-testing uses this
-// exact mapping so a click lands on what is drawn.
+// Where the whole sheet lands inside the palette hole. Base scale is
+// tilePaletteBaseScale (fit-to-hole floored by a readable per-tile minimum),
+// multiplied by the per-tileset view zoom, centered, then offset by pan.
+// Input hit-testing uses this exact mapping so a click lands on what is drawn.
 Rectangle tilePaletteSheetDestination(const TextureResource& texture,
                                       const ViewportRect& holeRect,
-                                      const TilePaletteViewState& view);
+                                      const TilePaletteViewState& view,
+                                      int tileWidthPx, int tileHeightPx);
 
 // Draws the palette sheet: checker, the sheet texture once, dimmed empty
 // tiles, the per-tile grid, the committed stamp's N x M region (border +
