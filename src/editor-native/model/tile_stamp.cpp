@@ -55,6 +55,13 @@ std::optional<TileId> stampPrimaryTileId(const TilemapTileStamp& stamp) {
     return std::nullopt;
 }
 
+bool sameTileStamp(const TilemapTileStamp& a, const TilemapTileStamp& b) {
+    return a.sourceTilesetAssetId == b.sourceTilesetAssetId
+        && a.sourceColumn == b.sourceColumn && a.sourceRow == b.sourceRow
+        && a.width == b.width && a.height == b.height
+        && a.tiles == b.tiles;
+}
+
 std::vector<TileStampPlacement> stampPlacementsAt(const TilemapTileStamp& stamp,
                                                   TilemapCellCoord placementAnchor) {
     std::vector<TileStampPlacement> placements;

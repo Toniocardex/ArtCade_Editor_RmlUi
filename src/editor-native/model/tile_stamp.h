@@ -58,6 +58,11 @@ bool stampIsValid(const TilemapTileStamp& stamp);
 // authority of a multi-tile selection.
 std::optional<TileId> stampPrimaryTileId(const TilemapTileStamp& stamp);
 
+// Memberwise equality (change detection, e.g. pan-selected-into-view). Not
+// operator== on the struct: the editor's own comparison conventions
+// (sameTilesetSlicing, sameTileDefinitions) keep these as named functions.
+bool sameTileStamp(const TilemapTileStamp& a, const TilemapTileStamp& b);
+
 // -- Brush semantics ---------------------------------------------------------
 // Every interpolated brush position is the anchor (top-left) of one whole
 // N x M footprint: a single click with a 2x2 stamp paints 4 cells.

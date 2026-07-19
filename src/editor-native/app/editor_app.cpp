@@ -43,7 +43,8 @@
 #include "editor-native/view/texture_cache.h"
 #include "editor-native/view/texture_request_catalog.h"
 #include "editor-native/view/tileset_empty_tiles.h"
-#include "editor-native/model/tile_stamp.h"
+#include "editor-native/app/tile_palette_input.h"
+#include "editor-native/app/tile_palette_sheet_renderer.h"
 #include "editor-native/view/tilemap_paint_overlay.h"
 
 #include "artcade/sfx/raylib_preview.hpp"
@@ -56,6 +57,7 @@
 #include <raylib.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -157,6 +159,8 @@ int EditorApp::run(int argc, char** argv) {
     int shotEntityIndex = -1;   // >= 0: select the Nth instance of the active scene
     std::string shotDropdown;   // non-empty: open this Inspector value dropdown
     std::string shotSection;    // non-empty: toggle this Inspector section (e.g. "tilemap")
+    std::string shotStamp;      // "c0,r0,c1,r1": select that palette region as a stamp
+    float shotPaletteZoom = 0.f; // > 0: apply this palette zoom to the shot tileset
     std::string shotAssetMenu;  // "kind|id": open the Assets row menu on that asset
     int shotWidth = 0, shotHeight = 0;  // >0: force a viewport size for responsive UI shots
     bool lifecycleSmoke = false; // hidden, self-checking bind/detach/shutdown run
@@ -180,6 +184,10 @@ int EditorApp::run(int argc, char** argv) {
             shotDropdown = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-section") == 0 && i + 1 < argc)
             shotSection = argv[i + 1];
+        else if (std::strcmp(argv[i], "--shot-stamp") == 0 && i + 1 < argc)
+            shotStamp = argv[i + 1];
+        else if (std::strcmp(argv[i], "--shot-palette-zoom") == 0 && i + 1 < argc)
+            shotPaletteZoom = static_cast<float>(std::atof(argv[i + 1]));
         else if (std::strcmp(argv[i], "--shot-asset-menu") == 0 && i + 1 < argc)
             shotAssetMenu = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-size") == 0 && i + 1 < argc) {
@@ -777,22 +785,6 @@ int EditorApp::run(int argc, char** argv) {
             if (!resource) return std::nullopt;
             return std::make_pair(resource->texture.width, resource->texture.height);
         });
-    // Emptiness flags for the Inspector's tile palette. Edit mode only: the
-    // palette is never painted during Play, and forDocument() must not fight
-    // the render loop's forPlay() over the request catalog's single entry.
-    ui.setTilemapPaletteEmptyTilesProvider(
-        [&](const AssetId& tilesetAssetId) -> const std::vector<bool>* {
-            if (coordinator.isPlaying()) return nullptr;
-            const TilesetAsset* tileset =
-                coordinator.document().findTilesetAsset(tilesetAssetId);
-            if (!tileset) return nullptr;
-            const auto& requests = textureRequestCatalog.forDocument(
-                coordinator.document(), projectSession.assetRoot(resourceRoot));
-            const auto request = requests.find(tileset->imageAssetId);
-            if (request == requests.end()) return nullptr;
-            return tilesetEmptyTiles.flagsFor(*tileset,
-                                              request->second.resolvedSourcePath);
-        });
     // Create-from-image slices the default grid immediately (one atomic
     // command, one undo step) so a fresh tileset is usable without a first
     // Apply; an unloadable or too-small image still creates the asset, with
@@ -942,6 +934,54 @@ int EditorApp::run(int argc, char** argv) {
                         ui.processFrame();
                         ui.handleAction("toggle-inspector-section", shotSection, "");
                     }
+                    // Multi-tile stamp smoke test (--shot-stamp c0,r0,c1,r1):
+                    // the marquee's verifiable seam. The raylib drag itself
+                    // cannot be synthesized headlessly, so this exercises its
+                    // exact result path - region -> buildTileStampFromRegion
+                    // (with the real empty mask) -> SelectPaintStampIntent.
+                    if (!shotStamp.empty()) {
+                        int c0 = 0;
+                        int r0 = 0;
+                        int c1 = 0;
+                        int r1 = 0;
+                        const SceneInstanceDef* inst =
+                            coordinator.document().findInstanceInScene(
+                                coordinator.state().activeSceneId,
+                                coordinator.selection().primaryEntity);
+                        const TilesetAsset* ts = (inst && inst->tilemap.has_value())
+                            ? coordinator.document().findTilesetAsset(
+                                  inst->tilemap->tilesetAssetId)
+                            : nullptr;
+                        const TextureResource* sheet = ts
+                            ? loadedTilesetSource(ts->imageAssetId) : nullptr;
+                        if (sheet && std::sscanf(shotStamp.c_str(), "%d,%d,%d,%d",
+                                                 &c0, &r0, &c1, &r1) == 4) {
+                            const std::optional<TilesetGridGeometry> geometry =
+                                computeTilesetGridGeometry(ts->slicing,
+                                                           sheet->texture.width,
+                                                           sheet->texture.height);
+                            const auto& requests = textureRequestCatalog.forDocument(
+                                coordinator.document(), projectSession.assetRoot(resourceRoot));
+                            const auto request = requests.find(ts->imageAssetId);
+                            const TilesetEmptyMaskView mask = tilesetEmptyTiles.maskFor(
+                                *ts, request != requests.end()
+                                    ? request->second.resolvedSourcePath
+                                    : std::filesystem::path{});
+                            if (geometry) {
+                                if (const std::optional<TilemapTileStamp> stamp =
+                                        buildTileStampFromRegion(
+                                            *ts, *geometry, c0, r0, c1, r1,
+                                            mask.status == TilesetEmptyMaskStatus::Ready
+                                                ? mask.flags : nullptr)) {
+                                    coordinator.apply(SelectPaintStampIntent{*stamp});
+                                }
+                            }
+                        }
+                        if (ts && shotPaletteZoom > 0.f) {
+                            coordinator.apply(
+                                SetTilePaletteZoomIntent{ts->assetId, shotPaletteZoom});
+                        }
+                    }
                 }
             }
             // Assets row-menu smoke test: request the menu exactly as the "⌄"
@@ -992,9 +1032,13 @@ int EditorApp::run(int argc, char** argv) {
     CenterWorkspaceMode previousWorkspaceMode = coordinator.state().centerWorkspaceMode;
     bool gameplayInputFocused = false;
     bool previousPlaying = false;
-    // Tile Palette Picker-sync: the tile last scrolled into view, so a
-    // repeated selection (or none) does not re-trigger ScrollIntoView.
-    std::optional<TileId> lastScrolledPaletteTile;
+    // Tile Palette sheet view: the app-side gesture state (marquee, dblclick
+    // timing, pan-into-view diff) and last frame's visible palette rect - the
+    // wheel-suppression bridge for Ctrl+zoom, computed before this frame's
+    // layout exists. An invalid rect always disables the suppression, so the
+    // Inspector never loses plain scrolling to a stale box.
+    TilePaletteInputState paletteInput;
+    ViewportRect prevPaletteClipRect;
     while (true) {
         // Exit guard: a requested close (window X) is held until the unsaved
         // guard passes. On Cancel we clear GLFW's close flag and keep running.
@@ -1026,7 +1070,12 @@ int EditorApp::run(int argc, char** argv) {
         }
         if (IsKeyPressed(KEY_F8)) host.toggleDebugger();
 
-        const RmlInputResult rml = pumpRmlInput(host.context());
+        RmlInputSuppression inputSuppression;
+        inputSuppression.mouseWheel =
+            (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL))
+            && prevPaletteClipRect.valid()
+            && prevPaletteClipRect.contains(GetMouseX(), GetMouseY());
+        const RmlInputResult rml = pumpRmlInput(host.context(), inputSuppression);
         const bool nonSceneWorkspace = coordinator.state().centerWorkspaceMode
             != CenterWorkspaceMode::Scene;
         if (coordinator.state().centerWorkspaceMode != previousWorkspaceMode) {
@@ -1247,6 +1296,63 @@ int EditorApp::run(int argc, char** argv) {
                 }
             }
         }
+
+        // -- Tile Palette (Inspector sheet view) -----------------------------
+        // One resolution per frame, shared by input (here, against the last
+        // completed layout - the editor canvases' own convention) and by
+        // painting (which re-reads the rects after host.update()). The
+        // renderer receives texture and empty-mask already resolved; it never
+        // touches the cache or the document itself.
+        const auto resolveTilePaletteRects = [&]() -> std::pair<ViewportRect, ViewportRect> {
+            const ViewportRect hole =
+                elementContentRectFromDocument(host.document(), "tile-palette");
+            const ViewportRect body =
+                elementContentRectFromDocument(host.document(), "inspector-body");
+            if (!hole.valid() || !body.valid()) return {ViewportRect{}, ViewportRect{}};
+            ViewportRect clip;
+            clip.x = std::max(body.x, hole.x);
+            clip.y = std::max(body.y, hole.y);
+            clip.width  = std::min(body.x + body.width,  hole.x + hole.width)  - clip.x;
+            clip.height = std::min(body.y + body.height, hole.y + hole.height) - clip.y;
+            if (!clip.valid()) return {ViewportRect{}, ViewportRect{}};
+            return {hole, clip};
+        };
+        const TilesetAsset* tilePaletteTileset = nullptr;
+        const TextureResource* tilePaletteTexture = nullptr;
+        TilesetEmptyMaskView tilePaletteMask;
+        if (!coordinator.isPlaying() && !animationEditorOpen && !tilesetEditorOpen
+            && !nonSceneWorkspace) {
+            const SceneInstanceDef* selectedInst = coordinator.document().findInstanceInScene(
+                coordinator.state().activeSceneId, coordinator.selection().primaryEntity);
+            if (selectedInst && selectedInst->tilemap.has_value()) {
+                const TilesetAsset* candidate = coordinator.document().findTilesetAsset(
+                    selectedInst->tilemap->tilesetAssetId);
+                if (candidate && !candidate->tiles.empty()) tilePaletteTileset = candidate;
+            }
+        }
+        prevPaletteClipRect = ViewportRect{};
+        if (tilePaletteTileset) {
+            SceneFrameSprite paletteRequestSprite;
+            paletteRequestSprite.assetId = tilePaletteTileset->imageAssetId;
+            paletteRequestSprite.visible = true;
+            textureCache.prepare({paletteRequestSprite}, textureRequests);
+            tilePaletteTexture = textureCache.find(tilePaletteTileset->imageAssetId);
+            const auto paletteRequest = textureRequests.find(tilePaletteTileset->imageAssetId);
+            tilePaletteMask = tilesetEmptyTiles.maskFor(
+                *tilePaletteTileset,
+                paletteRequest != textureRequests.end()
+                    ? paletteRequest->second.resolvedSourcePath
+                    : std::filesystem::path{});
+            const auto [inputHole, inputClip] = resolveTilePaletteRects();
+            routeTilePaletteInput(coordinator, *tilePaletteTileset, inputHole, inputClip,
+                                  rml, tilePaletteMask, tilePaletteTexture, paletteInput);
+            prevPaletteClipRect = inputClip;
+        } else {
+            // Not routable this frame (Play, other workspace, an asset editor
+            // open, no tilemap selection): the marquee never survives, and an
+            // invalid rect disables the Ctrl+wheel claim.
+            cancelTilePaletteGesture(paletteInput);
+        }
         prevTextFocus = rml.textFocus;
 
         // The service owns worker/token/batch state and returns only completions
@@ -1362,69 +1468,11 @@ int EditorApp::run(int argc, char** argv) {
             }
         }
 
-        // Tile Palette thumbnail slots (Inspector's Tilemap section): shown
-        // whenever the selected entity has a TilemapComponent whose tileset
-        // resolves to at least one sliced tile. Same per-thumb-element rect
-        // query as the animation timeline above, just against the main shell
-        // document instead of the animation overlay's. The palette owns a
-        // nested scroll region (panels.rcss), so thumbs must clip to the
-        // intersection of the panel and the palette's own visible box —
-        // clipping to the panel alone would paint scrolled-out thumbs over
-        // the properties above/below the palette.
-        const ViewportRect tilePaletteClipRect = [&]() {
-            const ViewportRect body =
-                elementContentRectFromDocument(host.document(), "inspector-body");
-            const ViewportRect palette =
-                elementContentRectFromDocument(host.document(), "tile-palette");
-            if (!body.valid() || !palette.valid()) return ViewportRect{};
-            ViewportRect clip;
-            clip.x = std::max(body.x, palette.x);
-            clip.y = std::max(body.y, palette.y);
-            clip.width  = std::min(body.x + body.width,  palette.x + palette.width)  - clip.x;
-            clip.height = std::min(body.y + body.height, palette.y + palette.height) - clip.y;
-            return clip.valid() ? clip : ViewportRect{};
-        }();
-        const TilesetAsset* tilePaletteTileset = nullptr;
-        std::vector<ViewportRect> tilePaletteThumbRects;
-        if (!coordinator.isPlaying()) {
-            const SceneInstanceDef* selectedInst = coordinator.document().findInstanceInScene(
-                coordinator.state().activeSceneId, coordinator.selection().primaryEntity);
-            if (selectedInst && selectedInst->tilemap.has_value()) {
-                const TilesetAsset* candidate = coordinator.document().findTilesetAsset(
-                    selectedInst->tilemap->tilesetAssetId);
-                if (candidate && !candidate->tiles.empty()) tilePaletteTileset = candidate;
-            }
-        }
-        if (tilePaletteTileset) {
-            tilePaletteThumbRects.reserve(tilePaletteTileset->tiles.size());
-            for (std::size_t i = 0; i < tilePaletteTileset->tiles.size(); ++i) {
-                const std::string id = "tile-thumb-" + std::to_string(i);
-                tilePaletteThumbRects.push_back(elementContentRectFromDocument(host.document(), id.c_str()));
-            }
-        }
-        // Picker sync: when the workspace's selected tile changes, bring its
-        // palette thumbnail into view (scrolls .inspector's own overflow, no
-        // nested scroll region - see panels.rcss). Diffed against the last
-        // scrolled id so this fires once per change, not every frame.
-        const std::optional<TileId> paletteSelectedTileId =
-            coordinator.state().tilemapEditor.stamp
-                ? stampPrimaryTileId(*coordinator.state().tilemapEditor.stamp)
-                : std::nullopt;
-        if (tilePaletteTileset && paletteSelectedTileId != lastScrolledPaletteTile) {
-            lastScrolledPaletteTile = paletteSelectedTileId;
-            if (lastScrolledPaletteTile) {
-                for (std::size_t i = 0; i < tilePaletteTileset->tiles.size(); ++i) {
-                    if (tilePaletteTileset->tiles[i].id != *lastScrolledPaletteTile) continue;
-                    const std::string id = "tile-thumb-" + std::to_string(i);
-                    if (Rml::Element* el = host.document()->GetElementById(id)) {
-                        el->ScrollIntoView(Rml::ScrollIntoViewOptions{
-                            Rml::ScrollAlignment::Nearest, Rml::ScrollAlignment::Nearest,
-                            Rml::ScrollBehavior::Smooth});
-                    }
-                    break;
-                }
-            }
-        }
+        // Tile Palette sheet rects for painting, re-read after host.update()
+        // so raylib scissors to this frame's real layout. Tileset, texture
+        // and empty-mask were resolved once in the input phase above; picker
+        // sync is the input router's pan-into-view, not a DOM scroll.
+        const auto [tilePaletteHoleRect, tilePaletteClipRect] = resolveTilePaletteRects();
 
         BeginDrawing();
         ClearBackground(Color{15, 16, 20, 255});
@@ -1483,6 +1531,7 @@ int EditorApp::run(int argc, char** argv) {
                                  canvasFont);
                 if (!playSession) {
                     drawTilemapPaintOverlay(coordinator.document(), coordinator.state().tilemapEditor,
+                                            coordinator.effectiveTilemapTool(),
                                             active, coordinator.selection().primaryEntity, rect,
                                             renderView, snapshot.worldSize);
                 }
@@ -1558,9 +1607,9 @@ int EditorApp::run(int argc, char** argv) {
             }
         }
         if (tilePaletteTileset) {
-            renderTilePalette(
-                *tilePaletteTileset, paletteSelectedTileId,
-                tilePaletteThumbRects, tilePaletteClipRect, textureCache, textureRequests);
+            renderTilePaletteSheet(*tilePaletteTileset, coordinator.state().tilemapEditor,
+                                   tilePaletteHoleRect, tilePaletteClipRect,
+                                   tilePaletteTexture, tilePaletteMask, paletteInput.marquee);
         }
         EndDrawing();
 

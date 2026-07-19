@@ -39,7 +39,8 @@ bool focusIsTextField(Rml::Context* context) {
 
 } // namespace
 
-RmlInputResult pumpRmlInput(Rml::Context* context) {
+RmlInputResult pumpRmlInput(Rml::Context* context,
+                            const RmlInputSuppression& suppression) {
     RmlInputResult result;
     if (!context) return result;
 
@@ -64,7 +65,7 @@ RmlInputResult pumpRmlInput(Rml::Context* context) {
     }
 
     const float wheel = GetMouseWheelMove();
-    if (wheel != 0.0f) context->ProcessMouseWheel(-wheel, mod);
+    if (wheel != 0.0f && !suppression.mouseWheel) context->ProcessMouseWheel(-wheel, mod);
 
     for (const KeyPair& key : kKeys) {
         if (IsKeyPressed(key.raylib) || IsKeyPressedRepeat(key.raylib))

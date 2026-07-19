@@ -501,43 +501,27 @@
 }
 
 /* -- Tile Palette (Tilemap component, Inspector) ---------------------------
-   Each .tile-thumb is a transparent slot: raylib paints the cropped tile
-   texture into its exact screen rect after RmlUi renders (same "hole"
-   pattern as the Scene View viewport and the Tileset Editor canvas). RmlUi
-   owns only layout, hit-testing (click/dblclick) and the empty-state text. */
-.tile-palette {
+   One transparent hole: raylib paints the whole tileset sheet into it after
+   RmlUi renders (same pattern as the Scene View viewport and the Tileset
+   Editor canvas), preserving the sheet's spatial layout. No data-action here
+   — every click/drag/wheel is routed app-side (tile_palette_input.cpp), so
+   RmlUi never double-fires on the same gesture. Fixed height, no nested
+   scroll: sheets larger than the hole are navigated with Ctrl+Wheel zoom and
+   middle/Space pan, exactly like the Tileset Editor's canvas. */
+.tile-palette-sheet {
     display: block;
+    height: 220dp;
     margin: 4dp 0 6dp 0;
-    /* Own scroll region, capped: a large tileset must not swallow the whole
-       Inspector — the paint tools and cell-size fields above stay reachable
-       while browsing tiles. The application clips raylib's thumb painting to
-       this box's visible intersection with the panel (editor_app.cpp). */
-    max-height: 280dp;
-    overflow-y: auto;
+    background-color: #131316;
+    border: 1px #27272a;
+    border-radius: 2dp;
 }
-/* Palette header: tile count on the left, the "empty tiles" filter toggle on
-   the right (only rendered when the derived alpha scan found empty tiles). */
+/* Palette header row (tile count). */
 .tile-palette-head {
     display: flex;
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
-}
-.tile-palette-toggle {
-    padding: 4dp 8dp;
-    color: #8a8a93;
-    font-size: 10dp;
-    cursor: pointer;
-}
-.tile-palette-toggle:hover { color: #d4d4d8; }
-.tile-thumb {
-    display: inline-block;
-    width: 40dp;
-    height: 40dp;
-    margin: 0 4dp 4dp 0;
-    background-color: #1c1c1f;
-    border: 1px #27272a;
-    border-radius: 2dp;
 }
 .tile-palette-empty {
     display: block;

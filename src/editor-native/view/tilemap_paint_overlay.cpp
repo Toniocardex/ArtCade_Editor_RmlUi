@@ -7,6 +7,7 @@
 namespace ArtCade::EditorNative {
 
 void drawTilemapPaintOverlay(const ProjectDocument& document, const TilemapEditorState& tilemapEditor,
+                             EditorTool effectiveTool,
                              const SceneId& sceneId, EntityId entityId,
                              const ViewportRect& rect, const EditorSceneViewState& view, Vec2 worldSize) {
     if (!tilemapEditor.hoveredCell || !rect.valid()) return;
@@ -20,12 +21,25 @@ void drawTilemapPaintOverlay(const ProjectDocument& document, const TilemapEdito
     cam.zoom = vc.zoom;
     cam.rotation = 0.f;
 
+    // The Brush stamps its whole N x M footprint anchored at the hovered
+    // cell; every other tool (and any stamp of one cell) keeps the single-
+    // cell cursor. Rectangle/Fill repeat the pattern from their own gesture
+    // anchor, so a footprint cursor would be misleading there.
+    int footprintW = 1;
+    int footprintH = 1;
+    if (effectiveTool == EditorTool::Brush && tilemapEditor.stamp
+        && tilemapEditor.stamp->sourceTilesetAssetId == inst->tilemap->tilesetAssetId) {
+        footprintW = tilemapEditor.stamp->width;
+        footprintH = tilemapEditor.stamp->height;
+    }
+
     const Vec2 cellSize = inst->tilemap->cellSize;
     const TilemapCellCoord cell = *tilemapEditor.hoveredCell;
     const Rectangle box{
         inst->transform.position.x + static_cast<float>(cell.cellX) * cellSize.x,
         inst->transform.position.y + static_cast<float>(cell.cellY) * cellSize.y,
-        cellSize.x, cellSize.y,
+        cellSize.x * static_cast<float>(footprintW),
+        cellSize.y * static_cast<float>(footprintH),
     };
 
     const bool erasing = tilemapEditor.pendingStroke

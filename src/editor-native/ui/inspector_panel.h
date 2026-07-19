@@ -39,20 +39,6 @@ public:
                        const EditorCoordinator& coordinator,
                        const std::string& sectionId);
 
-    // Read-only projection of which tiles of a tileset are fully transparent
-    // (application-owned derived cache, same pattern as EditorUi's
-    // ImageSizeProvider). nullptr / unset provider = unknown; the palette then
-    // shows every tile. The returned pointer is only read within one refresh.
-    using EmptyTilesProvider =
-        std::function<const std::vector<bool>*(const AssetId& tilesetAssetId)>;
-    void setEmptyTilesProvider(EmptyTilesProvider provider) {
-        emptyTilesProvider_ = std::move(provider);
-    }
-    // Session-local "Show empty" filter of the tile palette; presentation only,
-    // like toggleSection.
-    void togglePaletteEmptyTiles(Rml::ElementDocument* document,
-                                 const EditorCoordinator& coordinator);
-
     void beginSceneLayerRename(Rml::ElementDocument* document,
                                const EditorCoordinator& coordinator,
                                const std::string& layerId);
@@ -96,8 +82,6 @@ private:
     };
     EntityId lastEntity_ = INVALID_ENTITY;   // detect a selection change to reset the menu
     std::optional<SceneLayerRenameUiState> layerRename_;
-    EmptyTilesProvider emptyTilesProvider_;
-    bool showEmptyPaletteTiles_ = false;     // "Show empty" palette filter
 };
 
 } // namespace ArtCade::EditorNative

@@ -726,11 +726,6 @@ void EditorUi::setTilesetImageSizeProvider(ImageSizeProvider imageSize) {
     tilesetEditor_.setImageSizeProvider(std::move(imageSize));
 }
 
-void EditorUi::setTilemapPaletteEmptyTilesProvider(
-    InspectorPanel::EmptyTilesProvider provider) {
-    inspector_.setEmptyTilesProvider(std::move(provider));
-}
-
 void EditorUi::setGeneratedSfxHandlers(GeneratedSfxRequest preview,
                                        WorkspaceRequest stopPreview,
                                        GeneratedSfxRequest generate) {
@@ -2022,10 +2017,6 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         inspector_.toggleSection(document_, coordinator_, arg);
         return;
     }
-    if (action == "toggle-palette-empty-tiles") {
-        inspector_.togglePaletteEmptyTiles(document_, coordinator_);
-        return;
-    }
     if (action == "toggle-logic-rule-collapsed") {
         logicBoardEditor_.toggleRuleCollapsed(arg);
         // Collapse All/Expand All now live in the static toolbar, so their
@@ -2435,14 +2426,11 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         coordinator_.apply(SetRectangleShapeModeIntent{false});
     } else if (action == "select-tilemap-rectangle-outline") {
         coordinator_.apply(SetRectangleShapeModeIntent{true});
-    } else if (action == "select-tilemap-tile") {
-        coordinator_.apply(SelectPaintTileIntent{arg});
     } else if (action == "open-tilemap-tileset-editor") {
-        // Double-click on a palette thumbnail: no data-arg carries the
-        // tileset id (a thumb's own data-arg is its TileId, for the click/
-        // select action), so this resolves it from the selected instance's
-        // own TilemapComponent instead of overloading one attribute with two
-        // different ids.
+        // Empty-state button under the Tilemap section (the palette sheet's
+        // own double-click is routed app-side, tile_palette_input.cpp): no
+        // data-arg, so this resolves the tileset from the selected instance's
+        // own TilemapComponent.
         if (!coordinator_.isPlaying()) {
             const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
                 coordinator_.state().activeSceneId, selected);

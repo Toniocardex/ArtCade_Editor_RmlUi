@@ -282,12 +282,6 @@ void InspectorPanel::toggleSection(Rml::ElementDocument* document,
     refresh(document, coordinator);
 }
 
-void InspectorPanel::togglePaletteEmptyTiles(Rml::ElementDocument* document,
-                                             const EditorCoordinator& coordinator) {
-    showEmptyPaletteTiles_ = !showEmptyPaletteTiles_;
-    refresh(document, coordinator);
-}
-
 void InspectorPanel::beginSceneLayerRename(Rml::ElementDocument* document,
                                            const EditorCoordinator& coordinator,
                                            const std::string& layerId) {
@@ -1017,72 +1011,45 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 html += "</div></div>";
             }
 
-            // Visual palette: each slot is a transparent div raylib paints the
-            // cropped tile texture into (see tile_palette_renderer.h) - RmlUi
-            // only owns layout and click/dblclick hit-testing here. A tile is
-            // a visual element, not a string, so a text list of "tile-1",
-            // "tile-2", ... is deliberately not the primary way to pick one.
-            // Thumb-grid highlight still keys off one tile id; the primary
-            // tile stands in until the sheet view renders the whole N x M
-            // stamp region (Slice 3/5 of the palette redesign).
-            const std::optional<TileId> selectedTileId =
-                coordinator.state().tilemapEditor.stamp
-                    ? stampPrimaryTileId(*coordinator.state().tilemapEditor.stamp)
-                    : std::nullopt;
-
-            // Fully transparent tiles (grid slicing keeps every cell, sheets
-            // are mostly air) are hidden by default; "Show" reveals them. The
-            // flags are a derived projection - unavailable means show all.
-            const std::vector<bool>* emptyFlags = emptyTilesProvider_
-                ? emptyTilesProvider_(tm.tilesetAssetId) : nullptr;
-            if (emptyFlags && emptyFlags->size() != tmTileset->tiles.size()) emptyFlags = nullptr;
-            std::size_t emptyCount = 0;
-            if (emptyFlags) for (const bool empty : *emptyFlags) emptyCount += empty ? 1u : 0u;
-            const bool hideEmpty = emptyFlags && emptyCount > 0 && !showEmptyPaletteTiles_;
-            const std::size_t shownCount = tmTileset->tiles.size() - (hideEmpty ? emptyCount : 0);
-
-            // "Tile N" reflects the tile's position in the palette (there is
-            // no authored display name until per-tile metadata ships); the
-            // stable TileId stays visible, but secondary. Above the grid so it
-            // stays in sight while the palette's own region scrolls.
-            for (std::size_t i = 0; i < tmTileset->tiles.size(); ++i) {
-                if (!selectedTileId || tmTileset->tiles[i].id != *selectedTileId) continue;
-                html += "<div class=\"tile-palette-selected\">Selected: <span class=\"value\">Tile "
-                      + std::to_string(i + 1) + "</span> - " + escapeRml(*selectedTileId) + "</div>";
-                break;
+            // Sheet-view palette: one transparent hole raylib paints the whole
+            // tileset sheet into, preserving its spatial layout - grid, dimmed
+            // empty tiles, the committed N x M stamp region and the live
+            // marquee (tile_palette_sheet_renderer.h). All pointer interaction
+            // is routed app-side against the same canonical geometry
+            // (tile_palette_input.h); the hole deliberately carries NO
+            // data-action, or RmlUi and the raylib hit-test would both fire
+            // on every click.
+            const std::optional<TilemapTileStamp>& stamp = coordinator.state().tilemapEditor.stamp;
+            if (stamp && stamp->sourceTilesetAssetId == tm.tilesetAssetId) {
+                html += "<div class=\"tile-palette-selected\">Selected: <span class=\"value\">";
+                if (stamp->width == 1 && stamp->height == 1) {
+                    // "Tile N" reflects the tile's palette position (no
+                    // authored display name until per-tile metadata ships);
+                    // the stable TileId stays visible, but secondary.
+                    std::string label = "Tile";
+                    const std::optional<TileId> id = stampPrimaryTileId(*stamp);
+                    for (std::size_t i = 0; id && i < tmTileset->tiles.size(); ++i) {
+                        if (tmTileset->tiles[i].id == *id) {
+                            label = "Tile " + std::to_string(i + 1);
+                            break;
+                        }
+                    }
+                    html += escapeRml(label) + "</span>";
+                    if (const std::optional<TileId> id2 = stampPrimaryTileId(*stamp)) {
+                        html += " - " + escapeRml(*id2);
+                    }
+                } else {
+                    html += std::to_string(stamp->width) + "&#215;"
+                          + std::to_string(stamp->height) + " block</span>";
+                }
+                html += "</div>";
             }
-
             html += "<div class=\"tile-palette-head\">"
-                    "<span class=\"asset-group-title\">Tiles (" + std::to_string(shownCount)
-                  + ")</span>";
-            if (emptyFlags && emptyCount > 0) {
-                html += "<span class=\"tile-palette-toggle\""
-                        " data-action=\"toggle-palette-empty-tiles\">";
-                // Numeric reference: RmlUi's parser resolves &#8212; but leaves
-                // the named &mdash; as literal text.
-                html += hideEmpty
-                    ? std::to_string(emptyCount) + " empty hidden &#8212; Show"
-                    : "Hide " + std::to_string(emptyCount) + " empty";
-                html += "</span>";
-            }
-            html += "</div>";
-            html += "<div class=\"tile-palette\" id=\"tile-palette\">";
-            for (std::size_t i = 0; i < tmTileset->tiles.size(); ++i) {
-                if (hideEmpty && (*emptyFlags)[i]) continue;
-                const TileDefinition& tile = tmTileset->tiles[i];
-                const std::string tooltip = "Tile " + std::to_string(i + 1) + " - ID: " + tile.id
-                    + " - Source: " + std::to_string(tile.x) + "," + std::to_string(tile.y)
-                    + " " + std::to_string(tile.width) + "x" + std::to_string(tile.height) + "px";
-                // Ids stay aligned with the tile's index in the tileset even
-                // when empty tiles are skipped: the application queries
-                // tile-thumb-<index> for every tile and treats a missing slot
-                // as "not shown" (invalid rect -> renderer skips it).
-                html += "<div id=\"tile-thumb-" + std::to_string(i) + "\" class=\"tile-thumb\""
-                        " data-action=\"select-tilemap-tile\" data-arg=\"" + escapeRml(tile.id) + "\""
-                        " data-dbl-action=\"open-tilemap-tileset-editor\""
-                        " title=\"" + escapeRml(tooltip) + "\"></div>";
-            }
-            html += "</div>";
+                    "<span class=\"asset-group-title\">Tiles ("
+                  + std::to_string(tmTileset->tiles.size()) + ")</span></div>";
+            html += "<div class=\"tile-palette-sheet\" id=\"tile-palette\" title=\""
+                    "Drag to select a block &#183; Ctrl+Wheel to zoom &#183; "
+                    "Middle mouse or Space+drag to pan &#183; Double-click to edit tileset\"></div>";
         }
     }
 
