@@ -1832,12 +1832,19 @@ int main() {
         CHECK(!c.apply(SetTilePaletteZoomIntent{"tiles-1", 0.f}).ok);            // non-positive
         CHECK(!c.apply(SetTilePaletteZoomIntent{"no-such-tileset", 2.f}).ok);    // unknown tileset
         CHECK(c.apply(SetTilePaletteZoomIntent{"tiles-1", 4.f}).ok);
-        CHECK(c.apply(PanTilePaletteIntent{"tiles-1", Vec2{10.f, -5.f}}).ok);
+        const auto pan = c.apply(PanTilePaletteIntent{"tiles-1", Vec2{10.f, -5.f}});
+        CHECK(pan.ok);
+        CHECK(pan.invalidation == EditorInvalidation::None);   // scroll-only, no dock rebuild
         const auto& views = c.state().tilemapEditor.paletteViews;
         CHECK(views.at("tiles-1").textureScale == 4.f);
         CHECK(views.at("tiles-1").scrollOffset.x == 10.f
               && views.at("tiles-1").scrollOffset.y == -5.f);
         CHECK(views.at("tiles-1").initialized);
+        const auto scroll = c.apply(SetTilePaletteScrollIntent{"tiles-1", Vec2{-20.f, -8.f}});
+        CHECK(scroll.ok);
+        CHECK(scroll.invalidation == EditorInvalidation::None);
+        CHECK(views.at("tiles-1").scrollOffset.x == -20.f
+              && views.at("tiles-1").scrollOffset.y == -8.f);
         CHECK(c.apply(SetTilePaletteZoomIntent{"tiles-1", 100.f}).ok);           // clamped
         CHECK(views.at("tiles-1").textureScale == TilePaletteViewLimits::kZoomMax);
         CHECK(c.document().revision() == revision);   // workspace-only, never dirties

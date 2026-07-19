@@ -401,11 +401,12 @@ struct SetTilePaletteZoomIntent {
 struct PanTilePaletteIntent {
     AssetId tilesetAssetId;
     Vec2    delta;   // added to scrollOffset, then clamped by the caller/app
+    // Workspace-only; apply returns None (Raylib paints scroll — no dock rebuild).
 };
 
 // Absolute scroll write (scrollbar thumb, Fit/init bake). Stored as-is;
 // callers clamp with clampTilePaletteScrollOffset before applying when the
-// hole/sheet sizes are known (input/render path clamps again if needed).
+// hole/sheet sizes are known. Apply returns None — no dock markup rebuild.
 struct SetTilePaletteScrollIntent {
     AssetId tilesetAssetId;
     Vec2    scrollOffset{};

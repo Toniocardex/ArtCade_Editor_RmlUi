@@ -273,8 +273,9 @@ EditorOperationResult EditorCoordinator::apply(const PanTilePaletteIntent& inten
     }
     view.scrollOffset = next;
     view.initialized = true;
-    accumulate(EditorInvalidation::Inspector);
-    return EditorOperationResult::success(EditorInvalidation::Inspector);
+    // Scroll-only: Raylib paints sheet/scrollbars from workspace state. Do not
+    // invalidate Inspector — that SetInnerRML-rebuilds the Tile Palette dock.
+    return EditorOperationResult::success(EditorInvalidation::None);
 }
 
 EditorOperationResult EditorCoordinator::apply(const SetTilePaletteScrollIntent& intent) {
@@ -287,8 +288,8 @@ EditorOperationResult EditorCoordinator::apply(const SetTilePaletteScrollIntent&
     TilePaletteViewState& view = state_.tilemapEditor.paletteViews[intent.tilesetAssetId];
     view.scrollOffset = intent.scrollOffset;
     view.initialized = true;
-    accumulate(EditorInvalidation::Inspector);
-    return EditorOperationResult::success(EditorInvalidation::Inspector);
+    // Scroll-only: see PanTilePaletteIntent — no dock markup rebuild.
+    return EditorOperationResult::success(EditorInvalidation::None);
 }
 
 EditorOperationResult EditorCoordinator::apply(const SetTilePaletteViewIntent& intent) {
