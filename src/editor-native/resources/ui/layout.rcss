@@ -143,6 +143,14 @@ body {
     background-color: transparent;
     box-sizing: border-box;
     border: 1px #25252a;
+    /* Raylib owns clicks inside the hole; keep RmlUi from treating the empty
+       div as a hit target (empty-state UI re-enables pointer events below). */
+    pointer-events: none;
+}
+
+#viewport-empty,
+#viewport-empty * {
+    pointer-events: auto;
 }
 
 #viewport.hidden { display: none; }

@@ -37,11 +37,10 @@ EditorOperationResult EditorCoordinator::apply(const SelectEntityIntent& intent)
     }
     cancelPendingTilemapGesture();
     state_.selection.primaryEntity = intent.entityId;
-    // A layer is a real authoring scope: selecting an entity - from the
-    // Hierarchy (any layer) or the Scene View (already active-layer-only,
-    // see routeViewportPickDrag) - always makes its own layer the active one,
-    // so Brush/Delete/Inspector/etc. never keep targeting a stale layer's
-    // entity after the selection itself has moved on.
+    // A layer is a real authoring scope: selecting an entity — from Hierarchy
+    // or Scene View — always makes its own layer the active one, so
+    // Brush/Delete/Inspector never keep targeting a stale layer after the
+    // selection itself has moved on.
     state_.sceneViews[state_.activeSceneId].activeLayerId =
         document_.effectiveLayerId(state_.activeSceneId, *inst);
     // If the newly selected entity doesn't support the active tilemap tool,

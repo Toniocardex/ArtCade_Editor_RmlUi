@@ -32,24 +32,8 @@ float uiPixelScaleY() {
     return sh > 0 ? static_cast<float>(GetRenderHeight()) / static_cast<float>(sh) : 1.f;
 }
 
-// The viewport element is laid out in RmlUi's physical-pixel space; the raylib
-// scene renderer and pick/drag hit-testing both work in logical pixels, so the
-// rect is converted physical -> logical here once at the boundary.
-ViewportRect viewportRectFromDocument(Rml::ElementDocument* document) {
-    ViewportRect rect;
-    if (!document) return rect;
-    const float sx = uiPixelScaleX();
-    const float sy = uiPixelScaleY();
-    if (Rml::Element* vp = document->GetElementById("viewport")) {
-        const Rml::Vector2f off = vp->GetAbsoluteOffset();
-        rect.x = static_cast<int>(off.x / sx);
-        rect.y = static_cast<int>(off.y / sy);
-        rect.width  = static_cast<int>(vp->GetClientWidth()  / sx);
-        rect.height = static_cast<int>(vp->GetClientHeight() / sy);
-    }
-    return rect;
-}
-
+// The viewport / canvas elements are laid out in RmlUi's physical-pixel space;
+// raylib drawing and pick/drag use logical pixels, so convert once here.
 ViewportRect elementContentRectFromDocument(Rml::ElementDocument* document, const char* id) {
     ViewportRect rect;
     if (!document || !id) return rect;
@@ -64,6 +48,12 @@ ViewportRect elementContentRectFromDocument(Rml::ElementDocument* document, cons
         rect.height = static_cast<int>(size.y / sy);
     }
     return rect;
+}
+
+ViewportRect viewportRectFromDocument(Rml::ElementDocument* document) {
+    // Content box (not border) so the pick/draw rect matches the transparent
+    // hole the user sees — same convention as animation/tileset canvases.
+    return elementContentRectFromDocument(document, "viewport");
 }
 
 ViewportRect resolveSpriteAnimationCanvasContentRect(Rml::ElementDocument* document) {
@@ -224,22 +214,16 @@ void routeViewportPickDrag(EditorCoordinator& coordinator, const ViewportRect& r
         if (shouldViewportReceiveInput(ctx)) {
             const Vec2 world = screenToWorld(cam, mouse);
             EntityId picked = pickEntityAt(frame, world);
-            // A locked layer's instances, and any instance outside the active
-            // layer, are not pickable by clicking the Scene View - both stay
-            // selectable from the Hierarchy instead (which also switches the
-            // active layer to match, see SelectEntityIntent), treated the same
-            // as picking nothing so a click on one clears the selection rather
-            // than starting a drag or silently switching the active layer out
-            // from under the user.
+            // Locked layers stay non-pickable in the Scene View (Hierarchy can
+            // still select them). Other layers are selectable here too: the
+            // SelectEntityIntent below switches activeLayerId to match, same as
+            // a Hierarchy click — rejecting them used to look like "click does
+            // nothing" while Inspector stayed on the Scene.
             if (picked != INVALID_ENTITY) {
                 const SceneInstanceDef* pickedInst =
                     coordinator.document().findInstanceInScene(active, picked);
-                const bool onOtherLayer = pickedInst
-                    && coordinator.document().effectiveLayerId(active, *pickedInst)
-                           != coordinator.activeLayerId(active);
                 if (!pickedInst
-                    || coordinator.document().isInstanceLayerLocked(active, *pickedInst)
-                    || onOtherLayer) {
+                    || coordinator.document().isInstanceLayerLocked(active, *pickedInst)) {
                     picked = INVALID_ENTITY;
                 }
             }

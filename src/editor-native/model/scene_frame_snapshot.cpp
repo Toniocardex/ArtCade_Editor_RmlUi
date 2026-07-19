@@ -240,18 +240,11 @@ EntityId pickEntityAt(const SceneFrameSnapshot& frame, Vec2 worldPoint) {
     // order - already back-to-front by scene layer via
     // ProjectDocument::instancesInRenderOrder, the exact same sequence
     // SceneView::render() consumes forward. Walking it in reverse (front-to-
-    // back) and returning the first hit mirrors that draw order exactly;
-    // grouping by type instead (every tilemap, then every sprite) - the
-    // previous implementation here - drops cross-type layer interleaving,
-    // the same class of bug already fixed once for rendering itself. Each
-    // entity's own sprite/tilemap (an instance can have both at once) is
-    // checked before moving to the next entity, never across entities.
+    // back) and returning the first hit mirrors that draw order exactly.
     for (auto it = frame.entities.rbegin(); it != frame.entities.rend(); ++it) {
         const EntityId id = it->entityId;
-        bool hasVisual = false;
         for (const SceneFrameSprite& sprite : frame.sprites) {
             if (sprite.entityId != id) continue;
-            hasVisual = true;
             if (sprite.visible
                 && transformContainsPoint(
                     visualFromRect(sprite.destination, sprite.rotationRadians), worldPoint)) {
@@ -261,15 +254,20 @@ EntityId pickEntityAt(const SceneFrameSnapshot& frame, Vec2 worldPoint) {
         }
         for (const SceneFrameTilemap& tilemap : frame.tilemaps) {
             if (tilemap.entityId != id) continue;
-            hasVisual = true;
             for (const SceneFrameTilemapCell& cell : tilemap.cells) {
                 if (rectContains(cell.destination, worldPoint)) return id;
             }
             break;   // one Tilemap component per entity
         }
-        if (!hasVisual
-            && transformContainsPoint(
-                visualFromRect(it->bounds, it->rotationRadians), worldPoint)) {
+        // Placeholder body + a short band above for the on-screen name chip.
+        // Always available as fallback so invisible sprites / empty tilemaps
+        // (still drawn as placeholders) remain pickable.
+        SceneFrameRect hitBounds = it->bounds;
+        constexpr float kLabelBandWu = 12.f;
+        hitBounds.y -= kLabelBandWu;
+        hitBounds.height += kLabelBandWu;
+        if (transformContainsPoint(
+                visualFromRect(hitBounds, it->rotationRadians), worldPoint)) {
             return id;
         }
     }

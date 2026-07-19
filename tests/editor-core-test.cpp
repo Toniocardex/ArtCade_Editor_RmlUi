@@ -3913,6 +3913,17 @@ int main() {
         CHECK(pickEntityAt(f, Vec2{5.f, 5.f}) == 1);     // invisible sprite ignored
     }
 
+    // -- pickEntityAt: empty tilemap / name-band still pick via placeholder ----
+    {
+        SceneFrameSnapshot f;
+        f.hasScene = true;
+        f.entities.push_back(SceneFrameEntity{9, "EmptyTM", {}, SceneFrameRect{0, 0, 32, 32}, false});
+        f.tilemaps.push_back(SceneFrameTilemap{9, "img", {}, false});
+        CHECK(pickEntityAt(f, Vec2{16.f, 16.f}) == 9);
+        CHECK(pickEntityAt(f, Vec2{16.f, -6.f}) == 9);   // name chip band above the box
+        CHECK(pickEntityAt(f, Vec2{16.f, -20.f}) == INVALID_ENTITY);
+    }
+
     // -- editorBoundsForEntity: sprite/collider union, else placeholder -------
     {
         SceneFrameSnapshot f;
