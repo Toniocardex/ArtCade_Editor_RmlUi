@@ -281,6 +281,12 @@ void InspectorPanel::toggleSection(Rml::ElementDocument* document,
     refresh(document, coordinator);
 }
 
+void InspectorPanel::togglePaletteEmptyTiles(Rml::ElementDocument* document,
+                                             const EditorCoordinator& coordinator) {
+    showEmptyPaletteTiles_ = !showEmptyPaletteTiles_;
+    refresh(document, coordinator);
+}
+
 void InspectorPanel::beginSceneLayerRename(Rml::ElementDocument* document,
                                            const EditorCoordinator& coordinator,
                                            const std::string& layerId) {
@@ -664,7 +670,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     // rather than a bug that Box Collider/movers/controllers stay editable.
     const std::string typeOwnedLockNote = instanceLocked
         ? "<div class=\"type-owned-note\">Shared by all instances of this object type "
-          "&mdash; not protected by this layer's lock.</div>"
+          "&#8212; not protected by this layer's lock.</div>"
         : "";
 
     const auto& types = coordinator.document().data().objectTypes;
@@ -1016,29 +1022,60 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             // a visual element, not a string, so a text list of "tile-1",
             // "tile-2", ... is deliberately not the primary way to pick one.
             const std::optional<TileId>& selectedTileId = coordinator.state().tilemapEditor.selectedTileId;
-            html += "<div class=\"asset-group-title\">Tiles</div>";
-            html += "<div class=\"tile-palette\" id=\"tile-palette\">";
-            for (std::size_t i = 0; i < tmTileset->tiles.size(); ++i) {
-                const TileDefinition& tile = tmTileset->tiles[i];
-                const std::string tooltip = "Tile " + std::to_string(i + 1) + " - ID: " + tile.id
-                    + " - Source: " + std::to_string(tile.x) + "," + std::to_string(tile.y)
-                    + " " + std::to_string(tile.width) + "x" + std::to_string(tile.height) + "px";
-                html += "<div id=\"tile-thumb-" + std::to_string(i) + "\" class=\"tile-thumb\""
-                        " data-action=\"select-tilemap-tile\" data-arg=\"" + escapeRml(tile.id) + "\""
-                        " data-dbl-action=\"open-tilemap-tileset-editor\""
-                        " title=\"" + escapeRml(tooltip) + "\"></div>";
-            }
-            html += "</div>";
+
+            // Fully transparent tiles (grid slicing keeps every cell, sheets
+            // are mostly air) are hidden by default; "Show" reveals them. The
+            // flags are a derived projection - unavailable means show all.
+            const std::vector<bool>* emptyFlags = emptyTilesProvider_
+                ? emptyTilesProvider_(tm.tilesetAssetId) : nullptr;
+            if (emptyFlags && emptyFlags->size() != tmTileset->tiles.size()) emptyFlags = nullptr;
+            std::size_t emptyCount = 0;
+            if (emptyFlags) for (const bool empty : *emptyFlags) emptyCount += empty ? 1u : 0u;
+            const bool hideEmpty = emptyFlags && emptyCount > 0 && !showEmptyPaletteTiles_;
+            const std::size_t shownCount = tmTileset->tiles.size() - (hideEmpty ? emptyCount : 0);
 
             // "Tile N" reflects the tile's position in the palette (there is
             // no authored display name until per-tile metadata ships); the
-            // stable TileId stays visible, but secondary.
+            // stable TileId stays visible, but secondary. Above the grid so it
+            // stays in sight while the palette's own region scrolls.
             for (std::size_t i = 0; i < tmTileset->tiles.size(); ++i) {
                 if (!selectedTileId || tmTileset->tiles[i].id != *selectedTileId) continue;
                 html += "<div class=\"tile-palette-selected\">Selected: <span class=\"value\">Tile "
                       + std::to_string(i + 1) + "</span> - " + escapeRml(*selectedTileId) + "</div>";
                 break;
             }
+
+            html += "<div class=\"tile-palette-head\">"
+                    "<span class=\"asset-group-title\">Tiles (" + std::to_string(shownCount)
+                  + ")</span>";
+            if (emptyFlags && emptyCount > 0) {
+                html += "<span class=\"tile-palette-toggle\""
+                        " data-action=\"toggle-palette-empty-tiles\">";
+                // Numeric reference: RmlUi's parser resolves &#8212; but leaves
+                // the named &mdash; as literal text.
+                html += hideEmpty
+                    ? std::to_string(emptyCount) + " empty hidden &#8212; Show"
+                    : "Hide " + std::to_string(emptyCount) + " empty";
+                html += "</span>";
+            }
+            html += "</div>";
+            html += "<div class=\"tile-palette\" id=\"tile-palette\">";
+            for (std::size_t i = 0; i < tmTileset->tiles.size(); ++i) {
+                if (hideEmpty && (*emptyFlags)[i]) continue;
+                const TileDefinition& tile = tmTileset->tiles[i];
+                const std::string tooltip = "Tile " + std::to_string(i + 1) + " - ID: " + tile.id
+                    + " - Source: " + std::to_string(tile.x) + "," + std::to_string(tile.y)
+                    + " " + std::to_string(tile.width) + "x" + std::to_string(tile.height) + "px";
+                // Ids stay aligned with the tile's index in the tileset even
+                // when empty tiles are skipped: the application queries
+                // tile-thumb-<index> for every tile and treats a missing slot
+                // as "not shown" (invalid rect -> renderer skips it).
+                html += "<div id=\"tile-thumb-" + std::to_string(i) + "\" class=\"tile-thumb\""
+                        " data-action=\"select-tilemap-tile\" data-arg=\"" + escapeRml(tile.id) + "\""
+                        " data-dbl-action=\"open-tilemap-tileset-editor\""
+                        " title=\"" + escapeRml(tooltip) + "\"></div>";
+            }
+            html += "</div>";
         }
     }
 

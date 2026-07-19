@@ -42,6 +42,7 @@
 #include "editor-native/view/scene_view.h"
 #include "editor-native/view/texture_cache.h"
 #include "editor-native/view/texture_request_catalog.h"
+#include "editor-native/view/tileset_empty_tiles.h"
 #include "editor-native/view/tilemap_paint_overlay.h"
 
 #include "artcade/sfx/raylib_preview.hpp"
@@ -154,6 +155,7 @@ int EditorApp::run(int argc, char** argv) {
     std::string shotSavePath;   // non-empty: save the project here via the real path
     int shotEntityIndex = -1;   // >= 0: select the Nth instance of the active scene
     std::string shotDropdown;   // non-empty: open this Inspector value dropdown
+    std::string shotSection;    // non-empty: toggle this Inspector section (e.g. "tilemap")
     std::string shotAssetMenu;  // "kind|id": open the Assets row menu on that asset
     int shotWidth = 0, shotHeight = 0;  // >0: force a viewport size for responsive UI shots
     bool lifecycleSmoke = false; // hidden, self-checking bind/detach/shutdown run
@@ -175,6 +177,8 @@ int EditorApp::run(int argc, char** argv) {
             shotEntityIndex = std::atoi(argv[i + 1]);
         else if (std::strcmp(argv[i], "--shot-dropdown") == 0 && i + 1 < argc)
             shotDropdown = argv[i + 1];
+        else if (std::strcmp(argv[i], "--shot-section") == 0 && i + 1 < argc)
+            shotSection = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-asset-menu") == 0 && i + 1 < argc)
             shotAssetMenu = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-size") == 0 && i + 1 < argc) {
@@ -292,6 +296,9 @@ int EditorApp::run(int argc, char** argv) {
     SceneView sceneView;
     TextureCache textureCache;
     TextureRequestCatalog textureRequestCatalog;
+    // Derived alpha-scan of the palette's tileset (signature-keyed, so a
+    // re-slice, image swap or project replacement recomputes on next query).
+    TilesetEmptyTileCache tilesetEmptyTiles;
     ViewportDrag drag;
     ViewportContextClick contextClick;
     std::optional<Vec2> pendingContextSpawn;
@@ -769,6 +776,22 @@ int EditorApp::run(int argc, char** argv) {
             if (!resource) return std::nullopt;
             return std::make_pair(resource->texture.width, resource->texture.height);
         });
+    // Emptiness flags for the Inspector's tile palette. Edit mode only: the
+    // palette is never painted during Play, and forDocument() must not fight
+    // the render loop's forPlay() over the request catalog's single entry.
+    ui.setTilemapPaletteEmptyTilesProvider(
+        [&](const AssetId& tilesetAssetId) -> const std::vector<bool>* {
+            if (coordinator.isPlaying()) return nullptr;
+            const TilesetAsset* tileset =
+                coordinator.document().findTilesetAsset(tilesetAssetId);
+            if (!tileset) return nullptr;
+            const auto& requests = textureRequestCatalog.forDocument(
+                coordinator.document(), projectSession.assetRoot(resourceRoot));
+            const auto request = requests.find(tileset->imageAssetId);
+            if (request == requests.end()) return nullptr;
+            return tilesetEmptyTiles.flagsFor(*tileset,
+                                              request->second.resolvedSourcePath);
+        });
     // Create-from-image slices the default grid immediately (one atomic
     // command, one undo step) so a fresh tileset is usable without a first
     // Apply; an unloadable or too-small image still creates the asset, with
@@ -910,6 +933,13 @@ int EditorApp::run(int argc, char** argv) {
                         // breath would be undone by that reset.
                         ui.processFrame();
                         ui.handleAction("toggle-inspector-dropdown", shotDropdown, "");
+                    }
+                    if (!shotSection.empty()) {
+                        // Expand a collapsed-by-default section (e.g. the
+                        // Tilemap section's tile palette) via the exact click
+                        // path; same flush-first discipline as shotDropdown.
+                        ui.processFrame();
+                        ui.handleAction("toggle-inspector-section", shotSection, "");
                     }
                 }
             }
@@ -1335,9 +1365,24 @@ int EditorApp::run(int argc, char** argv) {
         // whenever the selected entity has a TilemapComponent whose tileset
         // resolves to at least one sliced tile. Same per-thumb-element rect
         // query as the animation timeline above, just against the main shell
-        // document instead of the animation overlay's.
-        const ViewportRect tilePaletteClipRect =
-            elementContentRectFromDocument(host.document(), "inspector-body");
+        // document instead of the animation overlay's. The palette owns a
+        // nested scroll region (panels.rcss), so thumbs must clip to the
+        // intersection of the panel and the palette's own visible box —
+        // clipping to the panel alone would paint scrolled-out thumbs over
+        // the properties above/below the palette.
+        const ViewportRect tilePaletteClipRect = [&]() {
+            const ViewportRect body =
+                elementContentRectFromDocument(host.document(), "inspector-body");
+            const ViewportRect palette =
+                elementContentRectFromDocument(host.document(), "tile-palette");
+            if (!body.valid() || !palette.valid()) return ViewportRect{};
+            ViewportRect clip;
+            clip.x = std::max(body.x, palette.x);
+            clip.y = std::max(body.y, palette.y);
+            clip.width  = std::min(body.x + body.width,  palette.x + palette.width)  - clip.x;
+            clip.height = std::min(body.y + body.height, palette.y + palette.height) - clip.y;
+            return clip.valid() ? clip : ViewportRect{};
+        }();
         const TilesetAsset* tilePaletteTileset = nullptr;
         std::vector<ViewportRect> tilePaletteThumbRects;
         if (!coordinator.isPlaying()) {

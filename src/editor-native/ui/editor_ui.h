@@ -128,6 +128,10 @@ public:
     using ImageSizeProvider =
         std::function<std::optional<std::pair<int, int>>(const AssetId&)>;
     void setTilesetImageSizeProvider(ImageSizeProvider imageSize);
+    // Which tiles of a tileset are fully transparent (application-owned
+    // derived scan cache); the Inspector's tile palette hides them by
+    // default. Read-only projection, same contract as ImageSizeProvider.
+    void setTilemapPaletteEmptyTilesProvider(InspectorPanel::EmptyTilesProvider provider);
 
     using GeneratedSfxRequest = GeneratedSfxEditorController::GeneratedSfxRequest;
     void setGeneratedSfxHandlers(GeneratedSfxRequest preview,

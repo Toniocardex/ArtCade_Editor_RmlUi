@@ -726,6 +726,11 @@ void EditorUi::setTilesetImageSizeProvider(ImageSizeProvider imageSize) {
     tilesetEditor_.setImageSizeProvider(std::move(imageSize));
 }
 
+void EditorUi::setTilemapPaletteEmptyTilesProvider(
+    InspectorPanel::EmptyTilesProvider provider) {
+    inspector_.setEmptyTilesProvider(std::move(provider));
+}
+
 void EditorUi::setGeneratedSfxHandlers(GeneratedSfxRequest preview,
                                        WorkspaceRequest stopPreview,
                                        GeneratedSfxRequest generate) {
@@ -2015,6 +2020,10 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     }
     if (action == "toggle-inspector-section") {
         inspector_.toggleSection(document_, coordinator_, arg);
+        return;
+    }
+    if (action == "toggle-palette-empty-tiles") {
+        inspector_.togglePaletteEmptyTiles(document_, coordinator_);
         return;
     }
     if (action == "toggle-logic-rule-collapsed") {

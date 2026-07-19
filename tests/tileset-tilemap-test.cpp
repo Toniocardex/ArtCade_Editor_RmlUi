@@ -45,6 +45,7 @@
 #include "editor-native/model/box_collider_geometry.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_animation_slicing.h"
+#include "editor-native/model/tileset_empty_scan.h"
 #include "editor-native/model/tileset_slicing.h"
 #include "editor-native/model/tilemap_chunk_math.h"
 #include "editor-native/model/tilemap_cell_access.h"
@@ -79,6 +80,47 @@ using namespace ArtCade::EditorNative;
 using namespace ArtCade::EditorNative::CoreTest;
 
 int main() {
+
+    // -- computeEmptyTileFlags: transparent, opaque and clipped tiles ----------
+    {
+        // 4x2 RGBA image: left 2x2 block opaque, right 2x2 block transparent.
+        std::vector<std::uint8_t> rgba(4 * 2 * 4, 0);
+        for (int y = 0; y < 2; ++y)
+            for (int x = 0; x < 2; ++x)
+                rgba[(static_cast<std::size_t>(y) * 4 + x) * 4 + 3] = 255;
+
+        const auto tile = [](int x, int y, int w, int h) {
+            TileDefinition t;
+            t.x = x; t.y = y; t.width = w; t.height = h;
+            return t;
+        };
+        const std::vector<TileDefinition> tiles = {
+            tile(0, 0, 2, 2),     // fully opaque
+            tile(2, 0, 2, 2),     // fully transparent
+            tile(1, 0, 2, 2),     // straddles both -> has visible pixels
+            tile(4, 0, 2, 2),     // fully outside the image -> empty
+            tile(3, 0, 2, 2),     // partially outside, in-image part transparent
+        };
+        const std::vector<bool> flags = computeEmptyTileFlags(rgba.data(), 4, 2, tiles);
+        CHECK(flags.size() == tiles.size());
+        CHECK(!flags[0]);
+        CHECK(flags[1]);
+        CHECK(!flags[2]);
+        CHECK(flags[3]);
+        CHECK(flags[4]);
+    }
+
+    // -- computeEmptyTileFlags: null/degenerate image marks nothing empty ------
+    {
+        const std::vector<TileDefinition> tiles(3);
+        const std::vector<bool> nullFlags = computeEmptyTileFlags(nullptr, 4, 4, tiles);
+        CHECK(nullFlags.size() == 3);
+        CHECK(!nullFlags[0] && !nullFlags[1] && !nullFlags[2]);
+        std::vector<std::uint8_t> rgba(16, 0);
+        const std::vector<bool> zeroFlags = computeEmptyTileFlags(rgba.data(), 0, 4, tiles);
+        CHECK(zeroFlags.size() == 3);
+        CHECK(!zeroFlags[0]);
+    }
 
     // -- computeTilesetSlicing: a perfectly divisible sheet --------------------
     {

@@ -508,10 +508,28 @@
 .tile-palette {
     display: block;
     margin: 4dp 0 6dp 0;
-    /* No nested scroll region here: it flows in the same overall scroll as
-       the rest of .inspector (theme.rcss), so a large tileset just makes the
-       panel taller rather than needing a second scrollbar. */
+    /* Own scroll region, capped: a large tileset must not swallow the whole
+       Inspector — the paint tools and cell-size fields above stay reachable
+       while browsing tiles. The application clips raylib's thumb painting to
+       this box's visible intersection with the panel (editor_app.cpp). */
+    max-height: 280dp;
+    overflow-y: auto;
 }
+/* Palette header: tile count on the left, the "empty tiles" filter toggle on
+   the right (only rendered when the derived alpha scan found empty tiles). */
+.tile-palette-head {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+}
+.tile-palette-toggle {
+    padding: 4dp 8dp;
+    color: #8a8a93;
+    font-size: 10dp;
+    cursor: pointer;
+}
+.tile-palette-toggle:hover { color: #d4d4d8; }
 .tile-thumb {
     display: inline-block;
     width: 40dp;
