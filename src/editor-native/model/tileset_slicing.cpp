@@ -1,5 +1,7 @@
 #include "editor-native/model/tileset_slicing.h"
 
+#include "editor-native/model/tileset_grid_geometry.h"
+
 #include <string>
 #include <unordered_set>
 
@@ -38,23 +40,27 @@ TilesetSliceResult computeTilesetSlicing(int imageWidth, int imageHeight,
 
 std::vector<TileDefinition> tilesForSlicing(int imageWidth, int imageHeight,
                                             const TilesetSlicing& slicing) {
+    // Rects come from the canonical grid geometry (tileset_grid_geometry.h):
+    // hit-testing, stamps and the sheet renderer must agree with the slicer
+    // on every margin/spacing formula, so none of them owns a private copy.
     std::vector<TileDefinition> tiles;
-    const TilesetSliceResult slice = computeTilesetSlicing(imageWidth, imageHeight, slicing);
-    if (slice.tileCount <= 0) return tiles;
+    const std::optional<TilesetGridGeometry> geometry =
+        computeTilesetGridGeometry(slicing, imageWidth, imageHeight);
+    if (!geometry) return tiles;
 
-    tiles.reserve(static_cast<std::size_t>(slice.tileCount));
-    const int stepX = slicing.tileWidth + slicing.spacingX;
-    const int stepY = slicing.tileHeight + slicing.spacingY;
-    for (int index = 0; index < slice.tileCount; ++index) {
-        const int col = index % slice.columns;
-        const int row = index / slice.columns;
-        TileDefinition tile;
-        tile.id     = "tile-" + std::to_string(index + 1);
-        tile.x      = slicing.marginX + col * stepX;
-        tile.y      = slicing.marginY + row * stepY;
-        tile.width  = slicing.tileWidth;
-        tile.height = slicing.tileHeight;
-        tiles.push_back(std::move(tile));
+    tiles.reserve(static_cast<std::size_t>(geometry->columns) * geometry->rows);
+    for (int row = 0; row < geometry->rows; ++row) {
+        for (int col = 0; col < geometry->columns; ++col) {
+            const TilesetGridRect rect =
+                tilesetSourceRectForGridCell(*geometry, TilemapCellCoord{col, row});
+            TileDefinition tile;
+            tile.id     = "tile-" + std::to_string(tiles.size() + 1);
+            tile.x      = rect.x;
+            tile.y      = rect.y;
+            tile.width  = rect.width;
+            tile.height = rect.height;
+            tiles.push_back(std::move(tile));
+        }
     }
     return tiles;
 }

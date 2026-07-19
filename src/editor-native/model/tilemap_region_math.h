@@ -4,6 +4,7 @@
 #include "editor-native/model/tilemap_cell_access.h"
 
 #include <cstddef>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -33,6 +34,26 @@ struct TileRegionBuildResult {
     std::optional<std::string>     error;
 };
 
+// Per-destination-cell decision of a region operation. Three explicit states
+// so a stamp hole ("touch nothing here") can never be confused with an erase
+// ("clear this cell") - the two ambiguities a bare optional<TilemapCell>
+// would collapse at the wrong level.
+struct TileReplacementDecision {
+    enum class Kind { Skip, Erase, Paint };
+
+    Kind   kind = Kind::Skip;
+    TileId tileId;   // meaningful only for Paint
+
+    static TileReplacementDecision skip()  { return {}; }
+    static TileReplacementDecision erase() { return {Kind::Erase, {}}; }
+    static TileReplacementDecision paint(TileId id) { return {Kind::Paint, std::move(id)}; }
+};
+
+// Called once per candidate cell by the provider-based builders below. Paint
+// always stamps TileTransformFlags::None (per-cell transforms are a future
+// feature; nothing authors them yet).
+using TileReplacementProvider = std::function<TileReplacementDecision(TilemapCellCoord)>;
+
 // Rectangle Solid: every cell in the axis-aligned box spanned by the two
 // corners (inclusive, order-independent - a drag toward the origin works the
 // same as one away from it). Cells already equal to `replacement` are
@@ -47,6 +68,13 @@ TileRegionBuildResult rectangleFillChanges(const TilemapComponent& component,
                                            TilemapCellCoord corner1, TilemapCellCoord corner2,
                                            TilemapCell replacement);
 
+// Provider variant (multi-tile stamps): the area cap is checked before any
+// provider call; Skip cells are omitted from the delta; before == after cells
+// are filtered exactly like the single-replacement variant.
+TileRegionBuildResult rectangleFillChanges(const TilemapComponent& component,
+                                           TilemapCellCoord corner1, TilemapCellCoord corner2,
+                                           const TileReplacementProvider& provider);
+
 // Rectangle Outline: only the border cells, generated directly from the four
 // edges in O(perimeter) - it never iterates the interior. A 1-wide or
 // 1-tall rectangle has no interior, so its "outline" is the full strip
@@ -55,6 +83,9 @@ TileRegionBuildResult rectangleFillChanges(const TilemapComponent& component,
 TileRegionBuildResult rectangleOutlineChanges(const TilemapComponent& component,
                                               TilemapCellCoord corner1, TilemapCellCoord corner2,
                                               TilemapCell replacement);
+TileRegionBuildResult rectangleOutlineChanges(const TilemapComponent& component,
+                                              TilemapCellCoord corner1, TilemapCellCoord corner2,
+                                              const TileReplacementProvider& provider);
 
 // Flood Fill: the 4-connected region starting at `origin` whose cells all
 // currently equal readTilemapCell(component, origin), replaced with
@@ -66,5 +97,17 @@ TileRegionBuildResult rectangleOutlineChanges(const TilemapComponent& component,
 // applied), since there is no well-defined boundary to fill up to.
 TileRegionBuildResult floodFillChanges(const TilemapComponent& component,
                                        TilemapCellCoord origin, TilemapCell replacement);
+
+// Provider variant. The traversed region is still defined purely by "cells
+// currently equal to the origin's value": Skip decisions leave a cell
+// unchanged but never interrupt the traversal, and the operation cap counts
+// VISITED cells (not emitted changes), so a huge region full of Skips is
+// rejected exactly like a huge uniform fill. There is no target==replacement
+// early-out here - with a pattern there is no single replacement; a provider
+// that happens to repaint the origin's own value simply yields a smaller
+// delta (the single-replacement variant keeps its early-out and delegates).
+TileRegionBuildResult floodFillChanges(const TilemapComponent& component,
+                                       TilemapCellCoord origin,
+                                       const TileReplacementProvider& provider);
 
 } // namespace ArtCade::EditorNative

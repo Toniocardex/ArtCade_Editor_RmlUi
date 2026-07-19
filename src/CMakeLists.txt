@@ -26,7 +26,9 @@ add_library(artcade-editor-core STATIC
     editor-native/model/sprite_animation_references.cpp
     editor-native/model/sprite_animation_slicing.cpp
     editor-native/model/tileset_slicing.cpp
+    editor-native/model/tileset_grid_geometry.cpp
     editor-native/model/tileset_empty_scan.cpp
+    editor-native/model/tile_stamp.cpp
     editor-native/model/tilemap_chunk_math.cpp
     editor-native/model/tilemap_validation.cpp
     editor-native/model/tilemap_render_view.cpp

@@ -45,7 +45,9 @@
 #include "editor-native/model/box_collider_geometry.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_animation_slicing.h"
+#include "editor-native/model/tile_stamp.h"
 #include "editor-native/model/tileset_empty_scan.h"
+#include "editor-native/model/tileset_grid_geometry.h"
 #include "editor-native/model/tileset_slicing.h"
 #include "editor-native/model/tilemap_chunk_math.h"
 #include "editor-native/model/tilemap_cell_access.h"
@@ -120,6 +122,276 @@ int main() {
         const std::vector<bool> zeroFlags = computeEmptyTileFlags(rgba.data(), 0, 4, tiles);
         CHECK(zeroFlags.size() == 3);
         CHECK(!zeroFlags[0]);
+    }
+
+    // ======================= tileset grid geometry =======================
+    // -- Canonical geometry agrees with the slicer on every rect ---------------
+    {
+        TilesetSlicing slicing;
+        slicing.tileWidth = 32; slicing.tileHeight = 32;
+        slicing.marginX = 4; slicing.marginY = 2;
+        slicing.spacingX = 2; slicing.spacingY = 4;
+        const auto geometry = computeTilesetGridGeometry(slicing, 140, 76);
+        CHECK(geometry.has_value());
+        CHECK(geometry->columns == 3);   // usable 132, step 34: 1 + (132-32)/34
+        CHECK(geometry->rows == 2);      // usable 72,  step 36: 1 + (72-32)/36
+        const std::vector<TileDefinition> tiles = tilesForSlicing(140, 76, slicing);
+        CHECK(tiles.size() == static_cast<std::size_t>(geometry->columns) * geometry->rows);
+        for (std::size_t i = 0; i < tiles.size(); ++i) {
+            const int col = static_cast<int>(i) % geometry->columns;
+            const int row = static_cast<int>(i) / geometry->columns;
+            const TilesetGridRect rect =
+                tilesetSourceRectForGridCell(*geometry, TilemapCellCoord{col, row});
+            CHECK(tiles[i].x == rect.x && tiles[i].y == rect.y);
+            CHECK(tiles[i].width == rect.width && tiles[i].height == rect.height);
+            // Round trip: the authored rect maps back to exactly this cell.
+            const auto cell = tilesetGridCellForTileRect(*geometry, tiles[i]);
+            CHECK(cell.has_value() && cell->cellX == col && cell->cellY == row);
+            CHECK(tilesetLinearIndexForGridCell(*geometry, *cell) == i);
+        }
+    }
+
+    // -- Pixel hit-testing: tile interior, gutters, margins, outside -----------
+    {
+        TilesetSlicing slicing;
+        slicing.tileWidth = 16; slicing.tileHeight = 16;
+        slicing.marginX = 4; slicing.marginY = 4;
+        slicing.spacingX = 2; slicing.spacingY = 2;
+        const auto g = computeTilesetGridGeometry(slicing, 60, 60);   // 3x3 grid
+        CHECK(g.has_value() && g->columns == 3 && g->rows == 3);
+        const auto at = [&](int px, int py) { return tilesetGridCellAtSheetPixel(*g, px, py); };
+        CHECK(at(4, 4).has_value() && at(4, 4)->cellX == 0 && at(4, 4)->cellY == 0);
+        CHECK(at(19, 4).has_value());               // last pixel of tile 0
+        CHECK(!at(20, 4).has_value());              // spacing gutter
+        CHECK(at(22, 4)->cellX == 1);               // first pixel of tile 1
+        CHECK(!at(0, 10).has_value());              // margin
+        CHECK(!at(-1, -1).has_value());
+        CHECK(at(55, 55)->cellX == 2 && at(55, 55)->cellY == 2);   // last tile pixel
+        CHECK(!at(58, 30).has_value());             // past the last column
+    }
+
+    // -- Non-grid-aligned tile rect has no cell --------------------------------
+    {
+        TilesetSlicing slicing;
+        slicing.tileWidth = 32; slicing.tileHeight = 32;
+        const auto g = computeTilesetGridGeometry(slicing, 128, 64);
+        TileDefinition odd; odd.id = "odd"; odd.x = 5; odd.y = 0; odd.width = 32; odd.height = 32;
+        CHECK(!tilesetGridCellForTileRect(*g, odd).has_value());
+        TileDefinition wrongSize; wrongSize.x = 0; wrongSize.y = 0;
+        wrongSize.width = 16; wrongSize.height = 32;
+        CHECK(!tilesetGridCellForTileRect(*g, wrongSize).has_value());
+        CHECK(!computeTilesetGridGeometry(slicing, 0, 64).has_value());
+    }
+
+    // ======================= tile stamps =======================
+    // -- makeSingleTileStamp / stampIsValid / stampPrimaryTileId ---------------
+    {
+        const TilemapTileStamp one = makeSingleTileStamp("tiles-1", "tile-7", 2, 3);
+        CHECK(stampIsValid(one));
+        CHECK(one.sourceTilesetAssetId == "tiles-1");
+        CHECK(one.sourceColumn == 2 && one.sourceRow == 3);
+        CHECK(one.width == 1 && one.height == 1);
+        CHECK(stampPrimaryTileId(one) == std::optional<TileId>{"tile-7"});
+
+        TilemapTileStamp bad = one;
+        bad.sourceTilesetAssetId.clear();
+        CHECK(!stampIsValid(bad));                       // provenance required
+        bad = one; bad.width = 0;
+        CHECK(!stampIsValid(bad));
+        bad = one; bad.tiles.clear();
+        CHECK(!stampIsValid(bad));                       // slot count mismatch
+        bad = one; bad.tiles = {std::nullopt};
+        CHECK(!stampIsValid(bad));                       // all holes
+        CHECK(!stampPrimaryTileId(bad).has_value());
+        // width*height overflow: rejected via division before multiplication.
+        bad = one; bad.width = 70000; bad.height = 70000;
+        CHECK(!stampIsValid(bad));
+        bad = one; bad.width = 257; bad.height = 257;    // 66049 > 65536 cap
+        bad.tiles.assign(257u * 257u, std::optional<TileId>{"t"});
+        CHECK(!stampIsValid(bad));
+    }
+
+    // -- stampPlacementsAt: full footprint per anchor (Brush semantics) --------
+    {
+        TilemapTileStamp stamp;
+        stamp.sourceTilesetAssetId = "tiles-1";
+        stamp.width = 2; stamp.height = 2;
+        stamp.tiles = {TileId("a"), TileId("b"), TileId("c"), TileId("d")};
+        const auto placements = stampPlacementsAt(stamp, {10, 20});
+        CHECK(placements.size() == 4);                   // one click = four cells
+        CHECK((placements[0].cell == TilemapCellCoord{10, 20} && placements[0].tileId == "a"));
+        CHECK((placements[1].cell == TilemapCellCoord{11, 20} && placements[1].tileId == "b"));
+        CHECK((placements[2].cell == TilemapCellCoord{10, 21} && placements[2].tileId == "c"));
+        CHECK((placements[3].cell == TilemapCellCoord{11, 21} && placements[3].tileId == "d"));
+
+        stamp.tiles[1] = std::nullopt;                   // hole
+        CHECK(stampPlacementsAt(stamp, {10, 20}).size() == 3);
+
+        // int32 edge: overflowing placements are dropped, not wrapped.
+        constexpr int kMax = std::numeric_limits<int>::max();
+        stamp.tiles[1] = TileId("b");
+        CHECK(stampPlacementsAt(stamp, {kMax, 0}).size() == 2);   // right column lost
+    }
+
+    // -- stampPatternTileAt: Euclidean modulo (Rectangle/Fill semantics) -------
+    {
+        TilemapTileStamp stamp;
+        stamp.sourceTilesetAssetId = "tiles-1";
+        stamp.width = 2; stamp.height = 3;
+        stamp.tiles = {TileId("a"), TileId("b"),
+                       TileId("c"), TileId("d"),
+                       TileId("e"), std::nullopt};
+        const TilemapCellCoord anchor{0, 0};
+        CHECK(stampPatternTileAt(stamp, anchor, {0, 0}) == std::optional<TileId>{"a"});
+        CHECK(stampPatternTileAt(stamp, anchor, {3, 4}) == std::optional<TileId>{"d"});
+        // Negative deltas wrap: (-1,-1) -> col 1, row 2 -> the hole.
+        CHECK(!stampPatternTileAt(stamp, anchor, {-1, -1}).has_value());
+        CHECK(stampPatternTileAt(stamp, anchor, {-2, -3}) == std::optional<TileId>{"a"});
+        CHECK(stampPatternTileAt(stamp, {5, 7}, {5, 7}) == std::optional<TileId>{"a"});
+    }
+
+    // -- buildTileStampFromRegion ----------------------------------------------
+    {
+        TilesetSlicing slicing;
+        slicing.tileWidth = 32; slicing.tileHeight = 32;
+        const auto g = computeTilesetGridGeometry(slicing, 128, 64);   // 4x2
+        TilesetAsset ts;
+        ts.assetId = "tiles-1";
+        ts.imageAssetId = "img-1";
+        ts.slicing = slicing;
+        ts.tiles = tilesForSlicing(128, 64, slicing);                  // tile-1..tile-8
+
+        const auto full = buildTileStampFromRegion(ts, *g, 0, 0, 1, 1, nullptr);
+        CHECK(full.has_value() && stampIsValid(*full));
+        CHECK(full->sourceTilesetAssetId == "tiles-1");
+        CHECK(full->sourceColumn == 0 && full->sourceRow == 0);
+        CHECK(full->width == 2 && full->height == 2);
+        CHECK(full->tiles[0] == std::optional<TileId>{"tile-1"});
+        CHECK(full->tiles[1] == std::optional<TileId>{"tile-2"});
+        CHECK(full->tiles[2] == std::optional<TileId>{"tile-5"});
+        CHECK(full->tiles[3] == std::optional<TileId>{"tile-6"});
+
+        // Reversed corners: identical stamp.
+        const auto reversed = buildTileStampFromRegion(ts, *g, 1, 1, 0, 0, nullptr);
+        CHECK(reversed.has_value() && reversed->tiles == full->tiles
+              && reversed->sourceColumn == 0 && reversed->sourceRow == 0);
+
+        // Out-of-grid corners are clamped; fully outside selects nothing.
+        const auto clamped = buildTileStampFromRegion(ts, *g, -3, -3, 0, 0, nullptr);
+        CHECK(clamped.has_value() && clamped->width == 1 && clamped->height == 1
+              && clamped->tiles[0] == std::optional<TileId>{"tile-1"});
+        CHECK(!buildTileStampFromRegion(ts, *g, 10, 10, 12, 12, nullptr).has_value());
+
+        // Empty mask turns tiles into holes; a first row entirely empty still
+        // keeps the full N x M bounds and provenance (top row of holes).
+        std::vector<bool> empty(ts.tiles.size(), false);
+        empty[0] = empty[1] = empty[2] = empty[3] = true;   // whole first sheet row
+        const auto holed = buildTileStampFromRegion(ts, *g, 0, 0, 1, 1, &empty);
+        CHECK(holed.has_value());
+        CHECK(holed->width == 2 && holed->height == 2);
+        CHECK(holed->sourceRow == 0);                       // bounds include the empty row
+        CHECK(!holed->tiles[0].has_value() && !holed->tiles[1].has_value());
+        CHECK(holed->tiles[2] == std::optional<TileId>{"tile-5"});
+
+        // All-empty region selects nothing; misaligned mask is never indexed.
+        const auto allEmpty = buildTileStampFromRegion(ts, *g, 0, 0, 3, 0, &empty);
+        CHECK(!allEmpty.has_value());
+        std::vector<bool> misaligned(3, false);
+        CHECK(!buildTileStampFromRegion(ts, *g, 0, 0, 1, 1, &misaligned).has_value());
+    }
+
+    // ======================= provider-based region builders =======================
+    // -- rectangleFillChanges with a 2x2 pattern provider ----------------------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        TilemapTileStamp stamp;
+        stamp.sourceTilesetAssetId = "tiles-1";
+        stamp.width = 2; stamp.height = 2;
+        stamp.tiles = {TileId("a"), TileId("b"), TileId("c"), TileId("d")};
+        const TilemapCellCoord anchor{0, 0};
+        const auto provider = [&](TilemapCellCoord cell) {
+            const std::optional<TileId> id = stampPatternTileAt(stamp, anchor, cell);
+            return id ? TileReplacementDecision::paint(*id) : TileReplacementDecision::skip();
+        };
+        const TileRegionBuildResult r = rectangleFillChanges(tm, {0, 0}, {3, 3}, provider);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.size() == 16);
+        for (const TilemapCellChange& c : r.changes) {
+            const char* expected = (c.cell.cellY % 2 == 0)
+                ? (c.cell.cellX % 2 == 0 ? "a" : "b")
+                : (c.cell.cellX % 2 == 0 ? "c" : "d");
+            CHECK(c.after.has_value() && c.after->tileId == expected);
+        }
+    }
+
+    // -- Provider Skip cells are simply absent from the delta ------------------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const auto provider = [](TilemapCellCoord cell) {
+            if (cell.cellX == 1) return TileReplacementDecision::skip();
+            return TileReplacementDecision::paint("t");
+        };
+        const TileRegionBuildResult fill = rectangleFillChanges(tm, {0, 0}, {2, 2}, provider);
+        CHECK(!fill.error.has_value());
+        CHECK(fill.changes.size() == 6);                    // 9 minus the skipped column
+        for (const TilemapCellChange& c : fill.changes) CHECK(c.cell.cellX != 1);
+        const TileRegionBuildResult outline = rectangleOutlineChanges(tm, {0, 0}, {2, 2}, provider);
+        CHECK(!outline.error.has_value());
+        CHECK(outline.changes.size() == 6);                 // 8 border cells minus two skipped
+    }
+
+    // -- Provider flood fill: holes never interrupt the traversal --------------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        // Bounded empty region: a 3x1 corridor walled by "wall" tiles.
+        const TilemapCell wall = TilemapCellValue{"wall", TileTransformFlags::None};
+        for (int x = -1; x <= 3; ++x) {
+            writeTilemapCell(tm, {x, -1}, wall);
+            writeTilemapCell(tm, {x, 1}, wall);
+        }
+        writeTilemapCell(tm, {-1, 0}, wall);
+        writeTilemapCell(tm, {3, 0}, wall);
+        const auto provider = [](TilemapCellCoord cell) {
+            if (cell.cellX == 1) return TileReplacementDecision::skip();   // hole mid-corridor
+            return TileReplacementDecision::paint("p");
+        };
+        const TileRegionBuildResult r = floodFillChanges(tm, {0, 0}, provider);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.size() == 2);                       // cells 0 and 2: the hole did not stop cell 2
+        for (const TilemapCellChange& c : r.changes) CHECK(c.after->tileId == "p");
+    }
+
+    // -- Provider flood fill: cap counts visited cells, not emitted changes ----
+    {
+        TilemapComponent tm; tm.chunkSize = 16;             // fully open empty grid
+        const auto allSkip = [](TilemapCellCoord) { return TileReplacementDecision::skip(); };
+        const TileRegionBuildResult r = floodFillChanges(tm, {0, 0}, allSkip);
+        CHECK(r.error.has_value());                         // open region must still be rejected
+        CHECK(r.changes.empty());
+    }
+
+    // -- Provider repainting the origin's own value still fills the rest -------
+    {
+        TilemapComponent tm; tm.chunkSize = 16;
+        const TilemapCell a = TilemapCellValue{"a", TileTransformFlags::None};
+        const TilemapCell wall = TilemapCellValue{"wall", TileTransformFlags::None};
+        writeTilemapCell(tm, {0, 0}, a);
+        writeTilemapCell(tm, {1, 0}, a);
+        for (int x = -1; x <= 2; ++x) {
+            writeTilemapCell(tm, {x, -1}, wall);
+            writeTilemapCell(tm, {x, 1}, wall);
+        }
+        writeTilemapCell(tm, {-1, 0}, wall);
+        writeTilemapCell(tm, {2, 0}, wall);
+        // Pattern paints "a" on even columns (== origin's value) and "b" on odd.
+        const auto provider = [](TilemapCellCoord cell) {
+            return TileReplacementDecision::paint(cell.cellX % 2 == 0 ? "a" : "b");
+        };
+        const TileRegionBuildResult r = floodFillChanges(tm, {0, 0}, provider);
+        CHECK(!r.error.has_value());
+        CHECK(r.changes.size() == 1);                       // only the odd column actually changes
+        CHECK((r.changes[0].cell == TilemapCellCoord{1, 0}));
+        CHECK(r.changes[0].after->tileId == "b");
     }
 
     // -- computeTilesetSlicing: a perfectly divisible sheet --------------------
