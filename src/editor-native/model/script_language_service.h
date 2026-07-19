@@ -23,6 +23,12 @@ struct ScriptCompletionEdit {
     std::size_t selectionEnd = 0;
 };
 
+struct ScriptApiCatalogInsertResult {
+    bool applied = false;
+    std::string message;
+    ScriptCompletionEdit edit;
+};
+
 // Pure language-service projections over Scripts::scriptApiCatalogV1().
 // Not buffer authority; callers apply inserts via EditScriptBufferIntent.
 
@@ -51,9 +57,19 @@ std::string scriptInsertTextFor(const Scripts::ScriptApiEntry& entry,
 
 // Apply an insert: replaces only a safe trailing identifier, otherwise inserts
 // at the caret. Never eats a dotted path or a reserved word like "end".
+// Multi-line snippets get a leading and trailing newline when needed so
+// adjacent tokens are not glued (e.g. end + on_update → end\non_update).
 ScriptCompletionEdit applyScriptCompletionInsert(const std::string& text,
                                                  std::size_t cursorOffset,
                                                  const std::string& insertText);
+
+// Panel / catalog insert routed by ScriptApiInsertKind: lifecycle callbacks go
+// into return { }, API declarations once at file head, calls/expressions at
+// the caret. None → documentation only (no buffer mutation).
+ScriptApiCatalogInsertResult applyScriptApiCatalogInsert(
+    const Scripts::ScriptApiEntry& entry,
+    const std::string& text,
+    std::size_t cursorOffset);
 
 std::vector<ScriptLanguageHint> scriptCompletionsAt(const std::string& text,
                                                     std::size_t cursorOffset,

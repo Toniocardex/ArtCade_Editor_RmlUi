@@ -2426,6 +2426,8 @@ bool EditorUi::handleToolbarAction(const std::string& action, const std::string&
         scriptEditor_.findNext(value);
     } else if (action == "goto-script-line" || action == "commit-script-line") {
         scriptEditor_.goToLine(arg.empty() ? value : arg);
+    } else if (action == "select-script-api") {
+        scriptEditor_.selectApiEntry(arg);
     } else if (action == "insert-script-api") {
         scriptEditor_.insertApiSnippet(arg);
     } else if (action == "accept-script-completion") {

@@ -218,12 +218,198 @@ ScriptCompletionEdit applyScriptCompletionInsert(const std::string& text,
     }
 
     std::string prefix;
+    std::string suffix;
     if (multiLine && begin > 0 && text[begin - 1] != '\n') prefix = "\n";
+    if (multiLine && end < text.size() && text[end] != '\n') suffix = "\n";
 
-    edit.text = text.substr(0, begin) + prefix + insertText + text.substr(end);
-    edit.selectionBegin = begin + prefix.size() + insertText.size();
+    edit.text = text.substr(0, begin) + prefix + insertText + suffix + text.substr(end);
+    edit.selectionBegin = begin + prefix.size() + insertText.size() + suffix.size();
     edit.selectionEnd = edit.selectionBegin;
     return edit;
+}
+
+namespace {
+
+bool isIdentBoundary(const std::string& text, std::size_t begin, std::size_t end) {
+    if (begin > 0 && isIdentChar(static_cast<unsigned char>(text[begin - 1])))
+        return false;
+    if (end < text.size() && isIdentChar(static_cast<unsigned char>(text[end])))
+        return false;
+    return true;
+}
+
+bool findReturnTableBraces(const std::string& text, std::size_t& openBrace,
+                           std::size_t& closeBrace) {
+    std::size_t pos = 0;
+    while (pos < text.size()) {
+        const std::size_t found = text.find("return", pos);
+        if (found == std::string::npos) return false;
+        if (!isIdentBoundary(text, found, found + 6)) {
+            pos = found + 6;
+            continue;
+        }
+        std::size_t i = found + 6;
+        while (i < text.size()
+               && std::isspace(static_cast<unsigned char>(text[i])) != 0) {
+            ++i;
+        }
+        if (i >= text.size() || text[i] != '{') {
+            pos = found + 6;
+            continue;
+        }
+        openBrace = i;
+        int depth = 0;
+        for (std::size_t j = i; j < text.size(); ++j) {
+            const char c = text[j];
+            if (c == '{') ++depth;
+            else if (c == '}') {
+                --depth;
+                if (depth == 0) {
+                    closeBrace = j;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    return false;
+}
+
+bool lifecycleCallbackExists(const std::string& text, std::size_t openBrace,
+                             std::size_t closeBrace, const std::string& name) {
+    if (name.empty() || closeBrace <= openBrace) return false;
+    const std::size_t bodyBegin = openBrace + 1;
+    std::size_t pos = bodyBegin;
+    while (pos < closeBrace) {
+        const std::size_t found = text.find(name, pos);
+        if (found == std::string::npos || found >= closeBrace) return false;
+        const std::size_t after = found + name.size();
+        if (isIdentBoundary(text, found, after)) {
+            std::size_t probe = after;
+            while (probe < closeBrace
+                   && std::isspace(static_cast<unsigned char>(text[probe])) != 0) {
+                ++probe;
+            }
+            if (probe < closeBrace && text[probe] == '=') return true;
+        }
+        pos = found + 1;
+    }
+    return false;
+}
+
+std::string indentBlock(const std::string& block, const std::string& indent) {
+    if (block.empty()) return indent;
+    std::string out = indent;
+    for (std::size_t i = 0; i < block.size(); ++i) {
+        out.push_back(block[i]);
+        if (block[i] == '\n' && i + 1 < block.size()) out += indent;
+    }
+    return out;
+}
+
+ScriptApiCatalogInsertResult insertLifecycleCallback(
+    const Scripts::ScriptApiEntry& entry, const std::string& text) {
+    ScriptApiCatalogInsertResult result;
+    const std::string name = entry.name ? entry.name : "";
+    const std::string snippet = (entry.insertText && entry.insertText[0] != '\0')
+        ? entry.insertText
+        : (name + " = function(ctx)\n    \nend");
+    if (name.empty()) {
+        result.message = "Invalid lifecycle callback";
+        return result;
+    }
+
+    std::size_t openBrace = 0;
+    std::size_t closeBrace = 0;
+    if (!findReturnTableBraces(text, openBrace, closeBrace)) {
+        result.message = "Could not find return { ... } table for callback insert";
+        return result;
+    }
+    if (lifecycleCallbackExists(text, openBrace, closeBrace, name)) {
+        result.message = name + " already exists in this Script.";
+        return result;
+    }
+
+    std::size_t last = closeBrace;
+    while (last > openBrace + 1
+           && std::isspace(static_cast<unsigned char>(text[last - 1])) != 0) {
+        --last;
+    }
+    const bool empty = last == openBrace + 1;
+    const bool needComma = !empty && text[last - 1] != ',';
+
+    const std::string indented = indentBlock(snippet, "    ");
+    std::string middle;
+    if (needComma) middle.push_back(',');
+    middle.push_back('\n');
+    middle += indented;
+    middle.push_back('\n');
+
+    result.applied = true;
+    result.edit.text = text.substr(0, last) + middle + text.substr(closeBrace);
+    result.edit.selectionBegin = last + middle.size();
+    result.edit.selectionEnd = result.edit.selectionBegin;
+    result.message = "Inserted " + name;
+    return result;
+}
+
+ScriptApiCatalogInsertResult insertApiDeclaration(
+    const Scripts::ScriptApiEntry& entry, const std::string& text) {
+    ScriptApiCatalogInsertResult result;
+    const std::string needle = entry.qualifiedName ? entry.qualifiedName : "";
+    if (!needle.empty() && text.find(needle) != std::string::npos) {
+        result.message = std::string(needle) + " already present";
+        return result;
+    }
+    std::string decl = (entry.insertText && entry.insertText[0] != '\0')
+        ? entry.insertText
+        : needle;
+    if (decl.empty()) {
+        result.message = "Nothing to insert";
+        return result;
+    }
+    if (decl.back() != '\n') decl.push_back('\n');
+    if (!text.empty() && text.front() != '\n') decl.push_back('\n');
+
+    result.applied = true;
+    result.edit.text = decl + text;
+    result.edit.selectionBegin = decl.size();
+    result.edit.selectionEnd = decl.size();
+    result.message = "Inserted API declaration";
+    return result;
+}
+
+} // namespace
+
+ScriptApiCatalogInsertResult applyScriptApiCatalogInsert(
+    const Scripts::ScriptApiEntry& entry,
+    const std::string& text,
+    std::size_t cursorOffset) {
+    using Scripts::ScriptApiInsertKind;
+    ScriptApiCatalogInsertResult result;
+    switch (entry.insertKind) {
+    case ScriptApiInsertKind::None:
+        result.message = "Documentation only — nothing to insert";
+        return result;
+    case ScriptApiInsertKind::LifecycleCallback:
+        return insertLifecycleCallback(entry, text);
+    case ScriptApiInsertKind::ApiDeclaration:
+        return insertApiDeclaration(entry, text);
+    case ScriptApiInsertKind::Expression:
+    case ScriptApiInsertKind::FunctionCall: {
+        const std::string insert = scriptInsertTextFor(entry, text, cursorOffset);
+        if (insert.empty()) {
+            result.message = "Nothing to insert";
+            return result;
+        }
+        result.applied = true;
+        result.edit = applyScriptCompletionInsert(text, cursorOffset, insert);
+        result.message = "Inserted " + std::string(entry.qualifiedName ? entry.qualifiedName : "");
+        return result;
+    }
+    }
+    result.message = "Unsupported insert kind";
+    return result;
 }
 
 std::vector<ScriptLanguageHint> scriptCompletionsAt(const std::string& text,

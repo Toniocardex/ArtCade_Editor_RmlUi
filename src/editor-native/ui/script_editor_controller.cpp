@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <string>
 #include <unordered_set>
@@ -498,24 +499,103 @@ void ScriptEditorController::refreshApiPanel() {
     if (!list) return;
     std::string rml;
     for (const ScriptLanguageHint& entry : scriptApiReferenceEntries()) {
-        rml += "<button class=\"script-api-item\" data-action=\"insert-script-api\" data-arg=\""
+        const bool selected = entry.qualifiedName == selectedApiQualifiedName_;
+        rml += "<button class=\"script-api-item";
+        if (selected) rml += " selected";
+        rml += "\" data-action=\"select-script-api\" data-dbl-action=\"insert-script-api\" data-arg=\""
             + escapeRml(entry.qualifiedName) + "\" title=\""
             + escapeRml(entry.detail) + "\">"
             + escapeRml(entry.qualifiedName) + "</button>";
     }
     list->SetInnerRML(rml);
+    refreshApiDetail();
 }
 
-void ScriptEditorController::refreshLanguageHint() {
-    Rml::Element* hint = document_ ? document_->GetElementById("script-api-hint") : nullptr;
-    if (!hint || !surface_) return;
-    const ScriptLanguageHint signature = scriptSignatureAt(surface_->text(), surface_->cursorOffset());
-    if (!signature.title.empty()) {
-        hint->SetInnerRML(escapeRml(signature.title));
+namespace {
+
+std::string apiDisplayTitle(const Scripts::ScriptApiEntry& entry) {
+    const char* raw = entry.qualifiedName ? entry.qualifiedName : "";
+    std::string out;
+    out.reserve(std::strlen(raw) + 8);
+    for (const char* p = raw; *p; ++p) {
+        if (*p == '_' || *p == '.') out.push_back(' ');
+        else out.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(*p))));
+    }
+    return out;
+}
+
+const char* apiInsertButtonLabel(Scripts::ScriptApiInsertKind kind) {
+    using Scripts::ScriptApiInsertKind;
+    switch (kind) {
+    case ScriptApiInsertKind::LifecycleCallback: return "Insert Callback";
+    case ScriptApiInsertKind::ApiDeclaration: return "Insert Declaration";
+    case ScriptApiInsertKind::FunctionCall: return "Insert Call";
+    case ScriptApiInsertKind::Expression: return "Insert";
+    case ScriptApiInsertKind::None: return nullptr;
+    }
+    return nullptr;
+}
+
+} // namespace
+
+void ScriptEditorController::setApiDetailStatus(const std::string& message) {
+    if (!document_) return;
+    if (Rml::Element* status = document_->GetElementById("script-api-detail-status"))
+        status->SetInnerRML(escapeRml(message));
+}
+
+void ScriptEditorController::refreshApiDetail() {
+    if (!document_) return;
+    Rml::Element* nameEl = document_->GetElementById("script-api-detail-name");
+    Rml::Element* docEl = document_->GetElementById("script-api-detail-doc");
+    Rml::Element* sigEl = document_->GetElementById("script-api-detail-sig");
+    Rml::Element* insertBtn = document_->GetElementById("script-api-insert-btn");
+    if (!nameEl || !docEl || !sigEl || !insertBtn) return;
+
+    const Scripts::ScriptApiEntry* entry = selectedApiQualifiedName_.empty()
+        ? nullptr
+        : Scripts::findScriptApiByQualifiedName(selectedApiQualifiedName_);
+    if (!entry) {
+        nameEl->SetInnerRML("Select an API");
+        docEl->SetInnerRML("Click a symbol to read its documentation. "
+                           "Use Insert or double-click to modify the Script.");
+        sigEl->SetInnerRML({});
+        insertBtn->SetClass("hidden", true);
+        insertBtn->SetAttribute("data-arg", "");
+        setApiDetailStatus({});
         return;
     }
-    const ScriptLanguageHint hover = scriptHoverAt(surface_->text(), surface_->cursorOffset());
-    hint->SetInnerRML(hover.title.empty() ? std::string{} : escapeRml(hover.title));
+
+    nameEl->SetInnerRML(escapeRml(apiDisplayTitle(*entry)));
+    docEl->SetInnerRML(escapeRml(entry->shortDoc ? entry->shortDoc : ""));
+    sigEl->SetInnerRML(escapeRml(Scripts::formatScriptApiSignatureHelp(*entry)));
+    if (const char* label = apiInsertButtonLabel(entry->insertKind)) {
+        insertBtn->SetInnerRML(label);
+        insertBtn->SetAttribute("data-arg", entry->qualifiedName);
+        insertBtn->SetClass("hidden", false);
+    } else {
+        insertBtn->SetClass("hidden", true);
+        insertBtn->SetAttribute("data-arg", "");
+    }
+}
+
+void ScriptEditorController::selectApiEntry(const std::string& qualifiedName) {
+    selectedApiQualifiedName_ = qualifiedName;
+    setApiDetailStatus({});
+    if (!document_) {
+        refreshApiDetail();
+        return;
+    }
+    if (Rml::Element* list = document_->GetElementById("script-api-list")) {
+        const int count = list->GetNumChildren();
+        for (int i = 0; i < count; ++i) {
+            Rml::Element* child = list->GetChild(i);
+            if (!child) continue;
+            const Rml::String arg = child->GetAttribute("data-arg", Rml::String());
+            child->SetClass("selected", arg == qualifiedName);
+        }
+    }
+    refreshApiDetail();
 }
 
 void ScriptEditorController::showCompletions() {
@@ -523,7 +603,7 @@ void ScriptEditorController::showCompletions() {
     Rml::Element* popup = document_->GetElementById("script-completion-popup");
     if (!popup) return;
     const auto completions = scriptCompletionsAt(surface_->text(), surface_->cursorOffset());
-    completionInserts_.clear();
+    completionQualifiedNames_.clear();
     if (completions.empty()) {
         popup->SetInnerRML({});
         popup->SetClass("hidden", true);
@@ -531,7 +611,7 @@ void ScriptEditorController::showCompletions() {
     }
     std::string rml;
     for (std::size_t i = 0; i < completions.size(); ++i) {
-        completionInserts_.push_back(completions[i].insertText);
+        completionQualifiedNames_.push_back(completions[i].qualifiedName);
         rml += "<button class=\"script-completion-item";
         if (i == 0) rml += " active";
         rml += "\" data-action=\"accept-script-completion\" data-arg=\""
@@ -544,7 +624,7 @@ void ScriptEditorController::showCompletions() {
 }
 
 void ScriptEditorController::hideCompletions() {
-    completionInserts_.clear();
+    completionQualifiedNames_.clear();
     if (!document_) return;
     if (Rml::Element* popup = document_->GetElementById("script-completion-popup")) {
         popup->SetInnerRML({});
@@ -562,16 +642,36 @@ void ScriptEditorController::acceptCompletion(const std::string& insertText) {
 }
 
 void ScriptEditorController::acceptCompletionAt(std::size_t index) {
-    if (index >= completionInserts_.size()) return;
-    acceptCompletion(completionInserts_[index]);
+    if (index >= completionQualifiedNames_.size()) return;
+    const std::string qualified = completionQualifiedNames_[index];
+    hideCompletions();
+    insertApiSnippet(qualified);
 }
 
 void ScriptEditorController::insertApiSnippet(const std::string& qualifiedName) {
     const Scripts::ScriptApiEntry* entry =
         Scripts::findScriptApiByQualifiedName(qualifiedName);
     if (!entry || !surface_) return;
-    acceptCompletion(scriptInsertTextFor(*entry, surface_->text(), surface_->cursorOffset()));
+    if (selectedApiQualifiedName_ != qualifiedName) selectApiEntry(qualifiedName);
+    const ScriptApiCatalogInsertResult result =
+        applyScriptApiCatalogInsert(*entry, surface_->text(), surface_->cursorOffset());
+    setApiDetailStatus(result.message);
+    if (!result.applied) return;
+    applyTextEdit(ScriptTextEditResult{
+        result.edit.text, result.edit.selectionBegin, result.edit.selectionEnd});
     surface_->focus();
+}
+
+void ScriptEditorController::refreshLanguageHint() {
+    Rml::Element* hint = document_ ? document_->GetElementById("script-api-hint") : nullptr;
+    if (!hint || !surface_) return;
+    const ScriptLanguageHint signature = scriptSignatureAt(surface_->text(), surface_->cursorOffset());
+    if (!signature.title.empty()) {
+        hint->SetInnerRML(escapeRml(signature.title));
+        return;
+    }
+    const ScriptLanguageHint hover = scriptHoverAt(surface_->text(), surface_->cursorOffset());
+    hint->SetInnerRML(hover.title.empty() ? std::string{} : escapeRml(hover.title));
 }
 
 void ScriptEditorController::findNext(const std::string& query) {

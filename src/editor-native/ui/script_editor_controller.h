@@ -63,6 +63,7 @@ public:
     void hideCompletions();
     void acceptCompletion(const std::string& insertText);
     void acceptCompletionAt(std::size_t index);
+    void selectApiEntry(const std::string& qualifiedName);
     void insertApiSnippet(const std::string& qualifiedName);
     void findNext(const std::string& query);
     void goToLine(const std::string& lineText);
@@ -74,6 +75,7 @@ private:
     void refreshHighlight();
     void refreshCaretAndCurrentLine();
     void refreshApiPanel();
+    void refreshApiDetail();
     void refreshLanguageHint();
     void syncOverlayScroll();
     void refreshStatus();
@@ -82,6 +84,7 @@ private:
     void syncSurfaceFromActiveBuffer();
     void applyTextEdit(const ScriptTextEditResult& edit);
     void validate(const AssetId& assetId, std::uint64_t revision);
+    void setApiDetailStatus(const std::string& message);
 
     struct PendingValidation {
         std::uint64_t revision = 0;
@@ -96,7 +99,8 @@ private:
     std::optional<std::pair<std::size_t, std::size_t>> bracketDecoration_;
     float lastSyncedScrollTop_ = -1.f;
     float lastSyncedScrollLeft_ = -1.f;
-    std::vector<std::string> completionInserts_;
+    std::vector<std::string> completionQualifiedNames_;
+    std::string selectedApiQualifiedName_;
     std::unordered_map<AssetId, PendingValidation> pendingValidation_;
 };
 

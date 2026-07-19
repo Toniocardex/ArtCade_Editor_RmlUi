@@ -201,6 +201,17 @@
                         <div id="script-api-panel" class="script-api-panel">
                             <div class="script-api-panel-header">API v1</div>
                             <div id="script-api-list" class="script-api-list"></div>
+                            <div id="script-api-detail" class="script-api-detail">
+                                <div id="script-api-detail-name" class="script-api-detail-name">Select an API</div>
+                                <div id="script-api-detail-doc" class="script-api-detail-doc">
+                                    Click a symbol to read its documentation. Use Insert or double-click to modify the Script.
+                                </div>
+                                <div class="script-api-detail-label">Signature</div>
+                                <div id="script-api-detail-sig" class="script-api-detail-sig"></div>
+                                <button id="script-api-insert-btn" class="script-api-insert-btn hidden"
+                                        data-action="insert-script-api" data-arg="">Insert</button>
+                                <div id="script-api-detail-status" class="script-api-detail-status"></div>
+                            </div>
                         </div>
                     </div>
                     <div id="script-diagnostics" class="script-diagnostics hidden"></div>
