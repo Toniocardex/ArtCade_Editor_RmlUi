@@ -2,6 +2,7 @@
 
 #include "editor-native/model/numeric_validation.h"
 #include "editor-native/view/scene_grid.h"
+#include "sprite-animation-core.h"
 
 #include <algorithm>
 #include <cmath>
@@ -402,15 +403,19 @@ EditorOperationResult EditorCoordinator::apply(const OpenSpriteAnimationEditorIn
     // already-sliced clip on open (a single row of N frames is the common case).
     if (editor.selectedClipId) {
         for (const SpriteAnimationClipDef& clip : asset->clips) {
-            if (clip.id != *editor.selectedClipId || clip.frames.empty()) continue;
-            editor.sliceColumns = static_cast<int>(clip.frames.size());
+            if (clip.id != *editor.selectedClipId || clip.frameIds.empty()) continue;
+            editor.sliceColumns = static_cast<int>(clip.frameIds.size());
             editor.sliceRows = 1;
             break;
         }
     }
-    editor.selectedFrameIndex = 0;
+    editor.selectedSheetFrames.clear();
+    editor.selectedTimelineIndices.clear();
+    editor.pendingResliceConfirm = false;
+    editor.pendingSourceImageId.reset();
     editor.previewPlaying = false;
     editor.previewElapsed = 0.f;
+    editor.previewSpeed = 1.f;
     editor.previewFrameIndex = 0;
     const EditorInvalidation inv = EditorInvalidation::Viewport | EditorInvalidation::Toolbar;
     accumulate(inv);
@@ -435,7 +440,8 @@ EditorOperationResult EditorCoordinator::apply(const SelectAnimationClipIntent& 
             SpriteAnimationEditorState& editor = state_.spriteAnimationEditor;
             editor.openAssetId = intent.assetId;
             editor.selectedClipId = intent.clipId;
-            editor.selectedFrameIndex = 0;
+            editor.selectedSheetFrames.clear();
+            editor.selectedTimelineIndices.clear();
             editor.previewElapsed = 0.f;
             editor.previewFrameIndex = 0;
             accumulate(EditorInvalidation::Viewport);
@@ -511,7 +517,7 @@ EditorOperationResult EditorCoordinator::apply(const SetAnimationPreviewPlayingI
                 if (candidate.id == *editor.selectedClipId) { clip = &candidate; break; }
             }
         }
-        if (clip && editor.previewFrameIndex + 1 >= clip->frames.size()) {
+        if (clip && editor.previewFrameIndex + 1 >= clip->frameIds.size()) {
             editor.previewFrameIndex = 0;
             editor.previewElapsed = 0.f;
         }
@@ -533,11 +539,11 @@ EditorOperationResult EditorCoordinator::apply(const SetAnimationPreviewFrameInt
             if (candidate.id == *editor.selectedClipId) { clip = &candidate; break; }
         }
     }
-    if (!clip || clip->frames.empty()) {
+    if (!clip || clip->frameIds.empty()) {
         return finishIntent(EditorOperationResult::failure("Clip has no frames to scrub"));
     }
     editor.previewPlaying = false;
-    editor.previewFrameIndex = std::min(intent.frameIndex, clip->frames.size() - 1);
+    editor.previewFrameIndex = std::min(intent.frameIndex, clip->frameIds.size() - 1);
     editor.previewElapsed = 0.f;
     accumulate(EditorInvalidation::Viewport);
     return EditorOperationResult::success(EditorInvalidation::Viewport);
@@ -556,10 +562,10 @@ EditorOperationResult EditorCoordinator::apply(const StepAnimationPreviewIntent&
             if (candidate.id == *editor.selectedClipId) { clip = &candidate; break; }
         }
     }
-    if (!clip || clip->frames.empty()) {
+    if (!clip || clip->frameIds.empty()) {
         return finishIntent(EditorOperationResult::failure("Clip has no frames to step"));
     }
-    const std::size_t count = clip->frames.size();
+    const std::size_t count = clip->frameIds.size();
     const std::size_t current = std::min(editor.previewFrameIndex, count - 1);
     // Euclidean wrap keeps any negative delta inside [0, count).
     const long long stepped =
@@ -569,6 +575,101 @@ EditorOperationResult EditorCoordinator::apply(const StepAnimationPreviewIntent&
         static_cast<std::size_t>(stepped < 0 ? stepped + static_cast<long long>(count)
                                              : stepped);
     editor.previewElapsed = 0.f;
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetAnimationPreviewSpeedIntent& intent) {
+    SpriteAnimationEditorState& editor = state_.spriteAnimationEditor;
+    if (!editor.openAssetId) {
+        return finishIntent(EditorOperationResult::failure("Sprite Animation Editor is not open"));
+    }
+    if (!std::isfinite(intent.speed) || intent.speed <= 0.f) {
+        return finishIntent(EditorOperationResult::failure("Preview speed must be positive"));
+    }
+    editor.previewSpeed = intent.speed;
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(
+    const ToggleAnimationSheetFrameSelectionIntent& intent) {
+    SpriteAnimationEditorState& editor = state_.spriteAnimationEditor;
+    if (!editor.openAssetId || intent.frameId.empty()) {
+        return finishIntent(EditorOperationResult::failure("No animation sheet selection"));
+    }
+    auto& frames = editor.selectedSheetFrames;
+    const auto it = std::find(frames.begin(), frames.end(), intent.frameId);
+    if (it == frames.end()) frames.push_back(intent.frameId);
+    else frames.erase(it);
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SetAnimationTimelineSelectionIntent& intent) {
+    SpriteAnimationEditorState& editor = state_.spriteAnimationEditor;
+    if (!editor.openAssetId) {
+        return finishIntent(EditorOperationResult::failure("Sprite Animation Editor is not open"));
+    }
+    editor.selectedTimelineIndices = intent.indices;
+    if (!intent.indices.empty()) {
+        editor.previewPlaying = false;
+        editor.previewFrameIndex = intent.indices.back();
+        editor.previewElapsed = 0.f;
+    }
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(const RequestAnimationResliceConfirmIntent&) {
+    SpriteAnimationEditorState& editor = state_.spriteAnimationEditor;
+    if (!editor.openAssetId) {
+        return finishIntent(EditorOperationResult::failure("Sprite Animation Editor is not open"));
+    }
+    editor.pendingResliceConfirm = true;
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(const ConfirmAnimationResliceIntent&) {
+    state_.spriteAnimationEditor.pendingResliceConfirm = false;
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(const CancelAnimationResliceIntent&) {
+    state_.spriteAnimationEditor.pendingResliceConfirm = false;
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(const RequestAnimationSourceImageIntent& intent) {
+    SpriteAnimationEditorState& editor = state_.spriteAnimationEditor;
+    if (!editor.openAssetId) {
+        return finishIntent(EditorOperationResult::failure("Sprite Animation Editor is not open"));
+    }
+    if (!document_.hasImageAsset(intent.imageId)) {
+        return finishIntent(EditorOperationResult::failure("Unknown source image"));
+    }
+    editor.pendingSourceImageId = intent.imageId;
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(const ConfirmAnimationSourceImageIntent&) {
+    // Workspace-only: confirm clears the pending prompt. The UI must execute
+    // ReplaceAnimationSourceImageCommand itself (same pattern as reslice).
+    SpriteAnimationEditorState& editor = state_.spriteAnimationEditor;
+    if (!editor.openAssetId || !editor.pendingSourceImageId) {
+        return finishIntent(EditorOperationResult::failure("No pending source image change"));
+    }
+    editor.pendingSourceImageId.reset();
+    accumulate(EditorInvalidation::Viewport);
+    return EditorOperationResult::success(EditorInvalidation::Viewport);
+}
+
+EditorOperationResult EditorCoordinator::apply(const CancelAnimationSourceImageIntent&) {
+    state_.spriteAnimationEditor.pendingSourceImageId.reset();
     accumulate(EditorInvalidation::Viewport);
     return EditorOperationResult::success(EditorInvalidation::Viewport);
 }
@@ -584,32 +685,31 @@ void EditorCoordinator::advanceSpriteAnimationPreview(float dt) {
             if (candidate.id == *editor.selectedClipId) { clip = &candidate; break; }
         }
     }
-    if (!clip || clip->frames.empty() || clip->framesPerSecond <= 0.f
-        || !std::isfinite(clip->framesPerSecond)) {
+    if (!clip || clip->frameIds.empty() || !Animation::isValidAnimationFps(clip->framesPerSecond)) {
         editor.previewPlaying = false;
         accumulate(EditorInvalidation::Viewport);
         return;
     }
     if (!NumericValidation::isFinite(dt) || dt <= 0.f) return;
-    if (editor.previewFrameIndex >= clip->frames.size()) {
+    if (editor.previewFrameIndex >= clip->frameIds.size()) {
         editor.previewFrameIndex = 0;   // frames edited under a stale playhead
         editor.previewElapsed = 0.f;
     }
-    const float frameDuration = 1.f / clip->framesPerSecond;
-    editor.previewElapsed += dt;
-    while (editor.previewElapsed >= frameDuration) {
-        editor.previewElapsed -= frameDuration;
-        if (editor.previewFrameIndex + 1 < clip->frames.size()) {
-            ++editor.previewFrameIndex;
-        } else if (clip->playbackMode == AnimationPlaybackMode::Loop) {
-            editor.previewFrameIndex = 0;
-        } else {
-            // Once: hold the last frame and flip the Play affordance back.
-            editor.previewPlaying = false;
-            editor.previewElapsed = 0.f;
-            accumulate(EditorInvalidation::Viewport);
-            return;
-        }
+    Animation::AnimationPlaybackCursor cursor;
+    cursor.frameIndex = editor.previewFrameIndex;
+    cursor.elapsedSeconds = editor.previewElapsed;
+    cursor.playbackSpeed = editor.previewSpeed > 0.f ? editor.previewSpeed : 1.f;
+    cursor.playing = true;
+    cursor.completed = false;
+    const Animation::AnimationAdvanceResult advanced = Animation::advanceAnimation(
+        clip->frameIds.size(), clip->framesPerSecond, clip->playbackMode, cursor, dt);
+    editor.previewFrameIndex = advanced.cursor.frameIndex;
+    editor.previewElapsed = advanced.cursor.elapsedSeconds;
+    if (!advanced.cursor.playing || advanced.completedThisStep) {
+        // Once: hold the last frame and flip the Play affordance back.
+        editor.previewPlaying = false;
+        editor.previewElapsed = 0.f;
+        accumulate(EditorInvalidation::Viewport);
     }
 }
 

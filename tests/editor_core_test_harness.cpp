@@ -93,7 +93,7 @@ ProjectDoc makeInheritedDoc() {
     hero.className = "Hero";
     hero.name = "Hero";
     hero.visible = true;
-    hero.spriteRenderer = SpriteRendererComponent{"img-hero", {}, true};
+    hero.spriteRenderer = SpriteRendererComponent{"img-hero", true};
     doc.objectTypes.emplace("Hero", hero);
     return doc;
 }
@@ -103,22 +103,22 @@ ProjectDoc makeAnimationDoc() {
     SpriteAnimationAssetDef anim;
     anim.id = "hero.anim";
     anim.name = "hero.anim";
-    anim.defaultClipId = "idle";
+    anim.sourceImageAssetId = "img-hero";
+    anim.frames.push_back(SpriteFrameDef{"f0", 0, 0, 32, 32});
+    anim.frames.push_back(SpriteFrameDef{"f1", 32, 0, 32, 32});
     SpriteAnimationClipDef idle;
     idle.id = "idle";
     idle.name = "Idle";
-    idle.imageId = "img-hero";
     idle.framesPerSecond = 8.f;
     idle.playbackMode = AnimationPlaybackMode::Loop;
-    idle.frames.push_back(SpriteAnimationFrameDef{0, 0, 32, 32});
-    idle.frames.push_back(SpriteAnimationFrameDef{32, 0, 32, 32});
+    idle.frameIds = {"f0", "f1"};
     anim.clips.push_back(idle);
     doc.spriteAnimationAssets.push_back(anim);
     EntityDef hero;
     hero.className = "Hero";
     hero.name = "Hero";
-    hero.spriteRenderer = SpriteRendererComponent{{}, "hero.anim", true};
-    hero.spriteAnimator = SpriteAnimatorComponent{"idle", true, 1.f};
+    hero.spriteRenderer = SpriteRendererComponent{{}, true};
+    hero.spriteAnimator = SpriteAnimatorComponent{"hero.anim", "idle", true, 1.f};
     doc.objectTypes.emplace("Hero", std::move(hero));
     return doc;
 }

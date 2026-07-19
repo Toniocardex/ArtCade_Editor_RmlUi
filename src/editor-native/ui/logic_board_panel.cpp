@@ -188,11 +188,6 @@ std::string clipLabel(const SpriteAnimationClipDef& clip) {
 }
 
 std::string defaultClipId(const SpriteAnimationAssetDef& asset) {
-    if (!asset.defaultClipId.empty()) {
-        const auto it = std::find_if(asset.clips.begin(), asset.clips.end(),
-            [&](const SpriteAnimationClipDef& clip) { return clip.id == asset.defaultClipId; });
-        if (it != asset.clips.end()) return it->id;
-    }
     return asset.clips.empty() ? std::string{} : asset.clips.front().id;
 }
 

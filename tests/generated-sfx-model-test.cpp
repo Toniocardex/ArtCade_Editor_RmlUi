@@ -129,7 +129,7 @@ int main() {
     CHECK(serialized.value.find("\"generatorVersion\": 2") != std::string::npos);
     const DeserializeResult decoded = ProjectSerializer::deserialize(serialized.value);
     CHECK(decoded.ok);
-        CHECK(decoded.value.data().formatVersion == 8);
+        CHECK(decoded.value.data().formatVersion == 9);
     CHECK(ProjectValidator::validate(decoded.value).ok);
     CHECK(generatedSfxRecipesEqual(
         decoded.value.findGeneratedSfx("sfx-jump")->recipe, recipe));

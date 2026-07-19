@@ -4,6 +4,8 @@
 #include "editor-native/model/numeric_validation.h"
 #include "editor-native/model/path_confinement.h"
 
+#include "sprite-animation-core.h"
+
 #include <algorithm>
 #include <cctype>
 #include <unordered_set>
@@ -675,7 +677,7 @@ void ProjectDocument::commitStagedCommand(ProjectDoc staged) {
 
 bool ProjectDocument::addAnimationClip(const AssetId& assetId,
                                        SpriteAnimationClipDef clip) {
-    if (!NumericValidation::isPositive(clip.framesPerSecond)) return false;
+    if (!Animation::isValidAnimationFps(clip.framesPerSecond)) return false;
     for (SpriteAnimationAssetDef& asset : doc_.spriteAnimationAssets) {
         if (asset.id != assetId) continue;
         if (clip.id.empty() || clip.name.empty()) return false;
@@ -683,8 +685,6 @@ bool ProjectDocument::addAnimationClip(const AssetId& assetId,
             if (existing.id == clip.id || existing.name == clip.name) return false;
         }
         asset.clips.push_back(std::move(clip));
-        // The first clip becomes the asset's default (what entities play).
-        if (asset.clips.size() == 1) asset.defaultClipId = asset.clips.front().id;
         markDirty();
         return true;
     }
@@ -718,11 +718,6 @@ bool ProjectDocument::removeAnimationClip(const AssetId& assetId,
         for (auto it = asset.clips.begin(); it != asset.clips.end(); ++it) {
             if (it->id == clipId) {
                 asset.clips.erase(it);
-                // Keep the default pointing at a real clip (first remaining).
-                if (asset.defaultClipId == clipId) {
-                    asset.defaultClipId = asset.clips.empty()
-                        ? std::string() : asset.clips.front().id;
-                }
                 markDirty();
                 return true;
             }
@@ -731,18 +726,61 @@ bool ProjectDocument::removeAnimationClip(const AssetId& assetId,
     return false;
 }
 
-bool ProjectDocument::setAnimationClipFrames(
+bool ProjectDocument::replaceAnimationFrames(const AssetId& assetId,
+                                             std::vector<SpriteFrameDef> frames) {
+    for (SpriteAnimationAssetDef& asset : doc_.spriteAnimationAssets) {
+        if (asset.id != assetId) continue;
+        asset.frames = std::move(frames);
+        for (SpriteAnimationClipDef& clip : asset.clips) {
+            clip.frameIds.clear();
+        }
+        markDirty();
+        return true;
+    }
+    return false;
+}
+
+bool ProjectDocument::setAnimationClipFrameIds(
     const AssetId& assetId, const std::string& clipId,
-    std::vector<SpriteAnimationFrameDef> frames) {
+    std::vector<SpriteFrameId> frameIds) {
     for (SpriteAnimationAssetDef& asset : doc_.spriteAnimationAssets) {
         if (asset.id != assetId) continue;
         for (SpriteAnimationClipDef& clip : asset.clips) {
-            if (clip.id == clipId) {
-                clip.frames = std::move(frames);
-                markDirty();
-                return true;
-            }
+            if (clip.id != clipId) continue;
+            clip.frameIds = std::move(frameIds);
+            markDirty();
+            return true;
         }
+    }
+    return false;
+}
+
+bool ProjectDocument::setAnimationSourceImage(const AssetId& assetId,
+                                              AssetId imageId) {
+    for (SpriteAnimationAssetDef& asset : doc_.spriteAnimationAssets) {
+        if (asset.id != assetId) continue;
+        if (!asset.frames.empty()) return false;
+        for (const SpriteAnimationClipDef& clip : asset.clips) {
+            if (!clip.frameIds.empty()) return false;
+        }
+        asset.sourceImageAssetId = std::move(imageId);
+        markDirty();
+        return true;
+    }
+    return false;
+}
+
+bool ProjectDocument::replaceAnimationSourceImage(const AssetId& assetId,
+                                                  AssetId imageId) {
+    for (SpriteAnimationAssetDef& asset : doc_.spriteAnimationAssets) {
+        if (asset.id != assetId) continue;
+        asset.sourceImageAssetId = std::move(imageId);
+        asset.frames.clear();
+        for (SpriteAnimationClipDef& clip : asset.clips) {
+            clip.frameIds.clear();
+        }
+        markDirty();
+        return true;
     }
     return false;
 }
@@ -750,7 +788,7 @@ bool ProjectDocument::setAnimationClipFrames(
 bool ProjectDocument::setAnimationClipFrameRate(const AssetId& assetId,
                                                 const std::string& clipId,
                                                 float fps) {
-    if (!NumericValidation::isPositive(fps)) return false;
+    if (!Animation::isValidAnimationFps(fps)) return false;
     for (SpriteAnimationAssetDef& asset : doc_.spriteAnimationAssets) {
         if (asset.id != assetId) continue;
         for (SpriteAnimationClipDef& clip : asset.clips) {

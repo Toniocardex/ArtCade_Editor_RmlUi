@@ -23,6 +23,17 @@ const SpriteAnimationClipDef* findAnimationClip(const SpriteAnimationAssetDef& a
     return nullptr;
 }
 
+const SpriteFrameDef* findPoolFrameByRect(const SpriteAnimationAssetDef& asset,
+                                          const SpriteFrameDef& cell) {
+    for (const SpriteFrameDef& frame : asset.frames) {
+        if (frame.x == cell.x && frame.y == cell.y
+            && frame.width == cell.width && frame.height == cell.height) {
+            return &frame;
+        }
+    }
+    return nullptr;
+}
+
 } // namespace
 
 void routeSpriteAnimationCanvasInput(
@@ -114,7 +125,7 @@ void routeSpriteAnimationCanvasInput(
     const int sourceY = static_cast<int>((mouseY - dest.y) / scaleY);
     int cell = -1;
     for (int candidate = 0; candidate < cells; ++candidate) {
-        const std::optional<SpriteAnimationFrameDef> frame =
+        const std::optional<SpriteFrameDef> frame =
             spriteAnimationFrameForCell(resource->texture.width, resource->texture.height,
                                         grid, candidate);
         if (frame && sourceX >= frame->x && sourceX < frame->x + frame->width
@@ -124,20 +135,29 @@ void routeSpriteAnimationCanvasInput(
         }
     }
     if (cell < 0) return;
-    const std::optional<SpriteAnimationFrameDef> frame =
+    const std::optional<SpriteFrameDef> cellFrame =
         spriteAnimationFrameForCell(resource->texture.width, resource->texture.height, grid, cell);
-    if (!frame) return;
+    if (!cellFrame) return;
 
-    // Toggle the clicked cell directly against the clip's own frames: append if
-    // absent, drop if already there. The clip's sequence is preserved; no stale
-    // frames from a previous grid are silently discarded.
-    std::vector<SpriteAnimationFrameDef> frames = clip->frames;
-    const auto existing = std::find(frames.begin(), frames.end(), *frame);
-    if (existing == frames.end()) frames.push_back(*frame);
-    else frames.erase(existing);
+    // Toggle against the clip's frameIds. The cell must already exist in the
+    // asset frame pool (from Slice into Frames); otherwise there is nothing to
+    // reference until the pool is rebuilt.
+    const SpriteFrameDef* poolFrame = findPoolFrameByRect(*asset, *cellFrame);
+    if (!poolFrame) return;
 
-    coordinator.execute(SetAnimationClipFramesCommand{
-        asset->id, clip->id, std::move(frames)});
+    coordinator.apply(ToggleAnimationSheetFrameSelectionIntent{poolFrame->id});
+
+    // Shift-click only updates multi-select; plain click also toggles timeline
+    // membership against the clip's frameIds.
+    if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) return;
+
+    std::vector<SpriteFrameId> frameIds = clip->frameIds;
+    const auto existing = std::find(frameIds.begin(), frameIds.end(), poolFrame->id);
+    if (existing == frameIds.end()) frameIds.push_back(poolFrame->id);
+    else frameIds.erase(existing);
+
+    coordinator.execute(SetAnimationClipFrameIdsCommand{
+        asset->id, clip->id, std::move(frameIds)});
 }
 
 } // namespace ArtCade::EditorNative

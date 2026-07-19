@@ -57,18 +57,25 @@ struct EditorSceneViewState {
 struct SpriteAnimationEditorState {
     std::optional<AssetId> openAssetId;
     std::optional<std::string> selectedClipId;
-    std::size_t selectedFrameIndex = 0;
+    // Sheet multi-select (SpriteFrameId). Timeline uses occurrence indices.
+    std::vector<SpriteFrameId> selectedSheetFrames;
+    std::vector<std::size_t> selectedTimelineIndices;
     // Slicing is frame-count driven: the user says how many frames across/down,
     // and the cell size is derived from the sheet's pixel dimensions (which live
-    // in the texture, not here). Margin/spacing trim padded atlases.
+    // in the texture, not here). Margin/spacing trim padded atlases. These fields
+    // are the live draft until Apply/confirm commits ReplaceAnimationFrames.
     int sliceColumns = 4;
     int sliceRows = 1;
     int sliceMargin = 0;
     int sliceSpacing = 0;
+    bool pendingResliceConfirm = false;
+    // Replace Source Image: staged target until the user confirms.
+    std::optional<AssetId> pendingSourceImageId;
     float sheetZoom = 1.0f;
     Vec2 sheetPan{};
     bool previewPlaying = false;
     float previewElapsed = 0.0f;
+    float previewSpeed = 1.0f;   // workspace-only multiplier
     std::size_t previewFrameIndex = 0;
 };
 
@@ -93,9 +100,8 @@ struct LogicBoardEditorState {
     std::string search;
 };
 
-// The sheet the Sprite Animation Editor shows for an asset: the selected clip's
-// own image when the selection names a clip of this asset, else the default
-// clip's, else the first clip's, else none (fresh asset with no clips yet).
+// The clip the Sprite Animation Editor focuses: the selected clip when it
+// belongs to this asset, else the first clip, else none.
 inline const SpriteAnimationClipDef* editorSheetClip(
     const SpriteAnimationAssetDef& asset,
     const std::optional<std::string>& selectedClipId) {
@@ -104,18 +110,12 @@ inline const SpriteAnimationClipDef* editorSheetClip(
             if (clip.id == *selectedClipId) return &clip;
         }
     }
-    if (!asset.defaultClipId.empty()) {
-        for (const SpriteAnimationClipDef& clip : asset.clips) {
-            if (clip.id == asset.defaultClipId) return &clip;
-        }
-    }
     return asset.clips.empty() ? nullptr : &asset.clips.front();
 }
 
 inline AssetId editorSheetImageId(const SpriteAnimationAssetDef& asset,
-                                  const std::optional<std::string>& selectedClipId) {
-    const SpriteAnimationClipDef* clip = editorSheetClip(asset, selectedClipId);
-    return clip ? clip->imageId : AssetId{};
+                                  const std::optional<std::string>& /*selectedClipId*/) {
+    return asset.sourceImageAssetId;
 }
 
 // Extends the existing "what does interacting with the Scene View currently

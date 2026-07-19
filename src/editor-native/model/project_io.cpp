@@ -2,6 +2,7 @@
 #include "artcade/sfx/recipe_json.hpp"
 #include "artcade/sfx/synthesizer.hpp"
 #include "logic-core.h"
+#include "sprite-animation-core.h"
 #include "editor-native/model/generated_sfx_policy.h"
 #include "editor-native/model/numeric_validation.h"
 #include "editor-native/model/path_confinement.h"
@@ -16,12 +17,15 @@
 #include <cmath>
 #include <filesystem>
 #include <limits>
+#include <map>
 #include <optional>
 #include <stdexcept>
+#include <tuple>
 #include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <variant>
 
 namespace ArtCade::EditorNative {
 
@@ -31,7 +35,7 @@ namespace {
 // carry no mirrored display name; provenance is derived and validated.
 // v7: Object-Type-owned ordered Script attachments. Project JSON still stores
 // metadata only; source text remains in project-relative .lua files.
-constexpr int kCurrentSchemaVersion = 8;
+constexpr int kCurrentSchemaVersion = 9;
 
 class JsonReadError final : public std::runtime_error {
 public:
@@ -202,6 +206,58 @@ std::optional<AnimationPlaybackMode> playbackModeFromString(const std::string& v
     return std::nullopt;
 }
 
+std::string readDefaultClipId(const nlohmann::json& object) {
+    if (findMember(object, "defaultClipId", "default_clip_id")) {
+        return readString(object, "defaultClipId", "default_clip_id");
+    }
+    return readString(object, "initialClipId", "initial_clip_id");
+}
+
+std::string sanitizeImageIdFragment(const std::string& imageId) {
+    std::string out;
+    out.reserve(imageId.size());
+    for (unsigned char c : imageId) {
+        if (std::isalnum(c) || c == '-' || c == '_') {
+            out.push_back(static_cast<char>(c));
+        } else {
+            out.push_back('_');
+        }
+    }
+    return out.empty() ? std::string("image") : out;
+}
+
+bool assetOwnsClip(const SpriteAnimationAssetDef& asset, const std::string& clipId) {
+    return std::any_of(asset.clips.begin(), asset.clips.end(),
+        [&](const SpriteAnimationClipDef& clip) { return clip.id == clipId; });
+}
+
+const SpriteAnimationAssetDef* findAnimationAsset(const ProjectDoc& document,
+                                                  const AssetId& assetId) {
+    for (const SpriteAnimationAssetDef& asset : document.spriteAnimationAssets) {
+        if (asset.id == assetId) return &asset;
+    }
+    return nullptr;
+}
+
+AssetId resolveAnimationAssetForClip(const ProjectDoc& document,
+                                     const AssetId& animationAssetId,
+                                     const std::string& clipId) {
+    if (animationAssetId.empty() || clipId.empty()) return animationAssetId;
+    if (const SpriteAnimationAssetDef* current =
+            findAnimationAsset(document, animationAssetId)) {
+        if (assetOwnsClip(*current, clipId)) return animationAssetId;
+    }
+    const std::string splitPrefix = animationAssetId + "-img-";
+    for (const SpriteAnimationAssetDef& asset : document.spriteAnimationAssets) {
+        if (!assetOwnsClip(asset, clipId)) continue;
+        if (asset.id == animationAssetId || asset.id.rfind(splitPrefix, 0) == 0) {
+            return asset.id;
+        }
+    }
+    // No global first-wins: keep the authored id so validation can reject it.
+    return animationAssetId;
+}
+
 const char* audioLoadModeToString(AudioLoadMode mode) {
     switch (mode) {
         case AudioLoadMode::StaticSound: return "static";
@@ -279,26 +335,40 @@ bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
     if (value.contains("transform")) out.transform = readTransform(value["transform"]);
     out.visible = readBool(value, "visible", out.visible, "scenes[].instances[].visible");
     out.layerId = readString(value, "layerId", "layer_id");
+    AssetId foldedRendererAnimationAssetId;
     if (const nlohmann::json* srValue = optionalObject(
             value, "spriteRenderer", "scenes[].instances[].spriteRenderer")) {
         const auto& sr = *srValue;
         SpriteRendererComponent component;
         component.imageAssetId = readString(sr, "imageAssetId", "image_asset_id");
-        component.animationAssetId = readString(sr, "animationAssetId", "animation_asset_id");
         component.visible = readBool(
             sr, "visible", true, "scenes[].instances[].spriteRenderer.visible");
+        foldedRendererAnimationAssetId = readString(
+            sr, "animationAssetId", "animation_asset_id");
         out.legacySpriteRendererV3 = component;
     }
     if (const nlohmann::json* saValue = optionalObject(
             value, "spriteAnimator", "scenes[].instances[].spriteAnimator")) {
         const auto& sa = *saValue;
         SpriteAnimatorComponent component;
-        component.initialClipId = readString(sa, "initialClipId", "initial_clip_id");
+        component.animationAssetId = readString(
+            sa, "animationAssetId", "animation_asset_id");
+        component.defaultClipId = readDefaultClipId(sa);
         component.autoPlay = readBool(
             sa, "autoPlay", true, "scenes[].instances[].spriteAnimator.autoPlay");
         component.playbackSpeed = readFloat(sa, "playbackSpeed", 1.f);
         out.legacySpriteAnimatorV3 = component;
     }
+    if (!foldedRendererAnimationAssetId.empty()) {
+        if (!out.legacySpriteAnimatorV3) {
+            out.legacySpriteAnimatorV3 = SpriteAnimatorComponent{};
+        }
+        if (out.legacySpriteAnimatorV3->animationAssetId.empty()) {
+            out.legacySpriteAnimatorV3->animationAssetId =
+                foldedRendererAnimationAssetId;
+        }
+    }
+    AssetId foldedOverrideAnimationAssetId;
     if (const nlohmann::json* srValue = optionalObject(
             value, "spriteRendererOverride",
             "scenes[].instances[].spriteRendererOverride")) {
@@ -308,7 +378,7 @@ bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
             delta.imageAssetId = readString(sr, "imageAssetId", "image_asset_id");
         }
         if (findMember(sr, "animationAssetId", "animation_asset_id")) {
-            delta.animationAssetId = readString(
+            foldedOverrideAnimationAssetId = readString(
                 sr, "animationAssetId", "animation_asset_id");
         }
         if (findMember(sr, "visible")) {
@@ -328,8 +398,13 @@ bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
             "scenes[].instances[].spriteAnimatorOverride")) {
         const auto& sa = *saValue;
         SpriteAnimatorOverride delta;
-        if (findMember(sa, "initialClipId", "initial_clip_id")) {
-            delta.initialClipId = readString(sa, "initialClipId", "initial_clip_id");
+        if (findMember(sa, "animationAssetId", "animation_asset_id")) {
+            delta.animationAssetId = readString(
+                sa, "animationAssetId", "animation_asset_id");
+        }
+        if (findMember(sa, "defaultClipId", "default_clip_id")
+            || findMember(sa, "initialClipId", "initial_clip_id")) {
+            delta.defaultClipId = readDefaultClipId(sa);
         }
         if (findMember(sa, "autoPlay")) {
             delta.autoPlay = readBool(
@@ -345,6 +420,15 @@ bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
                 "scenes[].instances[].spriteAnimatorOverride.capabilityEnabled");
         }
         out.spriteAnimatorOverride = std::move(delta);
+    }
+    if (!foldedOverrideAnimationAssetId.empty()) {
+        if (!out.spriteAnimatorOverride) {
+            out.spriteAnimatorOverride = SpriteAnimatorOverride{};
+        }
+        if (!out.spriteAnimatorOverride->animationAssetId) {
+            out.spriteAnimatorOverride->animationAssetId =
+                foldedOverrideAnimationAssetId;
+        }
     }
     if (const nlohmann::json* tmValue = optionalObject(
             value, "tilemap", "scenes[].instances[].tilemap")) {
@@ -522,9 +606,6 @@ nlohmann::json instanceToJson(const SceneInstanceDef& instance) {
         const SpriteRendererOverride& deltaValue = *instance.spriteRendererOverride;
         nlohmann::json delta = nlohmann::json::object();
         if (deltaValue.imageAssetId) delta["imageAssetId"] = *deltaValue.imageAssetId;
-        if (deltaValue.animationAssetId) {
-            delta["animationAssetId"] = *deltaValue.animationAssetId;
-        }
         if (deltaValue.visible) delta["visible"] = *deltaValue.visible;
         if (deltaValue.capabilityEnabled) {
             delta["capabilityEnabled"] = *deltaValue.capabilityEnabled;
@@ -534,7 +615,10 @@ nlohmann::json instanceToJson(const SceneInstanceDef& instance) {
     if (instance.spriteAnimatorOverride.has_value()) {
         const SpriteAnimatorOverride& deltaValue = *instance.spriteAnimatorOverride;
         nlohmann::json delta = nlohmann::json::object();
-        if (deltaValue.initialClipId) delta["initialClipId"] = *deltaValue.initialClipId;
+        if (deltaValue.animationAssetId) {
+            delta["animationAssetId"] = *deltaValue.animationAssetId;
+        }
+        if (deltaValue.defaultClipId) delta["defaultClipId"] = *deltaValue.defaultClipId;
         if (deltaValue.autoPlay) delta["autoPlay"] = *deltaValue.autoPlay;
         if (deltaValue.playbackSpeed) delta["playbackSpeed"] = *deltaValue.playbackSpeed;
         if (deltaValue.capabilityEnabled) {
@@ -572,8 +656,9 @@ nlohmann::json instanceToJson(const SceneInstanceDef& instance) {
     return json;
 }
 
-nlohmann::json animationFrameToJson(const SpriteAnimationFrameDef& frame) {
+nlohmann::json animationFrameToJson(const SpriteFrameDef& frame) {
     return nlohmann::json{
+        {"id", frame.id},
         {"x", frame.x},
         {"y", frame.y},
         {"width", frame.width},
@@ -582,15 +667,10 @@ nlohmann::json animationFrameToJson(const SpriteAnimationFrameDef& frame) {
 }
 
 nlohmann::json animationClipToJson(const SpriteAnimationClipDef& clip) {
-    nlohmann::json frames = nlohmann::json::array();
-    for (const SpriteAnimationFrameDef& frame : clip.frames) {
-        frames.push_back(animationFrameToJson(frame));
-    }
     return nlohmann::json{
         {"id", clip.id},
         {"name", clip.name},
-        {"imageId", clip.imageId},
-        {"frames", std::move(frames)},
+        {"frameIds", clip.frameIds},
         {"framesPerSecond", clip.framesPerSecond},
         {"playbackMode", playbackModeToString(clip.playbackMode)},
     };
@@ -607,13 +687,13 @@ nlohmann::json objectTypeToJson(const std::string& id, const EntityDef& def) {
     if (def.spriteRenderer.has_value()) {
         json["spriteRenderer"] = nlohmann::json{
             {"imageAssetId", def.spriteRenderer->imageAssetId},
-            {"animationAssetId", def.spriteRenderer->animationAssetId},
             {"visible", def.spriteRenderer->visible},
         };
     }
     if (def.spriteAnimator.has_value()) {
         json["spriteAnimator"] = nlohmann::json{
-            {"initialClipId", def.spriteAnimator->initialClipId},
+            {"animationAssetId", def.spriteAnimator->animationAssetId},
+            {"defaultClipId", def.spriteAnimator->defaultClipId},
             {"autoPlay", def.spriteAnimator->autoPlay},
             {"playbackSpeed", def.spriteAnimator->playbackSpeed},
         };
@@ -695,22 +775,18 @@ nlohmann::json sceneToJson(const SceneDef& scene) {
 }
 
 bool empty(const SpriteRendererOverride& delta) {
-    return !delta.imageAssetId && !delta.animationAssetId && !delta.visible
-        && !delta.capabilityEnabled;
+    return !delta.imageAssetId && !delta.visible && !delta.capabilityEnabled;
 }
 
 bool empty(const SpriteAnimatorOverride& delta) {
-    return !delta.initialClipId && !delta.autoPlay && !delta.playbackSpeed
-        && !delta.capabilityEnabled;
+    return !delta.animationAssetId && !delta.defaultClipId && !delta.autoPlay
+        && !delta.playbackSpeed && !delta.capabilityEnabled;
 }
 
 SpriteRendererOverride rendererDelta(const SpriteRendererComponent& value,
                                      const SpriteRendererComponent& defaults) {
     SpriteRendererOverride delta;
     if (value.imageAssetId != defaults.imageAssetId) delta.imageAssetId = value.imageAssetId;
-    if (value.animationAssetId != defaults.animationAssetId) {
-        delta.animationAssetId = value.animationAssetId;
-    }
     if (value.visible != defaults.visible) delta.visible = value.visible;
     return delta;
 }
@@ -718,7 +794,12 @@ SpriteRendererOverride rendererDelta(const SpriteRendererComponent& value,
 SpriteAnimatorOverride animatorDelta(const SpriteAnimatorComponent& value,
                                      const SpriteAnimatorComponent& defaults) {
     SpriteAnimatorOverride delta;
-    if (value.initialClipId != defaults.initialClipId) delta.initialClipId = value.initialClipId;
+    if (value.animationAssetId != defaults.animationAssetId) {
+        delta.animationAssetId = value.animationAssetId;
+    }
+    if (value.defaultClipId != defaults.defaultClipId) {
+        delta.defaultClipId = value.defaultClipId;
+    }
     if (value.autoPlay != defaults.autoPlay) delta.autoPlay = value.autoPlay;
     if (value.playbackSpeed != defaults.playbackSpeed) {
         delta.playbackSpeed = value.playbackSpeed;
@@ -781,7 +862,6 @@ void migrateSpriteOwnershipToObjectTypes(ProjectDoc& document) {
         if (!type.spriteRenderer && !type.sprite.spriteAssetId.empty()) {
             type.spriteRenderer = SpriteRendererComponent{
                 type.sprite.spriteAssetId,
-                {},
                 type.visible,
             };
         }
@@ -842,6 +922,167 @@ void migrateSpriteOwnershipToObjectTypes(ProjectDoc& document) {
     }
 }
 
+struct LegacyV8FrameRect {
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+
+    bool operator==(const LegacyV8FrameRect& other) const {
+        return x == other.x && y == other.y
+            && width == other.width && height == other.height;
+    }
+};
+
+struct LegacyV8Clip {
+    AnimationClipId id;
+    std::string name;
+    AssetId imageId;
+    std::vector<LegacyV8FrameRect> frames;
+    float framesPerSecond = 12.f;
+    AnimationPlaybackMode playbackMode = AnimationPlaybackMode::Loop;
+};
+
+SpriteAnimationAssetDef buildV9AssetFromV8Clips(
+    AssetId assetId,
+    std::string assetName,
+    const AssetId& sourceImageAssetId,
+    const std::vector<LegacyV8Clip>& clips) {
+    SpriteAnimationAssetDef asset;
+    asset.id = std::move(assetId);
+    asset.name = std::move(assetName);
+    asset.sourceImageAssetId = sourceImageAssetId;
+
+    std::map<std::tuple<int, int, int, int>, SpriteFrameId> rectToId;
+    for (const LegacyV8Clip& clip : clips) {
+        SpriteAnimationClipDef outClip;
+        outClip.id = clip.id;
+        outClip.name = clip.name;
+        outClip.framesPerSecond = clip.framesPerSecond;
+        outClip.playbackMode = clip.playbackMode;
+        for (const LegacyV8FrameRect& frame : clip.frames) {
+            const auto key = std::make_tuple(frame.x, frame.y, frame.width, frame.height);
+            auto it = rectToId.find(key);
+            if (it == rectToId.end()) {
+                SpriteFrameDef poolFrame;
+                poolFrame.id = "frame-" + std::to_string(asset.frames.size() + 1);
+                poolFrame.x = frame.x;
+                poolFrame.y = frame.y;
+                poolFrame.width = frame.width;
+                poolFrame.height = frame.height;
+                it = rectToId.emplace(key, poolFrame.id).first;
+                asset.frames.push_back(std::move(poolFrame));
+            }
+            outClip.frameIds.push_back(it->second);
+        }
+        asset.clips.push_back(std::move(outClip));
+    }
+    return asset;
+}
+
+void appendSplitV8AnimationAssets(
+    ProjectDoc& document,
+    const AssetId& originalId,
+    const std::string& originalName,
+    const std::string& legacyDefaultClipId,
+    std::vector<LegacyV8Clip> clips) {
+    if (clips.empty()) {
+        SpriteAnimationAssetDef empty;
+        empty.id = originalId;
+        empty.name = originalName;
+        document.spriteAnimationAssets.push_back(std::move(empty));
+        return;
+    }
+
+    AssetId keepIdImage;
+    if (!legacyDefaultClipId.empty()) {
+        for (const LegacyV8Clip& clip : clips) {
+            if (clip.id == legacyDefaultClipId) {
+                keepIdImage = clip.imageId;
+                break;
+            }
+        }
+    }
+    if (keepIdImage.empty()) keepIdImage = clips.front().imageId;
+
+    std::map<AssetId, std::vector<LegacyV8Clip>> byImage;
+    for (LegacyV8Clip& clip : clips) {
+        byImage[clip.imageId].push_back(std::move(clip));
+    }
+
+    for (auto& [imageId, group] : byImage) {
+        AssetId assetId = (imageId == keepIdImage)
+            ? originalId
+            : originalId + "-img-" + sanitizeImageIdFragment(imageId);
+        document.spriteAnimationAssets.push_back(buildV9AssetFromV8Clips(
+            std::move(assetId), originalName, imageId, group));
+    }
+}
+
+void migrateSpriteAnimationOwnershipV9(ProjectDoc& document) {
+    // Ownership fold from SpriteRenderer.animationAssetId is applied during JSON
+    // read (types no longer carry that field). Remap references when a v8
+    // multi-image asset was split so clip ids still resolve.
+    auto remapAnimator = [&](SpriteAnimatorComponent& animator) {
+        animator.animationAssetId = resolveAnimationAssetForClip(
+            document, animator.animationAssetId, animator.defaultClipId);
+    };
+    auto remapOverride = [&](SpriteAnimatorOverride& delta,
+                             const SpriteAnimatorComponent* typeAnimator) {
+        const AssetId animationAssetId = delta.animationAssetId
+            ? *delta.animationAssetId
+            : (typeAnimator ? typeAnimator->animationAssetId : AssetId{});
+        const std::string clipId = delta.defaultClipId
+            ? *delta.defaultClipId
+            : (typeAnimator ? typeAnimator->defaultClipId : std::string{});
+        const AssetId resolved =
+            resolveAnimationAssetForClip(document, animationAssetId, clipId);
+        if (resolved != animationAssetId) {
+            delta.animationAssetId = resolved;
+        }
+    };
+    auto remapLogicBoard = [&](LogicBoardDef& board) {
+        for (LogicRuleDef& rule : board.rules) {
+            for (LogicBlockDef& action : rule.actions) {
+                if (action.typeId != Logic::kAnimationPlayClip) continue;
+                LogicPropertyDef* assetProp = nullptr;
+                LogicPropertyDef* clipProp = nullptr;
+                for (LogicPropertyDef& property : action.properties) {
+                    if (property.key == "animationAssetId") assetProp = &property;
+                    if (property.key == "clipId") clipProp = &property;
+                }
+                if (!assetProp || !clipProp) continue;
+                const auto* assetRef =
+                    std::get_if<LogicAssetReference>(&assetProp->value);
+                const auto* clipRef =
+                    std::get_if<LogicStringValue>(&clipProp->value);
+                if (!assetRef || !clipRef) continue;
+                const AssetId resolved = resolveAnimationAssetForClip(
+                    document, assetRef->id, clipRef->value);
+                if (resolved != assetRef->id) {
+                    assetProp->value = LogicAssetReference{resolved};
+                }
+            }
+        }
+    };
+
+    for (auto& [_, type] : document.objectTypes) {
+        if (type.spriteAnimator) remapAnimator(*type.spriteAnimator);
+        if (type.logicBoard) remapLogicBoard(*type.logicBoard);
+    }
+    for (auto& [_, scene] : document.scenes) {
+        for (SceneInstanceDef& instance : scene.instances) {
+            if (!instance.spriteAnimatorOverride) continue;
+            const EntityDef* type = nullptr;
+            const auto typeIt = document.objectTypes.find(instance.objectTypeId);
+            if (typeIt != document.objectTypes.end()) type = &typeIt->second;
+            remapOverride(
+                *instance.spriteAnimatorOverride,
+                type && type->spriteAnimator ? &*type->spriteAnimator : nullptr);
+        }
+    }
+}
+
 } // namespace
 
 DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
@@ -890,19 +1131,34 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                 const auto& sr = *srValue;
                 SpriteRendererComponent component;
                 component.imageAssetId = readString(sr, "imageAssetId", "image_asset_id");
-                component.animationAssetId = readString(
-                    sr, "animationAssetId", "animation_asset_id");
                 component.visible = readBool(
                     sr, "visible", component.visible,
                     "objectTypes[].spriteRenderer.visible");
+                const AssetId foldedAnimationAssetId = readString(
+                    sr, "animationAssetId", "animation_asset_id");
                 def.spriteRenderer = std::move(component);
+                if (!foldedAnimationAssetId.empty()) {
+                    if (!def.spriteAnimator) {
+                        def.spriteAnimator = SpriteAnimatorComponent{};
+                    }
+                    if (def.spriteAnimator->animationAssetId.empty()) {
+                        def.spriteAnimator->animationAssetId = foldedAnimationAssetId;
+                    }
+                }
             }
             if (const nlohmann::json* saValue = optionalObject(
                     item, "spriteAnimator", "objectTypes[].spriteAnimator")) {
                 const auto& sa = *saValue;
-                SpriteAnimatorComponent component;
-                component.initialClipId = readString(
-                    sa, "initialClipId", "initial_clip_id");
+                SpriteAnimatorComponent component = def.spriteAnimator.value_or(
+                    SpriteAnimatorComponent{});
+                if (findMember(sa, "animationAssetId", "animation_asset_id")) {
+                    component.animationAssetId = readString(
+                        sa, "animationAssetId", "animation_asset_id");
+                }
+                if (findMember(sa, "defaultClipId", "default_clip_id")
+                    || findMember(sa, "initialClipId", "initial_clip_id")) {
+                    component.defaultClipId = readDefaultClipId(sa);
+                }
                 component.autoPlay = readBool(
                     sa, "autoPlay", component.autoPlay,
                     "objectTypes[].spriteAnimator.autoPlay");
@@ -1078,37 +1334,124 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
             root, "spriteAnimationAssets", "spriteAnimationAssets")) {
         for (const auto& item : *animationAssets) {
             requireObject(item, "spriteAnimationAssets[]");
-            SpriteAnimationAssetDef asset;
-            asset.id = readString(item, "id", "asset_id");
-            asset.name = readString(item, "name", nullptr, asset.id);
-            // Backfill for pre-per-clip files: an old asset-level imageId is the
-            // source for every clip that doesn't carry its own (single-authority
-            // migration; the model itself never keeps an asset-level image).
+            const AssetId assetId = readString(item, "id", "asset_id");
+            const std::string assetName = readString(item, "name", nullptr, assetId);
+            const nlohmann::json* clipsJson = optionalArray(
+                item, "clips", "spriteAnimationAssets[].clips");
+
+            bool hasV9Frames = item.contains("frames") && item["frames"].is_array();
+            bool hasV9Source = findMember(
+                item, "sourceImageAssetId", "source_image_asset_id") != nullptr;
+            bool hasV9FrameIds = false;
+            bool hasV8EmbeddedFrames = false;
+            bool hasLegacyClipImage = false;
+            if (clipsJson) {
+                for (const auto& clipJson : *clipsJson) {
+                    if (!clipJson.is_object()) continue;
+                    if (clipJson.contains("frameIds") && clipJson["frameIds"].is_array()) {
+                        hasV9FrameIds = true;
+                    }
+                    if (clipJson.contains("frames") && clipJson["frames"].is_array()) {
+                        hasV8EmbeddedFrames = true;
+                    }
+                    if (findMember(clipJson, "imageId", "image_id")) {
+                        hasLegacyClipImage = true;
+                    }
+                }
+            }
+            const bool hasLegacyAssetImage =
+                findMember(item, "imageId", "image_id") != nullptr;
+            const bool parseAsV9 = hasV9Frames || hasV9Source || hasV9FrameIds
+                || !(hasV8EmbeddedFrames || hasLegacyAssetImage || hasLegacyClipImage);
+
+            if (parseAsV9) {
+                SpriteAnimationAssetDef asset;
+                asset.id = assetId;
+                asset.name = assetName;
+                asset.sourceImageAssetId = readString(
+                    item, "sourceImageAssetId", "source_image_asset_id");
+                if (const nlohmann::json* frames = optionalArray(
+                        item, "frames", "spriteAnimationAssets[].frames")) {
+                    for (const auto& frameJson : *frames) {
+                        requireObject(frameJson, "spriteAnimationAssets[].frames[]");
+                        SpriteFrameDef frame;
+                        frame.id = readString(frameJson, "id", nullptr);
+                        frame.x = readNumber<int>(frameJson, "x", 0,
+                            "spriteAnimationAssets[].frames[].x");
+                        frame.y = readNumber<int>(frameJson, "y", 0,
+                            "spriteAnimationAssets[].frames[].y");
+                        frame.width = readNumber<int>(frameJson, "width", 0,
+                            "spriteAnimationAssets[].frames[].width");
+                        frame.height = readNumber<int>(frameJson, "height", 0,
+                            "spriteAnimationAssets[].frames[].height");
+                        asset.frames.push_back(std::move(frame));
+                    }
+                }
+                if (clipsJson) {
+                    for (const auto& clipJson : *clipsJson) {
+                        requireObject(clipJson, "spriteAnimationAssets[].clips[]");
+                        SpriteAnimationClipDef clip;
+                        clip.id = readString(clipJson, "id", nullptr);
+                        clip.name = readString(clipJson, "name", nullptr, clip.id);
+                        clip.framesPerSecond = readFloat(
+                            clipJson, "framesPerSecond", clip.framesPerSecond);
+                        const std::string playback =
+                            readString(clipJson, "playbackMode", nullptr, "loop");
+                        const auto mode = playbackModeFromString(playback);
+                        if (!mode.has_value()) {
+                            return DeserializeResult::failure(
+                                "Animation clip playbackMode is unknown");
+                        }
+                        clip.playbackMode = *mode;
+                        if (const nlohmann::json* frameIds = optionalArray(
+                                clipJson, "frameIds",
+                                "spriteAnimationAssets[].clips[].frameIds")) {
+                            for (const auto& frameIdJson : *frameIds) {
+                                if (!frameIdJson.is_string()) {
+                                    invalidField(
+                                        "spriteAnimationAssets[].clips[].frameIds[]",
+                                        "string");
+                                }
+                                clip.frameIds.push_back(frameIdJson.get<std::string>());
+                            }
+                        }
+                        asset.clips.push_back(std::move(clip));
+                    }
+                }
+                doc.spriteAnimationAssets.push_back(std::move(asset));
+                continue;
+            }
+
+            // v8: per-clip imageId + embedded frames; may split by image.
             const std::string legacyAssetImage = readString(item, "imageId", "image_id");
-            asset.defaultClipId = readString(item, "defaultClipId", "default_clip_id");
-            if (const nlohmann::json* clips = optionalArray(
-                    item, "clips", "spriteAnimationAssets[].clips")) {
-                for (const auto& clipJson : *clips) {
+            const std::string legacyDefaultClipId = readString(
+                item, "defaultClipId", "default_clip_id");
+            std::vector<LegacyV8Clip> legacyClips;
+            if (clipsJson) {
+                for (const auto& clipJson : *clipsJson) {
                     requireObject(clipJson, "spriteAnimationAssets[].clips[]");
-                    SpriteAnimationClipDef clip;
+                    LegacyV8Clip clip;
                     clip.id = readString(clipJson, "id", nullptr);
                     clip.name = readString(clipJson, "name", nullptr, clip.id);
                     clip.imageId = readString(clipJson, "imageId", "image_id");
                     if (clip.imageId.empty()) clip.imageId = legacyAssetImage;
-                    clip.framesPerSecond =
-                        readFloat(clipJson, "framesPerSecond", clip.framesPerSecond);
+                    clip.framesPerSecond = readFloat(
+                        clipJson, "framesPerSecond", clip.framesPerSecond);
                     const std::string playback =
                         readString(clipJson, "playbackMode", nullptr, "loop");
                     const auto mode = playbackModeFromString(playback);
                     if (!mode.has_value()) {
-                        return DeserializeResult::failure("Animation clip playbackMode is unknown");
+                        return DeserializeResult::failure(
+                            "Animation clip playbackMode is unknown");
                     }
                     clip.playbackMode = *mode;
                     if (const nlohmann::json* frames = optionalArray(
-                            clipJson, "frames", "spriteAnimationAssets[].clips[].frames")) {
+                            clipJson, "frames",
+                            "spriteAnimationAssets[].clips[].frames")) {
                         for (const auto& frameJson : *frames) {
-                            requireObject(frameJson, "spriteAnimationAssets[].clips[].frames[]");
-                            SpriteAnimationFrameDef frame;
+                            requireObject(
+                                frameJson, "spriteAnimationAssets[].clips[].frames[]");
+                            LegacyV8FrameRect frame;
                             frame.x = readNumber<int>(frameJson, "x", 0,
                                 "spriteAnimationAssets[].clips[].frames[].x");
                             frame.y = readNumber<int>(frameJson, "y", 0,
@@ -1120,20 +1463,11 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                             clip.frames.push_back(frame);
                         }
                     }
-                    asset.clips.push_back(std::move(clip));
+                    legacyClips.push_back(std::move(clip));
                 }
             }
-            // Normalize the default clip to a real one (first) when unset/dangling.
-            const bool validDefault = !asset.defaultClipId.empty()
-                && std::any_of(asset.clips.begin(), asset.clips.end(),
-                               [&](const SpriteAnimationClipDef& c) {
-                                   return c.id == asset.defaultClipId;
-                               });
-            if (!validDefault) {
-                asset.defaultClipId = asset.clips.empty() ? std::string()
-                                                          : asset.clips.front().id;
-            }
-            doc.spriteAnimationAssets.push_back(std::move(asset));
+            appendSplitV8AnimationAssets(
+                doc, assetId, assetName, legacyDefaultClipId, std::move(legacyClips));
         }
     }
 
@@ -1280,10 +1614,15 @@ SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
         for (const SpriteAnimationClipDef& clip : asset.clips) {
             clips.push_back(animationClipToJson(clip));
         }
+        nlohmann::json frames = nlohmann::json::array();
+        for (const SpriteFrameDef& frame : asset.frames) {
+            frames.push_back(animationFrameToJson(frame));
+        }
         spriteAnimationAssets.push_back(nlohmann::json{
             {"id", asset.id},
             {"name", asset.name},
-            {"defaultClipId", asset.defaultClipId},
+            {"sourceImageAssetId", asset.sourceImageAssetId},
+            {"frames", std::move(frames)},
             {"clips", std::move(clips)},
         });
     }
@@ -1364,6 +1703,7 @@ DeserializeResult ProjectMigration::migrate(ProjectDocument document) {
         ProjectDoc migrated = document.data();
         if (version < 4) migrateSpriteOwnershipToObjectTypes(migrated);
         if (version < 8) migrateGeneratedSfxAuthority(migrated);
+        if (version < 9) migrateSpriteAnimationOwnershipV9(migrated);
         migrated.formatVersion = kCurrentSchemaVersion;
         return DeserializeResult::success(ProjectDocument{std::move(migrated)});
     }
@@ -1390,42 +1730,30 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
         }
         if (type.spriteRenderer) {
             const AssetId& imageId = type.spriteRenderer->imageAssetId;
-            const AssetId& animationId = type.spriteRenderer->animationAssetId;
-            if (!imageId.empty() && !animationId.empty()) {
-                return DeserializeResult::failure(
-                    "Object Type SpriteRenderer cannot reference image and animation together");
-            }
             if (!imageId.empty() && !document.hasImageAsset(imageId)) {
                 return DeserializeResult::failure(
                     "Object Type SpriteRenderer references a missing image asset");
-            }
-            if (!animationId.empty() && !document.hasSpriteAnimationAsset(animationId)) {
-                return DeserializeResult::failure(
-                    "Object Type SpriteRenderer references a missing animation asset");
-            }
-            if (!animationId.empty() && !type.spriteAnimator) {
-                return DeserializeResult::failure(
-                    "Object Type animation source requires SpriteAnimator");
-            }
-            if (animationId.empty() && type.spriteAnimator) {
-                return DeserializeResult::failure(
-                    "Object Type SpriteAnimator requires an animation source");
             }
         } else if (type.spriteAnimator) {
             return DeserializeResult::failure(
                 "Object Type SpriteAnimator requires SpriteRenderer");
         }
         if (type.spriteAnimator) {
-            const SpriteAnimationAssetDef* asset = document.findSpriteAnimationAsset(
-                type.spriteRenderer->animationAssetId);
-            const bool ownsClip = asset && std::any_of(
-                asset->clips.begin(), asset->clips.end(),
-                [&](const SpriteAnimationClipDef& clip) {
-                    return clip.id == type.spriteAnimator->initialClipId;
-                });
-            if (!ownsClip) {
+            const AssetId& animationId = type.spriteAnimator->animationAssetId;
+            if (animationId.empty()) {
                 return DeserializeResult::failure(
-                    "Object Type SpriteAnimator initialClipId must belong to its animation asset");
+                    "Object Type SpriteAnimator requires an animation asset");
+            }
+            if (!document.hasSpriteAnimationAsset(animationId)) {
+                return DeserializeResult::failure(
+                    "Object Type SpriteAnimator references a missing animation asset");
+            }
+            const SpriteAnimationAssetDef* asset =
+                document.findSpriteAnimationAsset(animationId);
+            if (!type.spriteAnimator->defaultClipId.empty()
+                && !(asset && assetOwnsClip(*asset, type.spriteAnimator->defaultClipId))) {
+                return DeserializeResult::failure(
+                    "Object Type SpriteAnimator defaultClipId must belong to its animation asset");
             }
             if (!NumericValidation::isValid(*type.spriteAnimator)) {
                 return DeserializeResult::failure(
@@ -1719,46 +2047,31 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
             // Validate the exact presentation Edit and Play will consume.
             if (presentation.renderer.has_value()) {
                 const AssetId& imageId = presentation.renderer->imageAssetId;
-                const AssetId& animationId = presentation.renderer->animationAssetId;
-                if (!imageId.empty() && !animationId.empty()) {
-                    return DeserializeResult::failure(
-                        "Sprite renderer cannot reference image and animation together");
-                }
                 if (!imageId.empty() && !document.hasImageAsset(imageId)) {
                     return DeserializeResult::failure(
                         "Sprite renderer references a missing image asset");
-                }
-                if (!animationId.empty() && !document.hasSpriteAnimationAsset(animationId)) {
-                    return DeserializeResult::failure(
-                        "Sprite renderer references a missing animation asset");
-                }
-                if (!animationId.empty() && !presentation.animator.has_value()) {
-                    return DeserializeResult::failure(
-                        "Animation sprite renderer requires SpriteAnimator");
-                }
-                if (animationId.empty() && presentation.animator.has_value()) {
-                    return DeserializeResult::failure(
-                        "SpriteAnimator requires an animation sprite source");
                 }
             } else if (presentation.animator.has_value()) {
                 return DeserializeResult::failure(
                     "SpriteAnimator requires a sprite renderer");
             }
             if (presentation.animator.has_value()) {
-                const SpriteAnimationAssetDef* asset =
-                    document.findSpriteAnimationAsset(presentation.renderer->animationAssetId);
-                bool ownsClip = false;
-                if (asset) {
-                    for (const SpriteAnimationClipDef& clip : asset->clips) {
-                        if (clip.id == presentation.animator->initialClipId) {
-                            ownsClip = true;
-                            break;
-                        }
-                    }
-                }
-                if (!ownsClip) {
+                const AssetId& animationId = presentation.animator->animationAssetId;
+                if (animationId.empty()) {
                     return DeserializeResult::failure(
-                        "SpriteAnimator initialClipId must belong to its animation asset");
+                        "SpriteAnimator requires an animation asset");
+                }
+                if (!document.hasSpriteAnimationAsset(animationId)) {
+                    return DeserializeResult::failure(
+                        "SpriteAnimator references a missing animation asset");
+                }
+                const SpriteAnimationAssetDef* asset =
+                    document.findSpriteAnimationAsset(animationId);
+                if (!presentation.animator->defaultClipId.empty()
+                    && !(asset && assetOwnsClip(
+                            *asset, presentation.animator->defaultClipId))) {
+                    return DeserializeResult::failure(
+                        "SpriteAnimator defaultClipId must belong to its animation asset");
                 }
                 if (!NumericValidation::isValid(*presentation.animator)) {
                     return DeserializeResult::failure(
@@ -1781,6 +2094,23 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
         if (!animationIds.insert(asset.id).second) {
             return DeserializeResult::failure("Duplicate sprite animation asset id");
         }
+        if (!asset.sourceImageAssetId.empty()
+            && !document.hasImageAsset(asset.sourceImageAssetId)) {
+            return DeserializeResult::failure(
+                "Sprite animation asset references a missing source image");
+        }
+        std::unordered_set<std::string> frameIds;
+        for (const SpriteFrameDef& frame : asset.frames) {
+            if (frame.id.empty()) {
+                return DeserializeResult::failure("Animation frame id cannot be empty");
+            }
+            if (!frameIds.insert(frame.id).second) {
+                return DeserializeResult::failure("Duplicate animation frame id");
+            }
+            if (frame.x < 0 || frame.y < 0 || frame.width <= 0 || frame.height <= 0) {
+                return DeserializeResult::failure("Animation sourceRect is invalid");
+            }
+        }
         std::unordered_set<std::string> clipIds;
         std::unordered_set<std::string> clipNames;
         for (const SpriteAnimationClipDef& clip : asset.clips) {
@@ -1796,24 +2126,17 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
             if (!clipNames.insert(clip.name).second) {
                 return DeserializeResult::failure("Duplicate animation clip name");
             }
-            // Each clip owns its sheet; the referenced image must exist.
-            if (!document.hasImageAsset(clip.imageId)) {
+            if (!Animation::isValidAnimationFps(clip.framesPerSecond)) {
                 return DeserializeResult::failure(
-                    "Animation clip references a missing image asset");
+                    "Animation clip FPS must be finite, > 0, and <= "
+                    + std::to_string(static_cast<int>(Animation::kMaxAnimationFps)));
             }
-            if (!std::isfinite(clip.framesPerSecond) || clip.framesPerSecond <= 0.f) {
-                return DeserializeResult::failure("Animation clip FPS must be positive");
-            }
-            for (const SpriteAnimationFrameDef& frame : clip.frames) {
-                if (frame.x < 0 || frame.y < 0 || frame.width <= 0 || frame.height <= 0) {
-                    return DeserializeResult::failure("Animation sourceRect is invalid");
+            for (const SpriteFrameId& frameId : clip.frameIds) {
+                if (frameIds.find(frameId) == frameIds.end()) {
+                    return DeserializeResult::failure(
+                        "Animation clip frameIds must resolve against the asset frame pool");
                 }
             }
-        }
-        // defaultClipId, when set, must name a clip of this asset.
-        if (!asset.defaultClipId.empty() && clipIds.find(asset.defaultClipId) == clipIds.end()) {
-            return DeserializeResult::failure(
-                "Sprite animation defaultClipId does not name a clip of the asset");
         }
     }
 

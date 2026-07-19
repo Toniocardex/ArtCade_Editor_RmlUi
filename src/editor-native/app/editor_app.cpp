@@ -565,13 +565,14 @@ int EditorApp::run(int argc, char** argv) {
 
         const std::filesystem::path assetRoot =
             projectSession.assetRoot(resourceRoot);
+        const AssetId sheetId = asset->sourceImageAssetId;
         SceneFrameSprite requestSprite;
-        requestSprite.assetId = clip->imageId;
+        requestSprite.assetId = sheetId;
         requestSprite.visible = true;
         const auto& requests = textureRequestCatalog.forDocument(
             coordinator.document(), assetRoot);
         textureCache.prepare({requestSprite}, requests);
-        const TextureResource* resource = textureCache.find(clip->imageId);
+        const TextureResource* resource = textureCache.find(sheetId);
         if (!resource || !resource->loaded) {
             coordinator.logError("Cannot slice: sprite sheet is not loaded");
             return;
@@ -591,19 +592,29 @@ int EditorApp::run(int argc, char** argv) {
                                  + " frames do not fit the sheet");
             return;
         }
-        std::vector<SpriteAnimationFrameDef> frames = spriteAnimationFramesForGrid(
+        std::vector<SpriteFrameDef> frames = spriteAnimationFramesForGrid(
             resource->texture.width, resource->texture.height, *grid);
         if (frames.empty()) {
             coordinator.logError("Cannot slice: no frames produced");
             return;
         }
 
+        std::vector<SpriteFrameId> frameIds;
+        frameIds.reserve(frames.size());
+        for (const SpriteFrameDef& frame : frames) frameIds.push_back(frame.id);
         const std::size_t frameCount = frames.size();
+        const AssetId assetId = asset->id;
+        const std::string clipId = clip->id;
+        const std::string clipName = clip->name;
+        if (!coordinator.execute(ReplaceAnimationFramesCommand{
+                assetId, std::move(frames)}).ok) {
+            return;
+        }
         const EditorOperationResult result =
-            coordinator.execute(SetAnimationClipFramesCommand{
-                asset->id, clip->id, std::move(frames)});
+            coordinator.execute(SetAnimationClipFrameIdsCommand{
+                assetId, clipId, std::move(frameIds)});
         if (result.ok) {
-            coordinator.logInfo("Sliced " + clip->name + " into "
+            coordinator.logInfo("Sliced " + clipName + " into "
                                 + std::to_string(frameCount) + " frames");
         }
     };
@@ -1311,8 +1322,8 @@ int EditorApp::run(int argc, char** argv) {
                 }
             }
             if (timelineClip) {
-                timelineThumbRects.reserve(timelineClip->frames.size());
-                for (std::size_t i = 0; i < timelineClip->frames.size(); ++i) {
+                timelineThumbRects.reserve(timelineClip->frameIds.size());
+                for (std::size_t i = 0; i < timelineClip->frameIds.size(); ++i) {
                     const std::string id = "anim-frame-thumb-" + std::to_string(i);
                     timelineThumbRects.push_back(
                         elementContentRectFromDocument(animationDocument, id.c_str()));

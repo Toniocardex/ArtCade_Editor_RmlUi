@@ -875,7 +875,7 @@ void EditorUi::showPendingAssetMenu() {
             for (const SpriteAnimationAssetDef& asset : doc.spriteAnimationAssets) {
                 if (asset.id != request.assetId) continue;
                 exists = true;
-                if (!asset.clips.empty()) sourceImageId = asset.clips.front().imageId;
+                sourceImageId = asset.sourceImageAssetId;
                 break;
             }
             break;
@@ -2076,6 +2076,48 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         // dedicated action (open-sprite-animation, the Edit button), so this
         // no longer pops the editor open as a side effect of picking a clip.
         if (!coordinator_.isPlaying()) setSpriteRendererAnimation(coordinator_, arg);
+    } else if (action == "commit-animator-speed-ot") {
+        const std::optional<float> parsed = parseNumberField(value);
+        if (!parsed.has_value()) {
+            coordinator_.logError("Animator speed is not a number");
+        } else if (selected == INVALID_ENTITY) {
+            coordinator_.logError("No selected instance");
+        } else {
+            const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
+                coordinator_.state().activeSceneId, selected);
+            if (!inst) {
+                coordinator_.logError("No selected instance");
+            } else {
+                coordinator_.execute(SetObjectTypePlaybackSpeedCommand{
+                    inst->objectTypeId, *parsed});
+            }
+        }
+    } else if (action == "toggle-animator-autoplay-ot") {
+        const SceneId& sceneId = coordinator_.state().activeSceneId;
+        const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
+            sceneId, selected);
+        const EntityDef* type = inst
+            ? coordinator_.document().findObjectType(inst->objectTypeId) : nullptr;
+        if (inst && type && type->spriteAnimator) {
+            coordinator_.execute(SetObjectTypeAutoPlayCommand{
+                inst->objectTypeId, !type->spriteAnimator->autoPlay});
+        }
+    } else if (action == "override-animator-instance") {
+        const SceneId& sceneId = coordinator_.state().activeSceneId;
+        const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
+            sceneId, selected);
+        const EntityDef* type = inst
+            ? coordinator_.document().findObjectType(inst->objectTypeId) : nullptr;
+        if (inst && type && type->spriteAnimator) {
+            SpriteAnimatorOverride delta = inst->spriteAnimatorOverride.value_or(
+                SpriteAnimatorOverride{});
+            // Seed explicit deltas from current OT values so provenance flips
+            // without changing the resolved numbers.
+            delta.playbackSpeed = type->spriteAnimator->playbackSpeed;
+            delta.autoPlay = type->spriteAnimator->autoPlay;
+            coordinator_.execute(SetInstanceAnimatorOverrideCommand{
+                sceneId, selected, std::move(delta)});
+        }
     } else if (action == "commit-animator-speed") {
         const std::optional<float> parsed = parseNumberField(value);
         if (!parsed.has_value()) {
@@ -2090,13 +2132,15 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
                 ? coordinator_.document().findObjectType(inst->objectTypeId) : nullptr;
             if (!inst || !type || !type->spriteAnimator) {
                 coordinator_.logError("Object Type has no SpriteAnimator");
+            } else if (!inst->spriteAnimatorOverride) {
+                coordinator_.logError("Override for this instance first");
             } else {
-                SpriteAnimatorOverride delta = inst->spriteAnimatorOverride.value_or(
-                    SpriteAnimatorOverride{});
+                SpriteAnimatorOverride delta = *inst->spriteAnimatorOverride;
                 delta.capabilityEnabled.reset();
                 if (*parsed == type->spriteAnimator->playbackSpeed) delta.playbackSpeed.reset();
                 else delta.playbackSpeed = *parsed;
-                if (!delta.initialClipId && !delta.autoPlay && !delta.playbackSpeed) {
+                if (!delta.defaultClipId && !delta.autoPlay && !delta.playbackSpeed
+                    && !delta.animationAssetId) {
                     coordinator_.execute(ClearInstanceAnimatorOverrideCommand{sceneId, selected});
                 } else {
                     coordinator_.execute(SetInstanceAnimatorOverrideCommand{
@@ -2110,17 +2154,17 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
             sceneId, selected);
         const EntityDef* type = inst
             ? coordinator_.document().findObjectType(inst->objectTypeId) : nullptr;
-        if (inst && type && type->spriteAnimator) {
+        if (inst && type && type->spriteAnimator && inst->spriteAnimatorOverride) {
             const ResolvedSpritePresentation resolved =
                 resolveSpritePresentation(*type, *inst);
             if (resolved.animator) {
                 const bool next = !resolved.animator->autoPlay;
-                SpriteAnimatorOverride delta = inst->spriteAnimatorOverride.value_or(
-                    SpriteAnimatorOverride{});
+                SpriteAnimatorOverride delta = *inst->spriteAnimatorOverride;
                 delta.capabilityEnabled.reset();
                 if (next == type->spriteAnimator->autoPlay) delta.autoPlay.reset();
                 else delta.autoPlay = next;
-                if (!delta.initialClipId && !delta.autoPlay && !delta.playbackSpeed) {
+                if (!delta.defaultClipId && !delta.autoPlay && !delta.playbackSpeed
+                    && !delta.animationAssetId) {
                     coordinator_.execute(ClearInstanceAnimatorOverrideCommand{sceneId, selected});
                 } else {
                     coordinator_.execute(SetInstanceAnimatorOverrideCommand{

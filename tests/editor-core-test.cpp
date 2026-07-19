@@ -484,11 +484,11 @@ int main() {
         CHECK(decoded.ok);
         DeserializeResult migrated = ProjectMigration::migrate(std::move(decoded.value));
         CHECK(migrated.ok);
-        CHECK(migrated.value.data().formatVersion == 8);
+        CHECK(migrated.value.data().formatVersion == 9);
 
         const EntityDef& type = migrated.value.data().objectTypes.at("Hero");
         CHECK(type.spriteRenderer && type.spriteRenderer->imageAssetId == "blue");
-        CHECK(type.spriteAnimator && type.spriteAnimator->initialClipId == "idle");
+        CHECK(type.spriteAnimator && type.spriteAnimator->defaultClipId == "idle");
 
         const SceneInstanceDef* inherited = migrated.value.findInstanceInScene("a", 2);
         const SceneInstanceDef* delta = migrated.value.findInstanceInScene("a", 3);
@@ -503,8 +503,8 @@ int main() {
         CHECK(delta && delta->spriteRendererOverride->visible
               && !*delta->spriteRendererOverride->visible);
         CHECK(delta && delta->spriteAnimatorOverride);
-        CHECK(delta && delta->spriteAnimatorOverride->initialClipId
-              && *delta->spriteAnimatorOverride->initialClipId == "run");
+        CHECK(delta && delta->spriteAnimatorOverride->defaultClipId
+              && *delta->spriteAnimatorOverride->defaultClipId == "run");
         CHECK(delta && delta->spriteAnimatorOverride->playbackSpeed
               && *delta->spriteAnimatorOverride->playbackSpeed == 2.f);
         CHECK(absent && absent->spriteRendererOverride
@@ -545,9 +545,9 @@ int main() {
         CHECK(c.execute(SetObjectTypeSpriteSourceCommand{
             "Hero", ObjectTypeSpriteSourceKind::Animation, "hero.anim"}).ok);
         const EntityDef& animatedType = c.document().data().objectTypes.at("Hero");
-        CHECK(animatedType.spriteRenderer->animationAssetId == "hero.anim");
         CHECK(animatedType.spriteAnimator.has_value());
-        CHECK(animatedType.spriteAnimator->initialClipId == "idle");
+        CHECK(animatedType.spriteAnimator->animationAssetId == "hero.anim");
+        CHECK(animatedType.spriteAnimator->defaultClipId == "idle");
 
         SpriteAnimatorOverride speedDelta;
         speedDelta.playbackSpeed = 1.5f;
@@ -635,7 +635,6 @@ int main() {
         EditorCoordinator c{makeInheritedDoc()};
         SpriteRendererOverride delta;
         delta.imageAssetId = "img-alt";
-        delta.animationAssetId = AssetId{};
         delta.visible = false;
         CHECK(c.execute(SetInstanceSpriteOverrideCommand{kSceneA, kHero, delta}).ok);
         CHECK(c.execute(RemoveImageAssetCommand{"img-alt"}).ok);
@@ -2356,7 +2355,6 @@ int main() {
         CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {50.f, 20.f}}).ok);
         SpriteRendererOverride delta;
         delta.imageAssetId = "img-alt";
-        delta.animationAssetId = AssetId{};
         CHECK(c.execute(SetInstanceSpriteOverrideCommand{kSceneA, kHero, delta}).ok);
 
         const SceneFrameSnapshot editFrame =
@@ -2386,7 +2384,6 @@ int main() {
         EditorCoordinator invisible{makeInheritedDoc()};
         SpriteRendererOverride invisibleDelta;
         invisibleDelta.imageAssetId = "img-alt";
-        invisibleDelta.animationAssetId = AssetId{};
         invisibleDelta.visible = false;
         CHECK(invisible.execute(SetInstanceSpriteOverrideCommand{
             kSceneA, kHero, invisibleDelta}).ok);

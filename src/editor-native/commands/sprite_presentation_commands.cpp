@@ -25,21 +25,21 @@ DomainChange changed(const ObjectTypeId& id, ComponentKind kind) {
 
 bool equal(const SpriteRendererOverride& lhs, const SpriteRendererOverride& rhs) {
     return lhs.imageAssetId == rhs.imageAssetId
-        && lhs.animationAssetId == rhs.animationAssetId
         && lhs.visible == rhs.visible
         && lhs.capabilityEnabled == rhs.capabilityEnabled;
 }
 
 bool equal(const SpriteAnimatorOverride& lhs, const SpriteAnimatorOverride& rhs) {
-    return lhs.initialClipId == rhs.initialClipId
+    return lhs.animationAssetId == rhs.animationAssetId
+        && lhs.defaultClipId == rhs.defaultClipId
         && lhs.autoPlay == rhs.autoPlay
         && lhs.playbackSpeed == rhs.playbackSpeed
         && lhs.capabilityEnabled == rhs.capabilityEnabled;
 }
 
 bool empty(const SpriteAnimatorOverride& value) {
-    return !value.initialClipId && !value.autoPlay && !value.playbackSpeed
-        && !value.capabilityEnabled;
+    return !value.animationAssetId && !value.defaultClipId && !value.autoPlay
+        && !value.playbackSpeed && !value.capabilityEnabled;
 }
 
 bool clipBelongsTo(const SpriteAnimationAssetDef& asset, const std::string& clipId) {
@@ -63,7 +63,6 @@ const SceneInstanceDef* selectedInstance(const ProjectDocument& document,
 }
 
 std::string defaultClipId(const SpriteAnimationAssetDef& asset) {
-    if (!asset.defaultClipId.empty()) return asset.defaultClipId;
     return asset.clips.empty() ? std::string{} : asset.clips.front().id;
 }
 
@@ -210,12 +209,15 @@ EditorOperationResult SetObjectTypeSpriteSourceCommand::apply(ProjectDocument& d
 
     SpriteRendererComponent next = *type->spriteRenderer;
     next.imageAssetId.clear();
-    next.animationAssetId.clear();
     if (kind_ == ObjectTypeSpriteSourceKind::Image) next.imageAssetId = assetId_;
-    if (kind_ == ObjectTypeSpriteSourceKind::Animation) next.animationAssetId = assetId_;
-    const bool sameRenderer = next.imageAssetId == type->spriteRenderer->imageAssetId
-        && next.animationAssetId == type->spriteRenderer->animationAssetId;
-    if (sameRenderer) return EditorOperationResult::success(EditorInvalidation::None);
+
+    const AssetId previousAnimationId = type->spriteAnimator
+        ? type->spriteAnimator->animationAssetId : AssetId{};
+    const AssetId nextAnimationId =
+        kind_ == ObjectTypeSpriteSourceKind::Animation ? assetId_ : AssetId{};
+    const bool sameSource = next.imageAssetId == type->spriteRenderer->imageAssetId
+        && nextAnimationId == previousAnimationId;
+    if (sameSource) return EditorOperationResult::success(EditorInvalidation::None);
 
     if (!captured_) {
         previousRenderer_ = *type->spriteRenderer;
@@ -237,18 +239,23 @@ EditorOperationResult SetObjectTypeSpriteSourceCommand::apply(ProjectDocument& d
     if (kind_ == ObjectTypeSpriteSourceKind::Animation) {
         if (!stagedType.spriteAnimator) {
             SpriteAnimatorComponent animator;
-            animator.initialClipId = defaultClipId(*animation);
+            animator.animationAssetId = assetId_;
+            animator.defaultClipId = defaultClipId(*animation);
             stagedType.spriteAnimator = std::move(animator);
-        } else if (!clipBelongsTo(*animation, stagedType.spriteAnimator->initialClipId)) {
-            stagedType.spriteAnimator->initialClipId = defaultClipId(*animation);
+        } else {
+            stagedType.spriteAnimator->animationAssetId = assetId_;
+            if (stagedType.spriteAnimator->defaultClipId.empty()
+                || !clipBelongsTo(*animation, stagedType.spriteAnimator->defaultClipId)) {
+                stagedType.spriteAnimator->defaultClipId = defaultClipId(*animation);
+            }
         }
         for (auto& [_, scene] : staged.scenes) {
             for (SceneInstanceDef& instance : scene.instances) {
                 if (instance.objectTypeId != objectTypeId_ || !instance.spriteAnimatorOverride
-                    || !instance.spriteAnimatorOverride->initialClipId) continue;
+                    || !instance.spriteAnimatorOverride->defaultClipId) continue;
                 if (!clipBelongsTo(*animation,
-                                   *instance.spriteAnimatorOverride->initialClipId)) {
-                    instance.spriteAnimatorOverride->initialClipId.reset();
+                                   *instance.spriteAnimatorOverride->defaultClipId)) {
+                    instance.spriteAnimatorOverride->defaultClipId.reset();
                     if (empty(*instance.spriteAnimatorOverride)) {
                         instance.spriteAnimatorOverride.reset();
                     }
@@ -297,17 +304,20 @@ AddSpriteAnimatorToObjectTypeCommand::AddSpriteAnimatorToObjectTypeCommand(
 
 EditorOperationResult AddSpriteAnimatorToObjectTypeCommand::apply(ProjectDocument& document) {
     const EntityDef* type = document.findObjectType(objectTypeId_);
-    if (!type || !type->spriteRenderer || type->spriteRenderer->animationAssetId.empty()) {
-        return EditorOperationResult::failure("SpriteAnimator requires an Object Type animation source");
+    if (!type || !type->spriteRenderer) {
+        return EditorOperationResult::failure("SpriteAnimator requires an Object Type SpriteRenderer");
     }
     if (type->spriteAnimator) return EditorOperationResult::success(EditorInvalidation::None);
     if (!NumericValidation::isValid(component_)) {
         return EditorOperationResult::failure("SpriteAnimator playback speed must be positive");
     }
+    if (component_.animationAssetId.empty()) {
+        return EditorOperationResult::failure("SpriteAnimator requires an animation asset");
+    }
     const SpriteAnimationAssetDef* asset =
-        document.findSpriteAnimationAsset(type->spriteRenderer->animationAssetId);
-    if (!asset || !clipBelongsTo(*asset, component_.initialClipId)) {
-        return EditorOperationResult::failure("Initial clip must belong to the animation asset");
+        document.findSpriteAnimationAsset(component_.animationAssetId);
+    if (!asset || !clipBelongsTo(*asset, component_.defaultClipId)) {
+        return EditorOperationResult::failure("Default clip must belong to the animation asset");
     }
     ProjectDoc staged = document.data();
     staged.objectTypes.at(objectTypeId_).spriteAnimator = component_;
@@ -398,16 +408,16 @@ EditorOperationResult SetObjectTypeInitialClipCommand::apply(ProjectDocument& do
         return EditorOperationResult::failure("Object Type SpriteAnimator is missing");
     }
     const SpriteAnimationAssetDef* asset =
-        document.findSpriteAnimationAsset(type->spriteRenderer->animationAssetId);
+        document.findSpriteAnimationAsset(type->spriteAnimator->animationAssetId);
     if (!asset || !clipBelongsTo(*asset, next_)) {
-        return EditorOperationResult::failure("Initial clip must belong to the animation asset");
+        return EditorOperationResult::failure("Default clip must belong to the animation asset");
     }
-    if (type->spriteAnimator->initialClipId == next_) {
+    if (type->spriteAnimator->defaultClipId == next_) {
         return EditorOperationResult::success(EditorInvalidation::None);
     }
-    if (!captured_) { previous_ = type->spriteAnimator->initialClipId; captured_ = true; }
+    if (!captured_) { previous_ = type->spriteAnimator->defaultClipId; captured_ = true; }
     ProjectDoc staged = document.data();
-    staged.objectTypes.at(objectTypeId_).spriteAnimator->initialClipId = next_;
+    staged.objectTypes.at(objectTypeId_).spriteAnimator->defaultClipId = next_;
     document.commitStagedCommand(std::move(staged));
     return EditorOperationResult::success(
         kPresentationInvalidation, changed(objectTypeId_, ComponentKind::SpriteAnimator));
@@ -418,9 +428,9 @@ EditorOperationResult SetObjectTypeInitialClipCommand::undo(ProjectDocument& doc
     ProjectDoc staged = document.data();
     const auto type = staged.objectTypes.find(objectTypeId_);
     if (type == staged.objectTypes.end() || !type->second.spriteAnimator) {
-        return EditorOperationResult::failure("Cannot restore initial clip");
+        return EditorOperationResult::failure("Cannot restore default clip");
     }
-    type->second.spriteAnimator->initialClipId = previous_;
+    type->second.spriteAnimator->defaultClipId = previous_;
     document.commitStagedCommand(std::move(staged));
     return EditorOperationResult::success(
         kPresentationInvalidation, changed(objectTypeId_, ComponentKind::SpriteAnimator));
@@ -516,16 +526,9 @@ EditorOperationResult SetInstanceSpriteOverrideCommand::apply(ProjectDocument& d
     projected.spriteRendererOverride = next_;
     const ResolvedSpritePresentation resolved = resolveSpritePresentation(*type, projected);
     if (!resolved.renderer) return EditorOperationResult::failure("SpriteRenderer override is invalid");
-    if (!resolved.renderer->imageAssetId.empty() && !resolved.renderer->animationAssetId.empty()) {
-        return EditorOperationResult::failure("Sprite source cannot be image and animation");
-    }
     if (!resolved.renderer->imageAssetId.empty()
         && !document.hasImageAsset(resolved.renderer->imageAssetId)) {
         return EditorOperationResult::failure("Sprite override references a missing image asset");
-    }
-    if (!resolved.renderer->animationAssetId.empty()
-        && !document.hasSpriteAnimationAsset(resolved.renderer->animationAssetId)) {
-        return EditorOperationResult::failure("Sprite override references a missing animation asset");
     }
     if (!captured_) {
         if (document.isInstanceLayerLocked(sceneId_, *instance)) {
@@ -575,13 +578,16 @@ EditorOperationResult SetInstanceAnimatorOverrideCommand::apply(ProjectDocument&
     projected.spriteAnimatorOverride = next_;
     const ResolvedSpritePresentation resolved = resolveSpritePresentation(*type, projected);
     if (!resolved.animator || !resolved.renderer
-        || resolved.renderer->animationAssetId.empty()) {
+        || resolved.animator->animationAssetId.empty()) {
         return EditorOperationResult::failure("SpriteAnimator override has no animation source");
     }
+    if (!document.hasSpriteAnimationAsset(resolved.animator->animationAssetId)) {
+        return EditorOperationResult::failure("SpriteAnimator override references a missing animation asset");
+    }
     const SpriteAnimationAssetDef* asset =
-        document.findSpriteAnimationAsset(resolved.renderer->animationAssetId);
-    if (!asset || !clipBelongsTo(*asset, resolved.animator->initialClipId)) {
-        return EditorOperationResult::failure("Initial clip must belong to the animation asset");
+        document.findSpriteAnimationAsset(resolved.animator->animationAssetId);
+    if (!asset || !clipBelongsTo(*asset, resolved.animator->defaultClipId)) {
+        return EditorOperationResult::failure("Default clip must belong to the animation asset");
     }
     if (instance->spriteAnimatorOverride && equal(*instance->spriteAnimatorOverride, next_)) {
         return EditorOperationResult::success(EditorInvalidation::None);

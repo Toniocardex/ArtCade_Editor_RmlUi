@@ -227,6 +227,15 @@ public:
     EditorOperationResult apply(const SetAnimationPreviewPlayingIntent& intent);
     EditorOperationResult apply(const SetAnimationPreviewFrameIntent& intent);
     EditorOperationResult apply(const StepAnimationPreviewIntent& intent);
+    EditorOperationResult apply(const SetAnimationPreviewSpeedIntent& intent);
+    EditorOperationResult apply(const ToggleAnimationSheetFrameSelectionIntent& intent);
+    EditorOperationResult apply(const SetAnimationTimelineSelectionIntent& intent);
+    EditorOperationResult apply(const RequestAnimationResliceConfirmIntent& intent);
+    EditorOperationResult apply(const ConfirmAnimationResliceIntent& intent);
+    EditorOperationResult apply(const CancelAnimationResliceIntent& intent);
+    EditorOperationResult apply(const RequestAnimationSourceImageIntent& intent);
+    EditorOperationResult apply(const ConfirmAnimationSourceImageIntent& intent);
+    EditorOperationResult apply(const CancelAnimationSourceImageIntent& intent);
     EditorOperationResult apply(const OpenTilesetEditorIntent& intent);
     EditorOperationResult apply(const CloseTilesetEditorIntent& intent);
     EditorOperationResult apply(const SetPendingTilesetSlicingIntent& intent);

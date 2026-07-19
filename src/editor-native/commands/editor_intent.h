@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace ArtCade::EditorNative {
 
@@ -229,6 +230,28 @@ struct SetAnimationPreviewFrameIntent {
 struct StepAnimationPreviewIntent {
     int delta = 1;
 };
+
+struct SetAnimationPreviewSpeedIntent {
+    float speed = 1.f;
+};
+
+struct ToggleAnimationSheetFrameSelectionIntent {
+    SpriteFrameId frameId;
+};
+
+struct SetAnimationTimelineSelectionIntent {
+    std::vector<std::size_t> indices;
+};
+
+struct RequestAnimationResliceConfirmIntent {};
+struct ConfirmAnimationResliceIntent {};
+struct CancelAnimationResliceIntent {};
+
+struct RequestAnimationSourceImageIntent {
+    AssetId imageId;
+};
+struct ConfirmAnimationSourceImageIntent {};
+struct CancelAnimationSourceImageIntent {};
 
 struct OpenTilesetEditorIntent {
     AssetId assetId;

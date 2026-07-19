@@ -34,9 +34,11 @@
 #include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/tilemap_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
+#include "editor-native/commands/logic_board_commands.h"
 #include "editor-native/commands/entity_commands.h"
 #include "editor-native/commands/scene_commands.h"
 #include "editor-native/commands/sprite_presentation_commands.h"
+#include "logic-core.h"
 #include "editor-native/model/project_io.h"
 #include "editor-native/model/path_confinement.h"
 #include "editor-native/model/play_session.h"
@@ -45,6 +47,7 @@
 #include "editor-native/model/box_collider_geometry.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_animation_slicing.h"
+#include "editor-native/model/sprite_animation_references.h"
 #include "editor-native/model/tileset_slicing.h"
 #include "editor-native/model/tilemap_chunk_math.h"
 #include "editor-native/model/tilemap_cell_access.h"
@@ -83,14 +86,16 @@ int main() {
     // -- Sprite Animation Editor model: asset owns clips and serializes -------
     {
         EditorCoordinator c{makeSpriteDoc()};
-        CHECK(c.execute(AddSpriteAnimationAssetCommand{"hero.anim", "hero.anim"}).ok);
+        CHECK(c.execute(CreateSpriteAnimationAssetCommand{
+            "hero.anim", "hero.anim", "idle", "Idle", "img-hero"}).ok);
         CHECK(c.document().hasSpriteAnimationAsset("hero.anim"));
-        CHECK(c.execute(AddAnimationClipCommand{"hero.anim", "idle", "Idle", "img-hero"}).ok);
-        std::vector<SpriteAnimationFrameDef> frames{
-            SpriteAnimationFrameDef{0, 0, 32, 32},
-            SpriteAnimationFrameDef{32, 0, 32, 32},
+        std::vector<SpriteFrameDef> frames{
+            SpriteFrameDef{"f0", 0, 0, 32, 32},
+            SpriteFrameDef{"f1", 32, 0, 32, 32},
         };
-        CHECK(c.execute(SetAnimationClipFramesCommand{"hero.anim", "idle", frames}).ok);
+        CHECK(c.execute(ReplaceAnimationFramesCommand{"hero.anim", frames}).ok);
+        CHECK(c.execute(SetAnimationClipFrameIdsCommand{
+            "hero.anim", "idle", {"f0", "f1"}}).ok);
         CHECK(c.execute(SetAnimationClipFrameRateCommand{"hero.anim", "idle", 12.f}).ok);
         CHECK(c.execute(SetAnimationClipPlaybackModeCommand{
             "hero.anim", "idle", AnimationPlaybackMode::Once}).ok);
@@ -105,9 +110,9 @@ int main() {
             validated.value.findSpriteAnimationAsset("hero.anim");
         CHECK(asset != nullptr);
         CHECK(asset && asset->clips.size() == 1);
-        CHECK(asset && asset->clips[0].imageId == "img-hero");
-        CHECK(asset && asset->defaultClipId == "idle");
-        CHECK(asset && asset->clips[0].frames.size() == 2);
+        CHECK(asset && asset->sourceImageAssetId == "img-hero");
+        CHECK(asset && asset->frames.size() == 2);
+        CHECK(asset && asset->clips[0].frameIds.size() == 2);
         CHECK(asset && asset->clips[0].framesPerSecond == 12.f);
         CHECK(asset && asset->clips[0].playbackMode == AnimationPlaybackMode::Once);
     }
@@ -122,7 +127,8 @@ int main() {
             c.document().findSpriteAnimationAsset("hero.anim");
         CHECK(created != nullptr);
         CHECK(created && created->clips.size() == 1);
-        CHECK(created && created->defaultClipId == "clip-1");
+        CHECK(created && created->clips[0].id == "clip-1");
+        CHECK(created && created->sourceImageAssetId == "img-hero");
         CHECK(c.undoSize() == historyBefore + 1);
         CHECK(c.undo().ok);
         CHECK(!c.document().hasSpriteAnimationAsset("hero.anim"));
@@ -141,16 +147,17 @@ int main() {
     // -- Sprite sheet slicing: frame size + margin + spacing -----------------
     {
         const SpriteAnimationSliceGrid grid{16, 24, 2, 1};
-        const std::optional<SpriteAnimationFrameDef> first =
+        const std::optional<SpriteFrameDef> first =
             spriteAnimationFrameForCell(38, 53, grid, 0);
-        const std::optional<SpriteAnimationFrameDef> second =
+        const std::optional<SpriteFrameDef> second =
             spriteAnimationFrameForCell(38, 53, grid, 1);
-        const std::optional<SpriteAnimationFrameDef> last =
+        const std::optional<SpriteFrameDef> last =
             spriteAnimationFrameForCell(38, 53, grid, 3);
         CHECK(spriteAnimationSliceCellCount(38, 53, grid) == 4);
         CHECK(first.has_value());
         CHECK(first && first->x == 2 && first->y == 2
               && first->width == 16 && first->height == 24);
+        CHECK(first && first->id == "frame-1");
         CHECK(second.has_value());
         CHECK(second && second->x == 19 && second->y == 2);
         CHECK(last.has_value());
@@ -163,9 +170,9 @@ int main() {
             spriteAnimationGridFromCellCounts(64, 32, 4, 2, 0, 0);
         CHECK(atlas.has_value());
         CHECK(atlas && atlas->frameWidth == 16 && atlas->frameHeight == 16);
-        const std::vector<SpriteAnimationFrameDef> frames =
+        const std::vector<SpriteFrameDef> frames =
             atlas ? spriteAnimationFramesForGrid(64, 32, *atlas)
-                  : std::vector<SpriteAnimationFrameDef>{};
+                  : std::vector<SpriteFrameDef>{};
         CHECK(frames.size() == 8);
         CHECK(frames.size() > 4 && frames[0].x == 0 && frames[0].y == 0);
         CHECK(frames.size() > 4 && frames[3].x == 48 && frames[3].y == 0);
@@ -298,8 +305,8 @@ int main() {
         CHECK(c.document().revision() == revisionBefore + 1);  // one logical mutation
         const EntityDef& type = c.document().data().objectTypes.at("Hero");
         CHECK(type.spriteRenderer && type.spriteRenderer->imageAssetId.empty());
-        CHECK(type.spriteRenderer && type.spriteRenderer->animationAssetId == "hero.anim");
-        CHECK(type.spriteAnimator && type.spriteAnimator->initialClipId == "idle");
+        CHECK(type.spriteAnimator && type.spriteAnimator->animationAssetId == "hero.anim");
+        CHECK(type.spriteAnimator && type.spriteAnimator->defaultClipId == "idle");
 
         const SceneFrameSnapshot frame =
             collectSceneFrameSnapshot(c.document(), kSceneA, kHero);
@@ -309,13 +316,12 @@ int main() {
         CHECK(frame.sprites[0].source.width == 32.f);
 
         CHECK(c.undo().ok);
-        CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->animationAssetId.empty());
         CHECK(!c.document().data().objectTypes.at("Hero").spriteAnimator);
 
         CHECK(c.redo().ok);
-        CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->animationAssetId
+        CHECK(c.document().data().objectTypes.at("Hero").spriteAnimator->animationAssetId
               == "hero.anim");
-        CHECK(c.document().data().objectTypes.at("Hero").spriteAnimator->initialClipId == "idle");
+        CHECK(c.document().data().objectTypes.at("Hero").spriteAnimator->defaultClipId == "idle");
     }
 
     // -- Animation -> image is one atomic renderer+animator state change -----
@@ -326,12 +332,11 @@ int main() {
             "Hero", ObjectTypeSpriteSourceKind::Image, "img-hero"}).ok);
         CHECK(c.document().revision() == imageRevisionBefore + 1);
         CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->imageAssetId == "img-hero");
-        CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->animationAssetId.empty());
         CHECK(!c.document().data().objectTypes.at("Hero").spriteAnimator);
         CHECK(c.undo().ok);
-        CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->animationAssetId
+        CHECK(c.document().data().objectTypes.at("Hero").spriteAnimator->animationAssetId
               == "hero.anim");
-        CHECK(c.document().data().objectTypes.at("Hero").spriteAnimator->initialClipId == "idle");
+        CHECK(c.document().data().objectTypes.at("Hero").spriteAnimator->defaultClipId == "idle");
         CHECK(c.redo().ok);
         CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->imageAssetId == "img-hero");
         CHECK(!c.document().data().objectTypes.at("Hero").spriteAnimator);
@@ -344,6 +349,10 @@ int main() {
         second.id = 77;
         second.instanceName = "Hero 2";
         doc.scenes.at(kSceneA).instances.push_back(second);
+        // Inherited override: clip only — no explicit animationAssetId.
+        SpriteAnimatorOverride inheritedClip;
+        inheritedClip.defaultClipId = std::string{"idle"};
+        doc.scenes.at(kSceneA).instances.front().spriteAnimatorOverride = inheritedClip;
         EditorCoordinator c{std::move(doc)};
         CHECK(resolveSpriteRenderer(c.document(), kSceneA, kHero).animationAssetId == "hero.anim");
         const uint64_t revisionBefore = c.document().revision();
@@ -352,48 +361,103 @@ int main() {
         CHECK(c.execute(RemoveSpriteAnimationAssetCommand{"hero.anim"}).ok);
         CHECK(c.document().revision() == revisionBefore + 1);  // one staged commit
         CHECK(!c.document().hasSpriteAnimationAsset("hero.anim"));
-        CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->animationAssetId.empty());
         CHECK(!c.document().data().objectTypes.at("Hero").spriteAnimator);
+        CHECK(!c.document().data().scenes.at(kSceneA).instances.front()
+                   .spriteAnimatorOverride);
         // Undo restores the asset, the source, and the animator (with its clip).
         CHECK(c.undo().ok);
         CHECK(c.document().hasSpriteAnimationAsset("hero.anim"));
-        CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->animationAssetId
+        CHECK(c.document().data().objectTypes.at("Hero").spriteAnimator->animationAssetId
               == "hero.anim");
-        CHECK(c.document().data().objectTypes.at("Hero").spriteAnimator->initialClipId == "idle");
+        CHECK(c.document().data().objectTypes.at("Hero").spriteAnimator->defaultClipId == "idle");
+        CHECK(c.document().data().scenes.at(kSceneA).instances.front()
+                  .spriteAnimatorOverride->defaultClipId
+              && *c.document().data().scenes.at(kSceneA).instances.front()
+                      .spriteAnimatorOverride->defaultClipId
+                  == "idle");
         CHECK(c.redo().ok);
         CHECK(!c.document().hasSpriteAnimationAsset("hero.anim"));
-        CHECK(c.document().data().objectTypes.at("Hero").spriteRenderer->animationAssetId.empty());
         CHECK(!c.document().data().objectTypes.at("Hero").spriteAnimator);
+        CHECK(!c.document().data().scenes.at(kSceneA).instances.front()
+                   .spriteAnimatorOverride);
     }
 
     // -- Slicing a second animation must not overwrite the first's clip -------
     {
         EditorCoordinator c{makeSpriteDoc()};   // img-hero + img-alt
         // Animation 1 on img-hero, mirroring the UI Import Sheet -> Slice flow.
-        CHECK(c.execute(AddSpriteAnimationAssetCommand{"a1.anim", "a1"}).ok);
+        CHECK(c.execute(CreateSpriteAnimationAssetCommand{
+            "a1.anim", "a1", "clip-1", "Clip 1", "img-hero"}).ok);
         c.apply(OpenSpriteAnimationEditorIntent{"a1.anim"});
-        CHECK(!c.state().spriteAnimationEditor.selectedClipId.has_value());
-        CHECK(c.execute(AddAnimationClipCommand{"a1.anim", "clip-1", "Clip 1", "img-hero"}).ok);
-        c.apply(SelectAnimationClipIntent{"a1.anim", "clip-1"});
-        CHECK(c.execute(SetAnimationClipFramesCommand{"a1.anim", "clip-1",
-            {SpriteAnimationFrameDef{0, 0, 16, 16}, SpriteAnimationFrameDef{16, 0, 16, 16},
-             SpriteAnimationFrameDef{32, 0, 16, 16}}}).ok);
-        CHECK(c.document().findSpriteAnimationAsset("a1.anim")->clips[0].frames.size() == 3);
+        CHECK(c.state().spriteAnimationEditor.selectedClipId.has_value());
+        CHECK(c.execute(ReplaceAnimationFramesCommand{"a1.anim",
+            {SpriteFrameDef{"f0", 0, 0, 16, 16}, SpriteFrameDef{"f1", 16, 0, 16, 16},
+             SpriteFrameDef{"f2", 32, 0, 16, 16}}}).ok);
+        CHECK(c.execute(SetAnimationClipFrameIdsCommand{
+            "a1.anim", "clip-1", {"f0", "f1", "f2"}}).ok);
+        CHECK(c.document().findSpriteAnimationAsset("a1.anim")->clips[0].frameIds.size() == 3);
 
         // Animation 2 on img-alt: its auto-clip also gets id "clip-1".
-        CHECK(c.execute(AddSpriteAnimationAssetCommand{"a2.anim", "a2"}).ok);
+        CHECK(c.execute(CreateSpriteAnimationAssetCommand{
+            "a2.anim", "a2", "clip-1", "Clip 1", "img-alt"}).ok);
         c.apply(OpenSpriteAnimationEditorIntent{"a2.anim"});
-        CHECK(!c.state().spriteAnimationEditor.selectedClipId.has_value());   // reset on open
-        CHECK(c.execute(AddAnimationClipCommand{"a2.anim", "clip-1", "Clip 1", "img-alt"}).ok);
-        c.apply(SelectAnimationClipIntent{"a2.anim", "clip-1"});
-        CHECK(c.execute(SetAnimationClipFramesCommand{"a2.anim", "clip-1",
-            {SpriteAnimationFrameDef{0, 0, 16, 16}, SpriteAnimationFrameDef{16, 0, 16, 16}}}).ok);
+        CHECK(c.state().spriteAnimationEditor.selectedClipId.has_value());
+        CHECK(c.execute(ReplaceAnimationFramesCommand{"a2.anim",
+            {SpriteFrameDef{"f0", 0, 0, 16, 16}, SpriteFrameDef{"f1", 16, 0, 16, 16}}}).ok);
+        CHECK(c.execute(SetAnimationClipFrameIdsCommand{
+            "a2.anim", "clip-1", {"f0", "f1"}}).ok);
 
         // Neither asset's clip is overwritten - each keeps its own frames.
         const SpriteAnimationAssetDef* a1 = c.document().findSpriteAnimationAsset("a1.anim");
         const SpriteAnimationAssetDef* a2 = c.document().findSpriteAnimationAsset("a2.anim");
-        CHECK(a1 && a1->clips.size() == 1 && a1->clips[0].frames.size() == 3);
-        CHECK(a2 && a2->clips.size() == 1 && a2->clips[0].frames.size() == 2);
+        CHECK(a1 && a1->clips.size() == 1 && a1->clips[0].frameIds.size() == 3);
+        CHECK(a2 && a2->clips.size() == 1 && a2->clips[0].frameIds.size() == 2);
+    }
+
+    // -- Replace source image clears frames/sequences atomically -------------
+    {
+        EditorCoordinator c{makeAnimationDoc()};
+        const uint64_t revisionBefore = c.document().revision();
+        CHECK(c.execute(ReplaceAnimationSourceImageCommand{"hero.anim", "img-alt"}).ok);
+        CHECK(c.document().revision() == revisionBefore + 1);
+        const SpriteAnimationAssetDef* asset =
+            c.document().findSpriteAnimationAsset("hero.anim");
+        CHECK(asset && asset->sourceImageAssetId == "img-alt");
+        CHECK(asset && asset->frames.empty());
+        CHECK(asset && asset->clips.size() == 1 && asset->clips[0].frameIds.empty());
+        CHECK(c.undo().ok);
+        asset = c.document().findSpriteAnimationAsset("hero.anim");
+        CHECK(asset && asset->sourceImageAssetId == "img-hero");
+        CHECK(asset && asset->frames.size() == 2);
+        CHECK(asset && asset->clips[0].frameIds.size() == 2);
+    }
+
+    // -- Duplicate asset remaps frame/clip ids and keeps source sheet --------
+    {
+        EditorCoordinator c{makeAnimationDoc()};
+        CHECK(c.execute(DuplicateSpriteAnimationAssetCommand{
+            "hero.anim", "hero-copy.anim", "Hero Copy"}).ok);
+        const SpriteAnimationAssetDef* copy =
+            c.document().findSpriteAnimationAsset("hero-copy.anim");
+        CHECK(copy && copy->sourceImageAssetId == "img-hero");
+        CHECK(copy && copy->frames.size() == 2);
+        CHECK(copy && copy->frames[0].id == "hero-copy.anim:f0");
+        CHECK(copy && copy->clips.size() == 1);
+        CHECK(copy && copy->clips[0].id == "hero-copy.anim:idle");
+        CHECK(copy && copy->clips[0].frameIds.size() == 2);
+        CHECK(copy && copy->clips[0].frameIds[0] == "hero-copy.anim:f0");
+        CHECK(c.undo().ok);
+        CHECK(!c.document().hasSpriteAnimationAsset("hero-copy.anim"));
+    }
+
+    // -- Canonical clip references block delete ------------------------------
+    {
+        EditorCoordinator c{makeAnimationDoc()};
+        CHECK(!collectAnimationClipReferences(c.document(), "hero.anim", "idle").empty());
+        CHECK(!c.execute(RemoveAnimationClipCommand{"hero.anim", "idle"}).ok);
+        CHECK(c.document().findSpriteAnimationAsset("hero.anim")->clips.size() == 1);
+        CHECK(!collectAnimationSourceReferences(c.document(), "img-hero").empty());
+        CHECK(!c.execute(RemoveImageAssetCommand{"img-hero"}).ok);
     }
 
     // -- PlaySession owns per-instance playheads, document stays untouched ----
@@ -419,5 +483,168 @@ int main() {
         CHECK(c.stopPlaying().ok);
         CHECK(c.document().revision() == revision);
     }
+
+    // -- Edit falls back to static image when animator asset is missing --------
+    {
+        ProjectDoc doc = makeAnimationDoc();
+        doc.objectTypes.at("Hero").spriteRenderer->imageAssetId = "img-alt";
+        doc.objectTypes.at("Hero").spriteAnimator->animationAssetId = "missing.anim";
+        EditorCoordinator c{std::move(doc)};
+        const SpriteRenderView view = resolveSpriteRenderer(c.document(), kSceneA, kHero);
+        CHECK(view.present);
+        CHECK(view.animatorInvalid);
+        CHECK(view.assetId == "img-alt");
+        CHECK(view.diagnosticCode == "ANIMATION_MISSING_ASSET");
+        std::string playError;
+        CHECK(!PlaySession::startActiveScene(c.document(), kSceneA, &playError).has_value());
+        CHECK(!playError.empty());
+    }
+
+    // -- Play Started / Finished pulse; hold must not re-Finished --------------
+    {
+        ProjectDoc doc = makeAnimationDoc();
+        doc.objectTypes.at("Hero").spriteAnimator->autoPlay = true;
+        doc.objectTypes.at("Hero").spriteAnimator->defaultClipId = "idle";
+        doc.spriteAnimationAssets.front().clips.front().playbackMode =
+            AnimationPlaybackMode::Once;
+        doc.spriteAnimationAssets.front().clips.front().framesPerSecond = 10.f;
+        ProjectDocument document{std::move(doc)};
+        std::string playError;
+        auto session = PlaySession::startActiveScene(document, kSceneA, &playError);
+        CHECK(session.has_value());
+        auto started = session->drainAnimationEvents();
+        CHECK(!started.empty());
+        CHECK(started.front().kind == AnimationRuntimeEventKind::Started);
+        for (int i = 0; i < 30; ++i) session->advance(0.1f);
+        auto finished = session->drainAnimationEvents();
+        bool sawFinished = false;
+        for (const AnimationRuntimeEvent& event : finished) {
+            if (event.kind == AnimationRuntimeEventKind::Finished) sawFinished = true;
+        }
+        CHECK(sawFinished);
+        session->advance(0.5f);
+        auto held = session->drainAnimationEvents();
+        for (const AnimationRuntimeEvent& event : held) {
+            CHECK(event.kind != AnimationRuntimeEventKind::Finished);
+        }
+    }
+
+    // -- OT Inspector path mutates Object Type, not instance override -----------
+    {
+        EditorCoordinator c{makeAnimationDoc()};
+        CHECK(c.execute(SetObjectTypePlaybackSpeedCommand{"Hero", 2.f}).ok);
+        CHECK(c.document().data().objectTypes.at("Hero").spriteAnimator->playbackSpeed == 2.f);
+        CHECK(!c.document().data().scenes.at(kSceneA).instances.front().spriteAnimatorOverride);
+        CHECK(c.execute(SetObjectTypeAutoPlayCommand{"Hero", false}).ok);
+        CHECK(!c.document().data().objectTypes.at("Hero").spriteAnimator->autoPlay);
+    }
+
+    // -- Remove animation clears Logic playClip refs; undo restores -----------
+    {
+        EditorCoordinator c{makeAnimationDoc()};
+        CHECK(c.execute(CreateLogicBoardCommand{"Hero"}).ok);
+        LogicRuleDef rule = Logic::makeDefaultRule("rule-play");
+        rule.actions[0] = Logic::makeDefaultBlock(
+            Logic::kAnimationPlayClip, Logic::BlockKind::Action);
+        rule.actions[0].properties[0].value = LogicAssetReference{"hero.anim"};
+        rule.actions[0].properties[1].value = LogicStringValue{"idle"};
+        CHECK(c.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
+        CHECK(c.execute(RemoveSpriteAnimationAssetCommand{"hero.anim"}).ok);
+        const LogicBlockDef& cleared = c.document().data().objectTypes.at("Hero")
+            .logicBoard->rules[0].actions[0];
+        CHECK(std::get<LogicAssetReference>(cleared.properties[0].value).id.empty());
+        CHECK(std::get<LogicStringValue>(cleared.properties[1].value).value.empty());
+        CHECK(c.undo().ok);
+        const LogicBlockDef& restored = c.document().data().objectTypes.at("Hero")
+            .logicBoard->rules[0].actions[0];
+        CHECK(std::get<LogicAssetReference>(restored.properties[0].value).id == "hero.anim");
+        CHECK(std::get<LogicStringValue>(restored.properties[1].value).value == "idle");
+    }
+
+    // -- Invalid defaultClipId: Edit diagnostic + Play atomic fail ------------
+    {
+        ProjectDoc doc = makeAnimationDoc();
+        doc.objectTypes.at("Hero").spriteAnimator->defaultClipId = "missing-clip";
+        EditorCoordinator c{std::move(doc)};
+        const SpriteRenderView view = resolveSpriteRenderer(c.document(), kSceneA, kHero);
+        CHECK(view.animatorInvalid);
+        CHECK(view.diagnosticCode == "ANIMATION_MISSING_CLIP");
+        std::string playError;
+        CHECK(!PlaySession::startActiveScene(c.document(), kSceneA, &playError).has_value());
+        CHECK(playError.find("defaultClipId") != std::string::npos);
+    }
+
+    // -- Logic play_clip during update drains Started same frame --------------
+    {
+        ProjectDoc doc = makeAnimationDoc();
+        doc.objectTypes.at("Hero").spriteAnimator->autoPlay = false;
+        LogicBoardDef board;
+        board.id = "logic:Hero";
+        LogicRuleDef rule = Logic::makeDefaultRule("rule-key-play");
+        rule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
+        rule.actions[0] = Logic::makeDefaultBlock(
+            Logic::kAnimationPlayClip, Logic::BlockKind::Action);
+        rule.actions[0].properties[0].value = LogicAssetReference{"hero.anim"};
+        rule.actions[0].properties[1].value = LogicStringValue{"idle"};
+        board.rules.push_back(rule);
+        doc.objectTypes.at("Hero").logicBoard = board;
+        ProjectDocument document{std::move(doc)};
+        std::string playError;
+        auto session = PlaySession::startActiveScene(document, kSceneA, &playError);
+        CHECK(session.has_value());
+        (void)session->drainAnimationEvents();
+        RuntimeInputSnapshot input;
+        input.pressedLogicKeys.push_back(LogicKey::Space);
+        session->update(input, 1.f / 60.f);
+        const auto events = session->drainAnimationEvents();
+        bool sawStarted = false;
+        for (const AnimationRuntimeEvent& event : events) {
+            if (event.kind == AnimationRuntimeEventKind::Started
+                && event.clipId == "idle") {
+                sawStarted = true;
+            }
+        }
+        CHECK(sawStarted);
+    }
+
+    // -- v9 ownership migrate: no global first-wins on unrelated assets -------
+    {
+        ProjectDoc doc = makeAnimationDoc();
+        doc.formatVersion = 8;
+        SpriteAnimationAssetDef other;
+        other.id = "other.anim";
+        other.name = "Other";
+        other.sourceImageAssetId = "img-alt";
+        other.frames = {SpriteFrameDef{"f0", 0, 0, 8, 8}};
+        SpriteAnimationClipDef stolen;
+        stolen.id = "stolen";
+        stolen.name = "Stolen";
+        stolen.frameIds = {"f0"};
+        other.clips.push_back(stolen);
+        doc.spriteAnimationAssets.push_back(other);
+        doc.objectTypes.at("Hero").spriteAnimator->animationAssetId = "hero.anim";
+        doc.objectTypes.at("Hero").spriteAnimator->defaultClipId = "stolen";
+        auto migrated = ProjectMigration::migrate(ProjectDocument{std::move(doc)});
+        CHECK(migrated.ok);
+        const auto& animator =
+            *migrated.value.data().objectTypes.at("Hero").spriteAnimator;
+        // Must NOT remap to other.anim just because it owns clip "stolen".
+        CHECK(animator.animationAssetId == "hero.anim");
+        CHECK(animator.defaultClipId == "stolen");
+    }
+
+    // -- Confirm source-image Intent is workspace-only (no document mutate) ---
+    {
+        EditorCoordinator c{makeAnimationDoc()};
+        c.apply(OpenSpriteAnimationEditorIntent{"hero.anim"});
+        CHECK(c.apply(RequestAnimationSourceImageIntent{"img-alt"}).ok);
+        const uint64_t revisionBefore = c.document().revision();
+        CHECK(c.apply(ConfirmAnimationSourceImageIntent{}).ok);
+        CHECK(c.document().revision() == revisionBefore);
+        CHECK(!c.state().spriteAnimationEditor.pendingSourceImageId);
+        CHECK(c.document().findSpriteAnimationAsset("hero.anim")->sourceImageAssetId
+              == "img-hero");
+    }
+
     return reportAndExit("sprite-animation-test");
 }

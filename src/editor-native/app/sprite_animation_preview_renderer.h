@@ -39,7 +39,7 @@ void renderSpriteAnimationClipPreview(
     const CanvasFont& canvasFont);
 
 // Timeline thumbnails: draws each clip frame's texture region into the matching
-// per-chip thumb rect. thumbRects is parallel to clip.frames (index i -> frame
+// per-chip thumb rect. thumbRects is parallel to clip.frameIds (index i -> frame
 // i); an invalid rect is skipped, so a chip not yet laid out just waits a frame.
 void renderSpriteAnimationTimelineThumbnails(
     const SpriteAnimationAssetDef& asset,

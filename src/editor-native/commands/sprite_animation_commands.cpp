@@ -1,11 +1,16 @@
 #include "editor-native/commands/sprite_animation_commands.h"
 
 #include "editor-native/model/project_document.h"
-#include "editor-native/model/sprite_render_view.h"
+#include "editor-native/model/sprite_animation_references.h"
+
+#include "logic-core.h"
+#include "sprite-animation-core.h"
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 #include <utility>
+#include <variant>
 
 namespace ArtCade::EditorNative {
 
@@ -21,33 +26,9 @@ const SpriteAnimationClipDef* findClip(const SpriteAnimationAssetDef& asset,
     return nullptr;
 }
 
-bool validFrame(const SpriteAnimationFrameDef& frame) {
-    return frame.width > 0 && frame.height > 0 && frame.x >= 0 && frame.y >= 0;
-}
-
-bool clipReferenced(const ProjectDocument& document, const AssetId& assetId,
-                    const std::string& clipId) {
-    for (const auto& [_, type] : document.data().objectTypes) {
-        if (type.spriteRenderer && type.spriteAnimator
-            && type.spriteRenderer->animationAssetId == assetId
-            && type.spriteAnimator->initialClipId == clipId) {
-            return true;
-        }
-    }
-    for (const auto& [_, scene] : document.data().scenes) {
-        for (const SceneInstanceDef& instance : scene.instances) {
-            const auto type = document.data().objectTypes.find(instance.objectTypeId);
-            if (type == document.data().objectTypes.end()) continue;
-            const ResolvedSpritePresentation presentation =
-                resolveSpritePresentation(type->second, instance);
-            if (presentation.renderer && presentation.animator
-                && presentation.renderer->animationAssetId == assetId
-                && presentation.animator->initialClipId == clipId) {
-                return true;
-            }
-        }
-    }
-    return false;
+bool validFrame(const SpriteFrameDef& frame) {
+    return !frame.id.empty() && frame.width > 0 && frame.height > 0
+        && frame.x >= 0 && frame.y >= 0;
 }
 
 } // namespace
@@ -73,12 +54,11 @@ EditorOperationResult CreateSpriteAnimationAssetCommand::apply(ProjectDocument& 
     SpriteAnimationClipDef clip;
     clip.id = clipId_;
     clip.name = clipName_;
-    clip.imageId = imageId_;
 
     SpriteAnimationAssetDef asset;
     asset.id = assetId_;
     asset.name = name_;
-    asset.defaultClipId = clipId_;
+    asset.sourceImageAssetId = imageId_;
     asset.clips.push_back(std::move(clip));
 
     ProjectDoc staged = document.data();
@@ -134,26 +114,67 @@ EditorOperationResult RemoveSpriteAnimationAssetCommand::apply(ProjectDocument& 
             });
         assetIndex_ = static_cast<std::size_t>(std::distance(assets.begin(), assetIt));
         removed_ = *asset;
-        for (const auto& [objectTypeId, type] : document.data().objectTypes) {
-            if (type.spriteRenderer && type.spriteRenderer->animationAssetId == assetId_) {
-                clearedTypeRefs_.push_back(
-                    ClearedTypeRef{objectTypeId, *type.spriteRenderer, type.spriteAnimator});
+        const std::vector<AnimationAssetReference> refs =
+            collectAnimationAssetReferences(document, assetId_);
+        for (const AnimationAssetReference& ref : refs) {
+            if (ref.kind == AnimationReferenceKind::ObjectTypeAnimator) {
+                const EntityDef* type = document.findObjectType(ref.objectTypeId);
+                if (type && type->spriteAnimator) {
+                    clearedTypeRefs_.push_back(
+                        ClearedTypeRef{ref.objectTypeId, *type->spriteAnimator});
+                }
+            } else if (ref.kind == AnimationReferenceKind::InstanceAnimatorOverride) {
+                const SceneInstanceDef* instance =
+                    document.findInstanceInScene(ref.sceneId, ref.entityId);
+                if (!instance) continue;
+                const bool explicitRef = instance->spriteAnimatorOverride
+                    && instance->spriteAnimatorOverride->animationAssetId
+                    && *instance->spriteAnimatorOverride->animationAssetId == assetId_;
+                clearedOverrideRefs_.push_back(ClearedOverrideRef{
+                    ref.sceneId, ref.entityId, instance->spriteAnimatorOverride, explicitRef});
+            } else if (ref.kind == AnimationReferenceKind::LogicPlayClip) {
+                const EntityDef* type = document.findObjectType(ref.objectTypeId);
+                if (!type || !type->logicBoard) continue;
+                for (const LogicRuleDef& rule : type->logicBoard->rules) {
+                    if (rule.id != ref.ruleId) continue;
+                    if (ref.actionIndex >= rule.actions.size()) continue;
+                    const LogicBlockDef& action = rule.actions[ref.actionIndex];
+                    ClearedLogicRef cleared{ref.objectTypeId, ref.ruleId, ref.actionIndex};
+                    if (const LogicPropertyDef* assetProp =
+                            Logic::findProperty(action, "animationAssetId")) {
+                        if (const auto* value =
+                                std::get_if<LogicAssetReference>(&assetProp->value)) {
+                            cleared.previousAnimationAssetId = value->id;
+                        }
+                    }
+                    if (const LogicPropertyDef* clipProp =
+                            Logic::findProperty(action, "clipId")) {
+                        if (const auto* value =
+                                std::get_if<LogicStringValue>(&clipProp->value)) {
+                            cleared.previousClipId = value->value;
+                        }
+                    }
+                    clearedLogicRefs_.push_back(std::move(cleared));
+                }
             }
         }
-        for (const auto& [sceneId, scene] : document.data().scenes) {
-            for (const SceneInstanceDef& instance : scene.instances) {
-                const auto type = document.data().objectTypes.find(instance.objectTypeId);
-                const bool inherited = type != document.data().objectTypes.end()
-                    && type->second.spriteRenderer
-                    && type->second.spriteRenderer->animationAssetId == assetId_
-                    && (!instance.spriteRendererOverride
-                        || !instance.spriteRendererOverride->animationAssetId);
-                const bool explicitRef = instance.spriteRendererOverride
-                    && instance.spriteRendererOverride->animationAssetId == assetId_;
-                if (!inherited && !explicitRef) continue;
-                clearedOverrideRefs_.push_back(ClearedOverrideRef{
-                    sceneId, instance.id, instance.spriteRendererOverride,
-                    instance.spriteAnimatorOverride, explicitRef});
+        // Match RemoveSpriteAnimatorFromObjectType: when the OT animator goes,
+        // wipe every instance override for that type (inherited clip/speed/
+        // autoPlay leftovers are not in collectAnimationAssetReferences).
+        for (const ClearedTypeRef& typeRef : clearedTypeRefs_) {
+            for (const auto& [sceneId, scene] : document.data().scenes) {
+                for (const SceneInstanceDef& instance : scene.instances) {
+                    if (instance.objectTypeId != typeRef.objectTypeId) continue;
+                    if (!instance.spriteAnimatorOverride) continue;
+                    const bool already = std::any_of(
+                        clearedOverrideRefs_.begin(), clearedOverrideRefs_.end(),
+                        [&](const ClearedOverrideRef& ref) {
+                            return ref.sceneId == sceneId && ref.entityId == instance.id;
+                        });
+                    if (already) continue;
+                    clearedOverrideRefs_.push_back(ClearedOverrideRef{
+                        sceneId, instance.id, instance.spriteAnimatorOverride, false});
+                }
             }
         }
         captured_ = true;
@@ -167,11 +188,9 @@ EditorOperationResult RemoveSpriteAnimationAssetCommand::apply(ProjectDocument& 
         return EditorOperationResult::failure("Failed to stage sprite animation asset removal");
     }
     staged.spriteAnimationAssets.erase(assetIt);
-    for (auto& [_, type] : staged.objectTypes) {
-        if (type.spriteRenderer && type.spriteRenderer->animationAssetId == assetId_) {
-            type.spriteRenderer->animationAssetId.clear();
-            type.spriteAnimator.reset();
-        }
+    for (const ClearedTypeRef& ref : clearedTypeRefs_) {
+        auto typeIt = staged.objectTypes.find(ref.objectTypeId);
+        if (typeIt != staged.objectTypes.end()) typeIt->second.spriteAnimator.reset();
     }
     for (const ClearedOverrideRef& ref : clearedOverrideRefs_) {
         auto& instances = staged.scenes.at(ref.sceneId).instances;
@@ -180,10 +199,30 @@ EditorOperationResult RemoveSpriteAnimationAssetCommand::apply(ProjectDocument& 
         if (instance == instances.end()) {
             return EditorOperationResult::failure("Failed to stage animation reference removal");
         }
-        if (ref.clearExplicitAnimation && instance->spriteRendererOverride) {
-            instance->spriteRendererOverride->animationAssetId = AssetId{};
+        if (ref.clearExplicitAnimation && instance->spriteAnimatorOverride) {
+            instance->spriteAnimatorOverride->animationAssetId = AssetId{};
         }
         instance->spriteAnimatorOverride.reset();
+    }
+    for (const ClearedLogicRef& ref : clearedLogicRefs_) {
+        auto typeIt = staged.objectTypes.find(ref.objectTypeId);
+        if (typeIt == staged.objectTypes.end() || !typeIt->second.logicBoard) {
+            return EditorOperationResult::failure("Failed to stage Logic animation reference removal");
+        }
+        for (LogicRuleDef& rule : typeIt->second.logicBoard->rules) {
+            if (rule.id != ref.ruleId) continue;
+            if (ref.actionIndex >= rule.actions.size()) {
+                return EditorOperationResult::failure("Failed to stage Logic animation reference removal");
+            }
+            LogicBlockDef& action = rule.actions[ref.actionIndex];
+            for (LogicPropertyDef& property : action.properties) {
+                if (property.key == "animationAssetId") {
+                    property.value = LogicAssetReference{};
+                } else if (property.key == "clipId") {
+                    property.value = LogicStringValue{};
+                }
+            }
+        }
     }
     document.commitStagedCommand(std::move(staged));
     return EditorOperationResult::success(kAssetInvalidation, DomainChange::assetChanged(assetId_));
@@ -203,10 +242,9 @@ EditorOperationResult RemoveSpriteAnimationAssetCommand::undo(ProjectDocument& d
 
     for (const ClearedTypeRef& ref : clearedTypeRefs_) {
         const auto typeIt = staged.objectTypes.find(ref.objectTypeId);
-        if (typeIt == staged.objectTypes.end() || !typeIt->second.spriteRenderer) {
+        if (typeIt == staged.objectTypes.end()) {
             return EditorOperationResult::failure("Cannot restore animation reference: object type missing");
         }
-        typeIt->second.spriteRenderer = ref.renderer;
         typeIt->second.spriteAnimator = ref.animator;
     }
     for (const ClearedOverrideRef& ref : clearedOverrideRefs_) {
@@ -220,23 +258,40 @@ EditorOperationResult RemoveSpriteAnimationAssetCommand::undo(ProjectDocument& d
         if (instanceIt == sceneIt->second.instances.end()) {
             return EditorOperationResult::failure("Cannot restore animation reference: instance missing");
         }
-        instanceIt->spriteRendererOverride = ref.renderer;
         instanceIt->spriteAnimatorOverride = ref.animator;
+    }
+    for (const ClearedLogicRef& ref : clearedLogicRefs_) {
+        auto typeIt = staged.objectTypes.find(ref.objectTypeId);
+        if (typeIt == staged.objectTypes.end() || !typeIt->second.logicBoard) {
+            return EditorOperationResult::failure("Cannot restore Logic animation reference");
+        }
+        for (LogicRuleDef& rule : typeIt->second.logicBoard->rules) {
+            if (rule.id != ref.ruleId) continue;
+            if (ref.actionIndex >= rule.actions.size()) {
+                return EditorOperationResult::failure("Cannot restore Logic animation reference");
+            }
+            LogicBlockDef& action = rule.actions[ref.actionIndex];
+            for (LogicPropertyDef& property : action.properties) {
+                if (property.key == "animationAssetId") {
+                    property.value = LogicAssetReference{ref.previousAnimationAssetId};
+                } else if (property.key == "clipId") {
+                    property.value = LogicStringValue{ref.previousClipId};
+                }
+            }
+        }
     }
     document.commitStagedCommand(std::move(staged));
     return EditorOperationResult::success(kAssetInvalidation, DomainChange::assetChanged(assetId_));
 }
 
 AddAnimationClipCommand::AddAnimationClipCommand(
-    AssetId assetId, std::string clipId, std::string name, AssetId imageId)
-    : assetId_(std::move(assetId)), clipId_(std::move(clipId)), name_(std::move(name)),
-      imageId_(std::move(imageId)) {}
+    AssetId assetId, std::string clipId, std::string name)
+    : assetId_(std::move(assetId)), clipId_(std::move(clipId)), name_(std::move(name)) {}
 
 EditorOperationResult AddAnimationClipCommand::apply(ProjectDocument& document) {
     SpriteAnimationClipDef clip;
     clip.id = clipId_;
     clip.name = name_;
-    clip.imageId = imageId_;
     if (!document.addAnimationClip(assetId_, std::move(clip))) {
         return EditorOperationResult::failure("Failed to add animation clip");
     }
@@ -283,7 +338,7 @@ EditorOperationResult RemoveAnimationClipCommand::apply(ProjectDocument& documen
     const SpriteAnimationAssetDef* asset = document.findSpriteAnimationAsset(assetId_);
     const SpriteAnimationClipDef* clip = asset ? findClip(*asset, clipId_) : nullptr;
     if (!clip) return EditorOperationResult::failure("Unknown animation clip");
-    if (clipReferenced(document, assetId_, clipId_)) {
+    if (!collectAnimationClipReferences(document, assetId_, clipId_).empty()) {
         return EditorOperationResult::failure("Animation clip is still referenced");
     }
     if (!captured_) {
@@ -303,31 +358,218 @@ EditorOperationResult RemoveAnimationClipCommand::undo(ProjectDocument& document
     return EditorOperationResult::success(kAssetInvalidation, DomainChange::assetChanged(assetId_));
 }
 
-SetAnimationClipFramesCommand::SetAnimationClipFramesCommand(
-    AssetId assetId, std::string clipId, std::vector<SpriteAnimationFrameDef> frames)
-    : assetId_(std::move(assetId)), clipId_(std::move(clipId)), next_(std::move(frames)) {}
+ReplaceAnimationFramesCommand::ReplaceAnimationFramesCommand(
+    AssetId assetId, std::vector<SpriteFrameDef> frames)
+    : assetId_(std::move(assetId)), next_(std::move(frames)) {}
 
-EditorOperationResult SetAnimationClipFramesCommand::apply(ProjectDocument& document) {
+EditorOperationResult ReplaceAnimationFramesCommand::apply(ProjectDocument& document) {
     if (!std::all_of(next_.begin(), next_.end(), validFrame)) {
         return EditorOperationResult::failure("Animation frame rectangles must be positive");
     }
     const SpriteAnimationAssetDef* asset = document.findSpriteAnimationAsset(assetId_);
-    const SpriteAnimationClipDef* clip = asset ? findClip(*asset, clipId_) : nullptr;
-    if (!clip) return EditorOperationResult::failure("Unknown animation clip");
-    if (clip->frames == next_) return EditorOperationResult::success(EditorInvalidation::None);
+    if (!asset) return EditorOperationResult::failure("Unknown sprite animation asset");
+    if (asset->frames == next_) {
+        const bool sequencesEmpty = std::all_of(
+            asset->clips.begin(), asset->clips.end(),
+            [](const SpriteAnimationClipDef& clip) { return clip.frameIds.empty(); });
+        if (sequencesEmpty) return EditorOperationResult::success(EditorInvalidation::None);
+    }
     if (!captured_) {
-        previous_ = clip->frames;
+        previousFrames_ = asset->frames;
+        previousSequences_.clear();
+        previousSequences_.reserve(asset->clips.size());
+        for (const SpriteAnimationClipDef& clip : asset->clips) {
+            previousSequences_.push_back(ClipFrameIds{clip.id, clip.frameIds});
+        }
         captured_ = true;
     }
-    if (!document.setAnimationClipFrames(assetId_, clipId_, next_)) {
-        return EditorOperationResult::failure("Failed to set animation frames");
+    if (!document.replaceAnimationFrames(assetId_, next_)) {
+        return EditorOperationResult::failure("Failed to replace animation frames");
     }
     return EditorOperationResult::success(kAssetInvalidation, DomainChange::assetChanged(assetId_));
 }
 
-EditorOperationResult SetAnimationClipFramesCommand::undo(ProjectDocument& document) {
-    if (!captured_ || !document.setAnimationClipFrames(assetId_, clipId_, previous_)) {
+EditorOperationResult ReplaceAnimationFramesCommand::undo(ProjectDocument& document) {
+    if (!captured_ || !document.replaceAnimationFrames(assetId_, previousFrames_)) {
         return EditorOperationResult::failure("Cannot undo animation frame change");
+    }
+    for (const ClipFrameIds& sequence : previousSequences_) {
+        if (!document.setAnimationClipFrameIds(assetId_, sequence.clipId, sequence.frameIds)) {
+            return EditorOperationResult::failure("Cannot undo animation frame sequences");
+        }
+    }
+    return EditorOperationResult::success(kAssetInvalidation, DomainChange::assetChanged(assetId_));
+}
+
+ReplaceAnimationSourceImageCommand::ReplaceAnimationSourceImageCommand(
+    AssetId assetId, AssetId imageId)
+    : assetId_(std::move(assetId)), nextImageId_(std::move(imageId)) {}
+
+EditorOperationResult ReplaceAnimationSourceImageCommand::apply(ProjectDocument& document) {
+    if (!document.hasImageAsset(nextImageId_)) {
+        return EditorOperationResult::failure("Sprite animation source image is missing");
+    }
+    const SpriteAnimationAssetDef* asset = document.findSpriteAnimationAsset(assetId_);
+    if (!asset) return EditorOperationResult::failure("Unknown sprite animation asset");
+    const bool sequencesEmpty = std::all_of(
+        asset->clips.begin(), asset->clips.end(),
+        [](const SpriteAnimationClipDef& clip) { return clip.frameIds.empty(); });
+    if (asset->sourceImageAssetId == nextImageId_ && asset->frames.empty() && sequencesEmpty) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+    if (!captured_) {
+        previousImageId_ = asset->sourceImageAssetId;
+        previousFrames_ = asset->frames;
+        previousSequences_.clear();
+        previousSequences_.reserve(asset->clips.size());
+        for (const SpriteAnimationClipDef& clip : asset->clips) {
+            previousSequences_.push_back(ClipFrameIds{clip.id, clip.frameIds});
+        }
+        captured_ = true;
+    }
+    if (!document.replaceAnimationSourceImage(assetId_, nextImageId_)) {
+        return EditorOperationResult::failure("Failed to replace animation source image");
+    }
+    return EditorOperationResult::success(kAssetInvalidation, DomainChange::assetChanged(assetId_));
+}
+
+EditorOperationResult ReplaceAnimationSourceImageCommand::undo(ProjectDocument& document) {
+    if (!captured_ || !document.replaceAnimationSourceImage(assetId_, previousImageId_)) {
+        return EditorOperationResult::failure("Cannot undo animation source image change");
+    }
+    if (!document.replaceAnimationFrames(assetId_, previousFrames_)) {
+        return EditorOperationResult::failure("Cannot undo animation source frames");
+    }
+    for (const ClipFrameIds& sequence : previousSequences_) {
+        if (!document.setAnimationClipFrameIds(assetId_, sequence.clipId, sequence.frameIds)) {
+            return EditorOperationResult::failure("Cannot undo animation source sequences");
+        }
+    }
+    return EditorOperationResult::success(kAssetInvalidation, DomainChange::assetChanged(assetId_));
+}
+
+DuplicateSpriteAnimationAssetCommand::DuplicateSpriteAnimationAssetCommand(
+    AssetId sourceAssetId, AssetId newAssetId, std::string newName)
+    : sourceAssetId_(std::move(sourceAssetId)), newAssetId_(std::move(newAssetId)),
+      newName_(std::move(newName)) {}
+
+EditorOperationResult DuplicateSpriteAnimationAssetCommand::apply(ProjectDocument& document) {
+    if (newAssetId_.empty() || newName_.empty()) {
+        return EditorOperationResult::failure("Duplicated sprite animation asset is incomplete");
+    }
+    if (document.hasSpriteAnimationAsset(newAssetId_)) {
+        return EditorOperationResult::failure("Sprite animation asset already exists");
+    }
+    const SpriteAnimationAssetDef* source = document.findSpriteAnimationAsset(sourceAssetId_);
+    if (!source) return EditorOperationResult::failure("Unknown sprite animation asset");
+
+    std::unordered_map<SpriteFrameId, SpriteFrameId> frameRemap;
+    SpriteAnimationAssetDef copy;
+    copy.id = newAssetId_;
+    copy.name = newName_;
+    copy.sourceImageAssetId = source->sourceImageAssetId;
+    copy.frames.reserve(source->frames.size());
+    for (const SpriteFrameDef& frame : source->frames) {
+        SpriteFrameDef remapped = frame;
+        remapped.id = newAssetId_ + ":" + frame.id;
+        frameRemap.emplace(frame.id, remapped.id);
+        copy.frames.push_back(std::move(remapped));
+    }
+    copy.clips.reserve(source->clips.size());
+    for (const SpriteAnimationClipDef& clip : source->clips) {
+        SpriteAnimationClipDef remapped = clip;
+        remapped.id = newAssetId_ + ":" + clip.id;
+        remapped.name = clip.name;
+        remapped.frameIds.clear();
+        remapped.frameIds.reserve(clip.frameIds.size());
+        for (const SpriteFrameId& frameId : clip.frameIds) {
+            const auto it = frameRemap.find(frameId);
+            if (it == frameRemap.end()) {
+                return EditorOperationResult::failure(
+                    "Cannot duplicate animation: frameId missing from pool");
+            }
+            remapped.frameIds.push_back(it->second);
+        }
+        for (const SpriteAnimationClipDef& existing : copy.clips) {
+            if (existing.name == remapped.name) {
+                remapped.name += " Copy";
+            }
+        }
+        copy.clips.push_back(std::move(remapped));
+    }
+
+    if (!document.addSpriteAnimationAsset(std::move(copy))) {
+        return EditorOperationResult::failure("Failed to duplicate sprite animation asset");
+    }
+    return EditorOperationResult::success(
+        kAssetInvalidation, DomainChange::assetChanged(newAssetId_));
+}
+
+EditorOperationResult DuplicateSpriteAnimationAssetCommand::undo(ProjectDocument& document) {
+    if (!document.removeSpriteAnimationAsset(newAssetId_)) {
+        return EditorOperationResult::failure("Cannot undo sprite animation asset duplicate");
+    }
+    return EditorOperationResult::success(
+        kAssetInvalidation, DomainChange::assetChanged(newAssetId_));
+}
+
+DuplicateAnimationClipCommand::DuplicateAnimationClipCommand(
+    AssetId assetId, std::string sourceClipId, std::string newClipId, std::string newName)
+    : assetId_(std::move(assetId)), sourceClipId_(std::move(sourceClipId)),
+      newClipId_(std::move(newClipId)), newName_(std::move(newName)) {}
+
+EditorOperationResult DuplicateAnimationClipCommand::apply(ProjectDocument& document) {
+    const SpriteAnimationAssetDef* asset = document.findSpriteAnimationAsset(assetId_);
+    const SpriteAnimationClipDef* source = asset ? findClip(*asset, sourceClipId_) : nullptr;
+    if (!source) return EditorOperationResult::failure("Unknown animation clip");
+    SpriteAnimationClipDef copy = *source;
+    copy.id = newClipId_;
+    copy.name = newName_;
+    if (!document.addAnimationClip(assetId_, std::move(copy))) {
+        return EditorOperationResult::failure("Failed to duplicate animation clip");
+    }
+    return EditorOperationResult::success(kAssetInvalidation, DomainChange::assetChanged(assetId_));
+}
+
+EditorOperationResult DuplicateAnimationClipCommand::undo(ProjectDocument& document) {
+    if (!document.removeAnimationClip(assetId_, newClipId_)) {
+        return EditorOperationResult::failure("Cannot undo animation clip duplicate");
+    }
+    return EditorOperationResult::success(kAssetInvalidation, DomainChange::assetChanged(assetId_));
+}
+
+SetAnimationClipFrameIdsCommand::SetAnimationClipFrameIdsCommand(
+    AssetId assetId, std::string clipId, std::vector<SpriteFrameId> frameIds)
+    : assetId_(std::move(assetId)), clipId_(std::move(clipId)), next_(std::move(frameIds)) {}
+
+EditorOperationResult SetAnimationClipFrameIdsCommand::apply(ProjectDocument& document) {
+    const SpriteAnimationAssetDef* asset = document.findSpriteAnimationAsset(assetId_);
+    const SpriteAnimationClipDef* clip = asset ? findClip(*asset, clipId_) : nullptr;
+    if (!clip) return EditorOperationResult::failure("Unknown animation clip");
+    for (const SpriteFrameId& frameId : next_) {
+        bool found = false;
+        for (const SpriteFrameDef& frame : asset->frames) {
+            if (frame.id == frameId) { found = true; break; }
+        }
+        if (!found) {
+            return EditorOperationResult::failure(
+                "Animation clip frameIds must resolve against the asset frame pool");
+        }
+    }
+    if (clip->frameIds == next_) return EditorOperationResult::success(EditorInvalidation::None);
+    if (!captured_) {
+        previous_ = clip->frameIds;
+        captured_ = true;
+    }
+    if (!document.setAnimationClipFrameIds(assetId_, clipId_, next_)) {
+        return EditorOperationResult::failure("Failed to set animation clip frameIds");
+    }
+    return EditorOperationResult::success(kAssetInvalidation, DomainChange::assetChanged(assetId_));
+}
+
+EditorOperationResult SetAnimationClipFrameIdsCommand::undo(ProjectDocument& document) {
+    if (!captured_ || !document.setAnimationClipFrameIds(assetId_, clipId_, previous_)) {
+        return EditorOperationResult::failure("Cannot undo animation clip frameIds");
     }
     return EditorOperationResult::success(kAssetInvalidation, DomainChange::assetChanged(assetId_));
 }
@@ -337,7 +579,7 @@ SetAnimationClipFrameRateCommand::SetAnimationClipFrameRateCommand(
     : assetId_(std::move(assetId)), clipId_(std::move(clipId)), next_(fps) {}
 
 EditorOperationResult SetAnimationClipFrameRateCommand::apply(ProjectDocument& document) {
-    if (!std::isfinite(next_) || next_ <= 0.f) {
+    if (!Animation::isValidAnimationFps(next_)) {
         return EditorOperationResult::failure("Animation FPS must be positive");
     }
     const SpriteAnimationAssetDef* asset = document.findSpriteAnimationAsset(assetId_);

@@ -22,7 +22,19 @@ const SpriteAnimationClipDef* findAnimationClip(const SpriteAnimationAssetDef& a
     return nullptr;
 }
 
-Rectangle destinationForSourceFrame(const SpriteAnimationFrameDef& frame,
+const SpriteFrameDef* findFrame(const SpriteAnimationAssetDef& asset,
+                                const SpriteFrameId& frameId) {
+    for (const SpriteFrameDef& frame : asset.frames) {
+        if (frame.id == frameId) return &frame;
+    }
+    return nullptr;
+}
+
+bool sameRect(const SpriteFrameDef& a, const SpriteFrameDef& b) {
+    return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
+}
+
+Rectangle destinationForSourceFrame(const SpriteFrameDef& frame,
                                     const TextureResource& resource,
                                     const Rectangle& sheetDest) {
     const float textureW = static_cast<float>(resource.texture.width);
@@ -67,7 +79,7 @@ void drawAnimationSheetGrid(const SpriteAnimationAssetDef& asset,
                        static_cast<float>(canvasRect.x) + 18.f,
                        static_cast<float>(canvasRect.y) + 18.f, 16.f,
                        Color{161, 161, 170, 220});
-    } else if (clip && clip->frames.empty()) {
+    } else if (clip && clip->frameIds.empty()) {
         // Empty selected clip: tell the user how to fill THIS clip by hand, which
         // is how several animations (states) share one sheet - one clip each.
         drawCanvasText(canvasFont, "Click the cells for this clip - each clip is one animation",
@@ -80,16 +92,20 @@ void drawAnimationSheetGrid(const SpriteAnimationAssetDef& asset,
     const int mouseY = GetMouseY();
     const bool mouseInCanvas = canvasRect.contains(mouseX, mouseY);
     for (int i = 0; i < cells; ++i) {
-        const std::optional<SpriteAnimationFrameDef> frame =
+        const std::optional<SpriteFrameDef> cellFrame =
             spriteAnimationFrameForCell(resource.texture.width, resource.texture.height, grid, i);
-        if (!frame) continue;
-        const Rectangle cell = destinationForSourceFrame(*frame, resource, sheetDest);
+        if (!cellFrame) continue;
+        const Rectangle cell = destinationForSourceFrame(*cellFrame, resource, sheetDest);
         // Sequence position inside the clip (not the raw cell index): the badge
         // must tell the playback order at a glance.
         int order = -1;
         if (clip) {
-            for (std::size_t f = 0; f < clip->frames.size(); ++f) {
-                if (clip->frames[f] == *frame) { order = static_cast<int>(f); break; }
+            for (std::size_t f = 0; f < clip->frameIds.size(); ++f) {
+                const SpriteFrameDef* poolFrame = findFrame(asset, clip->frameIds[f]);
+                if (poolFrame && sameRect(*poolFrame, *cellFrame)) {
+                    order = static_cast<int>(f);
+                    break;
+                }
             }
         }
         const bool selected = order >= 0;
@@ -215,18 +231,19 @@ void renderSpriteAnimationClipPreview(
         static_cast<float>(previewRect.width), static_cast<float>(previewRect.height)};
     drawTransparencyChecker(previewArea, previewArea);
     const SpriteAnimationClipDef* clip = findAnimationClip(asset, editorState.selectedClipId);
-    if (!clip || clip->frames.empty()) {
+    if (!clip || clip->frameIds.empty()) {
         drawCanvasText(canvasFont, "No frames", static_cast<float>(previewRect.x) + 12.f,
                        static_cast<float>(previewRect.y) + 12.f, 14.f,
                        Color{82, 82, 91, 210});
         EndScissorMode();
         return;
     }
+    const AssetId sheetId = asset.sourceImageAssetId;
     SceneFrameSprite requestSprite;
-    requestSprite.assetId = clip->imageId;
+    requestSprite.assetId = sheetId;
     requestSprite.visible = true;
     textureCache.prepare({requestSprite}, requests);
-    const TextureResource* resource = textureCache.find(clip->imageId);
+    const TextureResource* resource = textureCache.find(sheetId);
     if (!resource || !resource->loaded) {
         drawCanvasText(canvasFont, "Missing sprite sheet",
                        static_cast<float>(previewRect.x) + 12.f,
@@ -237,28 +254,28 @@ void renderSpriteAnimationClipPreview(
     }
     // The clip's frames are the sequence: play them straight, in order.
     const std::size_t index =
-        std::min(editorState.previewFrameIndex, clip->frames.size() - 1);
-    const SpriteAnimationFrameDef& frame = clip->frames[index];
-    if (frame.width > 0 && frame.height > 0) {
+        std::min(editorState.previewFrameIndex, clip->frameIds.size() - 1);
+    const SpriteFrameDef* frame = findFrame(asset, clip->frameIds[index]);
+    if (frame && frame->width > 0 && frame->height > 0) {
         // Pixel-friendly: integer upscale when the frame fits, plain fit otherwise.
         float scale = std::min(
-            static_cast<float>(previewRect.width)  / static_cast<float>(frame.width),
-            static_cast<float>(previewRect.height) / static_cast<float>(frame.height));
+            static_cast<float>(previewRect.width)  / static_cast<float>(frame->width),
+            static_cast<float>(previewRect.height) / static_cast<float>(frame->height));
         if (scale > 1.f) scale = std::floor(scale);
         const Rectangle source{
-            static_cast<float>(frame.x), static_cast<float>(frame.y),
-            static_cast<float>(frame.width), static_cast<float>(frame.height),
+            static_cast<float>(frame->x), static_cast<float>(frame->y),
+            static_cast<float>(frame->width), static_cast<float>(frame->height),
         };
         const Rectangle dest{
-            previewRect.x + (previewRect.width  - frame.width  * scale) * 0.5f,
-            previewRect.y + (previewRect.height - frame.height * scale) * 0.5f,
-            frame.width * scale,
-            frame.height * scale,
+            previewRect.x + (previewRect.width  - frame->width  * scale) * 0.5f,
+            previewRect.y + (previewRect.height - frame->height * scale) * 0.5f,
+            frame->width * scale,
+            frame->height * scale,
         };
         DrawTexturePro(resource->texture, source, dest, Vector2{0.f, 0.f}, 0.f, WHITE);
     }
     const std::string readout =
-        std::to_string(index + 1) + " / " + std::to_string(clip->frames.size());
+        std::to_string(index + 1) + " / " + std::to_string(clip->frameIds.size());
     drawCanvasText(canvasFont, readout, static_cast<float>(previewRect.x) + 8.f,
                    static_cast<float>(previewRect.y + previewRect.height) - 20.f, 14.f,
                    Color{161, 161, 170, 220});
@@ -271,20 +288,21 @@ void renderSpriteAnimationTimelineThumbnails(
     const std::vector<ViewportRect>& thumbRects,
     TextureCache& textureCache,
     const std::unordered_map<AssetId, TextureRequest>& requests) {
-    if (thumbRects.empty() || clip.frames.empty()) return;
+    if (thumbRects.empty() || clip.frameIds.empty()) return;
+    const AssetId sheetId = asset.sourceImageAssetId;
     SceneFrameSprite requestSprite;
-    requestSprite.assetId = clip.imageId;
+    requestSprite.assetId = sheetId;
     requestSprite.visible = true;
     textureCache.prepare({requestSprite}, requests);
-    const TextureResource* resource = textureCache.find(clip.imageId);
+    const TextureResource* resource = textureCache.find(sheetId);
     if (!resource || !resource->loaded) return;
 
-    const std::size_t count = std::min(thumbRects.size(), clip.frames.size());
+    const std::size_t count = std::min(thumbRects.size(), clip.frameIds.size());
     for (std::size_t i = 0; i < count; ++i) {
         const ViewportRect& slot = thumbRects[i];
         if (!slot.valid()) continue;
-        const SpriteAnimationFrameDef& frame = clip.frames[i];
-        if (frame.width <= 0 || frame.height <= 0) continue;
+        const SpriteFrameDef* frame = findFrame(asset, clip.frameIds[i]);
+        if (!frame || frame->width <= 0 || frame->height <= 0) continue;
         BeginScissorMode(slot.x, slot.y, slot.width, slot.height);
         const Rectangle slotArea{
             static_cast<float>(slot.x), static_cast<float>(slot.y),
@@ -292,18 +310,18 @@ void renderSpriteAnimationTimelineThumbnails(
         drawTransparencyChecker(slotArea, slotArea);
         // Pixel-friendly: integer upscale when the frame fits, plain fit otherwise.
         float scale = std::min(
-            static_cast<float>(slot.width)  / static_cast<float>(frame.width),
-            static_cast<float>(slot.height) / static_cast<float>(frame.height));
+            static_cast<float>(slot.width)  / static_cast<float>(frame->width),
+            static_cast<float>(slot.height) / static_cast<float>(frame->height));
         if (scale > 1.f) scale = std::floor(scale);
         if (scale <= 0.f) { EndScissorMode(); continue; }
         const Rectangle source{
-            static_cast<float>(frame.x), static_cast<float>(frame.y),
-            static_cast<float>(frame.width), static_cast<float>(frame.height)};
+            static_cast<float>(frame->x), static_cast<float>(frame->y),
+            static_cast<float>(frame->width), static_cast<float>(frame->height)};
         const Rectangle dest{
-            slot.x + (slot.width  - frame.width  * scale) * 0.5f,
-            slot.y + (slot.height - frame.height * scale) * 0.5f,
-            frame.width * scale,
-            frame.height * scale};
+            slot.x + (slot.width  - frame->width  * scale) * 0.5f,
+            slot.y + (slot.height - frame->height * scale) * 0.5f,
+            frame->width * scale,
+            frame->height * scale};
         DrawTexturePro(resource->texture, source, dest, Vector2{0.f, 0.f}, 0.f, WHITE);
         EndScissorMode();
     }

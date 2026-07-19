@@ -67,7 +67,8 @@ class RemoveSpriteAnimationAssetCommand;
 class AddAnimationClipCommand;
 class RenameAnimationClipCommand;
 class RemoveAnimationClipCommand;
-class SetAnimationClipFramesCommand;
+class ReplaceAnimationFramesCommand;
+class SetAnimationClipFrameIdsCommand;
 class SetAnimationClipFrameRateCommand;
 class SetAnimationClipPlaybackModeCommand;
 class AddTilemapComponentCommand;
@@ -250,7 +251,11 @@ private:
     friend class AddAnimationClipCommand;
     friend class RenameAnimationClipCommand;
     friend class RemoveAnimationClipCommand;
-    friend class SetAnimationClipFramesCommand;
+    friend class ReplaceAnimationFramesCommand;
+    friend class ReplaceAnimationSourceImageCommand;
+    friend class DuplicateSpriteAnimationAssetCommand;
+    friend class DuplicateAnimationClipCommand;
+    friend class SetAnimationClipFrameIdsCommand;
     friend class SetAnimationClipFrameRateCommand;
     friend class SetAnimationClipPlaybackModeCommand;
     friend class AddTilemapComponentCommand;
@@ -374,8 +379,15 @@ private:
     bool addAnimationClip(const AssetId& assetId, SpriteAnimationClipDef clip);
     bool renameAnimationClip(const AssetId& assetId, const std::string& clipId, std::string name);
     bool removeAnimationClip(const AssetId& assetId, const std::string& clipId);
-    bool setAnimationClipFrames(const AssetId& assetId, const std::string& clipId,
-                                std::vector<SpriteAnimationFrameDef> frames);
+    // Replaces the asset frame pool and clears every clip's frameIds (sequences
+    // must be re-authored against the new pool).
+    bool replaceAnimationFrames(const AssetId& assetId, std::vector<SpriteFrameDef> frames);
+    bool setAnimationClipFrameIds(const AssetId& assetId, const std::string& clipId,
+                                  std::vector<SpriteFrameId> frameIds);
+    // Rebinds the sheet only while the frame pool and all clip sequences are empty.
+    bool setAnimationSourceImage(const AssetId& assetId, AssetId imageId);
+    // Atomic source change: new image, empty frame pool, empty clip sequences.
+    bool replaceAnimationSourceImage(const AssetId& assetId, AssetId imageId);
     bool setAnimationClipFrameRate(const AssetId& assetId, const std::string& clipId, float fps);
     bool setAnimationClipPlaybackMode(const AssetId& assetId, const std::string& clipId,
                                       AnimationPlaybackMode mode);

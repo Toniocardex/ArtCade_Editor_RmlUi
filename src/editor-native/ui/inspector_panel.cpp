@@ -40,7 +40,7 @@ std::string animationAssetLabel(const EditorCoordinator& coordinator, const Asse
     return assetDisplayName(asset ? asset->name : std::string(), id);
 }
 
-// SpriteAnimatorComponent::initialClipId is a stable id, not a display value
+// SpriteAnimatorComponent::defaultClipId is a stable id, not a display value
 // (the Sprite Animation Editor's rename only ever touches SpriteAnimationClipDef
 // ::name, never ::id, precisely so this reference survives a rename). Look the
 // clip up and show its current name instead, matching how the Sprite Animation
@@ -58,14 +58,12 @@ std::string animationClipDisplayName(const EditorCoordinator& coordinator,
     return clipId;
 }
 
-// True once some clip in some Sprite Animation asset already sources this
-// image - i.e. the raw sheet has been turned into an animation, so offering
-// it again as a plain static Source is clutter, not a real choice.
+// True once some Sprite Animation asset already sources this image - i.e. the
+// raw sheet has been turned into an animation, so offering it again as a plain
+// static Source is clutter, not a real choice.
 bool imageHasDerivedAnimation(const EditorCoordinator& coordinator, const AssetId& imageId) {
     for (const SpriteAnimationAssetDef& asset : coordinator.document().data().spriteAnimationAssets) {
-        for (const SpriteAnimationClipDef& clip : asset.clips) {
-            if (clip.imageId == imageId) return true;
-        }
+        if (asset.sourceImageAssetId == imageId) return true;
     }
     return false;
 }
@@ -616,6 +614,21 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 "<span class=\"prop-readonly";
         if (outside > 0) html += " warn";
         html += "\">" + std::to_string(outside) + "</span></div>";
+        const auto animationDiagnostics =
+            collectAnimationAuthoringDiagnostics(coordinator.document());
+        for (const AnimationAuthoringDiagnostic& diagnostic : animationDiagnostics) {
+            html += "<div class=\"prop-row\"><span class=\"prop-label warn\">"
+                  + escapeRml(diagnostic.code) + "</span>";
+            if (!diagnostic.animationAssetId.empty()) {
+                html += "<button class=\"panel-btn\" data-action=\"open-sprite-animation\" data-arg=\""
+                      + escapeRml(diagnostic.animationAssetId) + "\">"
+                      + escapeRml(diagnostic.message) + "</button>";
+            } else {
+                html += "<span class=\"prop-readonly warn\">"
+                      + escapeRml(diagnostic.message) + "</span>";
+            }
+            html += "</div>";
+        }
 
         body->SetInnerRML(finalizeSectionMarkup(html, collapsedSections_));
         if (layerRename_) focusSceneLayerRenameInput(document);
@@ -765,14 +778,16 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             html += "<span class=\"comp-badge override\">INSTANCE OVERRIDE</span>";
         }
         html += "</div>";
-        const std::string sourceLabel = !sr.animationAssetId.empty()
-            ? animationAssetLabel(coordinator, sr.animationAssetId)
+        const AssetId animationAssetId = presentation.animator
+            ? presentation.animator->animationAssetId : AssetId{};
+        const std::string sourceLabel = !animationAssetId.empty()
+            ? animationAssetLabel(coordinator, animationAssetId)
             : (sr.imageAssetId.empty() ? std::string("(none)") : sr.imageAssetId);
         const bool sourceOpen = openDropdownId_ == "sprite-source" && !playing;
         html += dropdownTrigger("Source", "sprite-source", sourceLabel, sourceOpen, playing);
         if (sourceOpen) {
             html += "<div class=\"drop-list\">";
-            const bool noneSelected = sr.animationAssetId.empty() && sr.imageAssetId.empty();
+            const bool noneSelected = animationAssetId.empty() && sr.imageAssetId.empty();
             html += "<div class=\"drop-entry";
             if (noneSelected) html += " selected";
             html += noneSelected
@@ -787,7 +802,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             // hides what's actually assigned.
             std::vector<const ImageAssetDef*> pickableImages;
             for (const ImageAssetDef& asset : coordinator.document().data().imageAssets) {
-                const bool isCurrent = sr.animationAssetId.empty() && asset.assetId == sr.imageAssetId;
+                const bool isCurrent = animationAssetId.empty() && asset.assetId == sr.imageAssetId;
                 if (isCurrent || !imageHasDerivedAnimation(coordinator, asset.assetId)) {
                     pickableImages.push_back(&asset);
                 }
@@ -796,7 +811,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 html += "<div class=\"asset-group-title\">Images</div>";
                 for (const ImageAssetDef* asset : pickableImages) {
                     const bool isCurrent =
-                        sr.animationAssetId.empty() && asset->assetId == sr.imageAssetId;
+                        animationAssetId.empty() && asset->assetId == sr.imageAssetId;
                     html += "<div class=\"drop-entry";
                     if (isCurrent) html += " selected";
                     html += isCurrent
@@ -811,7 +826,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             if (!animations.empty()) {
                 html += "<div class=\"asset-group-title\">Animations</div>";
                 for (const SpriteAnimationAssetDef& asset : animations) {
-                    const bool isCurrent = asset.id == sr.animationAssetId;
+                    const bool isCurrent = asset.id == animationAssetId;
                     html += "<div class=\"drop-entry";
                     if (isCurrent) html += " selected";
                     html += isCurrent
@@ -824,11 +839,11 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             }
             html += "</div>";
         }
-        if (!sr.animationAssetId.empty()) {
+        if (!animationAssetId.empty()) {
             // Navigates to view/edit the shared animation asset, not this
             // instance - unaffected by this instance's own layer lock.
             html += "<button class=\"" + btn + "\" data-action=\"open-sprite-animation\" data-arg=\""
-                  + escapeRml(sr.animationAssetId)
+                  + escapeRml(animationAssetId)
                   + "\"><span class=\"icon\">&#xeb0a;</span>Open Animation Editor</button>";
         }
         if (inst->spriteRendererOverride) {
@@ -837,25 +852,60 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         }
         if (type->spriteAnimator && presentation.animator) {
             const SpriteAnimatorComponent& animator = *presentation.animator;
+            const ResolvedSpriteAnimator resolvedAnimator =
+                resolveSpriteAnimator(*type, *inst);
+            const bool inherited = resolvedAnimator.origin == ComponentOrigin::EntityDefinition
+                && !resolvedAnimator.explicitPlaybackSpeed
+                && !resolvedAnimator.explicitAutoPlay
+                && !resolvedAnimator.explicitDefaultClip
+                && !resolvedAnimator.explicitAnimationAsset;
+            std::string animatorBadge = "OBJECT TYPE";
+            if (resolvedAnimator.origin == ComponentOrigin::InstanceOverride) {
+                animatorBadge = "INSTANCE OVERRIDE";
+            } else if (inherited) {
+                animatorBadge = "INHERITED";
+            }
             html += header("sprite-animator", isSectionCollapsed("sprite-animator"),
-                           "&#xeb0a;", "Sprite Animator", "OBJECT TYPE", "",
+                           "&#xeb0a;", "Sprite Animator", animatorBadge.c_str(), "",
                            "remove-sprite-animator-type", playing);
             html += typeOwnedLockNote;
-            html += "<div class=\"prop-row\"><span class=\"prop-label\">Initial Clip</span>"
+            if (inherited) {
+                html += "<div class=\"type-owned-note\">Inherited from Object Type. "
+                        "Edits change the type for every instance unless you Override.</div>";
+            }
+            html += "<div class=\"prop-row\"><span class=\"prop-label\">Default Clip</span>"
                     "<span class=\"prop-readonly\">"
-                  + escapeRml(animationClipDisplayName(coordinator, sr.animationAssetId,
-                                                       animator.initialClipId))
+                  + escapeRml(animationClipDisplayName(coordinator, animator.animationAssetId,
+                                                       animator.defaultClipId))
                   + "</span></div>";
-            html += field("Speed", "commit-animator-speed", num(animator.playbackSpeed), instanceDisabled);
-            if (inst->spriteAnimatorOverride && inst->spriteAnimatorOverride->playbackSpeed) {
+            // OT path by default — never silently write instance overrides.
+            if (resolvedAnimator.origin == ComponentOrigin::InstanceOverride) {
+                html += field("Speed", "commit-animator-speed", num(animator.playbackSpeed),
+                              instanceDisabled);
+                html += "<div class=\"prop-row\"><span class=\"prop-label\">Auto Play</span>"
+                        "<button class=\"" + instanceBtn
+                      + "\" data-action=\"toggle-animator-autoplay\">"
+                      + (animator.autoPlay ? std::string("On") : std::string("Off"))
+                      + "</button></div>";
+            } else {
+                html += field("Speed", "commit-animator-speed-ot", num(animator.playbackSpeed),
+                              playing);
+                html += "<div class=\"prop-row\"><span class=\"prop-label\">Auto Play</span>"
+                        "<button class=\"" + btn
+                      + "\" data-action=\"toggle-animator-autoplay-ot\">"
+                      + (animator.autoPlay ? std::string("On") : std::string("Off"))
+                      + "</button></div>";
+            }
+            if (resolvedAnimator.explicitPlaybackSpeed) {
                 html += "<div class=\"type-owned-note\">Playback Speed: INSTANCE OVERRIDE</div>";
             }
-            html += "<div class=\"prop-row\"><span class=\"prop-label\">Auto Play</span>"
-                    "<button class=\"" + instanceBtn + "\" data-action=\"toggle-animator-autoplay\">"
-                  + (animator.autoPlay ? std::string("On") : std::string("Off"))
-                  + "</button></div>";
-            if (inst->spriteAnimatorOverride && inst->spriteAnimatorOverride->autoPlay) {
+            if (resolvedAnimator.explicitAutoPlay) {
                 html += "<div class=\"type-owned-note\">Auto Play: INSTANCE OVERRIDE</div>";
+            }
+            if (resolvedAnimator.origin != ComponentOrigin::InstanceOverride) {
+                html += "<button class=\"" + instanceBtn
+                      + "\" data-action=\"override-animator-instance\">"
+                        "Override for this instance</button>";
             }
             if (inst->spriteAnimatorOverride) {
                 html += "<button class=\"" + instanceBtn

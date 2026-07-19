@@ -1,6 +1,7 @@
 #include "editor-native/commands/image_asset_commands.h"
 
 #include "editor-native/model/project_document.h"
+#include "editor-native/model/sprite_animation_references.h"
 
 #include <algorithm>
 #include <utility>
@@ -50,16 +51,12 @@ RemoveImageAssetCommand::RemoveImageAssetCommand(AssetId assetId)
 EditorOperationResult RemoveImageAssetCommand::apply(ProjectDocument& document) {
     const ImageAssetDef* current = document.findImageAsset(assetId_);
     if (!current) return EditorOperationResult::failure("Unknown image asset: " + assetId_);
-    // An animation clip's sheet is this image: removing the image would orphan
-    // the clip, so require the animation to go first (a structural parent, not a
+    // An animation asset's sheet is this image: removing the image would orphan
+    // the asset, so require the animation to go first (a structural parent, not a
     // loose reference). Sprite-renderer references below are cleared, not blocked.
-    for (const SpriteAnimationAssetDef& animation : document.data().spriteAnimationAssets) {
-        for (const SpriteAnimationClipDef& clip : animation.clips) {
-            if (clip.imageId == assetId_) {
-                return EditorOperationResult::failure(
-                    "Image asset is used by a sprite animation asset - remove that first");
-            }
-        }
+    if (!collectAnimationSourceReferences(document, assetId_).empty()) {
+        return EditorOperationResult::failure(
+            "Image asset is used by a sprite animation asset - remove that first");
     }
     if (!captured_) {
         const auto& assets = document.data().imageAssets;

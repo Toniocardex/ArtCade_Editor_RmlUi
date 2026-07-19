@@ -5,6 +5,7 @@
 #include "editor-native/model/sprite_render_view.h"
 #include "editor-native/model/tilemap_render_view.h"
 #include "logic-core.h"
+#include "sprite-animation-core.h"
 
 #include <algorithm>
 #include <cmath>
@@ -183,13 +184,12 @@ const SpriteAnimationClipDef* findAnimationClip(const SpriteAnimationAssetDef& a
 
 const RuntimeSpriteAnimationClip* findRuntimeAnimationClip(
     const RuntimeSpriteAnimationAsset& asset, const std::string& clipId) {
-    for (const RuntimeSpriteAnimationClip& clip : asset.clips) {
-        if (clip.id == clipId) return &clip;
-    }
-    return nullptr;
+    const auto it = asset.clipIndex.find(clipId);
+    if (it == asset.clipIndex.end() || it->second >= asset.clips.size()) return nullptr;
+    return &asset.clips[it->second];
 }
 
-AnimationFrameRect frameRect(const SpriteAnimationFrameDef& frame) {
+AnimationFrameRect frameRect(const SpriteFrameDef& frame) {
     return AnimationFrameRect{
         static_cast<float>(frame.x),
         static_cast<float>(frame.y),
@@ -198,27 +198,49 @@ AnimationFrameRect frameRect(const SpriteAnimationFrameDef& frame) {
     };
 }
 
+const SpriteFrameDef* findAssetFrame(const SpriteAnimationAssetDef& asset,
+                                     const SpriteFrameId& frameId) {
+    for (const SpriteFrameDef& frame : asset.frames) {
+        if (frame.id == frameId) return &frame;
+    }
+    return nullptr;
+}
+
 const Vec3* fillFor(const ProjectDocument& document, const std::string& typeId) {
     const auto& types = document.data().objectTypes;
     const auto it = types.find(typeId);
     return it == types.end() ? nullptr : &it->second.sprite.fillColor;
 }
 
-RuntimeSpriteAnimationAsset materializeSpriteAnimationAsset(
-    const SpriteAnimationAssetDef& asset) {
-    RuntimeSpriteAnimationAsset runtime;
-    runtime.id = asset.id;
-    runtime.clips.reserve(asset.clips.size());
+bool tryMaterializeSpriteAnimationAsset(const SpriteAnimationAssetDef& asset,
+                                        RuntimeSpriteAnimationAsset& out,
+                                        std::string* error) {
+    out = RuntimeSpriteAnimationAsset{};
+    out.id = asset.id;
+    out.sourceImageAssetId = asset.sourceImageAssetId;
+    out.clips.reserve(asset.clips.size());
     for (const SpriteAnimationClipDef& clip : asset.clips) {
-        runtime.clips.push_back(RuntimeSpriteAnimationClip{
-            clip.id,
-            clip.imageId,
-            clip.frames,
-            clip.framesPerSecond,
-            clip.playbackMode,
-        });
+        RuntimeSpriteAnimationClip runtimeClip;
+        runtimeClip.id = clip.id;
+        runtimeClip.framesPerSecond = clip.framesPerSecond;
+        runtimeClip.playbackMode = clip.playbackMode;
+        runtimeClip.frames.reserve(clip.frameIds.size());
+        for (const SpriteFrameId& frameId : clip.frameIds) {
+            const SpriteFrameDef* frame = findAssetFrame(asset, frameId);
+            if (!frame) {
+                if (error) {
+                    *error = "Cannot start Play: animation " + asset.id
+                           + " clip " + clip.id + " references missing frame "
+                           + frameId;
+                }
+                return false;
+            }
+            runtimeClip.frames.push_back(RuntimeAnimationFrame{frameRect(*frame)});
+        }
+        out.clipIndex.emplace(runtimeClip.id, out.clips.size());
+        out.clips.push_back(std::move(runtimeClip));
     }
-    return runtime;
+    return true;
 }
 
 // Mirrors the canonical runtime (World::tickLinearMovers): velocity is the
@@ -327,7 +349,9 @@ PlaySession::PlaySession(PlaySession&& other) noexcept
       logicScopesByEntity_(std::move(other.logicScopesByEntity_)),
       activeCollisionPairs_(std::move(other.activeCollisionPairs_)),
       pendingDestroy_(std::move(other.pendingDestroy_)),
-      pendingAudioCommands_(std::move(other.pendingAudioCommands_)) {
+      pendingAudioCommands_(std::move(other.pendingAudioCommands_)),
+      pendingAnimationEvents_(std::move(other.pendingAnimationEvents_)),
+      dispatchedAnimationEvents_(std::move(other.dispatchedAnimationEvents_)) {
     if (logicHost_) logicHost_->owner = this;
 }
 
@@ -349,6 +373,8 @@ PlaySession& PlaySession::operator=(PlaySession&& other) noexcept {
     activeCollisionPairs_ = std::move(other.activeCollisionPairs_);
     pendingDestroy_ = std::move(other.pendingDestroy_);
     pendingAudioCommands_ = std::move(other.pendingAudioCommands_);
+    pendingAnimationEvents_ = std::move(other.pendingAnimationEvents_);
+    dispatchedAnimationEvents_ = std::move(other.dispatchedAnimationEvents_);
     if (logicHost_) logicHost_->owner = this;
     return *this;
 }
@@ -428,21 +454,24 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
             if (error) *error = "Cannot start Play: animation source is missing";
             return false;
         }
-        for (const SpriteAnimationClipDef& clip : animation->clips) {
-            const ImageAssetDef* clipImage = findImageAsset(document, clip.imageId);
-            if (!clipImage) {
+        if (!animation->sourceImageAssetId.empty()) {
+            const ImageAssetDef* sheet =
+                findImageAsset(document, animation->sourceImageAssetId);
+            if (!sheet) {
                 if (error) {
-                    *error = "Cannot start Play: animation clip references missing image "
-                           + clip.imageId;
+                    *error = "Cannot start Play: animation references missing image "
+                           + animation->sourceImageAssetId;
                 }
                 return false;
             }
             session.assets_.imageAssets.emplace(
-                clipImage->assetId,
-                RuntimeImageAsset{clipImage->assetId, clipImage->sourcePath});
+                sheet->assetId, RuntimeImageAsset{sheet->assetId, sheet->sourcePath});
         }
-        session.spriteAnimationAssets_.emplace(
-            animation->id, materializeSpriteAnimationAsset(*animation));
+        RuntimeSpriteAnimationAsset runtime;
+        if (!tryMaterializeSpriteAnimationAsset(*animation, runtime, error)) {
+            return false;
+        }
+        session.spriteAnimationAssets_.emplace(animation->id, std::move(runtime));
         return true;
     };
 
@@ -565,6 +594,19 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
         if (objectTypeIt != document.data().objectTypes.end()) {
             presentation = resolveSpritePresentation(objectTypeIt->second, instance);
         }
+        if (sprite.animatorInvalid) {
+            if (error) {
+                *error = sprite.diagnosticMessage.empty()
+                    ? "Cannot start Play: SpriteAnimator is invalid"
+                    : ("Cannot start Play: " + sprite.diagnosticMessage);
+            }
+            return std::nullopt;
+        }
+        if (presentation.animator && !presentation.animator->animationAssetId.empty()
+            && (!sprite.present || sprite.assetId.empty())) {
+            if (error) *error = "Cannot start Play: animation source is incomplete";
+            return std::nullopt;
+        }
         if (sprite.present && !sprite.assetId.empty()) {
             const ImageAssetDef* image = findImageAsset(document, sprite.assetId);
             if (!image) {
@@ -579,35 +621,53 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
             session.assets_.imageAssets.emplace(
                 image->assetId, RuntimeImageAsset{image->assetId, image->sourcePath});
 
-            if (!sprite.animationAssetId.empty()) {
+            if (presentation.animator && !presentation.animator->animationAssetId.empty()) {
                 const SpriteAnimationAssetDef* animation =
-                    findSpriteAnimationAsset(document, sprite.animationAssetId);
-                if (!animation || !presentation.animator) {
+                    findSpriteAnimationAsset(document, presentation.animator->animationAssetId);
+                if (!animation) {
                     if (error) *error = "Cannot start Play: animation source is incomplete";
                     return std::nullopt;
                 }
                 const SpriteAnimationClipDef* clip =
-                    findAnimationClip(*animation, presentation.animator->initialClipId);
+                    findAnimationClip(*animation, presentation.animator->defaultClipId);
                 if (!clip) {
-                    if (error) *error = "Cannot start Play: initial animation clip is missing";
+                    if (!presentation.animator->defaultClipId.empty()) {
+                        if (error) {
+                            *error = "Cannot start Play: SpriteAnimator defaultClipId is missing";
+                        }
+                        return std::nullopt;
+                    }
+                    if (!animation->clips.empty()) clip = &animation->clips.front();
+                }
+                if (!clip) {
+                    if (error) *error = "Cannot start Play: default animation clip is missing";
                     return std::nullopt;
                 }
-                // Preload every clip's sheet up front so a clip switch never does
-                // file I/O inside the game loop (each clip owns its own image).
+                // Preload the shared sheet up front so a clip switch never does
+                // file I/O inside the game loop.
                 if (!preloadAnimationAsset(animation->id)) return std::nullopt;
+                const auto runtimeAssetIt = session.spriteAnimationAssets_.find(animation->id);
+                const RuntimeSpriteAnimationClip* runtimeClip =
+                    runtimeAssetIt == session.spriteAnimationAssets_.end()
+                    ? nullptr
+                    : findRuntimeAnimationClip(runtimeAssetIt->second, clip->id);
                 RuntimeSpriteAnimatorState animator;
                 animator.animationAssetId = animation->id;
                 animator.currentClipId = clip->id;
                 animator.playbackSpeed = presentation.animator->playbackSpeed;
-                animator.playing = presentation.animator->autoPlay && !clip->frames.empty();
+                animator.playing = presentation.animator->autoPlay
+                    && runtimeClip && !runtimeClip->frames.empty();
                 animator.finished = false;
-                // The rendered image follows the active clip's own sheet.
-                entity.sprite->assetId = clip->imageId;
-                if (!clip->frames.empty()) {
-                    entity.sprite->sourceRect = frameRect(clip->frames.front());
+                entity.sprite->assetId = animation->sourceImageAssetId;
+                if (runtimeClip && !runtimeClip->frames.empty()) {
+                    entity.sprite->sourceRect = runtimeClip->frames.front().sourceRect;
                     entity.sprite->hasSourceRect = true;
                 }
                 entity.spriteAnimator = std::move(animator);
+                if (entity.spriteAnimator->playing) {
+                    session.queueAnimationEvent(
+                        entity.id, AnimationRuntimeEventKind::Started, clip->id);
+                }
             }
         }
 
@@ -728,6 +788,10 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
         session.logicRuntime_->dispatchStart();
     }
     if (session.scriptRuntime_) session.scriptRuntime_->dispatchStart();
+
+    // AutoPlay Started pulses queued during entity materialize — drain once
+    // hosts are ready so Logic sees them on the first frame.
+    session.drainAnimationEventsToHosts();
 
     return session;
 }
@@ -871,6 +935,8 @@ bool PlaySession::playAnimationClip(EntityId id, const AssetId& animationAssetId
     if (!clip || clip->frames.empty() || clip->framesPerSecond <= 0.f) return false;
 
     RuntimeSpriteAnimatorState& animator = *entity->spriteAnimator;
+    // Clip change before Once end: no Finished on the old clip — only Started
+    // for the new play request (even when restarting the same clip).
     animator.animationAssetId = animationAssetId;
     animator.currentClipId = clipId;
     animator.currentFrameIndex = 0;
@@ -878,15 +944,17 @@ bool PlaySession::playAnimationClip(EntityId id, const AssetId& animationAssetId
     animator.playing = true;
     animator.finished = false;
 
-    entity->sprite->assetId = clip->imageAssetId;
-    entity->sprite->sourceRect = frameRect(clip->frames.front());
+    entity->sprite->assetId = assetIt->second.sourceImageAssetId;
+    entity->sprite->sourceRect = clip->frames.front().sourceRect;
     entity->sprite->hasSourceRect = true;
+    queueAnimationEvent(id, AnimationRuntimeEventKind::Started, clipId);
     return true;
 }
 
 bool PlaySession::stopAnimation(EntityId id) {
     RuntimeEntity* entity = findEntityMutable(id);
     if (!entity || !entity->spriteAnimator) return false;
+    // Stop: playing=false, keep frame; never emit Finished.
     entity->spriteAnimator->playing = false;
     return true;
 }
@@ -914,6 +982,44 @@ bool PlaySession::playSound(EntityId id, const AssetId& audioAssetId, float volu
 std::vector<RuntimeAudioCommand> PlaySession::drainAudioCommands() {
     std::vector<RuntimeAudioCommand> drained = std::move(pendingAudioCommands_);
     pendingAudioCommands_.clear();
+    return drained;
+}
+
+void PlaySession::queueAnimationEvent(EntityId entityId, AnimationRuntimeEventKind kind,
+                                      std::string clipId) {
+    pendingAnimationEvents_.push_back(
+        AnimationRuntimeEvent{entityId, kind, std::move(clipId)});
+}
+
+void PlaySession::drainAnimationEventsToHosts() {
+    if (pendingAnimationEvents_.empty()) return;
+    // Snapshot first so nested playAnimationClip from Logic handlers can queue
+    // new pulses without invalidating this drain or losing them to clear().
+    std::vector<AnimationRuntimeEvent> draining = std::move(pendingAnimationEvents_);
+    pendingAnimationEvents_.clear();
+    std::stable_sort(draining.begin(), draining.end(),
+        [](const AnimationRuntimeEvent& a, const AnimationRuntimeEvent& b) {
+            if (a.entityId != b.entityId) return a.entityId < b.entityId;
+            if (a.kind != b.kind) {
+                return static_cast<int>(a.kind) < static_cast<int>(b.kind);
+            }
+            return a.clipId < b.clipId;
+        });
+    for (const AnimationRuntimeEvent& event : draining) {
+        if (logicRuntime_) {
+            if (event.kind == AnimationRuntimeEventKind::Started) {
+                logicRuntime_->dispatchAnimationStarted(event.entityId);
+            } else {
+                logicRuntime_->dispatchAnimationFinished(event.entityId);
+            }
+        }
+        dispatchedAnimationEvents_.push_back(event);
+    }
+}
+
+std::vector<AnimationRuntimeEvent> PlaySession::drainAnimationEvents() {
+    std::vector<AnimationRuntimeEvent> drained = std::move(dispatchedAnimationEvents_);
+    dispatchedAnimationEvents_.clear();
     return drained;
 }
 
@@ -986,27 +1092,31 @@ void PlaySession::advance(float dt) {
             || animator.playbackSpeed <= 0.f) {
             continue;
         }
-        animator.elapsedSeconds += dt * animator.playbackSpeed;
-        const float frameDuration = 1.f / clip->framesPerSecond;
-        while (animator.elapsedSeconds >= frameDuration && animator.playing) {
-            animator.elapsedSeconds -= frameDuration;
-            if (animator.currentFrameIndex + 1 < clip->frames.size()) {
-                ++animator.currentFrameIndex;
-            } else if (clip->playbackMode == AnimationPlaybackMode::Loop) {
-                animator.currentFrameIndex = 0;
-            } else {
-                animator.finished = true;
-                animator.playing = false;
-            }
+        Animation::AnimationPlaybackCursor cursor;
+        cursor.frameIndex = animator.currentFrameIndex;
+        cursor.elapsedSeconds = animator.elapsedSeconds;
+        cursor.playbackSpeed = animator.playbackSpeed;
+        cursor.playing = animator.playing;
+        cursor.completed = animator.finished;
+        const Animation::AnimationAdvanceResult advanced = Animation::advanceAnimation(
+            clip->frames.size(), clip->framesPerSecond, clip->playbackMode, cursor, dt);
+        animator.currentFrameIndex = advanced.cursor.frameIndex;
+        animator.elapsedSeconds = advanced.cursor.elapsedSeconds;
+        animator.playing = advanced.cursor.playing;
+        animator.finished = advanced.cursor.completed;
+        if (advanced.completedThisStep) {
+            queueAnimationEvent(
+                entity.id, AnimationRuntimeEventKind::Finished, animator.currentClipId);
         }
         const std::size_t index =
             std::min(animator.currentFrameIndex, clip->frames.size() - 1);
-        // Texture follows the active clip's sheet (all clip images are preloaded),
-        // so a future clip switch changes both the region and the image with no I/O.
-        entity.sprite->assetId = clip->imageAssetId;
-        entity.sprite->sourceRect = frameRect(clip->frames[index]);
+        // Texture follows the asset sheet (preloaded), so a future clip switch
+        // changes the region with no I/O.
+        entity.sprite->assetId = assetIt->second.sourceImageAssetId;
+        entity.sprite->sourceRect = clip->frames[index].sourceRect;
         entity.sprite->hasSourceRect = true;
     }
+    drainAnimationEventsToHosts();
     // Authored velocity (LinearMover) routed through the one resolver.
     for (RuntimeEntity& entity : scene_.entities) {
         if (entity.destroyed) continue;
@@ -1089,6 +1199,9 @@ void PlaySession::update(const RuntimeInputSnapshot& input, float dt) {
     }
     dispatchCollisionTransitions();
     flushPendingDestroys();
+    // Logic/Script play_clip during update queues Started here; drain same frame
+    // so on_animation_started is not deferred until the next advance().
+    drainAnimationEventsToHosts();
 }
 
 bool PlaySession::setRuntimeStateNumber(const GameVariableId& id, double value) {

@@ -75,7 +75,7 @@ EditorOperationResult setSpriteRendererVisible(EditorCoordinator& coordinator, b
     delta.capabilityEnabled.reset();
     if (visible == type->spriteRenderer->visible) delta.visible.reset();
     else delta.visible = visible;
-    if (!delta.imageAssetId && !delta.animationAssetId && !delta.visible) {
+    if (!delta.imageAssetId && !delta.visible) {
         return coordinator.execute(ClearInstanceSpriteOverrideCommand{sceneId, id});
     }
     return coordinator.execute(SetInstanceSpriteOverrideCommand{sceneId, id, std::move(delta)});

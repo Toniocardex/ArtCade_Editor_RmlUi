@@ -138,7 +138,7 @@ void SpriteAnimationEditorController::refresh() {
     document_->PullToFront();
     const SpriteAnimationClipDef* selected = selectedAnimationClip(*asset, state);
     // The clip's frames are the sequence, shown 1:1 in the timeline.
-    const std::size_t displayedFrameCount = selected ? selected->frames.size() : 0;
+    const std::size_t displayedFrameCount = selected ? selected->frameIds.size() : 0;
     std::string html;
     html += "<div class=\"anim-editor-shell\">";
     html += "<div class=\"anim-editor-title\">"
@@ -183,7 +183,7 @@ void SpriteAnimationEditorController::refresh() {
         html += "<div class=\"" + cls + "\" data-action=\"select-animation-clip\" data-arg=\""
               + escapeRml(asset->id + "|" + clip.id) + "\">"
                 "<span class=\"anim-clip-name\">" + escapeRml(clip.name) + "</span>"
-                "<span class=\"anim-clip-count\">" + std::to_string(clip.frames.size())
+                "<span class=\"anim-clip-count\">" + std::to_string(clip.frameIds.size())
               + "</span></div>";
     }
     if (asset->clips.empty()) html += "<div class=\"assets-empty\">No clips yet</div>";
@@ -223,6 +223,27 @@ void SpriteAnimationEditorController::refresh() {
             " title=\"Divide the sheet into Cols x Rows frames, in reading order\">"
             "Slice into Frames</button>"
             "</div>";
+    if (state.pendingResliceConfirm) {
+        html += "<div class=\"anim-confirm\">Reslice clears every clip sequence. "
+                "<button class=\"panel-btn primary\" data-action=\"confirm-animation-reslice\">Confirm</button>"
+                "<button class=\"panel-btn\" data-action=\"cancel-animation-reslice\">Cancel</button></div>";
+    }
+    if (state.pendingSourceImageId) {
+        html += "<div class=\"anim-confirm\">Replace source image with "
+              + escapeRml(*state.pendingSourceImageId)
+              + " and clear frames/sequences? "
+                "<button class=\"panel-btn primary\" data-action=\"confirm-animation-source-image\">Confirm</button>"
+                "<button class=\"panel-btn\" data-action=\"cancel-animation-source-image\">Cancel</button></div>";
+    }
+    html += "<div class=\"anim-tool-group\"><span class=\"anim-tool-label\">Source</span>";
+    for (const ImageAssetDef& image : coordinator_.document().data().imageAssets) {
+        const bool current = image.assetId == asset->sourceImageAssetId;
+        html += "<button class=\"panel-btn";
+        if (current) html += " active";
+        html += "\" data-action=\"request-animation-source-image\" data-arg=\""
+              + escapeRml(image.assetId) + "\">" + escapeRml(image.assetId) + "</button>";
+    }
+    html += "</div>";
     if (asset->clips.empty()) {
         // Empty state sits where the user is looking (above the sheet), with
         // the primary action inline; the sidebar Add Clip stays as secondary
@@ -311,9 +332,14 @@ void SpriteAnimationEditorController::refresh() {
             // Head strip carries the order + remove (RmlUi, clickable); the thumb
             // sub-div below is the rect raylib paints the frame image into, so the
             // controls are never covered by the raylib overlay.
-            html += "<div id=\"anim-frame-chip-" + index + "\" class=\"anim-frame\""
-                    " data-action=\"set-animation-preview-frame\" data-arg=\"" + index
-                  + "\" title=\"Show this frame in the preview\">"
+            html += "<div id=\"anim-frame-chip-" + index + "\" class=\"anim-frame";
+            if (std::find(state.selectedTimelineIndices.begin(),
+                          state.selectedTimelineIndices.end(), i)
+                != state.selectedTimelineIndices.end()) {
+                html += " selected";
+            }
+            html += "\" data-action=\"select-animation-timeline-index\" data-arg=\"" + index
+                  + "\" title=\"Select this timeline occurrence\">"
                     "<div class=\"anim-frame-head\">"
                     "<span class=\"anim-frame-order\">" + std::to_string(i + 1) + "</span>"
                     "<span class=\"anim-frame-remove\" data-action=\"remove-animation-frame\""
@@ -377,12 +403,10 @@ bool SpriteAnimationEditorController::handleAction(const std::string& action, co
         const SpriteAnimationAssetDef* asset =
             coordinator_.document().findSpriteAnimationAsset(arg);
         if (asset) {
-            // The new clip inherits the sheet currently shown in the editor.
+            // The new clip shares the asset sheet; sequences are authored later.
             const std::string clipId = uniqueClipId(*asset);
             if (coordinator_.execute(AddAnimationClipCommand{
-                    arg, clipId, uniqueClipName(*asset),
-                    editorSheetImageId(*asset,
-                        coordinator_.state().spriteAnimationEditor.selectedClipId)}).ok) {
+                    arg, clipId, uniqueClipName(*asset)}).ok) {
                 coordinator_.apply(SelectAnimationClipIntent{arg, clipId});
             }
         }
@@ -441,12 +465,6 @@ bool SpriteAnimationEditorController::handleAction(const std::string& action, co
             coordinator_.apply(intent);
         }
     } else if (action == "slice-animation-grid") {
-        // Slice always targets the OPEN animation. Create + select a fresh clip
-        // when the open asset has no clip matching the current selection - either
-        // no clip yet (fresh Import Sheet) or a selection left over from another
-        // animation. This makes the selected clip and the open asset always agree,
-        // so a slice can never land on a different animation. Re-slicing a clip
-        // that does belong to the open asset is unchanged (fills it in place).
         const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
         if (state.openAssetId) {
             const SpriteAnimationAssetDef* asset =
@@ -461,14 +479,52 @@ bool SpriteAnimationEditorController::handleAction(const std::string& action, co
                 if (!selectionBelongsToOpenAsset) {
                     const std::string clipId = uniqueClipId(*asset);
                     if (coordinator_.execute(AddAnimationClipCommand{
-                            *state.openAssetId, clipId, uniqueClipName(*asset),
-                            editorSheetImageId(*asset, state.selectedClipId)}).ok) {
+                            *state.openAssetId, clipId, uniqueClipName(*asset)}).ok) {
                         coordinator_.apply(SelectAnimationClipIntent{*state.openAssetId, clipId});
                     }
+                }
+                const bool hasAuthoredContent = !asset->frames.empty()
+                    || std::any_of(asset->clips.begin(), asset->clips.end(),
+                                   [](const SpriteAnimationClipDef& clip) {
+                                       return !clip.frameIds.empty();
+                                   });
+                if (hasAuthoredContent) {
+                    coordinator_.apply(RequestAnimationResliceConfirmIntent{});
+                    return true;
                 }
             }
         }
         if (sliceRequest_) sliceRequest_();
+    } else if (action == "confirm-animation-reslice") {
+        coordinator_.apply(ConfirmAnimationResliceIntent{});
+        if (sliceRequest_) sliceRequest_();
+    } else if (action == "cancel-animation-reslice") {
+        coordinator_.apply(CancelAnimationResliceIntent{});
+    } else if (action == "request-animation-source-image") {
+        coordinator_.apply(RequestAnimationSourceImageIntent{arg});
+    } else if (action == "confirm-animation-source-image") {
+        const SpriteAnimationEditorState& state =
+            coordinator_.state().spriteAnimationEditor;
+        if (state.openAssetId && state.pendingSourceImageId) {
+            const AssetId assetId = *state.openAssetId;
+            const AssetId imageId = *state.pendingSourceImageId;
+            if (coordinator_.execute(ReplaceAnimationSourceImageCommand{assetId, imageId}).ok) {
+                coordinator_.apply(ConfirmAnimationSourceImageIntent{});
+            }
+        }
+    } else if (action == "cancel-animation-source-image") {
+        coordinator_.apply(CancelAnimationSourceImageIntent{});
+    } else if (action == "select-animation-timeline-index") {
+        const std::optional<float> parsed = parseNumberField(arg);
+        if (parsed.has_value() && *parsed >= 0.f) {
+            const std::size_t index = static_cast<std::size_t>(*parsed);
+            std::vector<std::size_t> indices =
+                coordinator_.state().spriteAnimationEditor.selectedTimelineIndices;
+            const auto it = std::find(indices.begin(), indices.end(), index);
+            if (it == indices.end()) indices.push_back(index);
+            else indices.erase(it);
+            coordinator_.apply(SetAnimationTimelineSelectionIntent{std::move(indices)});
+        }
     } else if (action == "toggle-animation-preview") {
         coordinator_.apply(SetAnimationPreviewPlayingIntent{
             !coordinator_.state().spriteAnimationEditor.previewPlaying});
@@ -483,10 +539,10 @@ bool SpriteAnimationEditorController::handleAction(const std::string& action, co
     } else if (action == "clear-animation-frames") {
         const std::vector<std::string> parts = splitPipe(arg);
         if (parts.size() == 2) {
-            coordinator_.execute(SetAnimationClipFramesCommand{parts[0], parts[1], {}});
+            coordinator_.execute(SetAnimationClipFrameIdsCommand{parts[0], parts[1], {}});
         }
     } else if (action == "remove-animation-frame") {
-        // Removes the i-th timeline chip, which maps 1:1 to the clip's frames.
+        // Removes the i-th timeline chip, which maps 1:1 to the clip's frameIds.
         const std::optional<float> parsed = parseNumberField(arg);
         const SpriteAnimationEditorState& state = coordinator_.state().spriteAnimationEditor;
         if (parsed.has_value() && *parsed >= 0.f && state.openAssetId) {
@@ -495,12 +551,12 @@ bool SpriteAnimationEditorController::handleAction(const std::string& action, co
             const SpriteAnimationClipDef* clip =
                 asset ? selectedAnimationClip(*asset, state) : nullptr;
             if (clip) {
-                std::vector<SpriteAnimationFrameDef> frames = clip->frames;
+                std::vector<SpriteFrameId> frameIds = clip->frameIds;
                 const std::size_t index = static_cast<std::size_t>(*parsed);
-                if (index < frames.size()) {
-                    frames.erase(frames.begin() + static_cast<std::ptrdiff_t>(index));
-                    coordinator_.execute(SetAnimationClipFramesCommand{
-                        asset->id, clip->id, std::move(frames)});
+                if (index < frameIds.size()) {
+                    frameIds.erase(frameIds.begin() + static_cast<std::ptrdiff_t>(index));
+                    coordinator_.execute(SetAnimationClipFrameIdsCommand{
+                        asset->id, clip->id, std::move(frameIds)});
                 }
             }
         }

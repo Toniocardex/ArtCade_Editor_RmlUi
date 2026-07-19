@@ -166,17 +166,22 @@ struct RuntimeImageAsset {
     std::string sourcePath;
 };
 
+struct RuntimeAnimationFrame {
+    AnimationFrameRect sourceRect{};
+};
+
 struct RuntimeSpriteAnimationClip {
     std::string id;
-    AssetId imageAssetId;     // the clip's own sheet
-    std::vector<SpriteAnimationFrameDef> frames;
-    float framesPerSecond = 8.f;
+    std::vector<RuntimeAnimationFrame> frames; // denormalized rects in frameIds order
+    float framesPerSecond = 12.f;
     AnimationPlaybackMode playbackMode = AnimationPlaybackMode::Loop;
 };
 
 struct RuntimeSpriteAnimationAsset {
     AssetId id;
-    std::vector<RuntimeSpriteAnimationClip> clips;
+    AssetId sourceImageAssetId;
+    std::vector<RuntimeSpriteAnimationClip> clips; // deterministic order
+    std::unordered_map<std::string, std::size_t> clipIndex; // id -> index in clips
 };
 
 struct RuntimeAudioAsset {
@@ -200,6 +205,16 @@ struct RuntimeAudioCommand {
     EntityId owner = INVALID_ENTITY;
     AssetId audioAssetId;
     float volume = 1.f;
+};
+
+// Pulse events produced while advancing playheads. Never dispatched inside
+// advanceAnimation — queued here, then drained to Logic/Script host.
+enum class AnimationRuntimeEventKind { Started, Finished };
+
+struct AnimationRuntimeEvent {
+    EntityId entityId = INVALID_ENTITY;
+    AnimationRuntimeEventKind kind = AnimationRuntimeEventKind::Started;
+    std::string clipId;
 };
 
 // Runtime side of Play/Stop. It is built once from ProjectDocument at Start
@@ -252,6 +267,9 @@ public:
     // Raylib/RmlUi, same invariant as `update()` above.
     std::vector<RuntimeAudioCommand> drainAudioCommands();
     std::vector<Scripts::ScriptRuntimeDiagnostic> drainScriptDiagnostics();
+    // Moves pending animation Started/Finished pulses out for tests/hosts.
+    // Logic dispatch happens inside advance(); this drain is residual-only.
+    std::vector<AnimationRuntimeEvent> drainAnimationEvents();
     const Scripts::ScriptRuntime* scriptRuntime() const { return scriptRuntime_.get(); }
 
 private:
@@ -280,6 +298,9 @@ private:
     void refreshStaticCollider(EntityId owner);
     void dispatchCollisionTransitions();
     void flushPendingDestroys();
+    void queueAnimationEvent(EntityId entityId, AnimationRuntimeEventKind kind,
+                             std::string clipId);
+    void drainAnimationEventsToHosts();
     bool playAnimationClip(EntityId id, const AssetId& animationAssetId,
                            const std::string& clipId);
     bool stopAnimation(EntityId id);
@@ -294,6 +315,8 @@ private:
     RuntimeScene scene_;
     PlayAssetCatalogSnapshot assets_;
     std::vector<RuntimeAudioCommand> pendingAudioCommands_;
+    std::vector<AnimationRuntimeEvent> pendingAnimationEvents_;
+    std::vector<AnimationRuntimeEvent> dispatchedAnimationEvents_;
     std::unordered_map<AssetId, RuntimeSpriteAnimationAsset> spriteAnimationAssets_;
     // Obstacle colliders frozen at materialize: enabled Solid / OneWayPlatform
     // colliders on non-movers (mover-vs-mover is out of scope). Trigger is

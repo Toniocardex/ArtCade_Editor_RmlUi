@@ -23,6 +23,7 @@ add_library(artcade-editor-core STATIC
     editor-native/model/box_collider_view.cpp
     editor-native/model/scene_frame_snapshot.cpp
     editor-native/model/sprite_render_view.cpp
+    editor-native/model/sprite_animation_references.cpp
     editor-native/model/sprite_animation_slicing.cpp
     editor-native/model/tileset_slicing.cpp
     editor-native/model/tilemap_chunk_math.cpp
@@ -81,6 +82,7 @@ target_link_libraries(artcade-editor-core PUBLIC
     artcade-logic-core
     artcade-logic-runtime
     artcade-script-runtime
+    artcade-sprite-animation-core
     ArtCade::Sfx
     lua54
 )

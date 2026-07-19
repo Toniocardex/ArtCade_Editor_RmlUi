@@ -157,7 +157,7 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
     // -- Animations: clip containers created from an image ---------------------
     groups += groupTitle("Animations", doc.spriteAnimationAssets.size());
     for (const SpriteAnimationAssetDef& asset : doc.spriteAnimationAssets) {
-        const std::string source = asset.clips.empty() ? std::string() : asset.clips.front().imageId;
+        const std::string source = asset.sourceImageAssetId;
         if (matchesAssetFilter(filter, {asset.name, asset.id, "Animations", source})) {
             groups += assetRow("&#xed46;", assetDisplayName(asset.name, asset.id),
                                asset.id, "open-sprite-animation", asset.id, "",

@@ -10,8 +10,8 @@
 
 namespace ArtCade::EditorNative {
 
-// Creates an animation asset together with its initial sheet-backed clip as
-// one atomic authoring operation and one Undo step.
+// Creates an animation asset with a source sheet and one empty clip as one
+// atomic authoring operation and one Undo step.
 class CreateSpriteAnimationAssetCommand final : public EditorCommand {
 public:
     CreateSpriteAnimationAssetCommand(AssetId assetId, std::string name,
@@ -29,8 +29,8 @@ private:
     AssetId imageId_;
 };
 
-// An animation asset is an empty character container; clips (each with their own
-// sheet) are added afterwards via AddAnimationClipCommand.
+// An animation asset is an empty character container; clips are added afterwards
+// via AddAnimationClipCommand.
 class AddSpriteAnimationAssetCommand final : public EditorCommand {
 public:
     AddSpriteAnimationAssetCommand(AssetId assetId, std::string name);
@@ -51,20 +51,24 @@ public:
     const char* name() const override { return "RemoveSpriteAnimationAsset"; }
 
 private:
-    // A renderer (and its optional animator) that referenced this animation;
-    // cleared on remove, restored verbatim on undo, so delete leaves nothing
-    // dangling on the entity.
+    // An animator that referenced this animation; cleared on remove, restored
+    // verbatim on undo, so delete leaves nothing dangling on the entity.
     struct ClearedTypeRef {
         ObjectTypeId objectTypeId;
-        SpriteRendererComponent renderer{};
-        std::optional<SpriteAnimatorComponent> animator;
+        SpriteAnimatorComponent animator{};
     };
     struct ClearedOverrideRef {
         SceneId  sceneId;
         EntityId entityId;
-        std::optional<SpriteRendererOverride> renderer;
         std::optional<SpriteAnimatorOverride> animator;
         bool clearExplicitAnimation = false;
+    };
+    struct ClearedLogicRef {
+        ObjectTypeId objectTypeId;
+        std::string ruleId;
+        std::size_t actionIndex = 0;
+        AssetId previousAnimationAssetId;
+        std::string previousClipId;
     };
     AssetId assetId_;
     SpriteAnimationAssetDef removed_{};
@@ -72,14 +76,12 @@ private:
     bool captured_ = false;
     std::vector<ClearedTypeRef> clearedTypeRefs_;
     std::vector<ClearedOverrideRef> clearedOverrideRefs_;
+    std::vector<ClearedLogicRef> clearedLogicRefs_;
 };
 
-// Adds a clip carrying its own sheet (imageId). The first clip of an asset also
-// becomes its defaultClipId (handled by the document verb).
 class AddAnimationClipCommand final : public EditorCommand {
 public:
-    AddAnimationClipCommand(AssetId assetId, std::string clipId, std::string name,
-                            AssetId imageId);
+    AddAnimationClipCommand(AssetId assetId, std::string clipId, std::string name);
     EditorOperationResult apply(ProjectDocument& document) override;
     EditorOperationResult undo(ProjectDocument& document) override;
     const char* name() const override { return "AddAnimationClip"; }
@@ -88,7 +90,6 @@ private:
     AssetId assetId_;
     std::string clipId_;
     std::string name_;
-    AssetId imageId_;
 };
 
 class RenameAnimationClipCommand final : public EditorCommand {
@@ -120,19 +121,92 @@ private:
     bool captured_ = false;
 };
 
-class SetAnimationClipFramesCommand final : public EditorCommand {
+// Replaces the asset frame pool and clears every clip's frameIds. Undo restores
+// the previous frames and each clip's previous frameId sequence.
+class ReplaceAnimationFramesCommand final : public EditorCommand {
 public:
-    SetAnimationClipFramesCommand(AssetId assetId, std::string clipId,
-                                  std::vector<SpriteAnimationFrameDef> frames);
+    ReplaceAnimationFramesCommand(AssetId assetId, std::vector<SpriteFrameDef> frames);
     EditorOperationResult apply(ProjectDocument& document) override;
     EditorOperationResult undo(ProjectDocument& document) override;
-    const char* name() const override { return "SetAnimationClipFrames"; }
+    const char* name() const override { return "ReplaceAnimationFrames"; }
+
+private:
+    struct ClipFrameIds {
+        AnimationClipId clipId;
+        std::vector<SpriteFrameId> frameIds;
+    };
+    AssetId assetId_;
+    std::vector<SpriteFrameDef> next_;
+    std::vector<SpriteFrameDef> previousFrames_;
+    std::vector<ClipFrameIds> previousSequences_;
+    bool captured_ = false;
+};
+
+// Atomic source-image change: new sheet + empty frame pool + empty sequences.
+class ReplaceAnimationSourceImageCommand final : public EditorCommand {
+public:
+    ReplaceAnimationSourceImageCommand(AssetId assetId, AssetId imageId);
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "ReplaceAnimationSourceImage"; }
+
+private:
+    struct ClipFrameIds {
+        AnimationClipId clipId;
+        std::vector<SpriteFrameId> frameIds;
+    };
+    AssetId assetId_;
+    AssetId nextImageId_;
+    AssetId previousImageId_;
+    std::vector<SpriteFrameDef> previousFrames_;
+    std::vector<ClipFrameIds> previousSequences_;
+    bool captured_ = false;
+};
+
+// Deep-copies an animation asset with remapped frame/clip ids; same source sheet.
+class DuplicateSpriteAnimationAssetCommand final : public EditorCommand {
+public:
+    DuplicateSpriteAnimationAssetCommand(AssetId sourceAssetId, AssetId newAssetId,
+                                         std::string newName);
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "DuplicateSpriteAnimationAsset"; }
+
+private:
+    AssetId sourceAssetId_;
+    AssetId newAssetId_;
+    std::string newName_;
+};
+
+// Copies a clip inside the same asset; frameIds stay pool-shared.
+class DuplicateAnimationClipCommand final : public EditorCommand {
+public:
+    DuplicateAnimationClipCommand(AssetId assetId, std::string sourceClipId,
+                                  std::string newClipId, std::string newName);
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "DuplicateAnimationClip"; }
+
+private:
+    AssetId assetId_;
+    std::string sourceClipId_;
+    std::string newClipId_;
+    std::string newName_;
+};
+
+class SetAnimationClipFrameIdsCommand final : public EditorCommand {
+public:
+    SetAnimationClipFrameIdsCommand(AssetId assetId, std::string clipId,
+                                    std::vector<SpriteFrameId> frameIds);
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "SetAnimationClipFrameIds"; }
 
 private:
     AssetId assetId_;
     std::string clipId_;
-    std::vector<SpriteAnimationFrameDef> next_;
-    std::vector<SpriteAnimationFrameDef> previous_;
+    std::vector<SpriteFrameId> next_;
+    std::vector<SpriteFrameId> previous_;
     bool captured_ = false;
 };
 

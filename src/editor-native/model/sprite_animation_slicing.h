@@ -17,7 +17,7 @@ struct SpriteAnimationSliceGrid {
 int spriteAnimationSliceCellCount(int imageWidth, int imageHeight,
                                   const SpriteAnimationSliceGrid& grid);
 
-std::optional<SpriteAnimationFrameDef> spriteAnimationFrameForCell(
+std::optional<SpriteFrameDef> spriteAnimationFrameForCell(
     int imageWidth, int imageHeight, const SpriteAnimationSliceGrid& grid, int cellIndex);
 
 // Derives the pixel cell size from a frame count (columns x rows). This is the
@@ -28,7 +28,8 @@ std::optional<SpriteAnimationFrameDef> spriteAnimationFrameForCell(
 std::optional<SpriteAnimationSliceGrid> spriteAnimationGridFromCellCounts(
     int imageWidth, int imageHeight, int columns, int rows, int margin, int spacing);
 
-std::vector<SpriteAnimationFrameDef> spriteAnimationFramesForGrid(
+// Emits SpriteFrameDef entries with generated ids ("frame-1", "frame-2", ...).
+std::vector<SpriteFrameDef> spriteAnimationFramesForGrid(
     int imageWidth, int imageHeight, const SpriteAnimationSliceGrid& grid);
 
 } // namespace ArtCade::EditorNative

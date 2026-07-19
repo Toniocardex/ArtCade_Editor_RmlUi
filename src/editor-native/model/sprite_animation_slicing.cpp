@@ -1,6 +1,7 @@
 #include "editor-native/model/sprite_animation_slicing.h"
 
 #include <algorithm>
+#include <string>
 
 namespace ArtCade::EditorNative {
 
@@ -20,7 +21,7 @@ int spriteAnimationSliceCellCount(int imageWidth, int imageHeight,
     return cols * rows;
 }
 
-std::optional<SpriteAnimationFrameDef> spriteAnimationFrameForCell(
+std::optional<SpriteFrameDef> spriteAnimationFrameForCell(
     int imageWidth, int imageHeight, const SpriteAnimationSliceGrid& grid, int cellIndex) {
     const int count = spriteAnimationSliceCellCount(imageWidth, imageHeight, grid);
     if (cellIndex < 0 || cellIndex >= count) return std::nullopt;
@@ -30,7 +31,13 @@ std::optional<SpriteAnimationFrameDef> spriteAnimationFrameForCell(
     const int row = cellIndex / cols;
     const int x = grid.margin + col * (grid.frameWidth + grid.spacing);
     const int y = grid.margin + row * (grid.frameHeight + grid.spacing);
-    return SpriteAnimationFrameDef{x, y, grid.frameWidth, grid.frameHeight};
+    SpriteFrameDef frame;
+    frame.id = "frame-" + std::to_string(cellIndex + 1);
+    frame.x = x;
+    frame.y = y;
+    frame.width = grid.frameWidth;
+    frame.height = grid.frameHeight;
+    return frame;
 }
 
 std::optional<SpriteAnimationSliceGrid> spriteAnimationGridFromCellCounts(
@@ -50,13 +57,13 @@ std::optional<SpriteAnimationSliceGrid> spriteAnimationGridFromCellCounts(
     return grid;
 }
 
-std::vector<SpriteAnimationFrameDef> spriteAnimationFramesForGrid(
+std::vector<SpriteFrameDef> spriteAnimationFramesForGrid(
     int imageWidth, int imageHeight, const SpriteAnimationSliceGrid& grid) {
-    std::vector<SpriteAnimationFrameDef> frames;
+    std::vector<SpriteFrameDef> frames;
     const int count = spriteAnimationSliceCellCount(imageWidth, imageHeight, grid);
     frames.reserve(static_cast<std::size_t>(count > 0 ? count : 0));
     for (int i = 0; i < count; ++i) {
-        if (const std::optional<SpriteAnimationFrameDef> frame =
+        if (const std::optional<SpriteFrameDef> frame =
                 spriteAnimationFrameForCell(imageWidth, imageHeight, grid, i)) {
             frames.push_back(*frame);
         }

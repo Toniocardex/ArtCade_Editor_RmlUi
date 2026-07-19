@@ -70,7 +70,7 @@ static void testCommandsAndPersistence() {
 
     const auto serialized = ProjectSerializer::serialize(coordinator.document());
     CHECK(serialized.ok);
-    CHECK(serialized.value.find("\"formatVersion\": 8") != std::string::npos);
+    CHECK(serialized.value.find("\"formatVersion\": 9") != std::string::npos);
     const auto loaded = ProjectSerializer::deserialize(serialized.value);
     CHECK(loaded.ok);
     CHECK(loaded.value.data().objectTypes.at("Hero").logicBoard.has_value());
@@ -90,7 +90,7 @@ static void testCommandsAndPersistence() {
         while (end < v2.size() && (v2[end] == '\r' || v2[end] == '\n')) ++end;
         v2.erase(boardAt, end - boardAt);
     }
-    const std::string currentVersion = "\"formatVersion\": 8";
+    const std::string currentVersion = "\"formatVersion\": 9";
     const std::size_t version = v2.find(currentVersion);
     if (version != std::string::npos) {
         v2.replace(version, currentVersion.size(), "\"formatVersion\": 2");
@@ -99,7 +99,7 @@ static void testCommandsAndPersistence() {
     CHECK(migratedRaw.ok);
     auto migrated = ProjectMigration::migrate(std::move(migratedRaw.value));
     CHECK(migrated.ok);
-    CHECK(migrated.value.data().formatVersion == 8);
+    CHECK(migrated.value.data().formatVersion == 9);
     CHECK(!migrated.value.data().objectTypes.at("Hero").logicBoard.has_value());
 
     std::string malformed = serialized.value;
@@ -228,31 +228,31 @@ static ProjectDoc makeAnimationLogicProjectData() {
     SpriteAnimationAssetDef heroAnim;
     heroAnim.id = "hero.anim";
     heroAnim.name = "Hero Anim";
-    heroAnim.defaultClipId = "idle";
+    heroAnim.sourceImageAssetId = "img-hero";
+    heroAnim.frames.push_back(SpriteFrameDef{"f0", 0, 0, 32, 32});
     SpriteAnimationClipDef idle;
     idle.id = "idle";
     idle.name = "Idle";
-    idle.imageId = "img-hero";
-    idle.frames.push_back(SpriteAnimationFrameDef{0, 0, 32, 32});
+    idle.frameIds = {"f0"};
     heroAnim.clips.push_back(idle);
     doc.spriteAnimationAssets.push_back(heroAnim);
 
     SpriteAnimationAssetDef altAnim;
     altAnim.id = "alt.anim";
     altAnim.name = "Alt Anim";
-    altAnim.defaultClipId = "run";
+    altAnim.sourceImageAssetId = "img-alt";
+    altAnim.frames.push_back(SpriteFrameDef{"f0", 64, 0, 32, 32});
     SpriteAnimationClipDef run;
     run.id = "run";
     run.name = "Run";
-    run.imageId = "img-alt";
     run.framesPerSecond = 12.f;
-    run.frames.push_back(SpriteAnimationFrameDef{64, 0, 32, 32});
+    run.frameIds = {"f0"};
     altAnim.clips.push_back(run);
     doc.spriteAnimationAssets.push_back(altAnim);
 
     EntityDef& hero = doc.objectTypes.at("Hero");
-    hero.spriteRenderer = SpriteRendererComponent{{}, "hero.anim", true};
-    hero.spriteAnimator = SpriteAnimatorComponent{"idle", true, 1.f};
+    hero.spriteRenderer = SpriteRendererComponent{{}, true};
+    hero.spriteAnimator = SpriteAnimatorComponent{"hero.anim", "idle", true, 1.f};
     return doc;
 }
 
