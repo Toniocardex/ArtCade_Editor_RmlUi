@@ -162,10 +162,22 @@ EditorOperationResult EditorCoordinator::executeOwned(
 
     if (revisionAfter == revisionBefore) {
         // A no-op must declare neither a change nor an invalidation, and is not
-        // recorded (so it cannot be undone).
+        // recorded (so it cannot be undone). If a side effect already mutated
+        // the filesystem, roll it back — otherwise external artifacts can be
+        // deleted with no history entry.
         assert(result.change.isNone() && "no-op command reported a DomainChange");
         assert(result.invalidation == EditorInvalidation::None
                && "no-op command reported an invalidation");
+        if (sideEffect) {
+            const auto rollback = sideEffect->rollbackInitial();
+            if (!rollback.ok) {
+                appendConsole(ConsoleMessage::Level::Error,
+                    "Could not roll back external artifact after command no-op: "
+                        + rollback.error);
+                return EditorOperationResult::failure(
+                    "Command produced no authoring change and external rollback failed");
+            }
+        }
         return result;
     }
 

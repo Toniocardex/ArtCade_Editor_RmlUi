@@ -39,6 +39,7 @@ public:
     bool resolveUnsavedChanges();
     std::optional<AssetId> importAssetOfKind(AssetKind kind);
     std::optional<AssetId> createScript();
+    bool removeScript(const AssetId& assetId);
     bool openScript(const AssetId& assetId);
     bool saveScript(const AssetId& assetId);
     bool saveAllScripts();

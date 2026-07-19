@@ -68,7 +68,7 @@ if errorlevel 1 ( popd >nul & echo [FAIL] build failed. & exit /b 1 )
 
 if "!DO_TEST!"=="1" (
     echo [editor] Building + running editor core suites and sfx_synthesizer_test...
-    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target editor_core_test sprite_animation_test tileset_tilemap_test generated_sfx_model_test script_asset_test script_text_ops_test script_api_catalog_test generated_sfx_editor_controller_test generated_sfx_generation_service_test sfx_synthesizer_test
+    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target editor_core_test sprite_animation_test tileset_tilemap_test generated_sfx_model_test script_asset_test script_delete_disk_test script_text_ops_test script_api_catalog_test generated_sfx_editor_controller_test generated_sfx_generation_service_test sfx_synthesizer_test
     if errorlevel 1 ( popd >nul & echo [FAIL] test build failed. & exit /b 1 )
     "!BUILD_DIR!\tests\editor_core_test.exe"
     if errorlevel 1 ( popd >nul & echo [FAIL] editor_core_test failed. & exit /b 1 )
@@ -82,6 +82,8 @@ if "!DO_TEST!"=="1" (
     set "SCRIPT_ASSET_EC=!ERRORLEVEL!"
     echo script_asset_test exit=!SCRIPT_ASSET_EC!
     if not "!SCRIPT_ASSET_EC!"=="0" ( popd >nul & echo [FAIL] script_asset_test failed. & exit /b 1 )
+    "!BUILD_DIR!\tests\script_delete_disk_test.exe"
+    if not "!ERRORLEVEL!"=="0" ( popd >nul & echo [FAIL] script_delete_disk_test failed. & exit /b 1 )
     "!BUILD_DIR!\tests\script_text_ops_test.exe"
     if not "!ERRORLEVEL!"=="0" ( popd >nul & echo [FAIL] script_text_ops_test failed. & exit /b 1 )
     "!BUILD_DIR!\tests\script_api_catalog_test.exe"

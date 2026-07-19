@@ -17,6 +17,12 @@ UnsavedChoice confirmUnsavedChanges(const std::string& detail);
 // is resolved by the same resolveUnsavedGuard as the project-level guard.
 UnsavedChoice confirmTilesetUnappliedChanges();
 
+// Permanent Script Asset deletion including the confined .lua source file.
+// Yes = proceed; No/Cancel/dismiss = abort. Default is No (safe). Non-Windows
+// always returns false.
+bool confirmDeleteScriptAsset(const std::string& name,
+                              const std::string& relativeSourcePath);
+
 // Applying a re-slice that clears painted cells (their tile ids disappear
 // from the new tile list). Counts only — this layer stays platform glue with
 // no model knowledge. Returns true to proceed (apply and clear), false to

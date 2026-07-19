@@ -88,6 +88,22 @@ bool confirmTilesetResliceImpact(int removedReferencedTiles, int orphanedCells,
     return result == IDOK;
 }
 
+bool confirmDeleteScriptAsset(const std::string& name,
+                              const std::string& relativeSourcePath) {
+    const std::wstring wideName = widenAsciiUtf8(name);
+    const std::wstring widePath = widenAsciiUtf8(relativeSourcePath);
+    const std::wstring message =
+        L"Delete Script \"" + wideName + L"\" and permanently remove:\n\n"
+        + widePath
+        + L"\n\nUndo can restore the file contents recorded at deletion, "
+          L"but this cannot recover unsaved editor drafts discarded first.\n\n"
+          L"Delete Script and file?";
+    const int result = MessageBoxW(
+        GetActiveWindow(), message.c_str(), L"ArtCade Studio",
+        MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
+    return result == IDYES;
+}
+
 #else  // non-Windows: abort is the safe default (never silently lose changes).
 
 UnsavedChoice confirmUnsavedChanges() { return UnsavedChoice::Cancel; }
@@ -96,6 +112,8 @@ UnsavedChoice confirmUnsavedChanges(const std::string&) { return UnsavedChoice::
 UnsavedChoice confirmTilesetUnappliedChanges() { return UnsavedChoice::Cancel; }
 
 bool confirmTilesetResliceImpact(int, int, int) { return false; }
+
+bool confirmDeleteScriptAsset(const std::string&, const std::string&) { return false; }
 
 #endif
 

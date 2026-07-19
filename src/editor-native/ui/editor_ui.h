@@ -90,6 +90,7 @@ public:
     void setCreateScriptHandler(ProjectFileRequest createScript);
     using ScriptAssetRequest = std::function<void(const AssetId&)>;
     using ScriptCloseRequest = std::function<bool(const AssetId&)>;
+    void setRemoveScriptHandler(ScriptAssetRequest removeScript);
     void setScriptEditorHandlers(ScriptAssetRequest openScript,
                                  ScriptAssetRequest saveScript,
                                  ProjectFileRequest saveAllScripts,
@@ -314,6 +315,7 @@ private:
     ProjectFileRequest                  playCurrentSceneRequest_;
     ImportAssetRequest                  importAssetRequest_;
     ProjectFileRequest                  createScriptRequest_;
+    ScriptAssetRequest                  removeScriptRequest_;
     ScriptAssetRequest                  openScriptRequest_;
     ScriptAssetRequest                  saveScriptRequest_;
     WorkspaceRequest                    saveAllScriptsRequest_;

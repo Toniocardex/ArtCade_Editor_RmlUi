@@ -138,6 +138,7 @@ void ProjectSessionController::bindUi() {
         [this]() { requestPlayCurrentScene(); });
     ui_.setImportHandler([this](AssetKind kind) { importAssetOfKind(kind); });
     ui_.setCreateScriptHandler([this]() { createScript(); });
+    ui_.setRemoveScriptHandler([this](const AssetId& id) { removeScript(id); });
     ui_.setScriptEditorHandlers(
         [this](const AssetId& id) { openScript(id); },
         [this](const AssetId& id) { saveScript(id); },
@@ -356,6 +357,65 @@ std::optional<AssetId> ProjectSessionController::createScript() {
     }
     openScript(result.assetId);
     return result.assetId;
+}
+
+bool ProjectSessionController::removeScript(const AssetId& assetId) {
+    if (coordinator_.isPlaying()) {
+        coordinator_.logWarning("Stop Play before deleting scripts");
+        return false;
+    }
+    if (currentProjectPath_.empty()) {
+        coordinator_.logError("Delete script failed: save the project first");
+        return false;
+    }
+    const ScriptAssetDef* asset = coordinator_.document().findScriptAsset(assetId);
+    if (!asset) {
+        coordinator_.logError("Delete script failed: unknown script asset");
+        return false;
+    }
+    const std::vector<AssetId> referenced =
+        coordinator_.document().referencedScriptAssetIds(false);
+    if (std::find(referenced.begin(), referenced.end(), assetId) != referenced.end()) {
+        coordinator_.logError(
+            "Cannot remove Script Asset while it is attached to an Object Type");
+        return false;
+    }
+    const std::string name = !asset->name.empty() ? asset->name : assetId;
+    const std::string sourcePath = asset->sourcePath;
+    if (!confirmDeleteScriptAsset(name, sourcePath)) return false;
+
+    if (!closeScript(assetId)) return false;
+
+    // Revalidate after dialogs: attachments or identity may have changed.
+    asset = coordinator_.document().findScriptAsset(assetId);
+    if (!asset) {
+        coordinator_.logError("Delete script failed: script was removed while confirming");
+        return false;
+    }
+    const std::vector<AssetId> referencedAgain =
+        coordinator_.document().referencedScriptAssetIds(false);
+    if (std::find(referencedAgain.begin(), referencedAgain.end(), assetId)
+        != referencedAgain.end()) {
+        coordinator_.logError(
+            "Cannot remove Script Asset while it is attached to an Object Type");
+        return false;
+    }
+
+    const ScriptDirtyBufferQuery dirtyQuery =
+        [this](const AssetId& id) {
+            const ScriptEditorBuffer* buffer =
+                coordinator_.state().scriptEditor.find(id);
+            return buffer && buffer->dirty();
+        };
+    const ScriptAssetWorkflowResult result = removeScriptAsset(
+        coordinator_, currentProjectPath_.parent_path(), assetId, dirtyQuery);
+    if (!result.ok) {
+        coordinator_.logError(result.error);
+        return false;
+    }
+    coordinator_.logInfo("Deleted Script " + name);
+    refreshWindowTitleIfNeeded();
+    return true;
 }
 
 bool ProjectSessionController::openScript(const AssetId& assetId) {

@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace ArtCade::EditorNative {
 
@@ -40,6 +41,12 @@ struct ScriptFileFingerprint {
     }
 };
 
+// Exact on-disk bytes for delete/undo history. Never normalized.
+struct ScriptSourceBytes {
+    bool existed = false;
+    std::vector<std::uint8_t> bytes;
+};
+
 // The only project-script filesystem boundary. It owns no document metadata
 // and resolves every authored path relative to one explicit project root.
 class ProjectScriptFileService {
@@ -60,11 +67,36 @@ public:
     ScriptFileResult<std::filesystem::path> writeScriptAtomically(
         const std::filesystem::path& relativePath, std::string text) const;
 
+    // History / delete path: binary, no normalizeUtf8Lua. Final asset paths
+    // must remain project-relative .lua files within the 1 MiB limit.
+    ScriptFileResult<ScriptSourceBytes> readRawScriptIfExists(
+        const std::filesystem::path& relativePath) const;
+    ScriptFileResult<std::filesystem::path> writeRawScriptNoReplace(
+        const std::filesystem::path& relativePath,
+        const std::vector<std::uint8_t>& bytes) const;
+    // Absolute paths must already resolve under projectRoot_ (e.g. staging).
+    ScriptFileResult<std::filesystem::path> moveAbsoluteNoReplace(
+        const std::filesystem::path& source,
+        const std::filesystem::path& destination) const;
+    ScriptFileResult<ScriptSourceBytes> readRawAbsoluteIfExists(
+        const std::filesystem::path& absolutePath,
+        bool requireLuaExtension) const;
+    ScriptFileResult<std::filesystem::path> writeRawAbsoluteNoReplace(
+        const std::filesystem::path& absolutePath,
+        const std::vector<std::uint8_t>& bytes,
+        bool requireLuaExtension) const;
+    ScriptFileResult<bool> removeAbsoluteIfExists(
+        const std::filesystem::path& absolutePath) const;
+    ScriptFileResult<bool> removeScriptIfExists(
+        const std::filesystem::path& relativePath) const;
+
     static ScriptFileResult<std::string> normalizeUtf8Lua(std::string text);
 
 private:
+    PathConfinementResult confineAbsolutePath(
+        const std::filesystem::path& absolutePath) const;
+
     std::filesystem::path projectRoot_;
 };
 
 } // namespace ArtCade::EditorNative
-

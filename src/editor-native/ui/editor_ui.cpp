@@ -468,6 +468,7 @@ void EditorUi::detach() {
     saveProjectAsRequest_ = {};
     importAssetRequest_ = {};
     createScriptRequest_ = {};
+    removeScriptRequest_ = {};
     openScriptRequest_ = {};
     saveScriptRequest_ = {};
     saveAllScriptsRequest_ = {};
@@ -679,6 +680,10 @@ void EditorUi::setImportHandler(ImportAssetRequest importAsset) {
 
 void EditorUi::setCreateScriptHandler(ProjectFileRequest createScript) {
     createScriptRequest_ = std::move(createScript);
+}
+
+void EditorUi::setRemoveScriptHandler(ScriptAssetRequest removeScript) {
+    removeScriptRequest_ = std::move(removeScript);
 }
 
 void EditorUi::setScriptEditorHandlers(ScriptAssetRequest openScript,
@@ -2636,8 +2641,7 @@ bool EditorUi::handleAssetsAction(const std::string& action, const std::string& 
     } else if (action == "remove-font-asset") {
         if (!arg.empty()) coordinator_.execute(RemoveFontAssetCommand{arg});
     } else if (action == "remove-script-asset") {
-        if (!arg.empty() && (!closeScriptRequest_ || closeScriptRequest_(arg)))
-            coordinator_.execute(RemoveScriptAssetCommand{arg});
+        if (!arg.empty() && removeScriptRequest_) removeScriptRequest_(arg);
     } else {
         return false;
     }

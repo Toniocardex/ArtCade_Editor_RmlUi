@@ -31,6 +31,7 @@
 #include "editor-native/commands/font_asset_commands.h"
 #include "editor-native/commands/script_asset_commands.h"
 #include "editor-native/commands/script_attachment_commands.h"
+#include "editor-native/commands/editor_intent.h"
 #include "editor-native/commands/tileset_commands.h"
 #include "editor-native/commands/tilemap_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
@@ -60,6 +61,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include "artcade/sfx/presets.hpp"
 #include "artcade/sfx/synthesizer.hpp"
 
@@ -78,7 +80,24 @@ using namespace ArtCade;
 using namespace ArtCade::EditorNative;
 using namespace ArtCade::EditorNative::CoreTest;
 
+void testScriptDeleteDiskWorkflow() {
+    // Covered by script_delete_disk_test (separate suite avoids megatest stack
+    // pressure). Keep a smoke check that raw APIs remain linked here.
+    const std::filesystem::path deleteRoot = testTempDir() / "script-delete-disk-smoke";
+    std::error_code deleteEc;
+    std::filesystem::remove_all(deleteRoot, deleteEc);
+    std::filesystem::create_directories(deleteRoot / "scripts", deleteEc);
+    CHECK(!deleteEc);
+    ProjectScriptFileService deleteFiles{deleteRoot};
+    const std::vector<std::uint8_t> bomCrlf = {
+        0xef, 0xbb, 0xbf, 'r','e','t','u','r','n',' ','{','\r','\n','}','\r','\n'
+    };
+    CHECK(deleteFiles.writeRawScriptNoReplace("scripts/smoke.lua", bomCrlf).ok);
+    CHECK(deleteFiles.readRawScriptIfExists("scripts/smoke.lua").value.bytes == bomCrlf);
+}
+
 int main() {
+    testScriptDeleteDiskWorkflow();
 
     const std::filesystem::path root = testTempDir() / "script-project";
     std::error_code ec;
