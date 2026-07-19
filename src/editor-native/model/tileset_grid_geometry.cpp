@@ -61,18 +61,33 @@ std::optional<std::size_t> tilesetLinearIndexForGridCell(
 
 std::optional<TilemapCellCoord> tilesetGridCellForTileRect(
     const TilesetGridGeometry& geometry, const TileDefinition& tile) {
-    if (tile.width != geometry.tileWidth || tile.height != geometry.tileHeight) {
+    TilesetSlicing slicing;
+    slicing.tileWidth  = geometry.tileWidth;
+    slicing.tileHeight = geometry.tileHeight;
+    slicing.marginX    = geometry.marginX;
+    slicing.marginY    = geometry.marginY;
+    slicing.spacingX   = geometry.spacingX;
+    slicing.spacingY   = geometry.spacingY;
+    const std::optional<TilemapCellCoord> cell =
+        tilesetGridCellForTileRectUnbounded(slicing, tile);
+    if (!cell || !tilesetLinearIndexForGridCell(geometry, *cell)) return std::nullopt;
+    return cell;
+}
+
+std::optional<TilemapCellCoord> tilesetGridCellForTileRectUnbounded(
+    const TilesetSlicing& slicing, const TileDefinition& tile) {
+    if (slicing.tileWidth <= 0 || slicing.tileHeight <= 0) return std::nullopt;
+    if (slicing.spacingX < 0 || slicing.spacingY < 0) return std::nullopt;
+    if (tile.width != slicing.tileWidth || tile.height != slicing.tileHeight) {
         return std::nullopt;
     }
-    const int stepX = geometry.tileWidth + geometry.spacingX;
-    const int stepY = geometry.tileHeight + geometry.spacingY;
-    const int localX = tile.x - geometry.marginX;
-    const int localY = tile.y - geometry.marginY;
+    const int stepX = slicing.tileWidth + slicing.spacingX;
+    const int stepY = slicing.tileHeight + slicing.spacingY;
+    const int localX = tile.x - slicing.marginX;
+    const int localY = tile.y - slicing.marginY;
     if (localX < 0 || localY < 0) return std::nullopt;
     if (localX % stepX != 0 || localY % stepY != 0) return std::nullopt;
-    const TilemapCellCoord cell{localX / stepX, localY / stepY};
-    if (!tilesetLinearIndexForGridCell(geometry, cell)) return std::nullopt;
-    return cell;
+    return TilemapCellCoord{localX / stepX, localY / stepY};
 }
 
 } // namespace ArtCade::EditorNative

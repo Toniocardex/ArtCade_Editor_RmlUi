@@ -5571,16 +5571,19 @@ int main() {
 
         CHECK(c.apply(SelectEntityIntent{2}).ok);   // switch to the other tilemap
         CHECK(c.state().activeTool == EditorTool::Brush);         // tool stays
-        CHECK(!c.state().tilemapEditor.selectedTileId.has_value());   // "tile-4" doesn't exist in tiles-2
+        CHECK(!c.state().tilemapEditor.stamp.has_value());   // stamp came from tiles-1, target is tiles-2
 
         const TilemapComponent& tmAfter = *c.document().findInstanceInScene("s", 1)->tilemap;
         CHECK(readTilemapCell(tmAfter, {0, 0})->tileId == "tile-4");   // old tilemap untouched
 
-        // Switching back to a tile that IS valid in the new target keeps it.
+        // Provenance, not id matching: "tile-1" exists in BOTH tilesets, but a
+        // stamp selected while tiles-2 was the target is reset on switching to
+        // the tiles-1 tilemap - identically-named ids must never keep a stamp
+        // alive across tilesets.
         c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.state().tilemapEditor.stamp->sourceTilesetAssetId == "tiles-2");
         CHECK(c.apply(SelectEntityIntent{1}).ok);   // back to tiles-1, which also has "tile-1"
-        CHECK(c.state().tilemapEditor.selectedTileId.has_value());
-        CHECK(*c.state().tilemapEditor.selectedTileId == "tile-1");
+        CHECK(!c.state().tilemapEditor.stamp.has_value());
     }
 
     // -- Locking the active layer while its tilemap is selected: selection

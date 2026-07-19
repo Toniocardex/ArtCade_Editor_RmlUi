@@ -4,6 +4,7 @@
 
 #include "core/types.h"
 #include "editor-native/model/selection_state.h"
+#include "editor-native/model/tile_stamp.h"
 #include "editor-native/model/tilemap_cell_access.h"
 
 #include <algorithm>
@@ -34,6 +35,13 @@ namespace TilesetEditorViewLimits {
 constexpr float kZoomMin = 0.25f;
 constexpr float kZoomMax = 16.0f;
 } // namespace TilesetEditorViewLimits
+
+// Inspector Tile Palette sheet view (zoom 1.0 = fit-to-hole, like the Tileset
+// Editor's canvas whose limits it mirrors).
+namespace TilePaletteViewLimits {
+constexpr float kZoomMin = 0.25f;
+constexpr float kZoomMax = 16.0f;
+} // namespace TilePaletteViewLimits
 
 /** Per-scene editor camera. Stored by SceneId, not the gameplay camera. */
 struct EditorSceneViewState {
@@ -155,6 +163,12 @@ struct PendingTileStroke {
     SceneId    sceneId;
     EntityId   entityId = INVALID_ENTITY;
     EditorTool tool = EditorTool::Brush;   // Brush or Eraser only
+    // Brush only: the stamp captured once at stroke-begin (mirrors
+    // PendingTileRectangle's capture-once doctrine) - reselecting mid-drag
+    // never changes the stroke already in progress. Every interpolated brush
+    // position anchors one whole N x M footprint (stampPlacementsAt); the
+    // Eraser ignores this and stays a single-cell tool.
+    TilemapTileStamp stamp;
     std::optional<TilemapCellCoord>                     lastCell;
     std::unordered_map<std::int64_t, TilemapCellChange> changes;
 };
@@ -172,24 +186,39 @@ struct PendingTileStroke {
 struct PendingTileRectangle {
     SceneId          sceneId;
     EntityId         entityId = INVALID_ENTITY;
-    TilemapCell      replacement;
+    // Captured once at BeginTileRectangleIntent; the region repeats it as a
+    // pattern (stampPatternTileAt) anchored at startCell, holes skipped.
+    TilemapTileStamp stamp;
     bool             outlineOnly = false;
     TilemapCellCoord startCell;
     TilemapCellCoord currentCell;
     std::vector<TilemapCellChange> previewChanges;
 };
 
+// Per-tileset view of the Inspector's Tile Palette sheet (workspace-only,
+// never persisted, never dirties). Keyed by tileset asset id so two tilemaps
+// sharing a tileset share the view, while switching to a different tileset
+// never inherits a far-off pan/zoom meant for another sheet. Stale entries
+// (deleted tilesets) are pruned by reconcileTilemapEditingContext.
+struct TilePaletteViewState {
+    float zoom = 1.0f;   // multiplies the fit-to-hole base scale
+    Vec2  pan{};
+    bool  initialized = false;   // true once the user has zoomed/panned
+};
+
 // Workspace state for tilemap painting. Invariants: no ProjectDocument copy;
 // no duplicated "active entity" (read from SelectionState at stroke-begin,
 // then pinned into PendingTileStroke::entityId for that stroke only);
-// pendingStroke never persists past pointer-up/Escape/lost-focus;
-// selectedTileId is workspace-only (mirrors TilesetEditorState::
-// selectedTileId's identical optional<string> shape and "no sentinel for
-// empty" policy). pendingStroke and pendingRectangle are mutually exclusive:
-// EditorCoordinator rejects starting either while the other is set, and
-// switching EditorTool cancels whichever is pending.
+// pendingStroke never persists past pointer-up/Escape/lost-focus; the stamp
+// is workspace-only and carries its source tileset id - tile ids are only
+// unique within one tileset, so a stamp must never survive the tilemap
+// switching to a different tileset even if the ids happen to collide
+// (reconcileStampAgainstTileset). pendingStroke and pendingRectangle are
+// mutually exclusive: EditorCoordinator rejects starting either while the
+// other is set, and switching EditorTool cancels whichever is pending.
 struct TilemapEditorState {
-    std::optional<TileId>               selectedTileId;
+    std::optional<TilemapTileStamp>     stamp;
+    std::unordered_map<AssetId, TilePaletteViewState> paletteViews;
     std::optional<TilemapCellCoord>     hoveredCell;
     std::optional<PendingTileStroke>    pendingStroke;
     std::optional<PendingTileRectangle> pendingRectangle;
@@ -229,6 +258,10 @@ inline float clampSheetZoom(float v) {
 
 inline float clampTilesetEditorZoom(float v) {
     return std::clamp(v, TilesetEditorViewLimits::kZoomMin, TilesetEditorViewLimits::kZoomMax);
+}
+
+inline float clampTilePaletteZoom(float v) {
+    return std::clamp(v, TilePaletteViewLimits::kZoomMin, TilePaletteViewLimits::kZoomMax);
 }
 
 } // namespace ArtCade::EditorNative

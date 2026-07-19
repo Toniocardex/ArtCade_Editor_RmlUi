@@ -341,10 +341,11 @@ struct BeginTemporaryToolOverrideIntent {
 struct EndTemporaryToolOverrideIntent {};
 
 // Begins a paint/erase stroke at pointer-down: validates the target and
-// seeds PendingTileStroke with the first cell's change. Rejected (no
-// pendingStroke created) if the target has no TilemapComponent, its layer
-// is locked, Play is running, its tileset is missing, or (Brush only) no
-// tile is selected.
+// seeds PendingTileStroke with the first footprint's changes (the whole
+// N x M stamp anchored at `cell` for Brush; the single cell for Eraser).
+// Rejected (no pendingStroke created) if the target has no TilemapComponent,
+// its layer is locked, Play is running, its tileset is missing, or (Brush
+// only) no stamp is selected / the stamp belongs to a different tileset.
 struct BeginTilePaintStrokeIntent {
     SceneId          sceneId;
     EntityId         entityId = INVALID_ENTITY;
@@ -372,10 +373,36 @@ struct EndTilePaintStrokeIntent {};
 // call-site legibility.
 struct CancelTilePaintStrokeIntent {};
 
-// Picker: workspace-only tile selection. Produces no Undo, dirty, revision
-// bump, or tilemap mutation.
+// The canonical Tile Palette selection: an N x M stamp built from the sheet
+// (marquee, single click, picker, screenshot hooks - every selection path
+// converges here). Workspace-only: no Undo, dirty, revision bump, or tilemap
+// mutation. Rejected when the stamp is structurally invalid, names a tileset
+// other than the selected instance's tilemap tileset, or references tile ids
+// that tileset does not contain.
+struct SelectPaintStampIntent {
+    TilemapTileStamp stamp;
+};
+
+// Single-tile selection adapter (Picker, legacy callers): the coordinator
+// resolves the selected instance's tileset, wraps the id into a 1x1 stamp
+// with sheet provenance when the tile is grid-aligned, and delegates to
+// SelectPaintStampIntent. Never a second selection authority.
 struct SelectPaintTileIntent {
     TileId tileId;
+};
+
+// Tile Palette sheet navigation (workspace, per source tileset - see
+// TilePaletteViewState). Mirrors SetTilesetEditorZoomIntent/
+// PanTilesetEditorIntent, but keyed by tileset because the palette is not a
+// modal editor: whatever tileset the selected tilemap uses is the one shown.
+struct SetTilePaletteZoomIntent {
+    AssetId tilesetAssetId;
+    float   zoom = 1.0f;
+};
+
+struct PanTilePaletteIntent {
+    AssetId tilesetAssetId;
+    Vec2    delta;
 };
 
 // Hover highlight + "Empty cell" status text, updated every frame a paint
@@ -393,8 +420,8 @@ struct SetRectangleShapeModeIntent {
 };
 
 // Begins a Rectangle Solid/Outline drag at pointer-down. Mirrors
-// BeginTilePaintStrokeIntent's shape: the coordinator resolves the tile to
-// paint from TilemapEditorState::selectedTileId and the shape from
+// BeginTilePaintStrokeIntent's shape: the coordinator resolves the stamp to
+// repeat from TilemapEditorState::stamp and the shape from
 // TilemapEditorState::rectangleOutlineMode itself (not carried on the
 // intent), so both are captured exactly once, at this call, into
 // PendingTileRectangle. Rejected - no pendingRectangle created - under the
@@ -416,8 +443,8 @@ struct UpdateTileRectangleIntent {
 
 // Pointer-up: the single applicative operation for the whole drag. Rebuilds
 // the final delta from pendingRectangle's captured sceneId/entityId/
-// replacement/outlineOnly/startCell/currentCell (never "current selection",
-// never the live selectedTileId/rectangleOutlineMode), dispatches exactly one
+// stamp/outlineOnly/startCell/currentCell (never "current selection",
+// never the live stamp/rectangleOutlineMode), dispatches exactly one
 // PaintTilemapCellsCommand if the delta is non-empty and within
 // kMaxTilePaintOperationCells, then clears pendingRectangle unconditionally -
 // on success, on a too-large delta, on a vanished entity, and on an empty
@@ -429,10 +456,11 @@ struct CommitTileRectangleIntent {};
 struct CancelTileRectangleIntent {};
 
 // One click of the Fill tool: floods from `cell` (resolved to a
-// TilemapCellCoord by the router the same way paint/rectangle input is) using
-// the tile currently selected in TilemapEditorState::selectedTileId. Not a
-// drag - dispatches at most one PaintTilemapCellsCommand synchronously, no
-// pending workspace state, no preview cache.
+// TilemapCellCoord by the router the same way paint/rectangle input is),
+// repeating TilemapEditorState::stamp as a pattern anchored at `cell` (holes
+// skip cells without interrupting the traversal). Not a drag - dispatches at
+// most one PaintTilemapCellsCommand synchronously, no pending workspace
+// state, no preview cache.
 struct FillTilemapIntent {
     SceneId          sceneId;
     EntityId         entityId = INVALID_ENTITY;

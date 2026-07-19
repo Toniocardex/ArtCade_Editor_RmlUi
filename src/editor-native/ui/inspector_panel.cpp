@@ -3,6 +3,7 @@
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/commands/scene_layer_commands.h"
 #include "editor-native/model/authored_transform.h"
+#include "editor-native/model/tile_stamp.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_render_view.h"
 #include "editor-native/ui/editor_ui.h"
@@ -1021,7 +1022,13 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             // only owns layout and click/dblclick hit-testing here. A tile is
             // a visual element, not a string, so a text list of "tile-1",
             // "tile-2", ... is deliberately not the primary way to pick one.
-            const std::optional<TileId>& selectedTileId = coordinator.state().tilemapEditor.selectedTileId;
+            // Thumb-grid highlight still keys off one tile id; the primary
+            // tile stands in until the sheet view renders the whole N x M
+            // stamp region (Slice 3/5 of the palette redesign).
+            const std::optional<TileId> selectedTileId =
+                coordinator.state().tilemapEditor.stamp
+                    ? stampPrimaryTileId(*coordinator.state().tilemapEditor.stamp)
+                    : std::nullopt;
 
             // Fully transparent tiles (grid slicing keeps every cell, sheets
             // are mostly air) are hidden by default; "Show" reveals them. The

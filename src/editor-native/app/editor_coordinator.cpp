@@ -384,7 +384,7 @@ EditorInvalidation EditorCoordinator::reconcileWorkspace() {
         if (!inst || !inst->tilemap.has_value()) {
             // The entity being painted (or its component) vanished mid-stroke -
             // discard only the stroke, not the tile/tool preferences the user
-            // already chose (selectedTileId, rectangleOutlineMode, ...). This
+            // already chose (stamp, rectangleOutlineMode, ...). This
             // bypasses routeViewportTilemapPaint's own End/Cancel calls, so a
             // right-click Eraser override in progress is dropped here too -
             // otherwise it would be stuck on Eraser with no stroke left to
@@ -469,19 +469,30 @@ bool EditorCoordinator::selectionSupportsTilemapTool() const {
 }
 
 void EditorCoordinator::reconcileTilemapEditingContext() {
+    // Palette views of deleted tilesets are meaningless in every branch; the
+    // views of still-existing tilesets survive selection changes (they are
+    // per-tileset UX preferences, not per-selection state).
+    for (auto it = state_.tilemapEditor.paletteViews.begin();
+         it != state_.tilemapEditor.paletteViews.end();) {
+        if (!document_.findTilesetAsset(it->first)) {
+            it = state_.tilemapEditor.paletteViews.erase(it);
+        } else {
+            ++it;
+        }
+    }
     if (selectionSupportsTilemapTool()) {
-        reconcileSelectedTileAgainstTileset();
+        reconcileStampAgainstTileset();
         return;
     }
     // The selection can no longer support a tilemap tool (nothing selected,
     // no TilemapComponent, moved off the active layer, or the layer got
     // locked) - a pending gesture belongs to whatever *was* selected, so it
-    // must not survive; a stale tile pick is meaningless without a target;
-    // and a tilemap tool has nothing left to operate on, so it falls back to
+    // must not survive; a stale stamp is meaningless without a target; and a
+    // tilemap tool has nothing left to operate on, so it falls back to
     // Select (never Pan, which isn't a tilemap tool either and stays as-is).
     cancelPendingTilemapGesture();
-    if (state_.tilemapEditor.selectedTileId) {
-        state_.tilemapEditor.selectedTileId.reset();
+    if (state_.tilemapEditor.stamp) {
+        state_.tilemapEditor.stamp.reset();
         accumulate(EditorInvalidation::Inspector);
     }
     if (isTilemapTool(state_.activeTool)) {
@@ -490,27 +501,34 @@ void EditorCoordinator::reconcileTilemapEditingContext() {
     }
 }
 
-void EditorCoordinator::reconcileSelectedTileAgainstTileset() {
-    if (!state_.tilemapEditor.selectedTileId) return;
+void EditorCoordinator::reconcileStampAgainstTileset() {
+    if (!state_.tilemapEditor.stamp) return;
+    const TilemapTileStamp& stamp = *state_.tilemapEditor.stamp;
     const SceneInstanceDef* inst =
         document_.findInstanceInScene(state_.activeSceneId, state_.selection.primaryEntity);
     // selectionSupportsTilemapTool() already guarantees inst && inst->tilemap
     // when reached via reconcileTilemapEditingContext(), but this stays
     // defensive since it's a distinct, independently callable step.
-    if (!inst || !inst->tilemap.has_value()) {
-        state_.tilemapEditor.selectedTileId.reset();
-        accumulate(EditorInvalidation::Inspector);
-        return;
+    bool valid = inst && inst->tilemap.has_value() && stampIsValid(stamp)
+        // Provenance, not just id existence: after the tilemap switches to a
+        // different tileset, identically-named ids must not keep the stamp
+        // alive pointing at tiles the user never selected.
+        && stamp.sourceTilesetAssetId == inst->tilemap->tilesetAssetId;
+    if (valid) {
+        const TilesetAsset* tileset = document_.findTilesetAsset(inst->tilemap->tilesetAssetId);
+        valid = tileset != nullptr && std::all_of(
+            stamp.tiles.begin(), stamp.tiles.end(),
+            [&](const std::optional<TileId>& id) {
+                return !id || std::any_of(
+                    tileset->tiles.begin(), tileset->tiles.end(),
+                    [&](const TileDefinition& tile) { return tile.id == *id; });
+            });
     }
-    const TilesetAsset* tileset = document_.findTilesetAsset(inst->tilemap->tilesetAssetId);
-    const bool valid = tileset != nullptr && std::any_of(
-        tileset->tiles.begin(), tileset->tiles.end(),
-        [&](const TileDefinition& tile) { return tile.id == *state_.tilemapEditor.selectedTileId; });
-    // Keep a still-valid pick, clear an invalid one - never implicitly select
-    // a substitute tile, which could make Brush silently paint something the
-    // user never chose.
+    // Keep a still-valid stamp, reset an invalid one WHOLE - never partially
+    // repaired and never an implicit substitute, which could make Brush
+    // silently paint something the user never chose.
     if (!valid) {
-        state_.tilemapEditor.selectedTileId.reset();
+        state_.tilemapEditor.stamp.reset();
         accumulate(EditorInvalidation::Inspector);
     }
 }

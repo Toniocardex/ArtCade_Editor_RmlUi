@@ -1564,16 +1564,17 @@ int main() {
               == static_cast<std::size_t>(18 - (-2) + 1));   // every cell from -2..18, no gaps
     }
 
-    // -- UpdateTilePaintStrokeIntent: a revisited cell keeps its first `before`
-    // and its last `after` (the exact empty -> tileA -> tileB example) --------
+    // -- UpdateTilePaintStrokeIntent: a revisited cell keeps its first `before`,
+    // and the stroke's stamp is captured at Begin - reselecting mid-stroke
+    // never changes the stroke already in progress ----------------------------
     {
         EditorCoordinator c{makeSpriteDoc()};
         setUpTilemapForPainting(c);
         c.apply(SelectPaintTileIntent{"tile-1"});
         CHECK(c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Brush, {0, 0}}).ok);
         CHECK(c.apply(UpdateTilePaintStrokeIntent{{1, 0}}).ok);
-        c.apply(SelectPaintTileIntent{"tile-2"});
-        CHECK(c.apply(UpdateTilePaintStrokeIntent{{0, 0}}).ok);   // revisit (0,0), tile-2 now selected
+        c.apply(SelectPaintTileIntent{"tile-2"});                 // mid-stroke reselect
+        CHECK(c.apply(UpdateTilePaintStrokeIntent{{0, 0}}).ok);   // revisit (0,0)
 
         const auto& changes = c.state().tilemapEditor.pendingStroke->changes;
         CHECK(changes.size() == 2);   // (0,0) and (1,0), each exactly once
@@ -1583,7 +1584,7 @@ int main() {
                 foundOrigin = true;
                 CHECK(!change.before.has_value());          // empty before the stroke
                 CHECK(change.after.has_value());
-                CHECK(change.after->tileId == "tile-2");     // last touch wins
+                CHECK(change.after->tileId == "tile-1");     // Begin-captured stamp, not "tile-2"
             }
         }
         CHECK(foundOrigin);
@@ -1649,17 +1650,199 @@ int main() {
         CHECK(c.undoSize() == before);
     }
 
-    // -- SelectPaintTileIntent (Picker): zero dirty/revision/history impact ----
+    // -- SelectPaintTileIntent (Picker): adapts to a 1x1 stamp with tileset
+    // provenance; zero dirty/revision/history impact ---------------------------
     {
         EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);   // executes Commands: the doc is already dirty here
         const uint64_t revision = c.document().revision();
         const std::size_t before = c.undoSize();
+        const bool dirtyBefore = c.document().isDirty();
         CHECK(c.apply(SelectPaintTileIntent{"tile-1"}).ok);
-        CHECK(c.state().tilemapEditor.selectedTileId.has_value());
-        CHECK(*c.state().tilemapEditor.selectedTileId == "tile-1");
+        CHECK(c.state().tilemapEditor.stamp.has_value());
+        const TilemapTileStamp& stamp = *c.state().tilemapEditor.stamp;
+        CHECK(stamp.sourceTilesetAssetId == "tiles-1");
+        CHECK(stamp.width == 1 && stamp.height == 1);
+        CHECK(stampPrimaryTileId(stamp) == std::optional<TileId>{"tile-1"});
+        // sliceTilesOne slices a 64x64 sheet into 32x32 tiles: "tile-1" is
+        // grid cell (0,0), resolved as provenance by the adapter.
+        CHECK(stamp.sourceColumn == 0 && stamp.sourceRow == 0);
         CHECK(c.document().revision() == revision);
         CHECK(c.undoSize() == before);
-        CHECK(!c.document().isDirty());
+        CHECK(c.document().isDirty() == dirtyBefore);   // selection never touches dirty
+    }
+
+    // -- SelectPaintTileIntent without a tilemap target is rejected ------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};   // kHero has no tilemap, nothing selected
+        CHECK(!c.apply(SelectPaintTileIntent{"tile-1"}).ok);
+        CHECK(!c.state().tilemapEditor.stamp.has_value());
+    }
+
+    // ======================= multi-tile stamps (coordinator) =======================
+    // sliceTilesOne: 64x64 sheet, 32x32 tiles -> tile-1..tile-4 in a 2x2 grid.
+    // -- SelectPaintStampIntent: accepts a valid 2x2, rejects the invalid ------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        TilemapTileStamp block;
+        block.sourceTilesetAssetId = "tiles-1";
+        block.sourceColumn = 0; block.sourceRow = 0;
+        block.width = 2; block.height = 2;
+        block.tiles = {TileId("tile-1"), TileId("tile-2"), TileId("tile-3"), TileId("tile-4")};
+        CHECK(c.apply(SelectPaintStampIntent{block}).ok);
+        CHECK(c.state().tilemapEditor.stamp->width == 2);
+
+        TilemapTileStamp allHoles = block;
+        allHoles.tiles.assign(4, std::nullopt);
+        CHECK(!c.apply(SelectPaintStampIntent{allHoles}).ok);       // structurally invalid
+        TilemapTileStamp wrongTileset = block;
+        wrongTileset.sourceTilesetAssetId = "tiles-other";
+        CHECK(!c.apply(SelectPaintStampIntent{wrongTileset}).ok);   // provenance mismatch
+        TilemapTileStamp unknownId = block;
+        unknownId.tiles[0] = TileId("no-such-tile");
+        CHECK(!c.apply(SelectPaintStampIntent{unknownId}).ok);      // id not in the tileset
+        CHECK(c.state().tilemapEditor.stamp->tiles == block.tiles); // last valid stamp survives
+    }
+
+    // -- Brush with a 2x2 stamp: a single click paints the whole footprint -----
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        TilemapTileStamp block;
+        block.sourceTilesetAssetId = "tiles-1";
+        block.width = 2; block.height = 2;
+        block.tiles = {TileId("tile-1"), TileId("tile-2"), TileId("tile-3"), TileId("tile-4")};
+        CHECK(c.apply(SelectPaintStampIntent{block}).ok);
+        CHECK(c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Brush, {5, 7}}).ok);
+        const auto& changes = c.state().tilemapEditor.pendingStroke->changes;
+        CHECK(changes.size() == 4);   // one click = four cells
+        const auto afterAt = [&](int x, int y) -> std::string {
+            const auto it = changes.find(packTilemapCellCoord({x, y}));
+            return (it != changes.end() && it->second.after) ? it->second.after->tileId : "";
+        };
+        CHECK(afterAt(5, 7) == "tile-1");
+        CHECK(afterAt(6, 7) == "tile-2");
+        CHECK(afterAt(5, 8) == "tile-3");
+        CHECK(afterAt(6, 8) == "tile-4");
+        c.apply(EndTilePaintStrokeIntent{});
+    }
+
+    // -- Brush with a holed stamp: three cells, the hole touches nothing -------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        TilemapTileStamp block;
+        block.sourceTilesetAssetId = "tiles-1";
+        block.width = 2; block.height = 2;
+        block.tiles = {TileId("tile-1"), std::nullopt, TileId("tile-3"), TileId("tile-4")};
+        CHECK(c.apply(SelectPaintStampIntent{block}).ok);
+        CHECK(c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Brush, {0, 0}}).ok);
+        const auto& changes = c.state().tilemapEditor.pendingStroke->changes;
+        CHECK(changes.size() == 3);
+        CHECK(changes.find(packTilemapCellCoord({1, 0})) == changes.end());   // the hole
+        c.apply(EndTilePaintStrokeIntent{});
+    }
+
+    // -- Brush drag: every interpolated anchor stamps a footprint; overlapping
+    // footprints keep one entry per coordinate with the first `before` ---------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        TilemapTileStamp block;
+        block.sourceTilesetAssetId = "tiles-1";
+        block.width = 2; block.height = 2;
+        block.tiles = {TileId("tile-1"), TileId("tile-2"), TileId("tile-3"), TileId("tile-4")};
+        CHECK(c.apply(SelectPaintStampIntent{block}).ok);
+        CHECK(c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Brush, {0, 0}}).ok);
+        CHECK(c.apply(UpdateTilePaintStrokeIntent{{3, 0}}).ok);   // fast horizontal drag
+        const auto& changes = c.state().tilemapEditor.pendingStroke->changes;
+        // Anchors 0..3 each stamp a 2x2 -> columns 0..4, rows 0..1, no gaps.
+        CHECK(changes.size() == 10);
+        for (int x = 0; x <= 4; ++x) {
+            CHECK(changes.find(packTilemapCellCoord({x, 0})) != changes.end());
+            CHECK(changes.find(packTilemapCellCoord({x, 1})) != changes.end());
+        }
+        // Overlap: cell (1,0) was tile-2 (anchor 0) then tile-1 (anchor 1) -
+        // one entry, before still the original empty, after the last touch.
+        const auto& overlap = changes.at(packTilemapCellCoord({1, 0}));
+        CHECK(!overlap.before.has_value());
+        CHECK(overlap.after->tileId == "tile-1");
+        c.apply(EndTilePaintStrokeIntent{});
+    }
+
+    // -- Rectangle with a 2x2 stamp: modular pattern anchored at startCell,
+    // wrapping correctly when dragged up-left of the anchor --------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        TilemapTileStamp block;
+        block.sourceTilesetAssetId = "tiles-1";
+        block.width = 2; block.height = 2;
+        block.tiles = {TileId("tile-1"), TileId("tile-2"), TileId("tile-3"), TileId("tile-4")};
+        CHECK(c.apply(SelectPaintStampIntent{block}).ok);
+        CHECK(c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);
+        CHECK(c.apply(UpdateTileRectangleIntent{{-1, -1}}).ok);   // drag up-left
+        CHECK(c.apply(CommitTileRectangleIntent{}).ok);
+        const TilemapComponent& tm = *c.document().findInstanceInScene(kSceneA, kHero)->tilemap;
+        // Euclidean modulo from anchor (0,0): (-1,-1) wraps to slot (1,1).
+        CHECK(readTilemapCell(tm, {-1, -1})->tileId == "tile-4");
+        CHECK(readTilemapCell(tm, {0, -1})->tileId == "tile-3");
+        CHECK(readTilemapCell(tm, {-1, 0})->tileId == "tile-2");
+        CHECK(readTilemapCell(tm, {0, 0})->tileId == "tile-1");
+    }
+
+    // -- Fill with a 2x2 stamp: pattern floods the bounded region --------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        // Wall off a 2x2 interior with tile-1, then pattern-fill it.
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);
+        c.apply(SetRectangleShapeModeIntent{false});
+        CHECK(c.apply(UpdateTileRectangleIntent{{3, 3}}).ok);
+        CHECK(c.apply(CommitTileRectangleIntent{}).ok);
+        std::vector<TilemapCellChange> clearInterior;
+        for (int y = 1; y <= 2; ++y)
+            for (int x = 1; x <= 2; ++x)
+                clearInterior.push_back(TilemapCellChange{
+                    {x, y}, TilemapCellValue{"tile-1", TileTransformFlags::None}, std::nullopt});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, clearInterior}).ok);
+
+        TilemapTileStamp block;
+        block.sourceTilesetAssetId = "tiles-1";
+        block.width = 2; block.height = 2;
+        block.tiles = {TileId("tile-1"), TileId("tile-2"), TileId("tile-3"), TileId("tile-4")};
+        CHECK(c.apply(SelectPaintStampIntent{block}).ok);
+        CHECK(c.apply(FillTilemapIntent{kSceneA, kHero, {1, 1}}).ok);
+        const TilemapComponent& tm = *c.document().findInstanceInScene(kSceneA, kHero)->tilemap;
+        CHECK(readTilemapCell(tm, {1, 1})->tileId == "tile-1");   // anchor (1,1) = slot (0,0)
+        CHECK(readTilemapCell(tm, {2, 1})->tileId == "tile-2");
+        CHECK(readTilemapCell(tm, {1, 2})->tileId == "tile-3");
+        CHECK(readTilemapCell(tm, {2, 2})->tileId == "tile-4");
+    }
+
+    // -- Palette views: per-tileset, workspace-only, validated, pruned ---------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        const uint64_t revision = c.document().revision();
+        CHECK(!c.apply(SetTilePaletteZoomIntent{"tiles-1", 0.f}).ok);            // non-positive
+        CHECK(!c.apply(SetTilePaletteZoomIntent{"no-such-tileset", 2.f}).ok);    // unknown tileset
+        CHECK(c.apply(SetTilePaletteZoomIntent{"tiles-1", 4.f}).ok);
+        CHECK(c.apply(PanTilePaletteIntent{"tiles-1", Vec2{10.f, -5.f}}).ok);
+        const auto& views = c.state().tilemapEditor.paletteViews;
+        CHECK(views.at("tiles-1").zoom == 4.f);
+        CHECK(views.at("tiles-1").pan.x == 10.f && views.at("tiles-1").pan.y == -5.f);
+        CHECK(views.at("tiles-1").initialized);
+        CHECK(c.apply(SetTilePaletteZoomIntent{"tiles-1", 100.f}).ok);           // clamped
+        CHECK(views.at("tiles-1").zoom == TilePaletteViewLimits::kZoomMax);
+        CHECK(c.document().revision() == revision);   // workspace-only, never dirties
+
+        // Deleting the tileset prunes its view on the next reconcile.
+        CHECK(c.execute(RemoveTilemapComponentCommand{kSceneA, kHero}).ok);
+        CHECK(c.execute(RemoveTilesetAssetCommand{"tiles-1"}).ok);
+        CHECK(views.find("tiles-1") == views.end());
     }
 
     // -- PaintTilemapCellsCommand: paints a multi-chunk, negative-coordinate
@@ -2416,7 +2599,8 @@ int main() {
         CHECK(rect.startCell.cellX == 2 && rect.startCell.cellY == 3);
         CHECK(rect.currentCell.cellX == 2 && rect.currentCell.cellY == 3);
         CHECK(!rect.outlineOnly);
-        CHECK(rect.replacement.has_value() && rect.replacement->tileId == "tile-1");
+        CHECK(stampPrimaryTileId(rect.stamp) == std::optional<TileId>{"tile-1"});
+        CHECK(rect.stamp.sourceTilesetAssetId == "tiles-1");
         CHECK(rect.previewChanges.size() == 1);
     }
 
@@ -2501,6 +2685,7 @@ int main() {
         CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tmA}).ok);
         CHECK(c.execute(AddTilemapComponentCommand{kSceneA, 99, tmB}).ok);
 
+        c.apply(SelectEntityIntent{kHero});   // the stamp adapter resolves the selected tilemap
         c.apply(SelectPaintTileIntent{"tile-1"});
         CHECK(c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);   // starts on kHero
         CHECK(c.state().tilemapEditor.pendingRectangle.has_value());
@@ -2609,9 +2794,9 @@ int main() {
     }
 
     // ======================= reconcileWorkspace =======================
-    // -- Entity deleted mid-drag: pendingRectangle is cleared, and so is
-    // selectedTileId (there is no longer a target tileset it could belong to
-    // - Scene View Selection & Tool Context slice); rectangleOutlineMode is a
+    // -- Entity deleted mid-drag: pendingRectangle is cleared, and so is the
+    // stamp (there is no longer a target tileset it could belong to - Scene
+    // View Selection & Tool Context slice); rectangleOutlineMode is a
     // general drawing preference, not tied to any tileset, so it survives ------
     {
         EditorCoordinator c{makeSpriteDoc()};
@@ -2622,7 +2807,7 @@ int main() {
         CHECK(c.state().tilemapEditor.pendingRectangle.has_value());
         CHECK(c.execute(DeleteEntityCommand{kSceneA, kHero}).ok);
         CHECK(!c.state().tilemapEditor.pendingRectangle.has_value());
-        CHECK(!c.state().tilemapEditor.selectedTileId.has_value());
+        CHECK(!c.state().tilemapEditor.stamp.has_value());
         CHECK(c.state().tilemapEditor.rectangleOutlineMode);
     }
 

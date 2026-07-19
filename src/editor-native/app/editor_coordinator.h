@@ -257,7 +257,10 @@ public:
     EditorOperationResult apply(const UpdateTilePaintStrokeIntent& intent);
     EditorOperationResult apply(const EndTilePaintStrokeIntent& intent);
     EditorOperationResult apply(const CancelTilePaintStrokeIntent& intent);
+    EditorOperationResult apply(const SelectPaintStampIntent& intent);
     EditorOperationResult apply(const SelectPaintTileIntent& intent);
+    EditorOperationResult apply(const SetTilePaletteZoomIntent& intent);
+    EditorOperationResult apply(const PanTilePaletteIntent& intent);
     EditorOperationResult apply(const SetHoveredTilemapCellIntent& intent);
     EditorOperationResult apply(const SetRectangleShapeModeIntent& intent);
     EditorOperationResult apply(const BeginTileRectangleIntent& intent);
@@ -328,23 +331,27 @@ private:
     // sits on the active layer, and that layer isn't locked). Pure query - no
     // mutation, callable freely.
     bool selectionSupportsTilemapTool() const;
-    // Mutable, idempotent reconciliation of tool/gesture/tile-selection state
-    // against selectionSupportsTilemapTool() - NOT a pure function. When the
-    // selection no longer supports a tilemap tool: cancels any pending
-    // gesture, clears selectedTileId, and falls the active tool back to
-    // Select if it was a tilemap tool (Select/Pan are left untouched). When it
-    // does, only reconciles selectedTileId (see reconcileSelectedTileAgainstTileset).
-    // Called from reconcileWorkspace() (covers every Command) and directly
-    // from the selection/tool-changing Intents (which never go through
+    // Mutable, idempotent reconciliation of tool/gesture/stamp state against
+    // selectionSupportsTilemapTool() - NOT a pure function. Always prunes
+    // palette views of deleted tilesets. When the selection no longer
+    // supports a tilemap tool: cancels any pending gesture, clears the stamp,
+    // and falls the active tool back to Select if it was a tilemap tool
+    // (Select/Pan are left untouched). When it does, only reconciles the
+    // stamp (see reconcileStampAgainstTileset). Called from
+    // reconcileWorkspace() (covers every Command) and directly from the
+    // selection/tool-changing Intents (which never go through
     // reconcileWorkspace()). Workspace-only: no dirty/revision/undo.
     void reconcileTilemapEditingContext();
-    // Sub-step of reconcileTilemapEditingContext()'s "editable" branch: if
-    // selectedTileId doesn't name a tile in the selected instance's own
-    // tileset (e.g. after switching to a different tilemap, or the tileset
-    // was resliced/changed), clear it. Never implicitly selects a substitute -
-    // an unset tile forces the user to pick one before Brush can paint again,
-    // rather than silently painting with a tile they didn't choose.
-    void reconcileSelectedTileAgainstTileset();
+    // Sub-step of reconcileTilemapEditingContext()'s "editable" branch: the
+    // whole stamp is reset when its source tileset no longer exists, the
+    // selected instance's tilemap now uses a DIFFERENT tileset (tile ids are
+    // only unique per tileset - an id collision across tilesets must never
+    // silently repoint the stamp), any referenced tile id no longer exists
+    // (e.g. after a reslice), or the stamp is structurally invalid. Never
+    // partially repaired and never an implicit substitute - an unset stamp
+    // forces the user to pick again rather than painting something they
+    // didn't choose.
+    void reconcileStampAgainstTileset();
 
     ProjectDocument                                  document_;
     EditorState                                      state_;

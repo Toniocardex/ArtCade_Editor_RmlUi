@@ -68,4 +68,12 @@ std::optional<std::size_t> tilesetLinearIndexForGridCell(
 std::optional<TilemapCellCoord> tilesetGridCellForTileRect(
     const TilesetGridGeometry& geometry, const TileDefinition& tile);
 
+// Same exact-division mapping when the image dimensions (and therefore the
+// column/row counts) are unknown - the ProjectDocument stores no pixel sizes,
+// so provenance resolved coordinator-side uses this unbounded form. Anywhere
+// a full geometry exists, the bounded overload above delegates here and adds
+// the bounds check; the division formula lives once.
+std::optional<TilemapCellCoord> tilesetGridCellForTileRectUnbounded(
+    const TilesetSlicing& slicing, const TileDefinition& tile);
+
 } // namespace ArtCade::EditorNative

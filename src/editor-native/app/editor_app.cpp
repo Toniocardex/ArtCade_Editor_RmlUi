@@ -43,6 +43,7 @@
 #include "editor-native/view/texture_cache.h"
 #include "editor-native/view/texture_request_catalog.h"
 #include "editor-native/view/tileset_empty_tiles.h"
+#include "editor-native/model/tile_stamp.h"
 #include "editor-native/view/tilemap_paint_overlay.h"
 
 #include "artcade/sfx/raylib_preview.hpp"
@@ -1405,9 +1406,12 @@ int EditorApp::run(int argc, char** argv) {
         // palette thumbnail into view (scrolls .inspector's own overflow, no
         // nested scroll region - see panels.rcss). Diffed against the last
         // scrolled id so this fires once per change, not every frame.
-        if (tilePaletteTileset
-            && coordinator.state().tilemapEditor.selectedTileId != lastScrolledPaletteTile) {
-            lastScrolledPaletteTile = coordinator.state().tilemapEditor.selectedTileId;
+        const std::optional<TileId> paletteSelectedTileId =
+            coordinator.state().tilemapEditor.stamp
+                ? stampPrimaryTileId(*coordinator.state().tilemapEditor.stamp)
+                : std::nullopt;
+        if (tilePaletteTileset && paletteSelectedTileId != lastScrolledPaletteTile) {
+            lastScrolledPaletteTile = paletteSelectedTileId;
             if (lastScrolledPaletteTile) {
                 for (std::size_t i = 0; i < tilePaletteTileset->tiles.size(); ++i) {
                     if (tilePaletteTileset->tiles[i].id != *lastScrolledPaletteTile) continue;
@@ -1555,7 +1559,7 @@ int EditorApp::run(int argc, char** argv) {
         }
         if (tilePaletteTileset) {
             renderTilePalette(
-                *tilePaletteTileset, coordinator.state().tilemapEditor.selectedTileId,
+                *tilePaletteTileset, paletteSelectedTileId,
                 tilePaletteThumbRects, tilePaletteClipRect, textureCache, textureRequests);
         }
         EndDrawing();
