@@ -61,7 +61,7 @@ La migrazione è conclusa soltanto quando:
 | RU-00 | Preparazione | Congelamento baseline e branch di migrazione | [x] | — | editor |
 | RU-01a | P0 | Riconciliazione schema canonico di progetto (formatVersion, scenes, componenti mancanti) | [x] | RU-00 | runtime, editor |
 | RU-01 | P0 | Parser `ProjectDocument` unificato sul canonico `ProjectJson::*` | [ ] | RU-01a | editor |
-| RU-02a | P0 | Characterization e dependency map del composition root/tick attuali | [-] | RU-00 | runtime |
+| RU-02a | P0 | Characterization e dependency map del composition root/tick attuali | [x] | RU-00 | runtime |
 | RU-02b | P0 | Separare preparazione host (`clearDrawQueue`) dal fixed tick | [ ] | RU-02a | runtime |
 | RU-02c | P0 | `GameplaySession` non-owning: sposta l'algoritmo del tick (reference, non ownership) | [ ] | RU-02b | runtime |
 | RU-02d | P0 | Confine input immutabile (`GameplayInputFrame`, niente polling nella sessione) | [ ] | RU-02c | runtime |
