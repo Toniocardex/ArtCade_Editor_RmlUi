@@ -63,7 +63,7 @@ La migrazione è conclusa soltanto quando:
 | RU-01 | P0 | Parser `ProjectDocument` unificato sul canonico `ProjectJson::*` | [ ] | RU-01a | editor |
 | RU-02a | P0 | Characterization e dependency map del composition root/tick attuali | [x] | RU-00 | runtime |
 | RU-02b | P0 | Separare preparazione host (`clearDrawQueue`) dal fixed tick | [x] | RU-02a | runtime |
-| RU-02c | P0 | `GameplaySession` non-owning: sposta l'algoritmo del tick (reference, non ownership) | [ ] | RU-02b | runtime |
+| RU-02c | P0 | `GameplaySession` non-owning: sposta l'algoritmo del tick (reference, non ownership) | [x] | RU-02b | runtime |
 | RU-02d | P0 | Confine input immutabile (`GameplayInputFrame`, niente polling nella sessione) | [ ] | RU-02c | runtime |
 | RU-02e | P0 | Estrarre il composition root gameplay in `GameplaySession::initialize()` | [ ] | RU-02d | runtime |
 | RU-02f | P0 | Trasferimento ownership dei moduli gameplay + shutdown/restart affidabili | [ ] | RU-02e | runtime |
