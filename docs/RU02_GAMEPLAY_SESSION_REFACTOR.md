@@ -358,6 +358,8 @@ Test di caratterizzazione: [`tests/gameplay-tick-order-characterization-test.cpp
 
 **Gate RU-02b**: output visivo invariato; splash invariato; profiler invariato; nessun draw nella futura area estraibile; test di ordine ancora verdi.
 
+**Stato (2026-07-20)**: [x] completata. `renderer->clearDrawQueue()` spostata da `Application::tickFixedStep` a `Application::loopIteration`, chiamata una sola volta per frame subito prima del ciclo di catch-up dei fixed step, ancora condizionata da `simulating` (in pausa/WASM edit mode `tickFixedStep` non girava mai, quindi `clearDrawQueue` non girava mai — comportamento invariato). Verificato: build native 49/49 test verdi, build WASM verde con `game.js`/`game.wasm` di dimensione byte-per-byte identica a prima della modifica. Commit `8fc7a366` su `feature/runtime-unification`. Il corpo residuo di `tickFixedStep` è ora simulazione pura.
+
 ### RU-02c — GameplaySession non-owning
 
 **Obiettivo**: spostare l'algoritmo gameplay senza cambiare ancora chi possiede i moduli.
