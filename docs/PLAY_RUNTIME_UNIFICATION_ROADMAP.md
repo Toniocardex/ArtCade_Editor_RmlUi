@@ -61,13 +61,22 @@ La migrazione è conclusa soltanto quando:
 | RU-00 | Preparazione | Congelamento baseline e branch di migrazione | [x] | — | editor |
 | RU-01a | P0 | Riconciliazione schema canonico di progetto (formatVersion, scenes, componenti mancanti) | [x] | RU-00 | runtime, editor |
 | RU-01 | P0 | Parser `ProjectDocument` unificato sul canonico `ProjectJson::*` | [ ] | RU-01a | editor |
-| RU-02 | P0 | Estrazione `GameplaySession` riutilizzabile dal runtime | [ ] | RU-00 | runtime (+editor a valle) |
-| RU-03 | P0 | `EditorGameplayRuntimeHost` sostituisce lo stub `spawnObjectType` | [ ] | RU-02 | editor, runtime |
+| RU-02a | P0 | Characterization e dependency map del composition root/tick attuali | [ ] | RU-00 | runtime |
+| RU-02b | P0 | Separare preparazione host (`clearDrawQueue`) dal fixed tick | [ ] | RU-02a | runtime |
+| RU-02c | P0 | `GameplaySession` non-owning: sposta l'algoritmo del tick (reference, non ownership) | [ ] | RU-02b | runtime |
+| RU-02d | P0 | Confine input immutabile (`GameplayInputFrame`, niente polling nella sessione) | [ ] | RU-02c | runtime |
+| RU-02e | P0 | Estrarre il composition root gameplay in `GameplaySession::initialize()` | [ ] | RU-02d | runtime |
+| RU-02f | P0 | Trasferimento ownership dei moduli gameplay + shutdown/restart affidabili | [ ] | RU-02e | runtime |
+| RU-02g | P0 | Confine frame/presentazione: renderer legge solo `GameplayFrameSnapshot` | [ ] | RU-02f | runtime |
+| RU-02h | P0 | Pulizia e congelamento API pubblica di `GameplaySession` | [ ] | RU-02g | runtime |
+| RU-03 | P0 | Integrazione Editor Play con `GameplaySession`; `EditorNative::PlaySession` → façade o rimossa | [ ] | RU-02h, RU-01, RU-01a | editor, runtime |
 | RU-04 | P0 | Play-start come "export a temp + load via `AssetLoader`" | [ ] | RU-01, RU-01a, RU-03 | editor |
 | RU-05 | P0 | Ritiro di `PlaySession`/`RuntimeEntity`/`RuntimeScene` e codice duplicato | [ ] | RU-04 | editor |
 | GATE-FINAL | Gate | Parity audit sui 3 gate games, Windows + Web | [ ] | RU-05 | editor, runtime |
 
 Stati ammessi: `[ ]` non iniziato, `[-]` in corso, `[x]` completato, `[!]` bloccato con motivazione registrata.
+
+**RU-02 e RU-03 hanno un piano di dettaglio congelato separato**: [RU02_GAMEPLAY_SESSION_REFACTOR.md](RU02_GAMEPLAY_SESSION_REFACTOR.md) — decisione architetturale (`GameplaySession` estratta da `Application`, non ricostruita in parallelo), 10 clausole progettuali non negoziabili, confine host/gameplay dei moduli, API pubblica congelata, le 8 sotto-fasi RU-02a→RU-02h con gate di uscita propri, l'integrazione RU-03 con Editor Play, ordine di merge consigliato, condizioni di stop-the-line, e un debt register completo (D-01…D-22, T-01…T-05) con criterio esplicito di cancellazione del debito. Le sezioni §9-10 di questo documento restano come sintesi/diagnosi iniziale; il documento dedicato prevale per il dettaglio implementativo.
 
 ## 6. Fase RU-00 — Congelamento baseline
 
@@ -178,6 +187,8 @@ RU-01 e RU-04 assumono entrambe che un file scritto dall'editor sia accettato da
 
 ## 9. Fase RU-02 — Estrazione `GameplaySession` riutilizzabile dal runtime
 
+> **Piano di dettaglio congelato**: [RU02_GAMEPLAY_SESSION_REFACTOR.md](RU02_GAMEPLAY_SESSION_REFACTOR.md). Lo studio iniziale sotto ("l'estrazione è più additiva del previsto") resta corretto per i moduli individuali (`World`/`gateway`/`Physics`/ecc. già testabili headless), ma una lettura più approfondita di `app_bootstrap.cpp`/`app_loop.cpp` ha mostrato che il vero composition root (`Application::initSubsystems()`) intreccia questi moduli con Renderer/Dialog/EditorAPI attraverso un unico `EngineContext` condiviso — costruire `GameplaySession` come composizione parallela rischierebbe di divergere silenziosamente da `Application`. La decisione congelata è quindi **estrarre per refactor da `Application` stesso**, non ricostruire accanto: vedi il documento dedicato per le 8 sotto-fasi (RU-02a→RU-02h), le clausole non negoziabili e il debt register.
+
 **Problema**
 
 `Application::Modules` e il ciclo `Application::loopIteration()`/`tickFixedStep()` (`runtime-cpp/src/app/src/app_loop.cpp:81-297`) assumono di possedere l'intero processo standalone: finestra, polling input OS, audio device. Per essere riutilizzati in-process dall'editor (modello Unity PlayMode / Unreal PIE, non modello Godot a processo separato — coerente con la UX attuale di Play inline nella scene view) serve un building block che possieda la simulazione (World, gateway, physics, Logic, Script, camera) ma **non** l'ownership di finestra/input OS/audio device, che restano a carico di ciascun host.
@@ -220,6 +231,8 @@ Grep sistematico di chiamate raylib in ogni modulo (`InitWindow`, `IsKeyDown`, `
 L'eseguibile standalone si comporta in modo osservabilmente identico a prima (nessuna regressione), e `GameplaySession` è istanziabile e tickabile senza possedere finestra/input OS.
 
 ## 10. Fase RU-03 — `EditorGameplayRuntimeHost` sostituisce lo stub
+
+> **Superseduta/assorbita da [RU02_GAMEPLAY_SESSION_REFACTOR.md](RU02_GAMEPLAY_SESSION_REFACTOR.md) §7 e §14 (D-01)**: il piano congelato tratta RU-03 come "integrazione Editor Play con `GameplaySession`" a tutto tondo — `EditorGameplayRuntimeHost`/`RuntimeLogicHostAdapter` restano il riferimento per lo spawn (contenuto sotto ancora valido), ma il gate di uscita reale è l'eliminazione di `EditorNative::PlaySession` come secondo runtime (D-01), non solo la sostituzione dello stub. La tabella di delega metodo-per-metodo sotto resta la spec di implementazione corretta per la parte adapter.
 
 **Problema**
 
