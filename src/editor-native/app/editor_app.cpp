@@ -92,6 +92,12 @@ namespace ArtCade::EditorNative {
 
 namespace {
 
+// Padding (px) kept clear on every edge when a scene is fit to the viewport.
+// Shared by the Scene Inspector's Fit View action and Play's own from-
+// scratch camera (see fitActiveScene and the playSession render branch
+// below) - both must render the identical "fit", so the number lives once.
+constexpr float kSceneFitPadding = 28.f;
+
 void collectLogicKeyPresses(RuntimeInputSnapshot& input) {
     static constexpr std::pair<LogicKey, int> kKeys[] = {
         {LogicKey::A, KEY_A}, {LogicKey::B, KEY_B}, {LogicKey::C, KEY_C},
@@ -556,8 +562,7 @@ int EditorApp::run(int argc, char** argv) {
         if (!scene || scene->worldSize.x <= 0.f || scene->worldSize.y <= 0.f) return false;
         const ViewportRect rect = viewportRectFromDocument(host.document());
         if (rect.width <= 0 || rect.height <= 0) return false;
-        constexpr float kPad = 28.f;   // keep the scene off the panel edges
-        const float fit = computeFitZoom(scene->worldSize, rect, kPad);
+        const float fit = computeFitZoom(scene->worldSize, rect, kSceneFitPadding);
         const EditorSceneViewState view = coordinator.sceneView(active);
         coordinator.apply(PanViewportIntent{active, {-view.pan.x, -view.pan.y}});  // centre (pan 0)
         coordinator.apply(SetViewportZoomIntent{active, fit});                     // intent clamps
@@ -1599,9 +1604,8 @@ int EditorApp::run(int argc, char** argv) {
             // Play always shows the game the way it's meant to be seen.
             EditorSceneViewState renderView;
             if (playSession) {
-                constexpr float kPlayCameraPadding = 28.f;
                 renderView.zoom =
-                    clampZoom(computeFitZoom(snapshot.worldSize, rect, kPlayCameraPadding));
+                    clampZoom(computeFitZoom(snapshot.worldSize, rect, kSceneFitPadding));
                 renderView.gridVisible = false;
             } else {
                 renderView = coordinator.sceneView(active);
