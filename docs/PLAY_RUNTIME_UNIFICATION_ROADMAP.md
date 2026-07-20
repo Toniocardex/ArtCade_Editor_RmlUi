@@ -65,7 +65,7 @@ La migrazione è conclusa soltanto quando:
 | RU-02b | P0 | Separare preparazione host (`clearDrawQueue`) dal fixed tick | [x] | RU-02a | runtime |
 | RU-02c | P0 | `GameplaySession` non-owning: sposta l'algoritmo del tick (reference, non ownership) | [x] | RU-02b | runtime |
 | RU-02d | P0 | Confine input immutabile (`GameplayInputFrame`, niente polling nella sessione) | [x] | RU-02c | runtime |
-| RU-02e | P0 | Estrarre il composition root gameplay in `GameplaySession::initialize()` | [-] | RU-02d | runtime |
+| RU-02e | P0 | Estrarre il composition root gameplay in `GameplaySession::initialize()` | [x] | RU-02d | runtime |
 | RU-02f | P0 | Trasferimento ownership dei moduli gameplay + shutdown/restart affidabili | [ ] | RU-02e | runtime |
 | RU-02g | P0 | Confine frame/presentazione: renderer legge solo `GameplayFrameSnapshot` | [ ] | RU-02f | runtime |
 | RU-02h | P0 | Pulizia e congelamento API pubblica di `GameplaySession` | [ ] | RU-02g | runtime |
