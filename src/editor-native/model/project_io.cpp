@@ -1564,9 +1564,22 @@ SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
     migrateSpriteOwnershipToObjectTypes(normalized);
     normalized.formatVersion = kCurrentSchemaVersion;
     const ProjectDoc& doc = normalized;
-    nlohmann::json scenes = nlohmann::json::array();
-    for (const auto& [_, scene] : doc.scenes) {
-        scenes.push_back(sceneToJson(scene));
+    nlohmann::json scenes = nlohmann::json::object();
+    for (const auto& [sceneId, scene] : doc.scenes) {
+        scenes[sceneId] = sceneToJson(scene);
+    }
+
+    nlohmann::json globalVariables = nlohmann::json::array();
+    for (const GameVariableDefinition& def : doc.globalVariables) {
+        nlohmann::json entry{
+            {"key", def.key},
+            {"type", def.type == GameVariableDefinition::Type::Number ? "number"
+                : def.type == GameVariableDefinition::Type::Boolean ? "boolean" : "string"},
+        };
+        std::visit([&entry](const auto& value) { entry["initialValue"] = value; },
+                   def.initialValue);
+        if (!def.description.empty()) entry["description"] = def.description;
+        globalVariables.push_back(std::move(entry));
     }
 
     nlohmann::json objectTypes = nlohmann::json::array();
@@ -1681,6 +1694,7 @@ SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
         {"activeSceneId", doc.activeSceneId},
         {"targetFPS", doc.targetFPS},
         {"mainScriptPath", doc.mainScriptPath},
+        {"globalVariables", std::move(globalVariables)},
         {"scenes", std::move(scenes)},
         {"objectTypes", std::move(objectTypes)},
         {"imageAssets", std::move(imageAssets)},
