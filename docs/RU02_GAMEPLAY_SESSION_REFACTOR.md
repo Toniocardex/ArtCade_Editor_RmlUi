@@ -290,6 +290,64 @@ Durante la migrazione possono esistere accessi interni temporanei, ma non devono
 
 **Gate RU-02a**: zero variazioni funzionali; native build verde; WASM build verde; runtime test verdi; ordine del tick documentato; ownership map approvata.
 
+**Stato gate (2026-07-20)**: [x] zero variazioni funzionali (solo documentazione + nuovo test, nessun file di `Application` toccato); [x] native build verde (49/49 CTest, incl. il nuovo `gameplay_tick_order_characterization_test`); [x] ordine del tick documentato (sotto); [x] ownership map (sotto); [!] **WASM build non verificato** — `emcc`/toolchain Emscripten non disponibile in questo ambiente di sviluppo; `build_wasm.bat` esiste ma non è stato eseguibile qui. Da chiudere su una macchina/CI con Emscripten prima di considerare RU-02a definitivamente `[x]`.
+
+Test di caratterizzazione: [`tests/gameplay-tick-order-characterization-test.cpp`](../../../ArtCade-Studio_V2/runtime-cpp/tests/gameplay-tick-order-characterization-test.cpp) — copre Logic-prima-di-Script (etichettato onestamente come verifica di *contratto*, non ancora una vera guardia di regressione: il driver del test replica a mano la sequenza di `app_loop.cpp` perché `Application::tickFixedStep` è privato e non richiamabile da un test standalone; diventerà una vera guardia di regressione quando RU-02c esporrà `GameplaySession::tickFixedStep` e il driver chiamerà quello), install/cancel dello scope Logic su spawn/destroy reali, `ScriptRuntime::cancelOwner`, drain singolo degli eventi di `SpriteAnimator` — tutti verificati contro moduli di produzione reali (`World`, `RuntimeEntityGateway`, `LogicRuntime`, `ScriptRuntime`, `SpriteAnimator`), non contro doppi semplificati, salvo l'host (`RuntimeLogicHostAdapter` non è linkabile da un test standalone — vive in un header privato del target eseguibile `game` e richiederebbe un `Modules::Audio` reale mai testato headless in questo repo; il test usa un piccolo `Host` locale che inoltra le chiamate transform/platformer/animazione/variabili a `World`/`RuntimeEntityGateway`/`VariableManager` reali, coerente con la convenzione già in uso in `logic-board-test.cpp` per testare `LogicRuntime` in isolamento).
+
+#### Risultati RU-02a (2026-07-20, verificato nel codice reale)
+
+**Ordine di costruzione** (`app_bootstrap.cpp`):
+
+`initUtilities()` (`app_bootstrap.cpp:29-61`): `EventBus → TimeManager → VariableManager → TweenManager → SpriteAnimator → CameraManager → SaveLoadManager` (init in quest'ordine), poi `GameStateManager` (dipende da `EventBus`, wired con `setEventBus` prima di `init()`).
+
+`initSubsystems()` (`app_bootstrap.cpp:63-238`), ordine effettivo:
+
+1. `EditorViewportService`, `Renderer` (window size 1280×720), `Physics`, `Input`, `Audio`, `AssetLoader` — costruiti insieme, init in sequenza.
+2. `TextureManager` (init).
+3. `SceneManager` (init).
+4. `SceneMutationService(sceneManager)` — non ha `init()` proprio, costruita da reference.
+5. `RuntimeEntityGateway(sceneManager)` (init) → `RuntimeLogicHostAdapter(gateway, audio)` (nessun `init()`, solo costruzione) → `LogicRuntime(logicHost)` (nessun `init()` visibile, costruzione diretta).
+6. `SceneLifecycleService(sceneManager, sceneMutation, syncCallback)` — il callback cattura `gateway` per riferimento raw (`gw = entityGateway.get()`); poi `set_transition_handler([this]{ handleSceneTransition(...); })` cattura **`Application` stesso**; `entityGateway->set_scene_lifecycle_service(...)`.
+7. `World(gateway, physics, variableManager)` — **unico costruttore obbligatorio a 3 dipendenze**; poi wiring: `entityGateway->setPhysics(physics)`, 4× setter su `logicHost` (World/VariableManager/Input/Physics) + `setSpawnInstaller([this]{ installLogicScopeForEntity(...); })` (cattura `Application`), `world->setSpriteAnimator(...)`, `world->setEntityDestroyedHandler([this]{...})` (cattura `Application`, cancella scope Logic + owner Script), `world->setRenderer(renderer)` (**opzionale**, `renderer_` di default `nullptr`), `sceneLifecycle->set_gameplay_reset_handler([this]{ world->onSceneActivated(); })` (cattura `Application`), `set_restore_handler([gw]{...})` (cattura gateway per riferimento), `world->setSceneLifecycleService(...)`.
+8. `DialogManager` (init, `setContext(&ctx_)` — riceve l'intero `EngineContext`).
+9. `GameAPI(ctx_)` (init) — riceve l'intero `EngineContext` per **reference permanente** (`const EngineContext& ctx_` come membro, non solo a `init()` — deroga esplicita alla regola scritta nel commento di `EngineContext` stesso, "Modules must NOT store the EngineContext beyond init()"). Registra 18 domini di binding Lua inclusi `camera.*` (via Renderer) e `dialog.*` — **GameAPI non è gameplay-puro**, ha bind reali verso Renderer/Dialog.
+10. `LuaHost` — costruito, `registerBindings([&]{ gameAPI->registerAll(lua); })`, init.
+11. `EditorAPI::wire*` (6 chiamate statiche: Engine/Lua/Renderer/EditorViewport/Dialog/SpriteAnimator) + `entityGateway->setSpriteAnimator(...)` + `EditorAPI::wireAudio/wireVariables/init(...)`.
+12. Solo `#ifdef ARTCADE_WASM`: 6 `EditorAPI::set*Handler` che catturano `this` (Application) per bridge scene-mutation/invalidation/project-loaded/preview-restore/enter-play/exit-play.
+
+**Dipendenze obbligatorie vs opzionali**: obbligatorie a runtime (mai null-checked nel tick) — `renderer`, `timeManager`, `tweenManager`, `spriteAnimator`, `cameraManager`, `gameStateManager`, `eventBus`, `world`, `entityGateway`, `gameAPI`, `luaHost`, `audio`. Opzionali (null-checked) — `dialogManager`, `logicRuntime`, `scriptRuntime`, `splash_`.
+
+**Servizi usati da `GameAPI`** (da `game-api.h:20-36`): entity/object/pool, collision/physics, input, audio, text, state, debug, save, event (pure-Lua EventBus), time (pure-Lua), **camera (via Renderer)**, animation, lifecycle, grid, **shader**, component (linearMover/magnet/horde/autoDestroy/platformer), **dialog**. Conferma D-13: 3 dei 18 domini (camera/shader/dialog) sono binding verso servizi host/presentazione, non gameplay puro — non tutto in `GameAPI` è spostabile in blocco in `GameplaySession` senza prima separare questi binder per dominio.
+
+**Servizi usati da `World`** (`world.h:42-53,156-158,213-216`): costruttore richiede `RuntimeEntityGateway&`, `Physics&`, `VariableManager&` (obbligatorie, per reference, mai nulle). Setter opzionali: `SceneLifecycleService*`, `Renderer*` (default `nullptr` — conferma che World **tollera già** l'assenza di renderer), `SpriteAnimator*`, più un callback `setEntityDestroyedHandler`.
+
+**Callback che catturano `Application` (`[this]`)**: `sceneLifecycle->set_transition_handler` (→ `handleSceneTransition`), `logicHost->setSpawnInstaller` (→ `installLogicScopeForEntity`), `world->setEntityDestroyedHandler`, `sceneLifecycle->set_gameplay_reset_handler`, più le 6 `EditorAPI::set*Handler` WASM-only. Tutte e 5 le callback native devono essere ri-scritte per catturare `GameplaySession` in RU-02e (D-08); le 6 WASM restano host-side per costruzione (invocano bridge editoriale, non gameplay).
+
+**Ordine di shutdown** (`app_bootstrap.cpp:240-287`, inverso rispetto alla costruzione ma non identico): `logicRuntime→scopes/objectTypes→logicHost` · `scriptRuntime→programs/attachments/collisionPairs` · `luaHost` · `gameAPI` · `dialogManager` · `world` · `entityGateway` (prima `set_scene_lifecycle_service(nullptr)`, poi `shutdown()`) · `sceneLifecycle` (prima `cancel_transition()`) · `sceneMutation` · `sceneManager` · `assetLoader` · `audio` · `input` · `physics` · `textureManager` · `renderer` · `gameStateManager` · `saveLoadManager` · `cameraManager` · `spriteAnimator` · `tweenManager` · `variableManager` · `timeManager` · `eventBus`. Nota: `entityGateway` viene distrutto **prima** di `sceneManager`/`sceneMutation` pur essendo stato costruito **dopo** `sceneManager` — non è un ordine puramente LIFO, dipende da chi referenzia chi (`gateway` tiene un riferimento a `sceneManager`, quindi deve morire per primo).
+
+**Differenze native/WASM** (`app_loop.cpp:219-297`, `app_bootstrap.cpp:186-235`): (a) native controlla `renderer->shouldClose()` a ogni iterazione, WASM no (il loop è guidato da `emscripten_set_main_loop`); (b) native fa sempre `simulating = true`, WASM gate su `EditorAPI::s_mode == 1` (play/pause pilotato dall'editor browser) — **unica vera differenza comportamentale nel tick**, non solo di trasporto; (c) F11 fullscreen toggle solo native; (d) i 6 `EditorAPI::set*Handler` (scene-mutation/invalidation/project-loaded/preview-restore/enter-play/exit-play bridge) esistono solo `#ifdef ARTCADE_WASM`.
+
+**Scoperta non anticipata dal piano originale — cadenza doppia di `CameraManager`**: `cameraManager->updateMotion(dt)` gira dentro `tickFixedStep` (fase 1 della sequenza a 24 passi, cadenza fixed-step), ma `cameraManager->trauma()/refreshShakeOffset(shakeDt)/decayTrauma(shakeDt)` girano in `loopIteration()` (`app_loop.cpp:290-294`), **fuori dal fixed tick**, una volta per frame reale (non per fixed-step), con `shakeDt = simulatedDt > 0 ? simulatedDt : frameTime` — cioè usa il tempo simulato se è girato almeno un fixed-step in quel frame, altrimenti il tempo reale del frame. Questo va preservato esattamente com'è: se lo shake finisse dentro `GameplaySession::tickFixedStep`, la cadenza cambierebbe (da "una volta a frame" a "una volta per fixed-step", potenzialmente più volte per frame quando l'accumulator ha arretrati) alterando il feel dello shake — una regressione comportamentale sottile che nessun test funzionale ovvio catturerebbe. **Decisione**: lo shake resta host-side (`Application`/futuro host) esattamente come oggi, chiamato dopo il blocco dei fixed-step in `loopIteration`, non spostato in `GameplaySession`.
+
+**Sequenza input frame confermata** (`app_loop.cpp:248-280`), esattamente come da piano: (1) `logicRuntime->beginFrame()` + dispatch pressed/released/held per ogni `LogicKey` supportata, costruendo in parallelo lo `ScriptInputSnapshot`; (2) `scriptRuntime->dispatchInput(scriptInput)` — **stesso snapshot immutabile** condiviso tra Logic e Script, costruito nello stesso ciclo; (3) `world->flushEntityQueues()`; (4) `gameAPI->dispatchInputEvents()`, gated da `!dialogManager->isBlocking()`. Dispatchato **una sola volta per `loopIteration()`**, non per fixed-step — se l'accumulator fa girare più fixed-step nello stesso frame, tutti vedono lo stesso input già dispatchato prima del loro blocco.
+
+**Classificazione moduli** (Host-owned / Gameplay-owned / Host-port consumato dal gameplay / Transitorio):
+
+| Modulo | Classe | Note |
+|---|---|---|
+| Renderer, Window, TextureManager, EditorViewportService | Host-owned | Nessuna simulazione |
+| Input | Host-owned | Polling raylib diretto, nessun seam oggi (D-07) |
+| Audio | Host-owned, esposto come port | `IGameplayAudioService` (D-14) |
+| AssetLoader | Host-owned | API solo file/zip-based |
+| DialogManager | Host-owned, esposto come port | `IGameplayDialogGate` (D-15) |
+| EventBus, TimeManager, VariableManager, TweenManager, SpriteAnimator, GameStateManager, SaveLoadManager | Gameplay-owned | Già headless-testabili singolarmente |
+| CameraManager | Gameplay-owned, **con eccezione host-cadence** | `updateMotion` gameplay-owned; shake/trauma restano chiamate host-side (vedi sopra) |
+| Physics, SceneManager, SceneMutationService, SceneLifecycleService, RuntimeEntityGateway, World | Gameplay-owned | Nucleo simulazione |
+| RuntimeLogicHostAdapter, LogicRuntime, ScriptRuntime | Gameplay-owned | Già l'unico host condiviso Logic/Script |
+| GameAPI, LuaHost | Gameplay-owned **con 3 domini host-facing** (camera/shader/dialog) | Non spostabile in blocco senza separare i binder (D-13) |
+| `activeGameplayCollisionPairs`, logic scopes, script programs/attachments | Gameplay-owned | Oggi vivono in `Application::Modules` (D-05, D-09) |
+| EditorAPI bridge (statico + 6 handler WASM) | Host-owned | Non deve mai entrare in `GameplaySession` (D-18, D-19) |
+
 ### RU-02b — Separare preparazione host e simulazione
 
 **Obiettivo**: ripulire `tickFixedStep()` da ciò che non appartiene alla simulazione senza introdurre ancora `GameplaySession` owning.
