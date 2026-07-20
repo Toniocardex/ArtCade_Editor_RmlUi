@@ -77,46 +77,21 @@ std::string buildDockBodyHtml(const EditorCoordinator& coordinator,
         return html;
     }
 
-    // -- Left rail: paint tools, Fit presets, zoom steps, grid toggle, stacked
-    // vertically beside the sheet instead of above it - the sheet keeps the
-    // dock's full body height, not just what a horizontal bar would leave
-    // over. Tools reuse the exact same actions as the toolbar's always-visible
-    // #tilemap-context-tools (single authority - EditorState::activeTool /
-    // effectiveTilemapTool(), no second copy); the rail is a second, closer-
-    // to-canvas place to reach them, not a second source of truth. Text
-    // labels for Fit/zoom, not icons: those concepts have no codepoint
-    // already verified against this build's tabler-icons.ttf, and a wrong
-    // glyph is worse than a short word.
-    // Enablement mirrors the toolbar's own tilemap tool buttons exactly
-    // (visible whenever the selection supports tilemap editing, which is
-    // guaranteed here - never gated on layer lock: selecting a tool is not
-    // itself a paint operation, the coordinator rejects the paint attempt).
-    const EditorTool activeTool = coordinator.effectiveTilemapTool();
+    // -- Left rail: Fit presets, zoom steps, grid toggle, stacked vertically
+    // beside the sheet instead of above it - the sheet keeps the dock's full
+    // body height, not just what a horizontal bar would leave over. No paint
+    // tool buttons here - they already live in the toolbar's always-visible
+    // #tilemap-context-tools (menubar), with keyboard shortcuts; repeating
+    // them here would be two controls for the same action. Text labels for
+    // Fit/zoom, not icons: those concepts have no codepoint already verified
+    // against this build's tabler-icons.ttf, and a wrong glyph is worse than
+    // a short word.
     const auto viewIt = coordinator.state().tilemapEditor.paletteViews.find(tm.tilesetAssetId);
     const TilePaletteViewState view = viewIt != coordinator.state().tilemapEditor.paletteViews.end()
         ? viewIt->second : TilePaletteViewState{};
     const int scaleStep = std::max(1, static_cast<int>(std::lround(view.textureScale)));
 
     html += "<div class=\"tile-palette-dock-rail\">";
-    const auto railIconBtn = [&](const char* action, const char* glyph, const char* title,
-                                 bool active) {
-        html += "<button class=\"panel-btn icon-only";
-        if (active) html += " active";
-        html += "\" data-action=\"";
-        html += action;
-        html += "\" title=\"";
-        html += title;
-        html += "\"><span class=\"icon\">";
-        html += glyph;
-        html += "</span></button>";
-    };
-    railIconBtn("select-tilemap-brush", "&#xebb8;", "Brush (B)", activeTool == EditorTool::Brush);
-    railIconBtn("select-tilemap-eraser", "&#xeb8b;", "Eraser (E)", activeTool == EditorTool::Eraser);
-    railIconBtn("select-tilemap-picker", "&#xebe6;", "Picker (I)", activeTool == EditorTool::Picker);
-    railIconBtn("select-tilemap-rectangle", "&#xed37;", "Rectangle (R)",
-               activeTool == EditorTool::Rectangle);
-    railIconBtn("select-tilemap-fill", "&#xea47;", "Fill (F)", activeTool == EditorTool::Fill);
-    html += "<div class=\"tile-palette-dock-rail-sep\"></div>";
     const auto railBtn = [&](const char* action, const char* label, const char* title,
                              bool active) {
         html += "<button class=\"panel-btn";

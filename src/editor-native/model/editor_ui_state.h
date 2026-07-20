@@ -43,7 +43,7 @@ struct EditorUiState {
     float rightPanelWidth = 320.0f;
     float consoleHeight   = 220.0f;
     // Session-only Tile Palette dock under the Scene View (not ProjectDocument).
-    float tilePaletteDockHeight = 362.0f;
+    float tilePaletteDockHeight = 260.0f;
     bool  tilePaletteDockVisible = true;
 
     std::string hierarchyFilter;

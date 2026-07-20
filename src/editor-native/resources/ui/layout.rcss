@@ -169,7 +169,7 @@ body {
 
 #tile-palette-dock {
     flex: 0 0 auto;
-    height: 362dp;
+    height: 260dp;
     min-height: 160dp;
     max-height: 480dp;
     display: flex;
@@ -210,12 +210,12 @@ body {
     padding: 6dp 10dp 8dp 10dp;
     overflow: hidden;
 }
-/* Left rail: paint tools + Fit presets + zoom steps + grid toggle, stacked
-   beside the sheet instead of above it, so the sheet keeps the dock's full
-   height. Tools reuse the toolbar's own actions (single authority - see
-   tile_palette_dock_panel.cpp); the rail is just a closer-to-canvas way to
-   reach them, not a second source of truth. Scrolls if the dock is resized
-   shorter than its content. */
+/* Left rail: Fit presets + zoom steps + grid toggle, stacked beside the
+   sheet instead of above it, so the sheet keeps the dock's full height.
+   Paint tools are never repeated here - they live in the toolbar's always-
+   visible #tilemap-context-tools (editor_shell.rml), so there is exactly
+   one place to switch Brush/Eraser/Picker/Rectangle/Fill. Scrolls if the
+   dock is resized shorter than its content. */
 .tile-palette-dock-rail {
     flex: 0 0 auto;
     width: 52dp;
