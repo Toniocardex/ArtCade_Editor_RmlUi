@@ -164,7 +164,8 @@ int EditorApp::run(int argc, char** argv) {
     std::string shotPan;        // "x,y": pan the active scene's editor camera before the shot
     float shotZoom = 0.f;       // > 0: set the active scene's editor camera zoom
     bool shotPlay = false;      // start Play Scene before the shot (Play camera isolation check)
-    bool shotEscape = false;    // route one Escape press before the shot (deselect check)
+    bool shotEscape = false;    // route one Escape press before the shot (tool-reset check)
+    bool shotDeselect = false;  // click the Inspector breadcrumb before the shot
     std::string shotAssetMenu;  // "kind|id": open the Assets row menu on that asset
     int shotWidth = 0, shotHeight = 0;  // >0: force a viewport size for responsive UI shots
     bool lifecycleSmoke = false; // hidden, self-checking bind/detach/shutdown run
@@ -198,6 +199,7 @@ int EditorApp::run(int argc, char** argv) {
             shotZoom = static_cast<float>(std::atof(argv[i + 1]));
         else if (std::strcmp(argv[i], "--shot-play") == 0) shotPlay = true;
         else if (std::strcmp(argv[i], "--shot-escape") == 0) shotEscape = true;
+        else if (std::strcmp(argv[i], "--shot-deselect") == 0) shotDeselect = true;
         else if (std::strcmp(argv[i], "--shot-asset-menu") == 0 && i + 1 < argc)
             shotAssetMenu = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-size") == 0 && i + 1 < argc) {
@@ -1019,17 +1021,26 @@ int EditorApp::run(int argc, char** argv) {
             if (shotPlay) {
                 ui.handleAction("play-current-scene", "", "");
             }
-            // Deselect smoke test (--shot-escape): reproduces the reported
-            // bug setup - a tilemap paint tool active over a selected
-            // tilemap entity - then calls the exact production function a
-            // real Escape keypress invokes, not a re-implementation. One
-            // press must return straight to the Scene Inspector.
+            // Escape smoke test (--shot-escape): a tilemap paint tool active
+            // over a selected tilemap entity, then the exact production
+            // function a real Escape keypress invokes, not a
+            // re-implementation. Escape must fall the tool back to Select
+            // WITHOUT touching the selection - the entity stays selected and
+            // the Inspector keeps showing it (deselecting is the breadcrumb's
+            // job only, see --shot-deselect below).
             if (shotEscape) {
                 if (selectionSupportsTilemapEditing(coordinator.document(), coordinator.state(),
                                                     shotActiveScene)) {
                     coordinator.apply(SetActiveToolIntent{EditorTool::Rectangle});
                 }
                 routeGlobalEscape(coordinator);
+            }
+            // Deselect smoke test (--shot-deselect): the Inspector
+            // breadcrumb's exact action, not a re-implementation - proves
+            // the click path back to the Scene Inspector independently of
+            // Escape.
+            if (shotDeselect) {
+                ui.handleAction("deselect-entity", "", "");
             }
             // Assets row-menu smoke test: request the menu exactly as the "⌄"
             // click would (same deferred-show path); it appears on the loop's

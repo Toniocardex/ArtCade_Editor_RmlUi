@@ -169,26 +169,23 @@ std::optional<Vec2> dragPreviewPosition(const EditorCoordinator& coordinator,
 
 // Escape is a keyboard-wide gesture, not scoped to whichever panel/viewport
 // currently has mouse focus, so it is arbitrated once per frame here rather
-// than inside any single input-routing module. Exactly one level fires per
-// press: (1) cancel a pending tilemap gesture - tilemap_paint_input.cpp keeps
-// only its own focus-loss trigger for the same shared primitive, never
-// Escape-key polling itself; (2) if nothing was pending and an entity is
-// selected, clear the selection in this same press - a paint tool owns
-// viewport clicks while active (routeViewportPickDrag below), so clicking
-// empty canvas can never deselect the way it does with Select; Escape is the
-// only affordance back to the Scene Inspector, so it must not cost two
-// presses. SelectEntityIntent{INVALID_ENTITY} already falls the active tool
-// back to Select via reconcileTilemapEditingContext (nothing left to
-// operate on), so there is no separate "switch to Select" step to sequence
-// first; (3) only when nothing was selected but a tilemap tool is still
-// somehow active (no target at all) does Escape fall back to Select alone.
-// None of the three levels touches ProjectDocument/dirty/undo.
+// than inside any single input-routing module. Escape only ever cancels the
+// current operation - it never touches the entity selection, Photoshop-
+// style (Esc aborts a crop/marquee/transform; deselecting is always a
+// separate, deliberate action - Select > Deselect, never overloaded onto
+// Esc). Overloading it here too was tried and reverted: Escape gets pressed
+// reflexively for unrelated reasons (dismiss a popup, back out of a drag),
+// and losing the selection as a surprise side effect broke that reflex.
+// Deselecting now lives only in the Inspector's own breadcrumb
+// (data-action="deselect-entity", inspector_panel.cpp) - a dedicated,
+// always-visible affordance that never collides with anything else.
+// Exactly one level fires per press: (1) cancel a pending tilemap gesture -
+// tilemap_paint_input.cpp keeps only its own focus-loss trigger for the same
+// shared primitive, never Escape-key polling itself; (2) if nothing was
+// pending and a tilemap tool is active, fall back to Select. Neither level
+// touches ProjectDocument/dirty/undo/selection.
 void routeGlobalEscape(EditorCoordinator& coordinator) {
     if (coordinator.cancelPendingTilemapGesture()) return;
-    if (coordinator.selection().hasEntity()) {
-        coordinator.apply(SelectEntityIntent{INVALID_ENTITY});
-        return;
-    }
     if (isTilemapTool(coordinator.state().activeTool)) {
         coordinator.apply(SetActiveToolIntent{EditorTool::Select});
     }

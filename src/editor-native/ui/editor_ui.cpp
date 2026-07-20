@@ -2144,7 +2144,11 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
 
 bool EditorUi::handleInspectorAction(const std::string& action, const std::string& arg,
                                      const std::string& value, EntityId selected) {
-    if (action == "add-sprite-renderer") {
+    if (action == "deselect-entity") {
+        // Inspector breadcrumb: the only deliberate way back to the Scene
+        // Inspector (Escape no longer deselects - see routeGlobalEscape).
+        coordinator_.apply(SelectEntityIntent{INVALID_ENTITY});
+    } else if (action == "add-sprite-renderer") {
         addSpriteRenderer(coordinator_);
     } else if (action == "remove-sprite-renderer") {
         removeSpriteRenderer(coordinator_);

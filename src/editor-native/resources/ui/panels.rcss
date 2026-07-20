@@ -480,6 +480,19 @@
     color: #52525b;
     font-size: 11dp;
 }
+/* Inspector breadcrumb: the only deliberate way to deselect and return to
+   the Scene Inspector (Escape never does - scene_view_interaction.cpp). Text
+   only, no icon glyph - no verified Tabler codepoint for a back/chevron
+   shape in this build, and raw Unicode arrows have no glyph in Inter. */
+.inspector-breadcrumb {
+    display: block;
+    margin: 0 0 10dp 0;
+    color: #8a8a93;
+    font-size: 11dp;
+    cursor: pointer;
+}
+.inspector-breadcrumb:hover { color: #3b82f6; }
+
 .outside-warning {
     display: block;
     margin: 2dp 0 7dp 0;

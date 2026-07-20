@@ -673,6 +673,17 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
 
     std::string html;
 
+    // Breadcrumb back to the Scene Inspector: the only deliberate way to
+    // deselect (Escape never does - see routeGlobalEscape). Always clickable,
+    // even during Play or on a locked layer: selection is workspace state,
+    // not authoring, same as picking an entity from the Hierarchy always is.
+    if (const SceneDef* activeScene =
+            coordinator.document().findScene(coordinator.state().activeSceneId)) {
+        html += "<div class=\"inspector-breadcrumb\" data-action=\"deselect-entity\" "
+                "title=\"Back to Scene properties\">"
+              + escapeRml(activeScene->name) + "</div>";
+    }
+
     if (instanceLocked) {
         html += "<div class=\"outside-warning panel-top\"><span class=\"icon\">&#xeae2;</span>"
                 "<span>This entity belongs to a locked layer.</span></div>";
