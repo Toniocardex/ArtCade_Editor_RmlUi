@@ -77,19 +77,25 @@ std::string buildDockBodyHtml(const EditorCoordinator& coordinator,
         return html;
     }
 
-    // -- Slim top bar: Fit presets, zoom steps, grid toggle. One line; no
-    // Tool/Shape row here - those already live in the toolbar's always-visible
+    // -- Left rail: Fit presets, zoom steps, grid toggle, stacked vertically
+    // beside the sheet instead of above it - the sheet keeps the dock's full
+    // body height, not just what a horizontal bar would leave over. No Tool/
+    // Shape buttons here - those already live in the toolbar's always-visible
     // #tilemap-context-tools, and repeating them would be two controls for
-    // the same action.
+    // the same action. Text labels, not icons: fit/zoom have no codepoint
+    // already verified against this build's tabler-icons.ttf, and a wrong
+    // glyph is worse than a short word.
     const auto viewIt = coordinator.state().tilemapEditor.paletteViews.find(tm.tilesetAssetId);
     const TilePaletteViewState view = viewIt != coordinator.state().tilemapEditor.paletteViews.end()
         ? viewIt->second : TilePaletteViewState{};
     const int scaleStep = std::max(1, static_cast<int>(std::lround(view.textureScale)));
 
-    html += "<div class=\"tile-palette-dock-topbar\">";
-    html += "<div class=\"tile-palette-dock-fit\">";
-    const auto fitBtn = [&](const char* action, const char* label, const char* title) {
-        html += "<button class=\"panel-btn mode-option\" data-action=\"";
+    html += "<div class=\"tile-palette-dock-rail\">";
+    const auto railBtn = [&](const char* action, const char* label, const char* title,
+                             bool active) {
+        html += "<button class=\"panel-btn";
+        if (active) html += " active";
+        html += "\" data-action=\"";
         html += action;
         html += "\" title=\"";
         html += title;
@@ -97,37 +103,29 @@ std::string buildDockBodyHtml(const EditorCoordinator& coordinator,
         html += label;
         html += "</button>";
     };
-    fitBtn("tile-palette-fit-content", "Fit Content", "Fit painted tiles (Home)");
-    fitBtn("tile-palette-fit-selection", "Fit Selection", "Fit current stamp (Shift+Home)");
-    fitBtn("tile-palette-fit-sheet", "Fit Sheet", "Fit whole sheet");
-    html += "</div>";
-    html += "<div class=\"tile-palette-dock-zoomsteps\">";
-    const auto zoomBtn = [&](const char* action, const char* label, bool active) {
-        html += "<button class=\"panel-btn mode-option zoom-step";
-        if (active) html += " active";
-        html += "\" data-action=\"";
-        html += action;
-        html += "\">";
-        html += label;
-        html += "</button>";
-    };
-    zoomBtn("tile-palette-zoom-1", "1&#215;", scaleStep == 1);
-    zoomBtn("tile-palette-zoom-2", "2&#215;", scaleStep == 2);
-    zoomBtn("tile-palette-zoom-3", "3&#215;", scaleStep == 3);
-    zoomBtn("tile-palette-zoom-4", "4&#215;", scaleStep == 4);
-    html += "<button class=\"panel-btn mode-option icon-only";
+    railBtn("tile-palette-fit-content", "Fit", "Fit painted tiles (Home)", false);
+    railBtn("tile-palette-fit-selection", "Sel", "Fit current stamp (Shift+Home)", false);
+    railBtn("tile-palette-fit-sheet", "Sheet", "Fit whole sheet", false);
+    html += "<div class=\"tile-palette-dock-rail-sep\"></div>";
+    railBtn("tile-palette-zoom-1", "1&#215;", "Zoom 1&#215;", scaleStep == 1);
+    railBtn("tile-palette-zoom-2", "2&#215;", "Zoom 2&#215;", scaleStep == 2);
+    railBtn("tile-palette-zoom-3", "3&#215;", "Zoom 3&#215;", scaleStep == 3);
+    railBtn("tile-palette-zoom-4", "4&#215;", "Zoom 4&#215;", scaleStep == 4);
+    html += "<div class=\"tile-palette-dock-rail-sep\"></div>";
+    html += "<button class=\"panel-btn icon-only";
     if (view.gridVisible) html += " active";
     html += "\" data-action=\"tile-palette-toggle-grid\" title=\"Toggle grid\">"
             "<span class=\"icon\">&#xea3b;</span></button>";
-    html += "</div></div>";
+    html += "</div>";
 
+    html += "<div class=\"tile-palette-dock-main\">";
     html += "<div class=\"tile-palette-sheet\" id=\"tile-palette\" title=\""
             "Wheel scroll &#183; Shift+Wheel horizontal &#183; Ctrl+Wheel zoom &#183; "
             "Middle mouse or Space+drag to pan &#183; Double-click to edit tileset\"></div>";
 
-    // -- Slim status bar: what's selected (left) and which tileset it came
-    // from (right). Always present so the paint target is explicit even
-    // before touching the Scene View.
+    // Slim status bar: what's selected (left) and which tileset it came from
+    // (right). Always present so the paint target is explicit even before
+    // touching the Scene View.
     html += "<div class=\"tile-palette-dock-status\">";
     const std::optional<TilemapTileStamp>& stamp = coordinator.state().tilemapEditor.stamp;
     if (stamp && stamp->sourceTilesetAssetId == tm.tilesetAssetId) {
@@ -141,7 +139,7 @@ std::string buildDockBodyHtml(const EditorCoordinator& coordinator,
           + std::to_string(tmTileset->tiles.size()) + " tiles &#183; "
           + std::to_string(tmTileset->slicing.tileWidth) + "&#215;"
           + std::to_string(tmTileset->slicing.tileHeight) + "</span>";
-    html += "</div>";
+    html += "</div></div>";
     return html;
 }
 
