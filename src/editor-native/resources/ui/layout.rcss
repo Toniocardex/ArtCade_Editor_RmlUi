@@ -209,41 +209,61 @@ body {
     padding: 6dp 10dp 8dp 10dp;
     overflow: hidden;
 }
-.tile-palette-dock-meta {
-    flex: 0 0 auto;
-    margin: 0 0 4dp 0;
-    color: #8a8a93;
-    font-size: 11dp;
-}
-.tile-palette-dock-meta-name { color: #d4d4d8; font-weight: 600; }
-.tile-palette-dock-tools {
+/* Slim top bar: Fit presets + zoom steps + grid toggle, one line. Tool/Shape
+   selection is never repeated here - it lives in the toolbar's always-visible
+   #tilemap-context-tools (editor_shell.rml), so there is exactly one place
+   to switch Brush/Eraser/Picker/Rectangle/Fill. */
+.tile-palette-dock-topbar {
     flex: 0 0 auto;
     display: flex;
     flex-direction: row;
-    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8dp;
+    margin: 0 0 4dp 0;
+}
+.tile-palette-dock-fit,
+.tile-palette-dock-zoomsteps {
+    display: flex;
+    flex-direction: row;
     align-items: center;
     gap: 4dp;
-    margin: 0 0 6dp 0;
 }
-.tile-palette-dock-tools-label {
-    margin-right: 4dp;
-    color: #8a8a93;
-    font-size: 11dp;
+.tile-palette-dock-topbar .mode-option { margin: 0; }
+.tile-palette-dock-zoomsteps .zoom-step {
+    min-width: 26dp;
+    padding-left: 6dp;
+    padding-right: 6dp;
+    text-align: center;
 }
-.tile-palette-dock-tools .mode-option { margin: 0; }
-.tile-palette-dock-zoom {
+.tile-palette-dock-topbar .icon-only {
+    min-width: 0;
+    padding: 4dp 7dp;
+}
+.tile-palette-dock-topbar .icon-only .icon { margin: 0; }
+/* Slim status bar under the sheet: selection on the left, tileset meta on
+   the right - always present so the paint target is explicit even before
+   touching the Scene View. */
+.tile-palette-dock-status {
     flex: 0 0 auto;
     display: flex;
     flex-direction: row;
-    flex-wrap: wrap;
-    gap: 4dp;
-    margin: 0 0 6dp 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10dp;
+    margin: 4dp 0 0 0;
+    color: #8a8a93;
+    font-size: 11dp;
+    white-space: nowrap;
+    overflow: hidden;
 }
-.tile-palette-dock-hints {
+.tile-palette-dock-status-selection {
+    overflow: hidden;
+}
+.tile-palette-dock-status-selection .value { color: #d4d4d8; font-weight: 600; }
+.tile-palette-dock-status-meta {
     flex: 0 0 auto;
-    margin: 0 0 6dp 0;
     color: #6b6b73;
-    font-size: 10dp;
 }
 
 /* Logic/Script fill the center column when Scene (and the palette dock) are hidden. */
