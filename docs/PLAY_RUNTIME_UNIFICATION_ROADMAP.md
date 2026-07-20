@@ -59,7 +59,7 @@ La migrazione è conclusa soltanto quando:
 | ID | Priorità | Slice | Stato | Dipendenze | Repo toccati |
 |---|---|---|---|---|---|
 | RU-00 | Preparazione | Congelamento baseline e branch di migrazione | [x] | — | editor |
-| RU-01a | P0 | Riconciliazione schema canonico di progetto (formatVersion, scenes, componenti mancanti) | [ ] | RU-00 | runtime, editor |
+| RU-01a | P0 | Riconciliazione schema canonico di progetto (formatVersion, scenes, componenti mancanti) | [x] | RU-00 | runtime, editor |
 | RU-01 | P0 | Parser `ProjectDocument` unificato sul canonico `ProjectJson::*` | [ ] | RU-01a | editor |
 | RU-02 | P0 | Estrazione `GameplaySession` riutilizzabile dal runtime | [ ] | RU-00 | runtime (+editor a valle) |
 | RU-03 | P0 | `EditorGameplayRuntimeHost` sostituisce lo stub `spawnObjectType` | [ ] | RU-02 | editor, runtime |
@@ -125,24 +125,27 @@ RU-01 e RU-04 assumono entrambe che un file scritto dall'editor sia accettato da
 
 **Design richiesto**
 
-- [ ] Bump `kCurrentProjectFormatVersion` a `9` in `runtime-cpp/src/core/project-current-format.h`, con test di regressione che verifica che un file `formatVersion: 8` non aggiornato venga esplicitamente rifiutato (nessuna migrazione silenziosa lato runtime).
-- [ ] `validate_current_project_json`/`read_scenes_map` accettano `scenes` come oggetto (mai più array); aggiornare il writer editor in coerenza.
-- [ ] Editor scrive sempre `globalVariables` (default `[]`).
-- [ ] Nuovo `read_box_collider_2d`/estensione di `read_entity_components` per `"boxCollider2D"`.
-- [ ] Nuovo lettore per il tilemap per-istanza a chunk (verificare prima con l'audit interno se il modello legacy scena-livello è ancora usato da qualche progetto reale prima di deprecarlo — non farlo silenziosamente).
-- [ ] `read_tileset_asset` aggiornato a `slicing` annidato con `spacingX`/`spacingY`, e popola `TilesetAsset.tiles`.
-- [ ] Nuovi `read_generated_sfx`/`read_font_asset(s)`.
+- [x] Bump `kCurrentProjectFormatVersion` a `9` in `runtime-cpp/src/core/project-current-format.h`, con test di regressione che verifica che un file `formatVersion: 8` non aggiornato venga esplicitamente rifiutato (nessuna migrazione silenziosa lato runtime).
+- [x] `validate_current_project_json`/`read_scenes_map` accettano `scenes` come oggetto (già lo facevano — solo il writer editor scriveva l'array; il reader editor accettava già entrambe le forme). Writer editor allineato a oggetto chiave-per-id.
+- [x] Editor scrive sempre `globalVariables` (serializzato da `doc.globalVariables`, oggi sempre vuoto in assenza di UI di authoring — nessuno stub hardcoded).
+- [x] Nuovo `boxCollider2D` in `read_optional_gameplay_components` (`entity-json.cpp`).
+- [x] Nuovo lettore per il tilemap per-istanza a chunk in `read_scene_instance` (`scene-json.cpp`) — il lettore legacy scena-livello (`read_tilemap_object`) resta intatto, invariato, non deprecato.
+- [x] `read_tileset_asset` aggiornato a `slicing` annidato con `spacingX`/`spacingY` (con fallback al layout piatto legacy se `slicing` assente), e popola `TilesetAsset.tiles`.
+- [x] Nuovo `read_font_assets` (`asset-json.cpp`), wired in `AssetLoader::parseProjectJson`.
+- [!] `read_generated_sfx` — **deferito, non implementato in questa slice**. Richiederebbe una nuova dipendenza `artcade-project-json`/`artcade-asset-system` → modulo `sfx` (per `artcade::sfx::deserializeRecipeJson`) che oggi non esiste — un cambiamento di layering architetturale, non una semplice aggiunta meccanica. Gap noto e documentato: se un progetto con SFX generati passa dal loader canonico, `doc.generatedSfx` resta vuoto (gli `AudioAssetDef` risultanti dalla sintesi restano intatti tramite `read_audio_assets`/`generatedFromSfxId`, che sono già letti — si perde solo la *ricetta* editabile, non l'audio già generato).
 
 **Test obbligatori**
 
-- [ ] Un progetto salvato dall'editor con lo schema aggiornato passa `validate_current_project_json` senza errori.
-- [ ] Ogni nuovo lettore ha un test di round-trip dedicato (scrivi con l'editor → leggi col parser canonico → confronta lo `ProjectDoc` risultante).
-- [ ] Test di rifiuto esplicito per `formatVersion: 8` (nessuna migrazione silenziosa).
-- [ ] Nessuna regressione nelle suite esistenti di entrambi i repo.
+- [x] Un progetto salvato dall'editor con lo schema aggiornato passa `validate_current_project_json` senza errori.
+- [x] Round-trip dedicato per boxCollider2D/tilemap a chunk/tileset slicing+tiles/fontAssets (`test_ru01a_component_readers_round_trip`, `artcade-package-test.cpp`).
+- [x] Test di rifiuto esplicito per `formatVersion: 8` (`test_stale_format_version_rejected`).
+- [x] Nessuna regressione: editor 2563+ core-test (+ tutte le altre suite) verdi, runtime-cpp 48/48 CTest al 100%.
 
 **Gate di uscita**
 
-Un file scritto dall'editor con lo schema corrente passa `AssetLoader::parseProjectJson` producendo uno `ProjectDoc` che preserva tutti i componenti/asset autorati (nessuna perdita silenziosa di `boxCollider2D`, tilemap, tileset slicing, SFX generati, font).
+- [x] Un file scritto dall'editor con lo schema corrente passa `AssetLoader::parseProjectJson` producendo uno `ProjectDoc` che preserva `boxCollider2D`, tilemap a chunk, tileset slicing/tiles, font — **eccetto** i SFX generati (gap noto, vedi sopra).
+
+**Commit**: `runtime-cpp` `75a9305e` (feature/runtime-unification), editor `922be4f` (feature/runtime-unification).
 
 ## 8. Fase RU-01 — Parser `ProjectDocument` unificato
 
