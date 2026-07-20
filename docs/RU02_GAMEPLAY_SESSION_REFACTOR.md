@@ -395,6 +395,12 @@ struct GameplayRuntimeRefs {
 
 **Gate RU-02c**: esiste una sola implementazione del fixed tick; `Application` non contiene più l'algoritmo gameplay; ownership invariata; `game.exe` usa già il delegato; WASM usa già il delegato; nessun nuovo composition root.
 
+**Stato (2026-07-20)**: [x] completata. Commit `0121b126` su `feature/runtime-unification` (runtime-cpp). `GameplaySession` (`src/app/src/gameplay_session.h/.cpp`) possiede l'algoritmo spostato verbatim; `Application::tickFixedStep` è ora un delegato a una riga; `dispatchGameplayCollisionTransitions` non esiste più in `Application`. Aggiunte 3 porte host minime (`gameplay_host_ports.h`: `IGameplayAudioService`, `IGameplayDialogGate`, `IRuntimeProfilerSink`, solo i metodi realmente usati) con adapter in `app_modules.h` che si limitano a inoltrare. `Application::Modules` continua a costruire e possedere tutto — `GameplayRuntimeRefs` è la struttura transitoria T-01.
+
+**Scoperta durante l'implementazione**: due dei riferimenti non sono stabili dal boot, a differenza di tutti gli altri. `scriptRuntime` viene ricostruito per-scena in `installScriptScopesForActiveScene` (chiamata già esistente prima di RU-02c, non aggiunta ora); `physicsMode_` cambia via `applyRuntimeSettings` al caricamento progetto. Se non sincronizzati esplicitamente, `GameplaySession` avrebbe congelato silenziosamente entrambi al valore di boot — Script non avrebbe mai eseguito il tick e i cambi di modalità fisica da progetto non avrebbero mai avuto effetto. Aggiunti `setScriptRuntime`/`setPhysicsMode` su `GameplaySession`, chiamati da `Application` in ogni punto in cui il valore reale cambia (`app_project_lifecycle.cpp`, sia il percorso di successo sia quello di fallimento per `scriptRuntime`). Questa scoperta va tenuta a mente per RU-02e/f: qualunque altro riferimento non boot-time-stabile deve ricevere lo stesso trattamento prima di fidarsi ciecamente della struttura di reference.
+
+Verificato: native 49/49 test verdi, build WASM verde (`game.js`/`game.wasm` linkano e producono output), editor build+test verde contro la junction aggiornata. Nessuna condizione di stop-the-line violata (nessun `editor-api.h`/RmlUi/Raylib Input in `GameplaySession`, un solo fixed tick, un solo path di dispatch collisioni).
+
 ### RU-02d — Confine input immutabile
 
 **Obiettivo**: rimuovere dalla simulazione la dipendenza dal polling Raylib.
