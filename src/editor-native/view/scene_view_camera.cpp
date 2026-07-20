@@ -1,5 +1,7 @@
 #include "editor-native/view/scene_view_camera.h"
 
+#include <algorithm>
+
 namespace ArtCade::EditorNative {
 
 SceneViewCamera makeSceneViewCamera(const ViewportRect& rect,
@@ -10,6 +12,13 @@ SceneViewCamera makeSceneViewCamera(const ViewportRect& rect,
     camera.target = Vec2{worldSize.x * 0.5f + view.pan.x, worldSize.y * 0.5f + view.pan.y};
     camera.zoom   = view.zoom;
     return camera;
+}
+
+float computeFitZoom(Vec2 worldSize, const ViewportRect& rect, float padding) {
+    if (worldSize.x <= 0.f || worldSize.y <= 0.f) return 1.f;
+    const float availW = std::max(1.f, static_cast<float>(rect.width) - padding * 2.f);
+    const float availH = std::max(1.f, static_cast<float>(rect.height) - padding * 2.f);
+    return std::min(availW / worldSize.x, availH / worldSize.y);
 }
 
 Vec2 screenToWorld(const SceneViewCamera& camera, Vec2 screen) {

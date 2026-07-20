@@ -172,19 +172,25 @@ std::optional<Vec2> dragPreviewPosition(const EditorCoordinator& coordinator,
 // than inside any single input-routing module. Exactly one level fires per
 // press: (1) cancel a pending tilemap gesture - tilemap_paint_input.cpp keeps
 // only its own focus-loss trigger for the same shared primitive, never
-// Escape-key polling itself; (2) if nothing was pending and a tilemap tool is
-// active, fall back to Select; (3) if the tool was already Select and an
-// entity is selected, clear the selection (the scene's own Inspector, then
-// visible again, is the existing fallback - no new code needed for that
-// part). None of the three levels touches ProjectDocument/dirty/undo.
+// Escape-key polling itself; (2) if nothing was pending and an entity is
+// selected, clear the selection in this same press - a paint tool owns
+// viewport clicks while active (routeViewportPickDrag below), so clicking
+// empty canvas can never deselect the way it does with Select; Escape is the
+// only affordance back to the Scene Inspector, so it must not cost two
+// presses. SelectEntityIntent{INVALID_ENTITY} already falls the active tool
+// back to Select via reconcileTilemapEditingContext (nothing left to
+// operate on), so there is no separate "switch to Select" step to sequence
+// first; (3) only when nothing was selected but a tilemap tool is still
+// somehow active (no target at all) does Escape fall back to Select alone.
+// None of the three levels touches ProjectDocument/dirty/undo.
 void routeGlobalEscape(EditorCoordinator& coordinator) {
     if (coordinator.cancelPendingTilemapGesture()) return;
-    if (isTilemapTool(coordinator.state().activeTool)) {
-        coordinator.apply(SetActiveToolIntent{EditorTool::Select});
-        return;
-    }
     if (coordinator.selection().hasEntity()) {
         coordinator.apply(SelectEntityIntent{INVALID_ENTITY});
+        return;
+    }
+    if (isTilemapTool(coordinator.state().activeTool)) {
+        coordinator.apply(SetActiveToolIntent{EditorTool::Select});
     }
 }
 

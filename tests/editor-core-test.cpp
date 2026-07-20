@@ -3885,6 +3885,24 @@ int main() {
         CHECK(off.x == 331.f);
     }
 
+    // -- computeFitZoom: the shared formula behind Fit View and Play's own
+    // from-scratch camera (both must agree, so neither keeps a private copy) ---
+    {
+        // Wider-than-tall world in a wider-than-tall viewport: width-bound.
+        ViewportRect rect{0, 0, 1000, 500};
+        const float zoomW = computeFitZoom(Vec2{2000.f, 400.f}, rect, 0.f);
+        CHECK(zoomW == 0.5f);   // 1000/2000, height would allow 1.25
+        // Tall world: height-bound.
+        const float zoomH = computeFitZoom(Vec2{400.f, 2000.f}, rect, 0.f);
+        CHECK(zoomH == 0.25f);  // 500/2000, width would allow 2.5
+        // Padding shrinks the available area on both axes.
+        const float padded = computeFitZoom(Vec2{100.f, 100.f}, rect, 100.f);
+        CHECK(padded == 3.f);   // avail 800x300 -> 800/100=8, 300/100=3, min wins
+        // Degenerate world size: no crash, a defined fallback.
+        CHECK(computeFitZoom(Vec2{0.f, 100.f}, rect, 0.f) == 1.f);
+        CHECK(computeFitZoom(Vec2{100.f, -1.f}, rect, 0.f) == 1.f);
+    }
+
     // -- pickEntityAt: topmost hit; miss returns INVALID ----------------------
     {
         SceneFrameSnapshot f;

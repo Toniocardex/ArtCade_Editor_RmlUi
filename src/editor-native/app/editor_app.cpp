@@ -161,6 +161,10 @@ int EditorApp::run(int argc, char** argv) {
     std::string shotSection;    // non-empty: toggle this Inspector section (e.g. "tilemap")
     std::string shotStamp;      // "c0,r0,c1,r1": select that palette region as a stamp
     float shotPaletteZoom = 0.f; // > 0: apply this palette zoom to the shot tileset
+    std::string shotPan;        // "x,y": pan the active scene's editor camera before the shot
+    float shotZoom = 0.f;       // > 0: set the active scene's editor camera zoom
+    bool shotPlay = false;      // start Play Scene before the shot (Play camera isolation check)
+    bool shotEscape = false;    // route one Escape press before the shot (deselect check)
     std::string shotAssetMenu;  // "kind|id": open the Assets row menu on that asset
     int shotWidth = 0, shotHeight = 0;  // >0: force a viewport size for responsive UI shots
     bool lifecycleSmoke = false; // hidden, self-checking bind/detach/shutdown run
@@ -188,6 +192,12 @@ int EditorApp::run(int argc, char** argv) {
             shotStamp = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-palette-zoom") == 0 && i + 1 < argc)
             shotPaletteZoom = static_cast<float>(std::atof(argv[i + 1]));
+        else if (std::strcmp(argv[i], "--shot-pan") == 0 && i + 1 < argc)
+            shotPan = argv[i + 1];
+        else if (std::strcmp(argv[i], "--shot-zoom") == 0 && i + 1 < argc)
+            shotZoom = static_cast<float>(std::atof(argv[i + 1]));
+        else if (std::strcmp(argv[i], "--shot-play") == 0) shotPlay = true;
+        else if (std::strcmp(argv[i], "--shot-escape") == 0) shotEscape = true;
         else if (std::strcmp(argv[i], "--shot-asset-menu") == 0 && i + 1 < argc)
             shotAssetMenu = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-size") == 0 && i + 1 < argc) {
@@ -545,9 +555,7 @@ int EditorApp::run(int argc, char** argv) {
         const ViewportRect rect = viewportRectFromDocument(host.document());
         if (rect.width <= 0 || rect.height <= 0) return false;
         constexpr float kPad = 28.f;   // keep the scene off the panel edges
-        const float availW = std::max(1.f, static_cast<float>(rect.width) - kPad * 2.f);
-        const float availH = std::max(1.f, static_cast<float>(rect.height) - kPad * 2.f);
-        const float fit = std::min(availW / scene->worldSize.x, availH / scene->worldSize.y);
+        const float fit = computeFitZoom(scene->worldSize, rect, kPad);
         const EditorSceneViewState view = coordinator.sceneView(active);
         coordinator.apply(PanViewportIntent{active, {-view.pan.x, -view.pan.y}});  // centre (pan 0)
         coordinator.apply(SetViewportZoomIntent{active, fit});                     // intent clamps
@@ -983,6 +991,45 @@ int EditorApp::run(int argc, char** argv) {
                         }
                     }
                 }
+            }
+            // Play camera isolation smoke test (--shot-pan x,y / --shot-zoom z /
+            // --shot-play): pan/zoom the active scene's EDITOR camera first
+            // (workspace-only, exactly what scrolling/wheel-zoom while
+            // painting would do), then start Play the same way the toolbar
+            // button does - proves the runtime's own camera (editor_app.cpp's
+            // playSession branch) never reads coordinator.sceneView(active).
+            const SceneId shotActiveScene = coordinator.state().activeSceneId;
+            if (!shotPan.empty() || shotZoom > 0.f) {
+                // Mark initialized first: the main loop auto-fits any scene
+                // view that isn't yet (see the "First time this scene is
+                // active" block below), which would otherwise silently
+                // overwrite this pan/zoom on the very next frame, before
+                // the shot is captured.
+                coordinator.markSceneViewInitialized(shotActiveScene);
+            }
+            if (!shotPan.empty()) {
+                float px = 0.f, py = 0.f;
+                if (std::sscanf(shotPan.c_str(), "%f,%f", &px, &py) == 2) {
+                    coordinator.apply(PanViewportIntent{shotActiveScene, Vec2{px, py}});
+                }
+            }
+            if (shotZoom > 0.f) {
+                coordinator.apply(SetViewportZoomIntent{shotActiveScene, shotZoom});
+            }
+            if (shotPlay) {
+                ui.handleAction("play-current-scene", "", "");
+            }
+            // Deselect smoke test (--shot-escape): reproduces the reported
+            // bug setup - a tilemap paint tool active over a selected
+            // tilemap entity - then calls the exact production function a
+            // real Escape keypress invokes, not a re-implementation. One
+            // press must return straight to the Scene Inspector.
+            if (shotEscape) {
+                if (selectionSupportsTilemapEditing(coordinator.document(), coordinator.state(),
+                                                    shotActiveScene)) {
+                    coordinator.apply(SetActiveToolIntent{EditorTool::Rectangle});
+                }
+                routeGlobalEscape(coordinator);
             }
             // Assets row-menu smoke test: request the menu exactly as the "⌄"
             // click would (same deferred-show path); it appears on the loop's
@@ -1531,8 +1578,23 @@ int EditorApp::run(int argc, char** argv) {
                 applyPendingTilemapRectanglePreview(snapshot, coordinator.document(),
                                                     coordinator.state().tilemapEditor);
             }
-            EditorSceneViewState renderView = coordinator.sceneView(active);
-            if (playSession) renderView.gridVisible = false;
+            // Play never reads the editor's own pan/zoom (EditorState::
+            // sceneViews is workspace-only, per the authority table) - a
+            // fresh, from-scratch camera every frame instead of
+            // coordinator.sceneView(active), or whatever the user happened
+            // to have scrolled/zoomed to while painting would leak straight
+            // into the runtime. Centered (pan 0) and zoomed to fit the
+            // scene's world bounds - exactly what "Fit View" computes - so
+            // Play always shows the game the way it's meant to be seen.
+            EditorSceneViewState renderView;
+            if (playSession) {
+                constexpr float kPlayCameraPadding = 28.f;
+                renderView.zoom =
+                    clampZoom(computeFitZoom(snapshot.worldSize, rect, kPlayCameraPadding));
+                renderView.gridVisible = false;
+            } else {
+                renderView = coordinator.sceneView(active);
+            }
             // Asset editors replace the scene viewport only in Edit mode. During
             // Play the runtime scene must always render regardless of workspace UI.
             if (!playSession) {
