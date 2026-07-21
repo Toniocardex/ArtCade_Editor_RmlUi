@@ -25,6 +25,7 @@ public:
     void refresh();
     void toggleDropdown(const std::string& dropdownId);
     void closeDropdown();
+    void toggleVariablesDrawer();
     void toggleRuleCollapsed(const std::string& ruleId);
     void collapseAllRules();
     void expandAllRules();

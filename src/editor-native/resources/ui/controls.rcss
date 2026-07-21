@@ -758,6 +758,40 @@
     text-transform: uppercase;
 }
 .tree-row.selected .row-type { color: #7aa2e8; }
+/* Instance row inside a layer group: indented under its header so the
+   layer -> entities containment reads as a tree, not a flat list. */
+.tree-row.in-layer { padding-left: 24dp; }
+
+/* -- Hierarchy layer group headers (reuses the Inspector's eye/lock) -------- */
+.layer-group-header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 26dp;
+    padding: 0 10dp 0 4dp;
+    margin-top: 2dp;
+    background-color: #1c1c1f;
+    border-left: 2dp transparent;
+    color: #a1a1aa;
+    font-size: 11dp;
+    font-weight: 600;
+    transition: background-color 0.1s, color 0.1s;
+}
+.layer-group-header:hover { background-color: #222226; color: #d4d4d8; }
+.layer-group-header.active {
+    background-color: #3b82f61a;
+    border-left: 2dp #3b82f6;
+    color: #d4d4d8;
+}
+.layer-group-header.hidden { color: #52525b; }
+.layer-group-header.hidden .layer-eye { color: #3f3f46; }
+.layer-group-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    padding: 0 4dp;
+}
 .tree-empty {
     display: block;
     padding: 10dp;

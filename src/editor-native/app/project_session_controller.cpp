@@ -546,14 +546,14 @@ bool ProjectSessionController::requestPlayProject() {
     std::optional<std::vector<Scripts::ScriptProgram>> scripts =
         snapshotSavedScriptsForPlay();
     if (!scripts) return false;
-    return coordinator_.playProject(*scripts).ok;
+    return coordinator_.playProject(*scripts, assetRoot({})).ok;
 }
 
 bool ProjectSessionController::requestPlayCurrentScene() {
     std::optional<std::vector<Scripts::ScriptProgram>> scripts =
         snapshotSavedScriptsForPlay();
     if (!scripts) return false;
-    return coordinator_.playCurrentScene(*scripts).ok;
+    return coordinator_.playCurrentScene(*scripts, assetRoot({})).ok;
 }
 
 bool ProjectSessionController::restartAndApplyScripts() {
@@ -566,7 +566,7 @@ bool ProjectSessionController::restartAndApplyScripts() {
     std::optional<std::vector<Scripts::ScriptProgram>> scripts =
         snapshotSavedScriptsForPlay();
     if (!scripts) return false;
-    return coordinator_.restartPlaying(*scripts).ok;
+    return coordinator_.restartPlaying(*scripts, assetRoot({})).ok;
 }
 
 } // namespace ArtCade::EditorNative

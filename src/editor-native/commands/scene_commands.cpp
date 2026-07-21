@@ -208,6 +208,12 @@ EditorOperationResult SetSceneBackgroundCommand::apply(ProjectDocument& document
     if (!scene) {
         return EditorOperationResult::failure("No target scene");
     }
+    if (scene->backgroundColor.r == newColor_.r
+        && scene->backgroundColor.g == newColor_.g
+        && scene->backgroundColor.b == newColor_.b
+        && scene->backgroundColor.a == newColor_.a) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
     if (!captured_) {
         oldColor_ = scene->backgroundColor;
         captured_ = true;
@@ -216,7 +222,8 @@ EditorOperationResult SetSceneBackgroundCommand::apply(ProjectDocument& document
         return EditorOperationResult::failure("Failed to set background");
     }
     return EditorOperationResult::success(
-        EditorInvalidation::Viewport, DomainChange::sceneChanged(sceneId_));
+        EditorInvalidation::Inspector | EditorInvalidation::Viewport,
+        DomainChange::sceneChanged(sceneId_));
 }
 
 EditorOperationResult SetSceneBackgroundCommand::undo(ProjectDocument& document) {
@@ -224,7 +231,8 @@ EditorOperationResult SetSceneBackgroundCommand::undo(ProjectDocument& document)
         return EditorOperationResult::failure("Cannot undo background change");
     }
     return EditorOperationResult::success(
-        EditorInvalidation::Viewport, DomainChange::sceneChanged(sceneId_));
+        EditorInvalidation::Inspector | EditorInvalidation::Viewport,
+        DomainChange::sceneChanged(sceneId_));
 }
 
 } // namespace ArtCade::EditorNative

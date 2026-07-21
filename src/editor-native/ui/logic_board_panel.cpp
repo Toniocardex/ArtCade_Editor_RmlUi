@@ -1,7 +1,9 @@
 #include "editor-native/ui/logic_board_panel.h"
 
 #include "editor-native/app/editor_coordinator.h"
+#include "editor-native/commands/global_variable_commands.h"
 #include "editor-native/ui/editor_ui.h"
+#include "editor-native/ui/logic_property_editor.h"
 #include "editor-native/ui/ui_markup.h"
 #include "logic-core.h"
 
@@ -219,6 +221,93 @@ const char* executionModeLabel(LogicExecutionMode mode) {
     }
 }
 
+const char* variableTypeName(GameVariableDefinition::Type type) {
+    switch (type) {
+    case GameVariableDefinition::Type::Boolean: return "Boolean";
+    case GameVariableDefinition::Type::String: return "String";
+    case GameVariableDefinition::Type::Number:
+    default: return "Number";
+    }
+}
+
+std::string variableInitialValue(const GameVariableDefinition& definition) {
+    if (const auto* numberValue = std::get_if<double>(&definition.initialValue))
+        return number(*numberValue);
+    if (const auto* boolValue = std::get_if<bool>(&definition.initialValue))
+        return *boolValue ? "true" : "false";
+    if (const auto* stringValue = std::get_if<std::string>(&definition.initialValue))
+        return *stringValue;
+    return {};
+}
+
+std::string variablesDrawer(
+    const EditorCoordinator& coordinator, bool playing) {
+    std::string html =
+        "<div class=\"logic-variables-drawer\">"
+        "<div class=\"logic-variables-head\"><div>"
+        "<span class=\"logic-variables-title\">Project Variables</span>"
+        "<span class=\"logic-muted\">Typed globals shared by every Logic Board</span>"
+        "</div><button class=\"logic-btn primary";
+    if (playing) html += " disabled";
+    html += "\" data-action=\"add-global-variable\">+ Variable</button></div>";
+
+    const auto& variables = coordinator.document().data().globalVariables;
+    if (variables.empty()) {
+        html += "<div class=\"logic-variables-empty\">No project variables yet. "
+                "Create one to use Compare, Set, Add, Subtract or Toggle blocks.</div>";
+    }
+    for (const GameVariableDefinition& variable : variables) {
+        const std::size_t refs =
+            countGlobalVariableReferences(coordinator.document(), variable.key);
+        html += "<div class=\"logic-variable-row\">";
+        html += "<input class=\"logic-variable-key\" data-action=\"commit-global-variable-key\""
+                " data-arg=\"" + escapeRml(variable.key) + "\" value=\""
+              + escapeRml(variable.key) + "\"";
+        if (playing) html += " disabled=\"disabled\"";
+        html += "/>";
+        html += "<div class=\"logic-variable-types\">";
+        for (const auto type : {GameVariableDefinition::Type::Number,
+                                GameVariableDefinition::Type::Boolean,
+                                GameVariableDefinition::Type::String}) {
+            std::string value = type == GameVariableDefinition::Type::Number ? "number"
+                : type == GameVariableDefinition::Type::Boolean ? "boolean" : "string";
+            html += modeOption(variableTypeName(type), value, variable.type == type,
+                               "set-global-variable-type", variable.key, playing);
+        }
+        html += "</div>";
+        if (variable.type == GameVariableDefinition::Type::Boolean) {
+            const bool checked = std::get_if<bool>(&variable.initialValue)
+                && std::get<bool>(variable.initialValue);
+            html += "<button class=\"logic-btn logic-variable-value";
+            if (checked) html += " active";
+            if (playing) html += " disabled";
+            html += "\" data-action=\"toggle-global-variable-value\" data-arg=\""
+                  + escapeRml(variable.key) + "\">" + (checked ? "True" : "False") + "</button>";
+        } else {
+            html += "<input class=\"logic-variable-value\" data-action=\"commit-global-variable-value\""
+                    " data-arg=\"" + escapeRml(variable.key) + "\" value=\""
+                  + escapeRml(variableInitialValue(variable)) + "\"";
+            if (playing) html += " disabled=\"disabled\"";
+            html += "/>";
+        }
+        html += "<input class=\"logic-variable-description\""
+                " data-action=\"commit-global-variable-description\" data-arg=\""
+              + escapeRml(variable.key) + "\" placeholder=\"Description\" value=\""
+              + escapeRml(variable.description) + "\"";
+        if (playing) html += " disabled=\"disabled\"";
+        html += "/>";
+        html += "<span class=\"logic-variable-refs\">" + std::to_string(refs)
+              + (refs == 1 ? " ref" : " refs") + "</span>";
+        html += "<button class=\"logic-icon-btn";
+        if (playing || refs != 0) html += " disabled";
+        html += "\" data-action=\"remove-global-variable\" data-arg=\""
+              + escapeRml(variable.key) + "\" title=\""
+              + (refs == 0 ? "Delete variable" : "Referenced variables cannot be deleted")
+              + "\">&#xd7;</button></div>";
+    }
+    return html + "</div>";
+}
+
 } // namespace
 
 void LogicBoardPanel::refresh(Rml::ElementDocument* document,
@@ -303,6 +392,10 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 // plain periods can't fail to render in any font.
                 "...</button>";
     }
+    html += "<button class=\"logic-variables-toggle";
+    if (variablesDrawerOpen_) html += " active";
+    html += "\" data-action=\"toggle-global-variables\" title=\"Project Variables\">Variables ("
+          + std::to_string(coordinator.document().data().globalVariables.size()) + ")</button>";
     html += "</div><span class=\"logic-owner\">OBJECT TYPE · ";
     if (selectedName.empty()) {
         html += "No target";
@@ -312,6 +405,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     }
     html += "</span></div>"; // .logic-heading
     html += "</div>"; // .logic-head
+    if (variablesDrawerOpen_) html += variablesDrawer(coordinator, playing);
     const auto render = [&]() {
         root->SetInnerRML(html);
         if (Rml::Element* scroll = document->GetElementById("logic-scroll"))
@@ -433,62 +527,10 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                                    rule.trigger.typeId, triggerDropdownId,
                                    "change-logic-trigger", rule.id, /*eventCatalog=*/true);
         }
-        if (rule.trigger.typeId == Logic::kKeyPressed || rule.trigger.typeId == Logic::kKeyReleased
-            || rule.trigger.typeId == Logic::kKeyHeld || rule.trigger.typeId == Logic::kKeyDown) {
-            LogicKey selectedKey = LogicKey::Space;
-            if (const LogicPropertyDef* p = property(rule.trigger, "key"))
-                if (const auto* key = std::get_if<LogicKey>(&p->value)) selectedKey = *key;
-            const std::string keyDropdownId = "key|" + rule.id;
-            const bool keyOpen = openDropdownId_ == keyDropdownId && !playing;
-            html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">KEY</span>";
-            html += dropdownTriggerMarkup(Logic::logicKeyName(selectedKey), "toggle-logic-dropdown",
-                                          keyDropdownId, keyOpen, playing);
-            html += "</div>";
-            if (keyOpen) {
-                html += "<div class=\"drop-list logic-key-list\">";
-                for (LogicKey key : Logic::supportedLogicKeys()) {
-                    const std::string keyName = Logic::logicKeyName(key);
-                    html += dropEntry(keyName, keyName, key == selectedKey, keyDropdownId,
-                                      "set-logic-key", rule.id);
-                }
-                html += "</div>";
-            }
-        } else if (rule.trigger.typeId == Logic::kIsGrounded
-                   || rule.trigger.typeId == Logic::kIsFalling
-                   || rule.trigger.typeId == Logic::kIsVisible) {
-            bool expected = true;
-            if (const LogicPropertyDef* p = property(rule.trigger, "expected"))
-                if (const auto* v = std::get_if<bool>(&p->value)) expected = *v;
-            html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Expected</span>"
-                    "<button class=\"logic-btn";
-            if (playing) html += " disabled";
-            html += "\" data-action=\"toggle-logic-event-expected\" data-arg=\""
-                 + escapeRml(rule.id) + "\">"
-                 + std::string(expected ? "Yes" : "No") + "</button></div>";
-        } else if (rule.trigger.typeId == Logic::kCollisionEnter
-                   || rule.trigger.typeId == Logic::kCollisionExit) {
-            std::string selectedObjectType;
-            if (const LogicPropertyDef* p = property(rule.trigger, "objectTypeId"))
-                if (const auto* v = std::get_if<LogicStringValue>(&p->value))
-                    selectedObjectType = v->value;
-            const std::string objectTypeDropdownId = "collision-type|" + rule.id;
-            const bool objectTypeOpen = openDropdownId_ == objectTypeDropdownId && !playing;
-            html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Other type</span>"
-                 + dropdownTriggerMarkup(selectedObjectType.empty() ? "Any Object Type" : selectedObjectType,
-                                           "toggle-logic-dropdown", objectTypeDropdownId,
-                                           objectTypeOpen, playing) + "</div>";
-            if (objectTypeOpen) {
-                html += "<div class=\"drop-list logic-key-list\">";
-                html += dropEntry("Any Object Type", "", selectedObjectType.empty(),
-                                  objectTypeDropdownId, "set-logic-event-collision-object-type",
-                                  rule.id);
-                for (const ObjectTypeId& id : typeIds) {
-                    html += dropEntry(id, id, id == selectedObjectType, objectTypeDropdownId,
-                                      "set-logic-event-collision-object-type", rule.id);
-                }
-                html += "</div>";
-            }
-        }
+        html += renderLogicProperties(
+            coordinator.document(), rule.trigger,
+            LogicPropertyAddress{rule.id, LogicPropertyTarget::Trigger, 0},
+            openDropdownId_, playing);
         html += "</div>"; // .logic-block (WHEN trigger)
         if (rule.executionMode == LogicExecutionMode::OncePerActivation) {
             // Projected into WHEN; never stored in rule.conditions[].
@@ -517,6 +559,80 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         }
         html += "</div>"; // .logic-col-footer
         html += "</div>"; // event-col
+
+        // IF — zero or more authored clauses. The connector belongs to the
+        // clause (not to its block); all block properties use the same
+        // descriptor-driven projection as WHEN/THEN.
+        html += "<div class=\"logic-rule-col conditions-col\">"
+                "<div class=\"logic-col-head\">IF</div>"
+                "<div class=\"logic-col-content\">";
+        if (rule.conditions.empty())
+            html += "<div class=\"logic-col-empty\">No additional conditions</div>";
+        for (std::size_t conditionIndex = 0;
+             conditionIndex < rule.conditions.size(); ++conditionIndex) {
+            const LogicConditionClause& clause = rule.conditions[conditionIndex];
+            const std::string arg = actionArg(rule.id, conditionIndex);
+            const std::string dropdownId = "condition|" + arg;
+            const bool dropdownOpen = openDropdownId_ == dropdownId && !playing;
+            html += "<div class=\"logic-block logic-condition-block\">"
+                    "<div class=\"logic-condition-toolbar\">";
+            if (conditionIndex == 0) {
+                html += "<span class=\"logic-condition-join fixed\">AND</span>";
+            } else {
+                html += modeOption("AND", "and",
+                    clause.joinBefore == LogicConditionJoin::And,
+                    "set-logic-condition-join", arg, playing);
+                html += modeOption("OR", "or",
+                    clause.joinBefore == LogicConditionJoin::Or,
+                    "set-logic-condition-join", arg, playing);
+            }
+            html += "<button class=\"logic-btn";
+            if (clause.negated) html += " active";
+            if (playing) html += " disabled";
+            html += "\" data-action=\"toggle-logic-condition-negated\" data-arg=\""
+                  + escapeRml(arg) + "\">NOT</button>";
+            html += "<button class=\"logic-icon-btn";
+            if (playing || conditionIndex == 0) html += " disabled";
+            html += "\" data-action=\"move-logic-condition-up\" data-arg=\""
+                  + escapeRml(arg) + "\">↑</button><button class=\"logic-icon-btn";
+            if (playing || conditionIndex + 1 == rule.conditions.size()) html += " disabled";
+            html += "\" data-action=\"move-logic-condition-down\" data-arg=\""
+                  + escapeRml(arg) + "\">↓</button><button class=\"comp-remove";
+            if (playing) html += " disabled";
+            html += "\" data-action=\"remove-logic-condition\" data-arg=\""
+                  + escapeRml(arg) + "\" title=\"Delete condition\">"
+                  + iconMarkup("&#xeb41;") + "</button></div>";
+            html += dropdownTriggerMarkup(
+                descriptorLabel(clause.block.typeId), "toggle-logic-dropdown",
+                dropdownId, dropdownOpen, playing);
+            if (dropdownOpen) {
+                html += catalogEntries(
+                    objectType, Logic::findDescriptor(rule.trigger.typeId),
+                    Logic::BlockKind::Condition, clause.block.typeId, dropdownId,
+                    "change-logic-condition", arg);
+            }
+            html += renderLogicProperties(
+                coordinator.document(), clause.block,
+                LogicPropertyAddress{
+                    rule.id, LogicPropertyTarget::Condition, conditionIndex},
+                openDropdownId_, playing);
+            html += "</div>";
+        }
+        html += "</div>";
+        const std::string addConditionDropdownId = "add-condition|" + rule.id;
+        const bool addConditionOpen =
+            openDropdownId_ == addConditionDropdownId && !playing;
+        html += "<div class=\"logic-col-footer\"><button class=\"logic-btn";
+        if (playing) html += " disabled";
+        html += "\" data-action=\"toggle-logic-dropdown\" data-arg=\""
+              + escapeRml(addConditionDropdownId) + "\">+ Add Condition</button></div>";
+        if (addConditionOpen) {
+            html += catalogEntries(
+                objectType, Logic::findDescriptor(rule.trigger.typeId),
+                Logic::BlockKind::Condition, {}, addConditionDropdownId,
+                "add-logic-condition-type", rule.id);
+        }
+        html += "</div>"; // conditions-col
 
         // THEN — always at least one action (enforced by RemoveLogicActionCommand).
         html += "<div class=\"logic-rule-col actions-col\">"
@@ -692,6 +808,12 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                      + escapeRml(arg) + "\" value=\"" + number(volume) + "\"";
                 if (playing) html += " disabled=\"disabled\"";
                 html += "/></div>";
+            } else {
+                html += renderLogicProperties(
+                    coordinator.document(), action,
+                    LogicPropertyAddress{
+                        rule.id, LogicPropertyTarget::Action, actionIndex},
+                    openDropdownId_, playing);
             }
             html += "</div>";
         }
@@ -740,6 +862,13 @@ void LogicBoardPanel::toggleDropdown(Rml::ElementDocument* document,
                                      const EditorCoordinator& coordinator,
                                      const std::string& dropdownId) {
     openDropdownId_ = (openDropdownId_ == dropdownId) ? std::string() : dropdownId;
+    refresh(document, coordinator);
+}
+
+void LogicBoardPanel::toggleVariablesDrawer(
+    Rml::ElementDocument* document, const EditorCoordinator& coordinator) {
+    variablesDrawerOpen_ = !variablesDrawerOpen_;
+    openDropdownId_.clear();
     refresh(document, coordinator);
 }
 

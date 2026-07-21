@@ -11,7 +11,8 @@ namespace ArtCade::EditorNative {
 // same per-frame site in editor_app.cpp. routeViewportPickDrag itself is
 // gated to Select-only so entity-pick-drag and tile-painting never both claim
 // the same click.
-void routeViewportTilemapPaint(EditorCoordinator& coordinator, const ViewportRect& rect,
+void routeViewportTilemapPaint(EditorCoordinator& coordinator,
+                               const SceneViewportProjection& projection,
                                const RmlInputResult& rml);
 
 } // namespace ArtCade::EditorNative

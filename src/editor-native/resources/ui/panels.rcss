@@ -35,6 +35,10 @@
 }
 .header-btn:hover  { border-color: #3b82f6; color: #3b82f6; }
 .header-btn.disabled { border-color: #242427; color: #3f3f46; }
+/* Console has two header actions. Keep both exposed instead of stacking the
+   generic absolute-positioned buttons on the same right edge. */
+#btn-console-copy { right: 62dp; }
+.console-close-btn { right: 8dp; }
 
 .assets {
     display: block;
@@ -552,6 +556,12 @@
 /* The "Open Tileset Editor" call-to-action follows the message on its own
    line — give it air above and drop the stray default bottom margin. */
 .tile-palette-empty .panel-btn { margin: 8dp 0 0 0; }
+/* Dock-wide empty state (no tilemap selected): fills the flex-row body and
+   recentres the hierarchy-empty-state block it reuses. */
+.tile-palette-empty-state {
+    flex: 1;
+    padding: 14dp 18dp;
+}
 .tile-palette-selected {
     display: block;
     margin: 0 0 10dp 0;

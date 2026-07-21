@@ -70,6 +70,78 @@
 .logic-more-trigger:hover { border-color: #4a4a52; color: #d4d4d8; }
 .logic-more-trigger.open { border-color: #3b82f6; background-color: #3b82f618; color: #3b82f6; }
 .logic-more-trigger.disabled { opacity: 0.42; }
+.logic-variables-toggle {
+    flex: 0 0 auto;
+    margin-left: 10dp;
+    padding: 5dp 9dp;
+    background-color: transparent;
+    border: 1px #323236;
+    border-radius: 2dp;
+    color: #a1a1aa;
+}
+.logic-variables-toggle:hover,
+.logic-variables-toggle.active {
+    border-color: #3b82f6;
+    color: #3b82f6;
+    background-color: #3b82f618;
+}
+.logic-variables-drawer {
+    display: block;
+    padding: 10dp 14dp 12dp 14dp;
+    background-color: #151518;
+    border-bottom: 1px #27272a;
+}
+.logic-variables-head {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 8dp;
+}
+.logic-variables-head > div { flex: 1; }
+.logic-variables-title {
+    display: block;
+    color: #f4f4f5;
+    font-size: 13dp;
+    font-weight: 600;
+}
+.logic-variables-head .logic-muted { margin: 2dp 0 0 0; font-size: 10dp; }
+.logic-variables-empty {
+    display: block;
+    padding: 10dp;
+    color: #71717a;
+    border: 1px #27272a;
+    border-radius: 2dp;
+}
+.logic-variable-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    min-height: 34dp;
+    margin-top: 5dp;
+}
+.logic-variable-row input {
+    height: 28dp;
+    margin-right: 6dp;
+    padding: 0 7dp;
+    color: #d4d4d8;
+    background-color: #111113;
+    border: 1px #323236;
+    border-radius: 2dp;
+}
+.logic-variable-row input:focus { border-color: #3b82f6; }
+.logic-variable-key { width: 150dp; }
+.logic-variable-types { display: flex; flex-direction: row; margin-right: 3dp; }
+.logic-variable-types .mode-option { margin-right: 2dp; }
+.logic-variable-value { width: 100dp; }
+button.logic-variable-value { height: 28dp; }
+.logic-variable-description { flex: 1; min-width: 120dp; }
+.logic-variable-refs {
+    width: 48dp;
+    margin-right: 5dp;
+    text-align: right;
+    color: #71717a;
+    font-size: 10dp;
+}
 /* Same outline-button tokens as .panel-btn (not that class itself, so the
    widget-conversion pass can retire the ones it makes obsolete without
    touching the shared class other panels depend on). */
@@ -192,8 +264,25 @@
    wrong ordering in this app's RmlUi build (footer painted before content),
    so this deliberately stays simple. */
 .logic-rule-col { display: block; box-sizing: border-box; min-width: 0; padding: 12dp; }
-.logic-rule-col.event-col { flex: 0 0 40%; }
-.logic-rule-col.actions-col { flex: 0 0 60%; border-left: 1px #27272a; }
+.logic-rule-col.event-col { flex: 0 0 30%; }
+.logic-rule-col.conditions-col { flex: 0 0 30%; border-left: 1px #27272a; }
+.logic-rule-col.actions-col { flex: 0 0 40%; border-left: 1px #27272a; }
+.logic-condition-toolbar {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 6dp;
+}
+.logic-condition-toolbar .mode-option { margin-right: 2dp; }
+.logic-condition-join.fixed {
+    display: inline-block;
+    margin-right: 5dp;
+    padding: 5dp 8dp;
+    color: #71717a;
+    font-size: 10dp;
+    font-weight: 700;
+}
+.logic-condition-block { margin-bottom: 8dp; }
 /* Every column is permanent structure (head/content[/footer]), independent
    of whether it currently has anything in it. Reinforces the neutral
    border-left above with its own hairline, same "section within a card"
@@ -247,6 +336,7 @@
 .logic-col-empty-sub { display: block; margin-top: 3dp; color: #5f5f68; font-size: 10dp; }
 .logic-board-panel.compact .logic-rule-body { flex-direction: column; }
 .logic-board-panel.compact .logic-rule-col { flex: 1 1 auto; width: 100%; }
+.logic-board-panel.compact .logic-rule-col.conditions-col,
 .logic-board-panel.compact .logic-rule-col.actions-col {
     border-left-width: 0;
     border-top: 1px #27272a;

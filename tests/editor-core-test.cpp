@@ -59,9 +59,11 @@
 #include "editor-native/model/sprite_render_view.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view_camera.h"
+#include "logic-core.h"
 #include "script-runtime.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -459,6 +461,88 @@ int main() {
               == 321.f);
     }
 
+    // -- RU-01: canonical read path (formatVersion == kCurrentSchemaVersion)
+    // round-trips a realistic, fully-conformant document. Scene has a real
+    // layer (mirrors ProjectDocument::createScene()'s "layer-1" default) so
+    // this document actually satisfies validate_current_project_json and
+    // takes the new canonical delegation path (ProjectJson::read_* -
+    // project_io.cpp's deserializeCanonical) rather than falling back to the
+    // legacy parser. Proves parity for globalVariables specifically - the
+    // legacy path never read it back at all (RU-01a's writer emits it, but no
+    // reader existed) - and confirms logicBoard still round-trips through
+    // the new path too.
+    {
+        ProjectDoc doc;
+        doc.projectName = "RU01 Parity";
+        doc.activeSceneId = "ru01-scene";
+
+        SceneDef scene;
+        scene.id = "ru01-scene";
+        scene.name = "RU01 Scene";
+        scene.layers.push_back(SceneLayerDef{"layer-1", "Layer 1", false});
+        scene.defaultLayerId = "layer-1";
+        SceneInstanceDef instance;
+        instance.id = 1;
+        instance.objectTypeId = "Hero";
+        instance.instanceName = "Hero";
+        instance.layerId = "layer-1";
+        scene.instances.push_back(instance);
+        doc.scenes.emplace(scene.id, scene);
+
+        EntityDef hero;
+        hero.className = "Hero";
+        hero.name = "Hero";
+        LogicBoardDef board;
+        board.id = "board-hero";
+        LogicRuleDef rule;
+        rule.id = "on-start-rule";
+        rule.name = "On Start Rule";
+        // kOnStart/kStateSet ("event.on_start"/"state.set"): the two simplest Logic Board block
+        // kinds with no sprite/animation/physics component prerequisite -
+        // not exercising Logic Board semantics itself, just picking a
+        // trigger+action pair proven to construct a valid board so this
+        // round-trip test can focus on JSON parity, not block registry rules.
+        rule.trigger = LogicBlockDef{Logic::kOnStart, {}};
+        LogicBlockDef setScore{Logic::kStateSet, {}};
+        setScore.properties.push_back(
+            LogicPropertyDef{"key", LogicValue{LogicVariableReference{"score"}}});
+        setScore.properties.push_back(LogicPropertyDef{"value", LogicValue{1.0}});
+        rule.actions.push_back(std::move(setScore));
+        board.rules.push_back(std::move(rule));
+        hero.logicBoard = std::move(board);
+        doc.objectTypes.emplace("Hero", hero);
+
+        GameVariableDefinition score;
+        score.key = "score";
+        score.type = GameVariableDefinition::Type::Number;
+        score.initialValue = 42.0;
+        score.description = "player score";
+        doc.globalVariables.push_back(score);
+
+        const SerializeResult serialized = ProjectSerializer::serialize(ProjectDocument{doc});
+        CHECK(serialized.ok);
+        CHECK(serialized.value.find("\"formatVersion\": 9") != std::string::npos);
+
+        const DeserializeResult deserialized = ProjectSerializer::deserialize(serialized.value);
+        CHECK(deserialized.ok);
+        const ProjectDoc& roundTripped = deserialized.value.data();
+
+        CHECK(roundTripped.globalVariables.size() == 1);
+        if (roundTripped.globalVariables.size() == 1) {
+            CHECK(roundTripped.globalVariables[0].key == "score");
+            CHECK(std::holds_alternative<double>(roundTripped.globalVariables[0].initialValue));
+            CHECK(std::get<double>(roundTripped.globalVariables[0].initialValue) == 42.0);
+        }
+
+        const auto typeIt = roundTripped.objectTypes.find("Hero");
+        CHECK(typeIt != roundTripped.objectTypes.end());
+        if (typeIt != roundTripped.objectTypes.end()) {
+            CHECK(typeIt->second.logicBoard.has_value());
+            CHECK(typeIt->second.logicBoard && typeIt->second.logicBoard->rules.size() == 1);
+        }
+        CHECK(roundTripped.scenes.count("ru01-scene") == 1);
+    }
+
     // -- Schema v4 promotes sprite defaults and persists sparse deltas only ---
     {
         const std::string v3 = R"json({
@@ -563,13 +647,6 @@ int main() {
         CHECK(resolved.animator && resolved.animator->playbackSpeed == 1.5f);
         CHECK(resolved.animatorOrigin == ComponentOrigin::InstanceOverride);
 
-        CHECK(c.playProject().ok);
-        const RuntimeEntity* runtimeHero = c.playSession()
-            ? c.playSession()->findEntity(kHero) : nullptr;
-        CHECK(runtimeHero && runtimeHero->spriteAnimator);
-        CHECK(runtimeHero && runtimeHero->spriteAnimator->playbackSpeed == 1.5f);
-        CHECK(c.stopPlaying().ok);
-
         CHECK(c.undo().ok);
         instance = c.document().findInstanceInScene(kSceneA, kHero);
         CHECK(instance && !instance->spriteAnimatorOverride);
@@ -608,6 +685,30 @@ int main() {
         CHECK(!rejected.ok);
         CHECK(rejected.error.find("contains 2 actions") != std::string::npos);
         CHECK(guarded.document().data().objectTypes.at("Hero").spriteAnimator);
+    }
+
+    // -- Sprite Animator exposure: preflight chooses a valid default ----------
+    {
+        ProjectDoc data = makeAnimationDoc();
+        data.objectTypes.at("Hero").spriteAnimator.reset();
+        EditorCoordinator c{std::move(data)};
+        CHECK(c.apply(SelectEntityIntent{kHero}).ok);
+        CHECK(addSpriteAnimator(c).ok);
+        const SpriteAnimatorComponent* animator =
+            c.document().data().objectTypes.at("Hero").spriteAnimator
+                ? &*c.document().data().objectTypes.at("Hero").spriteAnimator
+                : nullptr;
+        CHECK(animator != nullptr);
+        CHECK(animator->animationAssetId == "hero.anim");
+        CHECK(animator->defaultClipId == "idle");
+        CHECK(c.undo().ok);
+        CHECK(!c.document().data().objectTypes.at("Hero").spriteAnimator);
+
+        EditorCoordinator noAnimation{makeInheritedDoc()};
+        CHECK(noAnimation.apply(SelectEntityIntent{kHero}).ok);
+        const uint64_t revision = noAnimation.document().revision();
+        CHECK(!addSpriteAnimator(noAnimation).ok);
+        CHECK(noAnimation.document().revision() == revision);
     }
 
     // -- 2D.0D: orphan/invalid deltas and referenced clips fail in core -------
@@ -940,6 +1041,10 @@ int main() {
     }
 
     // -- ┬º24.11  Play does not modify the ProjectDocument ----------------------
+    // RU-03: PlaySession no longer exposes raw entity introspection/mutation
+    // (D-01 - only the render hand-off, buildFrame(), is public), so this only
+    // checks the scene the session materialized and that the authoring
+    // document/revision stay untouched by materialization or destruction.
     {
         EditorCoordinator c{makeDoc()};
         const uint64_t revBefore = c.document().revision();
@@ -948,23 +1053,18 @@ int main() {
         std::optional<PlaySession> session = PlaySession::startProject(c.document());
         CHECK(session.has_value());
         CHECK(session->sceneId() == kSceneA);
-        CHECK(session->entities().size() == 1);
 
         std::optional<PlaySession> currentSceneSession =
             PlaySession::startActiveScene(c.document(), c.state().activeSceneId);
         CHECK(currentSceneSession.has_value());
         CHECK(currentSceneSession->sceneId() == kSceneB);
-        CHECK(currentSceneSession->entities().empty());
 
-        // The simulation mutates the session freely...
-        session->entities()[0].transform.position = {500.f, 600.f};
-        // ...the authoring document is untouched.
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 10.f);
         CHECK(c.document().revision() == revBefore);
 
         // -- ┬º24.12  Stop needs no reload: destroying the session restores
         //            nothing because the document was never changed.
-        session->entities().clear();
+        session.reset();
         CHECK(c.document().findInstanceInScene(kSceneA, kHero) != nullptr);
         CHECK(c.document().revision() == revBefore);
     }
@@ -1327,7 +1427,11 @@ int main() {
         CHECK(SceneDef{}.backgroundColor.r == 1.f);
         CHECK(!c.execute(CreateSceneCommand{"scene-a", "dup"}).ok); // duplicate rejected
 
-        CHECK(c.execute(SetSceneBackgroundCommand{kSceneA, {1.f, 0.f, 0.f, 1.f}}).ok);
+        const EditorOperationResult background = c.execute(
+            SetSceneBackgroundCommand{kSceneA, {1.f, 0.f, 0.f, 1.f}});
+        CHECK(background.ok);
+        CHECK(background.invalidation
+              == (EditorInvalidation::Inspector | EditorInvalidation::Viewport));
         CHECK(c.document().findScene(kSceneA)->backgroundColor.r == 1.f);
         c.undo();                                                // undo background
         CHECK(c.document().findScene(kSceneA)->backgroundColor.r == 0.1f);
@@ -1915,10 +2019,13 @@ int main() {
               || (inst->transform.position.y != src->transform.position.y));
 
         // (4)(5) a component added to the type materializes on BOTH instances.
+        // RU-03: PlaySession no longer exposes per-entity component
+        // introspection (D-01), so this only checks Play still starts/stops
+        // cleanly with the collider-bearing type - collider behavior itself is
+        // GameplaySession/World's own (already characterized by runtime-cpp's
+        // test suite), not re-verified here.
         CHECK(c.execute(AddBoxColliderCommand{"Hero"}).ok);
         CHECK(c.playProject().ok);
-        CHECK(c.playSession()->findEntity(kHero)->collider.has_value());
-        CHECK(c.playSession()->findEntity(newId)->collider.has_value());
         CHECK(c.stopPlaying().ok);
     }
 
@@ -2327,18 +2434,61 @@ int main() {
         CHECK(!c.document().isDirty());    // never mutated by Play/Stop
     }
 
+    // -- RU-04: Play-start parses through the real canonical AssetLoader, not
+    // just document.data() in memory - leaves no scratch files behind -------
+    {
+        // Count pre-existing scratch directories from any earlier Play in this
+        // process (PlaySession never reuses one - see makeScratchDir()) so a
+        // net-zero delta after Play/Stop is a real "nothing leaked" signal,
+        // not a false pass from a directory some other test already left.
+        const auto countScratchDirs = [] {
+            std::error_code ec;
+            std::size_t count = 0;
+            for (const auto& entry : std::filesystem::directory_iterator(
+                     std::filesystem::temp_directory_path(), ec)) {
+                if (entry.path().filename().string().rfind("artcade-play-", 0) == 0) ++count;
+            }
+            return count;
+        };
+        const std::size_t before = countScratchDirs();
+        EditorCoordinator c{makeInheritedDoc()};
+        CHECK(c.playProject().ok);
+        CHECK(countScratchDirs() == before);   // torn down synchronously in materialize()
+        CHECK(c.stopPlaying().ok);
+        CHECK(countScratchDirs() == before);
+    }
+
+    // -- RU-04: a scene/instance the canonical loader would reject (e.g. an
+    // empty layers array, or an instance pointing at no real layer) fails
+    // Play atomically with an explicit diagnostic - never a silent fallback
+    // to the in-memory ProjectDoc, and never a crash ------------------------
+    {
+        ProjectDoc noLayerDoc = makeDoc();
+        noLayerDoc.scenes.at(kSceneA).layers.clear();
+        noLayerDoc.scenes.at(kSceneA).defaultLayerId.clear();
+        EditorCoordinator noLayer{noLayerDoc};
+        const EditorOperationResult noLayerResult = noLayer.playProject();
+        CHECK(!noLayerResult.ok);
+        CHECK(!noLayerResult.error.empty());
+        CHECK(!noLayer.isPlaying());
+
+        ProjectDoc danglingLayerDoc = makeDoc();
+        danglingLayerDoc.scenes.at(kSceneA).instances.front().layerId = "no-such-layer";
+        EditorCoordinator danglingLayer{danglingLayerDoc};
+        const EditorOperationResult danglingLayerResult = danglingLayer.playProject();
+        CHECK(!danglingLayerResult.ok);
+        CHECK(!danglingLayerResult.error.empty());
+        CHECK(!danglingLayer.isPlaying());
+    }
+
     // -- Play materializes runtime sprite data and used assets only ------------
+    // RU-03: PlaySession no longer exposes raw entity/asset introspection
+    // (D-01) - the render hand-off (buildFrame() via collectSceneFrameSnapshot)
+    // is the only public surface, so that's what this now checks.
     {
         EditorCoordinator c{makeInheritedDoc()};
         CHECK(c.playProject().ok);
         CHECK(c.playSession() != nullptr);
-        CHECK(c.playSession()->entities().size() == 1);
-        CHECK(c.playSession()->entities()[0].sprite.has_value());
-        CHECK(c.playSession()->entities()[0].sprite->assetId == "img-hero");
-        CHECK(c.playSession()->entities()[0].sprite->visible);
-        CHECK(c.playSession()->assets().imageAssets.size() == 1);
-        CHECK(c.playSession()->assets().imageAssets.count("img-hero") == 1);
-        CHECK(c.playSession()->assets().imageAssets.count("img-alt") == 0);
 
         const SceneFrameSnapshot playFrame = collectSceneFrameSnapshot(*c.playSession());
         CHECK(playFrame.hasScene);
@@ -2368,18 +2518,47 @@ int main() {
         CHECK(playFrame.sprites[0].assetId == "img-hero");
         CHECK(playFrame.sprites[0].destination.x == -6.f); // still x=10
 
-        session->entities()[0].transform.position = {500.f, 600.f};
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 50.f);
         CHECK(c.document().revision() > 0);
     }
 
+    // -- Instance visibility gates the whole entity in Edit and Play ----------
+    {
+        EditorCoordinator c{makeInheritedDoc()};
+        CHECK(collectSceneFrameSnapshot(
+            c.document(), kSceneA, kHero).entities.size() == 1);
+        CHECK(c.execute(SetInstanceVisibleCommand{kSceneA, kHero, false}).ok);
+        CHECK(!c.document().findInstanceInScene(kSceneA, kHero)->visible);
+        const SceneFrameSnapshot hiddenEdit =
+            collectSceneFrameSnapshot(c.document(), kSceneA, kHero);
+        CHECK(hiddenEdit.entities.empty());
+        CHECK(hiddenEdit.sprites.empty());
+        CHECK(hiddenEdit.tilemaps.empty());
+        CHECK(hiddenEdit.colliders.empty());
+        CHECK(c.undo().ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->visible);
+        CHECK(c.redo().ok);
+
+        CHECK(c.playProject().ok);
+        const SceneFrameSnapshot hiddenPlay =
+            collectSceneFrameSnapshot(*c.playSession());
+        CHECK(hiddenPlay.entities.empty());
+        CHECK(hiddenPlay.sprites.empty());
+        CHECK(hiddenPlay.tilemaps.empty());
+    }
+
     // -- Play materialization covers absence, visibility, and dangling assets ---
+    // RU-03: a spriteless entity gets no SpriteComponent in World, and
+    // visible=false resolves to the shared visibleInGame tag - either way the
+    // entity is absent from GameplaySession's renderables (D-01: the same rule
+    // game.exe/WASM already apply), not "present but flagged", so the frame
+    // snapshot is simply empty in both cases.
     {
         EditorCoordinator noSprite{makeSpriteDoc()};
         CHECK(noSprite.playProject().ok);
-        CHECK(noSprite.playSession()->entities().size() == 1);
-        CHECK(!noSprite.playSession()->entities()[0].sprite.has_value());
-        CHECK(noSprite.playSession()->assets().imageAssets.empty());
+        const SceneFrameSnapshot noSpriteFrame =
+            collectSceneFrameSnapshot(*noSprite.playSession());
+        CHECK(noSpriteFrame.sprites.empty());
 
         EditorCoordinator invisible{makeInheritedDoc()};
         SpriteRendererOverride invisibleDelta;
@@ -2388,11 +2567,10 @@ int main() {
         CHECK(invisible.execute(SetInstanceSpriteOverrideCommand{
             kSceneA, kHero, invisibleDelta}).ok);
         CHECK(invisible.playProject().ok);
-        CHECK(invisible.playSession()->entities()[0].sprite.has_value());
-        CHECK(invisible.playSession()->entities()[0].sprite->assetId == "img-alt");
-        CHECK(!invisible.playSession()->entities()[0].sprite->visible);
-        CHECK(invisible.playSession()->assets().imageAssets.size() == 1);
-        CHECK(invisible.playSession()->assets().imageAssets.count("img-alt") == 1);
+        const SceneFrameSnapshot invisibleFrame =
+            collectSceneFrameSnapshot(*invisible.playSession());
+        CHECK(invisibleFrame.sprites.empty());
+        CHECK(invisibleFrame.entities.empty());
 
         ProjectDoc danglingDoc = makeInheritedDoc();
         danglingDoc.objectTypes.at("Hero").spriteRenderer->imageAssetId = "missing-image";
@@ -2501,58 +2679,14 @@ int main() {
         CHECK(editAfterStop.sprites.empty());
     }
 
-    // == Authored runtime motion (LinearMover) ================================
-
-    // -- materialize resolves authored direction*speed (normalized) -----------
-    {
-        EditorCoordinator c{makeMoverDoc()};
-        CHECK(c.playProject().ok);
-        c.consumeInvalidations();                 // Start Play Toolbar|Viewport|Console
-        const RuntimeEntity* hero = c.playSession()->findEntity(kHero);
-        CHECK(hero != nullptr);
-        CHECK(hero->velocity.x == 100.f);         // (3,0) normalized -> (1,0) * 100
-        CHECK(hero->velocity.y == 0.f);
-        CHECK(hero->transform.position.x == 10.f);
-
-        c.advanceRuntime(0.5f);
-        const RuntimeEntity* moved = c.playSession()->findEntity(kHero);
-        CHECK(moved->transform.position.x == 60.f);   // 10 + 100 * 0.5
-        CHECK(moved->transform.position.y == 20.f);
-        // Runtime tick, not authoring: document untouched, no invalidation.
-        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 10.f);
-        CHECK(c.consumeInvalidations() == EditorInvalidation::None);
-    }
-
-    // -- an entity without a mover has zero velocity and does not drift --------
-    {
-        EditorCoordinator c{makeInheritedDoc()};
-        CHECK(c.playProject().ok);
-        const RuntimeEntity* hero = c.playSession()->findEntity(kHero);
-        CHECK(hero->velocity.x == 0.f);
-        CHECK(hero->velocity.y == 0.f);
-        c.advanceRuntime(1.0f);
-        CHECK(c.playSession()->findEntity(kHero)->transform.position.x == 10.f);
-    }
-
-    // -- a paused mover resolves to zero velocity -----------------------------
-    {
-        ProjectDoc doc = makeMoverDoc();
-        doc.objectTypes.at("Hero").linearMover->_paused = true;
-        EditorCoordinator c{doc};
-        CHECK(c.playProject().ok);
-        CHECK(c.playSession()->findEntity(kHero)->velocity.x == 0.f);
-    }
-
-    // -- advanceRuntime is inert when not playing -----------------------------
-    {
-        EditorCoordinator c{makeMoverDoc()};
-        const uint64_t revisionBefore = c.document().revision();
-        c.consumeInvalidations();
-        CHECK(!c.isPlaying());
-        c.advanceRuntime(1.0f);
-        CHECK(c.document().revision() == revisionBefore);
-        CHECK(c.consumeInvalidations() == EditorInvalidation::None);
-    }
+    // == TopDownController / PlatformerController / AABB collision runtime ==
+    // RU-03 (D-01): these characterized PlaySession's own hand-written
+    // kinematic movement, AABB collision resolution, platformer physics, and
+    // LinearMover resolution - all removed. GameplaySession's real World/
+    // Physics now own this, driven only through Logic Board/Script authoring
+    // (never hardcoded host input), and are already characterized by
+    // runtime-cpp's own test suite (e.g.
+    // gameplay-tick-order-characterization-test.cpp) - not re-verified here.
 
     // == Undo availability + toolbar refresh ==================================
 
@@ -2873,578 +3007,6 @@ int main() {
         CHECK(m->_paused == false);
     }
 
-    // == TopDownController (authoring + runtime input) ========================
-
-    // -- Decisive: input moves the runtime entity; authoring untouched --------
-    {
-        EditorCoordinator c{makeTopDownDoc(100.f)};
-        const uint64_t revisionBefore = c.document().revision();
-        const bool dirtyBefore = c.document().isDirty();
-        const std::size_t undoBefore = c.undoSize();
-
-        CHECK(c.playProject().ok);
-        RuntimeInputSnapshot in;
-        in.moveRight = true;
-        c.updateRuntime(in, 0.5f);                       // 100 * 0.5 = +50
-
-        CHECK(c.playSession()->findEntity(kHero)->transform.position.x == 60.f);
-        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 10.f);
-        CHECK(c.document().revision() == revisionBefore);
-        CHECK(c.document().isDirty() == dirtyBefore);
-        CHECK(c.undoSize() == undoBefore);
-
-        CHECK(c.stopPlaying().ok);
-        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 10.f);
-    }
-
-    // -- No controller => no movement; restart re-materializes authoring ------
-    {
-        EditorCoordinator c{makeInheritedDoc()};
-        CHECK(c.playProject().ok);
-        RuntimeInputSnapshot in; in.moveRight = true;
-        c.updateRuntime(in, 1.0f);
-        CHECK(c.playSession()->findEntity(kHero)->transform.position.x == 10.f);
-        CHECK(c.stopPlaying().ok);
-    }
-    {
-        EditorCoordinator c{makeTopDownDoc(100.f)};
-        CHECK(c.playProject().ok);
-        RuntimeInputSnapshot in; in.moveRight = true;
-        c.updateRuntime(in, 1.0f);                       // moved to 110
-        CHECK(c.stopPlaying().ok);
-        CHECK(c.playProject().ok);                       // fresh session from authoring
-        CHECK(c.playSession()->findEntity(kHero)->transform.position.x == 10.f);
-    }
-
-    // -- Opposite inputs cancel; non-finite/negative dt is a no-op -----------
-    {
-        EditorCoordinator c{makeTopDownDoc(100.f)};
-        CHECK(c.playProject().ok);
-        RuntimeInputSnapshot both; both.moveLeft = true; both.moveRight = true;
-        c.updateRuntime(both, 1.0f);
-        CHECK(c.playSession()->findEntity(kHero)->transform.position.x == 10.f);
-
-        RuntimeInputSnapshot right; right.moveRight = true;
-        c.updateRuntime(right, -1.0f);
-        c.updateRuntime(right, std::numeric_limits<float>::infinity());
-        CHECK(c.playSession()->findEntity(kHero)->transform.position.x == 10.f);
-    }
-
-    // -- Diagonal is normalized: never faster than a single axis --------------
-    {
-        EditorCoordinator c{makeTopDownDoc(100.f)};
-        CHECK(c.playProject().ok);
-        RuntimeInputSnapshot diag; diag.moveRight = true; diag.moveDown = true;
-        c.updateRuntime(diag, 1.0f);
-        const Transform& t = c.playSession()->findEntity(kHero)->transform;
-        const float dx = t.position.x - 10.f;
-        const float dy = t.position.y - 20.f;
-        CHECK(dx == dy);                                 // symmetric
-        CHECK(dx > 0.f && dx < 100.f);                   // each axis below full speed
-        CHECK(std::abs((dx * dx + dy * dy) - 10000.f) < 0.5f);   // total step Ôëê speed*dt
-    }
-
-    // -- Higher speed produces a larger displacement -------------------------
-    {
-        EditorCoordinator slow{makeTopDownDoc(100.f)};
-        EditorCoordinator fast{makeTopDownDoc(200.f)};
-        CHECK(slow.playProject().ok);
-        CHECK(fast.playProject().ok);
-        RuntimeInputSnapshot in; in.moveRight = true;
-        slow.updateRuntime(in, 0.5f);
-        fast.updateRuntime(in, 0.5f);
-        CHECK(slow.playSession()->findEntity(kHero)->transform.position.x == 60.f);
-        CHECK(fast.playSession()->findEntity(kHero)->transform.position.x == 110.f);
-    }
-
-    // -- Two controller entities both move -----------------------------------
-    {
-        EditorCoordinator c{makeTopDownDoc(100.f)};
-        CHECK(c.execute(CreateEntityCommand{kSceneA, 201, "Hero", "Hero2", {30.f, 0.f}}).ok);
-        CHECK(c.playProject().ok);
-        RuntimeInputSnapshot in; in.moveRight = true;
-        c.updateRuntime(in, 1.0f);
-        CHECK(c.playSession()->findEntity(kHero)->transform.position.x == 110.f);
-        CHECK(c.playSession()->findEntity(201)->transform.position.x == 130.f);
-    }
-
-    // ===== Runtime AABB collisions ==========================================
-    // A "runner" at (0,0) with a 32x32 collider (AABB [-16,16]) moves +x toward a
-    // "wall" at (100,0) (AABB [84,116]). Contact is at runner.x = 68 (16+68 = 84).
-    {
-        // configureRunner sets the mover/collider on the runner's object type.
-        const auto makeWorld = [](auto&& configureRunner, bool wallEnabled = true,
-                                  bool wallTrigger = false, Vec2 wallOffset = {0.f, 0.f},
-                                  bool wallIsMover = false) {
-            ProjectDoc doc;
-            doc.projectName = "collide";
-            doc.activeSceneId = "s";
-            SceneDef s; s.id = "s"; s.name = "S"; s.worldSize = {4000.f, 4000.f};
-            SceneInstanceDef runner; runner.id = 1; runner.objectTypeId = "runner";
-            runner.instanceName = "Runner"; runner.transform.position = {0.f, 0.f};
-            SceneInstanceDef wall; wall.id = 2; wall.objectTypeId = "wall";
-            wall.instanceName = "Wall"; wall.transform.position = {100.f, 0.f};
-            s.instances = {runner, wall};
-            doc.scenes.emplace("s", s);
-
-            EntityDef runnerType; runnerType.className = "runner"; runnerType.name = "Runner";
-            configureRunner(runnerType);
-            doc.objectTypes.emplace("runner", runnerType);
-
-            EntityDef wallType; wallType.className = "wall"; wallType.name = "Wall";
-            wallType.boxCollider2D =
-                BoxCollider2DComponent{
-                    wallOffset,
-                    Vec2{32.f, 32.f},
-                    wallEnabled,
-                    wallTrigger ? BoxColliderMode::Trigger : BoxColliderMode::Solid};
-            if (wallIsMover) {   // make the wall a kinematic mover -> not a static solid
-                LinearMoverComponent lm; lm.directionX = 0.f; lm.directionY = 0.f; lm.speed = 0.f;
-                wallType.linearMover = lm;
-            }
-            doc.objectTypes.emplace("wall", wallType);
-            return doc;
-        };
-        const auto linearRunner = [](EntityDef& t) {
-            LinearMoverComponent lm; lm.directionX = 1.f; lm.directionY = 0.f; lm.speed = 100.f;
-            t.linearMover = lm;
-            t.boxCollider2D = BoxCollider2DComponent{
-                Vec2{0.f, 0.f}, Vec2{32.f, 32.f}, true, BoxColliderMode::Solid};
-        };
-        const auto near68 = [](float v) { return std::abs(v - 68.f) < 0.01f; };
-
-        // (1) A LinearMover with a collider stops at contact with the static wall.
-        {
-            EditorCoordinator c{makeWorld(linearRunner)};
-            CHECK(c.playProject().ok);
-            c.advanceRuntime(10.f);                       // desired +1000, gap is 68
-            const RuntimeEntity* r = c.playSession()->findEntity(1);
-            CHECK(near68(r->transform.position.x));
-            CHECK(r->transform.position.y == 0.f);
-            // Authoring is untouched by the runtime resolution.
-            CHECK(c.document().findInstanceInScene("s", 1)->transform.position.x == 0.f);
-        }
-
-        // (2) High speed / large dt does not tunnel through the thin wall.
-        {
-            EditorCoordinator c{makeWorld(linearRunner)};
-            CHECK(c.playProject().ok);
-            c.advanceRuntime(1000.f);                     // desired +100000
-            CHECK(near68(c.playSession()->findEntity(1)->transform.position.x));
-        }
-
-        // (3) Per-axis resolution slides along the corner: X clamps, Y continues.
-        {
-            EditorCoordinator c{makeWorld([](EntityDef& t) {
-                LinearMoverComponent lm; lm.directionX = 1.f; lm.directionY = 1.f; lm.speed = 100.f;
-                t.linearMover = lm;
-                t.boxCollider2D = BoxCollider2DComponent{
-                    Vec2{0.f, 0.f}, Vec2{32.f, 32.f}, true, BoxColliderMode::Solid};
-            })};
-            CHECK(c.playProject().ok);
-            c.advanceRuntime(10.f);                       // dir normalized (0.707,0.707)*100
-            const RuntimeEntity* r = c.playSession()->findEntity(1);
-            CHECK(near68(r->transform.position.x));        // X blocked at the wall
-            CHECK(r->transform.position.y > 700.f);        // Y unblocked (~707)
-        }
-
-        // (4) A disabled wall collider is not solid -> the runner passes through.
-        {
-            EditorCoordinator c{makeWorld(linearRunner, /*wallEnabled*/ false)};
-            CHECK(c.playProject().ok);
-            c.advanceRuntime(10.f);
-            CHECK(c.playSession()->findEntity(1)->transform.position.x > 900.f);
-        }
-
-        // (5) A trigger wall does not block.
-        {
-            EditorCoordinator c{makeWorld(linearRunner, true, /*wallTrigger*/ true)};
-            CHECK(c.playProject().ok);
-            c.advanceRuntime(10.f);
-            CHECK(c.playSession()->findEntity(1)->transform.position.x > 900.f);
-        }
-
-        // (6) A mover without a collider moves freely.
-        {
-            EditorCoordinator c{makeWorld([](EntityDef& t) {
-                LinearMoverComponent lm; lm.directionX = 1.f; lm.directionY = 0.f; lm.speed = 100.f;
-                t.linearMover = lm;                        // no boxCollider2D
-            })};
-            CHECK(c.playProject().ok);
-            c.advanceRuntime(10.f);
-            CHECK(c.playSession()->findEntity(1)->transform.position.x > 900.f);
-        }
-
-        // (7) Mover vs mover is out of scope: a moving "wall" is not a static solid.
-        {
-            EditorCoordinator c{makeWorld(linearRunner, true, false, {0.f, 0.f}, /*wallIsMover*/ true)};
-            CHECK(c.playProject().ok);
-            c.advanceRuntime(10.f);
-            CHECK(c.playSession()->findEntity(1)->transform.position.x > 900.f);
-        }
-
-        // (8) TopDownController routes through the same resolver and stops too.
-        {
-            EditorCoordinator c{makeWorld([](EntityDef& t) {
-                TopDownControllerComponent tdc; tdc.maxSpeed = 100.f;
-                t.topDownController = tdc;
-                t.boxCollider2D = BoxCollider2DComponent{
-                    Vec2{0.f, 0.f}, Vec2{32.f, 32.f}, true, BoxColliderMode::Solid};
-            })};
-            CHECK(c.playProject().ok);
-            RuntimeInputSnapshot in; in.moveRight = true;
-            c.updateRuntime(in, 10.f);                    // desired +1000, gap 68
-            CHECK(near68(c.playSession()->findEntity(1)->transform.position.x));
-        }
-
-        // (9) The collider offset shifts the wall's AABB; contact moves with it.
-        //     Wall offset (-20,0) -> center 80 -> AABB [64,96]; contact at x = 48.
-        {
-            EditorCoordinator c{makeWorld(linearRunner, true, false, /*wallOffset*/ {-20.f, 0.f})};
-            CHECK(c.playProject().ok);
-            c.advanceRuntime(10.f);
-            CHECK(std::abs(c.playSession()->findEntity(1)->transform.position.x - 48.f) < 0.01f);
-        }
-    }
-
-    // ===== PlatformerController ==============================================
-    // Player (platformer + 32x32 collider, AABB [-16,16]) at (0,0). World +Y is
-    // down. Optional 200x32 floor / ceiling. Floor at y=100 -> top at 84 ->
-    // landing at player.y = 68. Ceiling at y=-40 -> bottom at -24.
-    {
-        const auto makePlatformWorld = [](bool withFloor, float floorY = 100.f,
-                                          bool playerCollider = true, bool floorEnabled = true,
-                                          bool floorTrigger = false, bool withCeiling = false,
-                                          float ceilingY = -40.f) {
-            ProjectDoc doc;
-            doc.projectName = "platform";
-            doc.activeSceneId = "s";
-            SceneDef s; s.id = "s"; s.name = "S"; s.worldSize = {4000.f, 4000.f};
-            SceneInstanceDef player; player.id = 1; player.objectTypeId = "player";
-            player.instanceName = "Player"; player.transform.position = {0.f, 0.f};
-            s.instances.push_back(player);
-            if (withFloor) {
-                SceneInstanceDef floor; floor.id = 2; floor.objectTypeId = "floor";
-                floor.instanceName = "Floor"; floor.transform.position = {0.f, floorY};
-                s.instances.push_back(floor);
-            }
-            if (withCeiling) {
-                SceneInstanceDef ceil; ceil.id = 3; ceil.objectTypeId = "ceil";
-                ceil.instanceName = "Ceiling"; ceil.transform.position = {0.f, ceilingY};
-                s.instances.push_back(ceil);
-            }
-            doc.scenes.emplace("s", s);
-
-            EntityDef playerType; playerType.className = "player"; playerType.name = "Player";
-            PlatformerControllerComponent pc;
-            pc.maxSpeed = 180.f; pc.jumpForce = 420.f; pc.customGravity = 1200.f;
-            playerType.platformerController = pc;
-            if (playerCollider)
-                playerType.boxCollider2D = BoxCollider2DComponent{
-                    {0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Solid};
-            doc.objectTypes.emplace("player", playerType);
-
-            if (withFloor) {
-                EntityDef floorType; floorType.className = "floor"; floorType.name = "Floor";
-                floorType.boxCollider2D =
-                    BoxCollider2DComponent{
-                        {0.f, 0.f},
-                        {200.f, 32.f},
-                        floorEnabled,
-                        floorTrigger ? BoxColliderMode::Trigger : BoxColliderMode::Solid};
-                doc.objectTypes.emplace("floor", floorType);
-            }
-            if (withCeiling) {
-                EntityDef ceilType; ceilType.className = "ceil"; ceilType.name = "Ceiling";
-                ceilType.boxCollider2D = BoxCollider2DComponent{
-                    {0.f, 0.f}, {200.f, 32.f}, true, BoxColliderMode::Solid};
-                doc.objectTypes.emplace("ceil", ceilType);
-            }
-            return doc;
-        };
-        const auto platformerOf = [](EditorCoordinator& c) {
-            return c.playSession()->findEntity(1)->platformerController;
-        };
-        RuntimeInputSnapshot none;
-
-        // Gravity pulls a free player down (no floor); not grounded.
-        {
-            EditorCoordinator c{makePlatformWorld(false)};
-            CHECK(c.playProject().ok);
-            c.updateRuntime(none, 0.1f);
-            const RuntimeEntity* p = c.playSession()->findEntity(1);
-            CHECK(p->transform.position.y > 0.f);
-            CHECK(p->platformerController->verticalVelocity > 0.f);
-            CHECK(!p->platformerController->grounded);
-        }
-
-        // The floor sets grounded and zeroes vertical velocity at the contact.
-        {
-            EditorCoordinator c{makePlatformWorld(true)};
-            CHECK(c.playProject().ok);
-            for (int i = 0; i < 300; ++i) c.updateRuntime(none, 0.05f);
-            const RuntimeEntity* p = c.playSession()->findEntity(1);
-            CHECK(p->platformerController->grounded);
-            CHECK(p->platformerController->verticalVelocity == 0.f);
-            CHECK(std::abs(p->transform.position.y - 68.f) < 0.01f);   // exact contact
-            // Authoring untouched, no dirtying by the runtime.
-            CHECK(c.document().findInstanceInScene("s", 1)->transform.position.y == 0.f);
-            CHECK(!c.document().isDirty());
-        }
-
-        // A high-velocity fall does not tunnel through the floor (swept clamp).
-        {
-            EditorCoordinator c{makePlatformWorld(true)};
-            CHECK(c.playProject().ok);
-            c.updateRuntime(none, 100.f);                  // enormous dt
-            CHECK(std::abs(c.playSession()->findEntity(1)->transform.position.y - 68.f) < 0.01f);
-        }
-
-        // jumpPressed from the ground launches upward (negative vy) and ungrounds.
-        {
-            EditorCoordinator c{makePlatformWorld(true)};
-            CHECK(c.playProject().ok);
-            for (int i = 0; i < 300; ++i) c.updateRuntime(none, 0.05f);   // land
-            const float yGround = c.playSession()->findEntity(1)->transform.position.y;
-            RuntimeInputSnapshot jump; jump.jumpPressed = true;
-            c.updateRuntime(jump, 0.05f);
-            const RuntimeEntity* p = c.playSession()->findEntity(1);
-            CHECK(p->transform.position.y < yGround);                 // moved up
-            CHECK(p->platformerController->verticalVelocity < 0.f);   // rising
-            CHECK(!p->platformerController->grounded);
-        }
-
-        // A jump while airborne is ignored (no re-jump): vy keeps accelerating down.
-        {
-            EditorCoordinator c{makePlatformWorld(false)};
-            CHECK(c.playProject().ok);
-            c.updateRuntime(none, 0.1f);                              // now falling
-            const float vyBefore = platformerOf(c)->verticalVelocity;
-            RuntimeInputSnapshot jump; jump.jumpPressed = true;
-            c.updateRuntime(jump, 0.1f);
-            CHECK(platformerOf(c)->verticalVelocity > vyBefore);      // no upward jump
-        }
-
-        // A ceiling zeroes the rising velocity. Floor flush under the player grounds
-        // it on frame 1; the ceiling at y=-40 stops the jump almost immediately.
-        {
-            EditorCoordinator c{makePlatformWorld(true, /*floorY*/ 32.f, true, true, false,
-                                                  /*withCeiling*/ true, /*ceilingY*/ -40.f)};
-            CHECK(c.playProject().ok);
-            c.updateRuntime(none, 0.05f);                            // ground on the flush floor
-            CHECK(platformerOf(c)->grounded);
-            RuntimeInputSnapshot jump; jump.jumpPressed = true;
-            c.updateRuntime(jump, 0.05f);                            // jump straight into ceiling
-            CHECK(platformerOf(c)->verticalVelocity == 0.f);
-        }
-
-        // A trigger floor never grounds (no block); the player falls through.
-        {
-            EditorCoordinator c{makePlatformWorld(true, 100.f, true, true, /*floorTrigger*/ true)};
-            CHECK(c.playProject().ok);
-            for (int i = 0; i < 50; ++i) c.updateRuntime(none, 0.05f);
-            const RuntimeEntity* p = c.playSession()->findEntity(1);
-            CHECK(!p->platformerController->grounded);
-            CHECK(p->transform.position.y > 84.f);                   // passed the floor line
-        }
-
-        // A disabled floor collider never grounds either.
-        {
-            EditorCoordinator c{makePlatformWorld(true, 100.f, true, /*floorEnabled*/ false)};
-            CHECK(c.playProject().ok);
-            for (int i = 0; i < 50; ++i) c.updateRuntime(none, 0.05f);
-            CHECK(!platformerOf(c)->grounded);
-        }
-
-        // A player without a collider falls freely (never grounds).
-        {
-            EditorCoordinator c{makePlatformWorld(true, 100.f, /*playerCollider*/ false)};
-            CHECK(c.playProject().ok);
-            for (int i = 0; i < 50; ++i) c.updateRuntime(none, 0.05f);
-            const RuntimeEntity* p = c.playSession()->findEntity(1);
-            CHECK(!p->platformerController->grounded);
-            CHECK(p->transform.position.y > 84.f);
-        }
-
-        const auto makeOneWayWorld = [](BoxColliderMode floorMode = BoxColliderMode::OneWayPlatform,
-                                        bool floorEnabled = true,
-                                        Vec2 playerStart = {0.f, 0.f},
-                                        Vec2 floorPosition = {0.f, 100.f},
-                                        Vec2 floorOffset = {0.f, 0.f},
-                                        Vec2 floorSize = {200.f, 32.f}) {
-            ProjectDoc doc;
-            doc.projectName = "one-way";
-            doc.activeSceneId = "s";
-            SceneDef s; s.id = "s"; s.name = "S"; s.worldSize = {4000.f, 4000.f};
-            SceneInstanceDef player; player.id = 1; player.objectTypeId = "player";
-            player.instanceName = "Player"; player.transform.position = playerStart;
-            SceneInstanceDef floor; floor.id = 2; floor.objectTypeId = "floor";
-            floor.instanceName = "Floor"; floor.transform.position = floorPosition;
-            s.instances = {player, floor};
-            doc.scenes.emplace("s", s);
-
-            EntityDef playerType; playerType.className = "player"; playerType.name = "Player";
-            PlatformerControllerComponent pc;
-            pc.maxSpeed = 180.f; pc.jumpForce = 420.f; pc.customGravity = 1200.f;
-            playerType.platformerController = pc;
-            playerType.boxCollider2D = BoxCollider2DComponent{
-                {0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Solid};
-            doc.objectTypes.emplace("player", playerType);
-
-            EntityDef floorType; floorType.className = "floor"; floorType.name = "Floor";
-            floorType.boxCollider2D = BoxCollider2DComponent{
-                floorOffset, floorSize, floorEnabled, floorMode};
-            doc.objectTypes.emplace("floor", floorType);
-            return doc;
-        };
-
-        // One-way platform: falling from above lands and grounds the platformer.
-        {
-            EditorCoordinator c{makeOneWayWorld()};
-            CHECK(c.playProject().ok);
-            CHECK(c.playSession()->findEntity(2)->collider->mode
-                  == BoxColliderMode::OneWayPlatform);
-            for (int i = 0; i < 300; ++i) c.updateRuntime(none, 0.05f);
-            const RuntimeEntity* p = c.playSession()->findEntity(1);
-            CHECK(p->platformerController->grounded);
-            CHECK(p->platformerController->verticalVelocity == 0.f);
-            CHECK(std::abs(p->transform.position.y - 68.f) < 0.01f);
-        }
-
-        // One-way platform still catches a fast fall; no tunneling through top.
-        {
-            EditorCoordinator c{makeOneWayWorld()};
-            CHECK(c.playProject().ok);
-            c.updateRuntime(none, 100.f);
-            const RuntimeEntity* p = c.playSession()->findEntity(1);
-            CHECK(p->platformerController->grounded);
-            CHECK(std::abs(p->transform.position.y - 68.f) < 0.01f);
-        }
-
-        // Disabled and Trigger modes do not block even with the same geometry.
-        {
-            EditorCoordinator disabled{makeOneWayWorld(BoxColliderMode::OneWayPlatform,
-                                                       /*floorEnabled*/ false)};
-            CHECK(disabled.playProject().ok);
-            disabled.updateRuntime(none, 100.f);
-            CHECK(!disabled.playSession()->findEntity(1)->platformerController->grounded);
-            CHECK(disabled.playSession()->findEntity(1)->transform.position.y > 84.f);
-
-            EditorCoordinator trigger{makeOneWayWorld(BoxColliderMode::Trigger)};
-            CHECK(trigger.playProject().ok);
-            trigger.updateRuntime(none, 100.f);
-            CHECK(!trigger.playSession()->findEntity(1)->platformerController->grounded);
-            CHECK(trigger.playSession()->findEntity(1)->transform.position.y > 84.f);
-        }
-
-        // Offset and size define the platform top; the one-way clamp uses that
-        // exact geometry, not the entity pivot.
-        {
-            EditorCoordinator c{makeOneWayWorld(BoxColliderMode::OneWayPlatform, true,
-                                                {0.f, 0.f}, {0.f, 100.f},
-                                                {0.f, -20.f}, {96.f, 16.f})};
-            CHECK(c.playProject().ok);
-            c.updateRuntime(none, 100.f);
-            const RuntimeEntity* p = c.playSession()->findEntity(1);
-            CHECK(p->platformerController->grounded);
-            CHECK(std::abs(p->transform.position.y - 56.f) < 0.01f);
-        }
-
-        // Starting already penetrated / below a one-way platform does not
-        // depenetrate or clamp; the mover can leave the shape.
-        {
-            EditorCoordinator c{makeOneWayWorld(BoxColliderMode::OneWayPlatform, true,
-                                                {0.f, 90.f})};
-            CHECK(c.playProject().ok);
-            c.updateRuntime(none, 0.5f);
-            const RuntimeEntity* p = c.playSession()->findEntity(1);
-            CHECK(!p->platformerController->grounded);
-            CHECK(p->transform.position.y > 90.f);
-        }
-
-        // Multiple valid one-way platforms choose the nearest contact along the
-        // downward sweep, independent of scene order.
-        {
-            ProjectDoc doc = makeOneWayWorld();
-            SceneInstanceDef upper; upper.id = 3; upper.objectTypeId = "upper";
-            upper.instanceName = "Upper"; upper.transform.position = {0.f, 60.f};
-            doc.scenes.at("s").instances.push_back(upper);
-            EntityDef upperType; upperType.className = "upper"; upperType.name = "Upper";
-            upperType.boxCollider2D = BoxCollider2DComponent{
-                {0.f, 0.f}, {200.f, 32.f}, true, BoxColliderMode::OneWayPlatform};
-            doc.objectTypes.emplace("upper", upperType);
-
-            EditorCoordinator c{doc};
-            CHECK(c.playProject().ok);
-            c.updateRuntime(none, 100.f);
-            const RuntimeEntity* p = c.playSession()->findEntity(1);
-            CHECK(p->platformerController->grounded);
-            CHECK(std::abs(p->transform.position.y - 28.f) < 0.01f);
-        }
-
-        const auto makeOneWayLinearWorld = [](Vec2 runnerStart, Vec2 direction) {
-            ProjectDoc doc;
-            doc.projectName = "one-way-linear";
-            doc.activeSceneId = "s";
-            SceneDef s; s.id = "s"; s.name = "S"; s.worldSize = {4000.f, 4000.f};
-            SceneInstanceDef runner; runner.id = 1; runner.objectTypeId = "runner";
-            runner.instanceName = "Runner"; runner.transform.position = runnerStart;
-            SceneInstanceDef platform; platform.id = 2; platform.objectTypeId = "platform";
-            platform.instanceName = "Platform"; platform.transform.position = {100.f, 100.f};
-            s.instances = {runner, platform};
-            doc.scenes.emplace("s", s);
-
-            EntityDef runnerType; runnerType.className = "runner"; runnerType.name = "Runner";
-            LinearMoverComponent lm; lm.directionX = direction.x; lm.directionY = direction.y;
-            lm.speed = 100.f;
-            runnerType.linearMover = lm;
-            runnerType.boxCollider2D = BoxCollider2DComponent{
-                {0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Solid};
-            doc.objectTypes.emplace("runner", runnerType);
-
-            EntityDef platformType; platformType.className = "platform";
-            platformType.name = "Platform";
-            platformType.boxCollider2D = BoxCollider2DComponent{
-                {0.f, 0.f}, {200.f, 32.f}, true, BoxColliderMode::OneWayPlatform};
-            doc.objectTypes.emplace("platform", platformType);
-            return doc;
-        };
-
-        // Moving upward from below crosses the platform; one-way is ignored on Y up.
-        {
-            EditorCoordinator c{makeOneWayLinearWorld({100.f, 150.f}, {0.f, -1.f})};
-            CHECK(c.playProject().ok);
-            c.advanceRuntime(10.f);
-            CHECK(c.playSession()->findEntity(1)->transform.position.y < -800.f);
-        }
-
-        // Moving laterally through a one-way platform is not blocked.
-        {
-            EditorCoordinator c{makeOneWayLinearWorld({0.f, 100.f}, {1.f, 0.f})};
-            CHECK(c.playProject().ok);
-            c.advanceRuntime(10.f);
-            CHECK(c.playSession()->findEntity(1)->transform.position.x > 900.f);
-        }
-
-        // Stop restores the authoring position; the next Play re-materializes with
-        // velocity and grounded reset.
-        {
-            EditorCoordinator c{makePlatformWorld(true)};
-            CHECK(c.playProject().ok);
-            for (int i = 0; i < 20; ++i) c.updateRuntime(none, 0.05f);
-            CHECK(c.playSession()->findEntity(1)->transform.position.y > 0.f);
-            const uint64_t revBefore = c.document().revision();
-            CHECK(c.stopPlaying().ok);
-            CHECK(c.document().findInstanceInScene("s", 1)->transform.position.y == 0.f);
-            CHECK(c.document().revision() == revBefore);             // runtime never dirtied
-            CHECK(c.playProject().ok);                              // restart
-            const RuntimeEntity* p = c.playSession()->findEntity(1);
-            CHECK(p->transform.position.y == 0.f);
-            CHECK(p->platformerController->verticalVelocity == 0.f);
-            CHECK(!p->platformerController->grounded);
-        }
-    }
-
     // ===== PlatformerController authoring ====================================
     {
         // Add creates the component with the editor's recommended starting values.
@@ -3503,6 +3065,11 @@ int main() {
     // -- save/load preserves the component; Add/Remove/SetSpeed undo+redo -----
     {
         EditorCoordinator c{makeTopDownDoc(140.f)};
+        CHECK(c.execute(
+            SetTopDownControllerAccelerationCommand{"Hero", 700.f}).ok);
+        CHECK(c.execute(SetTopDownControllerFrictionCommand{"Hero", 800.f}).ok);
+        CHECK(c.execute(
+            SetTopDownControllerFourDirectionsCommand{"Hero", true}).ok);
         const std::filesystem::path path = testTempDir() / "topdown.artcade-project";
         CHECK(saveProjectToFile(c, path).ok);
         EditorCoordinator reloaded{ProjectDoc{}};
@@ -3510,12 +3077,34 @@ int main() {
         const auto& tdc = reloaded.document().data().objectTypes.at("Hero").topDownController;
         CHECK(tdc.has_value());
         CHECK(tdc->maxSpeed == 140.f);
+        CHECK(tdc->acceleration == 700.f);
+        CHECK(tdc->friction == 800.f);
+        CHECK(tdc->fourDirections);
     }
     {
         EditorCoordinator c{makeInheritedDoc()};
         CHECK(c.execute(AddTopDownControllerCommand{"Hero"}).ok);
         CHECK(c.execute(SetTopDownControllerSpeedCommand{"Hero", 250.f}).ok);
         CHECK(c.document().data().objectTypes.at("Hero").topDownController->maxSpeed == 250.f);
+        CHECK(c.execute(
+            SetTopDownControllerAccelerationCommand{"Hero", 900.f}).ok);
+        CHECK(c.execute(SetTopDownControllerFrictionCommand{"Hero", 1200.f}).ok);
+        CHECK(c.execute(
+            SetTopDownControllerFourDirectionsCommand{"Hero", true}).ok);
+        const TopDownControllerComponent& edited =
+            *c.document().data().objectTypes.at("Hero").topDownController;
+        CHECK(edited.acceleration == 900.f);
+        CHECK(edited.friction == 1200.f);
+        CHECK(edited.fourDirections);
+        CHECK(c.undo().ok);   // undo fourDirections
+        CHECK(!c.document().data().objectTypes.at("Hero")
+                   .topDownController->fourDirections);
+        CHECK(c.undo().ok);   // undo friction
+        CHECK(c.document().data().objectTypes.at("Hero")
+                  .topDownController->friction == 2200.f);
+        CHECK(c.undo().ok);   // undo acceleration
+        CHECK(c.document().data().objectTypes.at("Hero")
+                  .topDownController->acceleration == 1600.f);
         CHECK(c.undo().ok);   // undo speed
         CHECK(c.document().data().objectTypes.at("Hero").topDownController->maxSpeed == 260.f);
         CHECK(c.undo().ok);   // undo add
@@ -3531,6 +3120,10 @@ int main() {
         EditorCoordinator c{makeTopDownDoc(100.f)};
         const uint64_t revisionBefore = c.document().revision();
         CHECK(!c.execute(SetTopDownControllerSpeedCommand{"Hero", -1.f}).ok);
+        CHECK(!c.execute(
+            SetTopDownControllerAccelerationCommand{"Hero", -1.f}).ok);
+        CHECK(!c.execute(SetTopDownControllerFrictionCommand{
+            "Hero", std::numeric_limits<float>::infinity()}).ok);
         CHECK(c.document().revision() == revisionBefore);
         EditorCoordinator c2{makeInheritedDoc()};
         c2.consumeInvalidations();
@@ -4011,6 +3604,49 @@ int main() {
         const std::optional<WorldRect> emptyBounds = editorBoundsForEntity(empty, 1);
         CHECK(emptyBounds.has_value());
         CHECK(emptyBounds->x == 5.f);   // no cells -> falls through to the placeholder bounds
+    }
+
+    // -- applyDragPreviewOffset: every drawn representation of the dragged
+    // entity moves by the same delta - a Tilemap's cells included, or the
+    // painted tiles stay frozen at the pre-drag spot for the whole gesture
+    // and only jump to the new position on release (looks like stutter even
+    // though frame time itself is unaffected). Regression for exactly that
+    // bug: editor_app.cpp's live drag preview offset entities/sprites/
+    // colliders but forgot tilemaps ---------------------------------------------
+    {
+        SceneFrameSnapshot f;
+        f.hasScene = true;
+        f.entities.push_back(SceneFrameEntity{1, "TM", {}, SceneFrameRect{10, 10, 5, 5}, true});
+        f.entities.push_back(SceneFrameEntity{2, "Other", {}, SceneFrameRect{0, 0, 5, 5}, false});
+        f.sprites.push_back(SceneFrameSprite{1, "img", SceneFrameRect{10, 10, 5, 5}, {}, true, true});
+        f.colliders.push_back(SceneFrameCollider{1, WorldRect{10, 10, 5, 5},
+                                                  true, BoxColliderMode::Solid, true});
+        f.tilemaps.push_back(SceneFrameTilemap{
+            1, "tiles-img",
+            {SceneFrameTilemapCell{SceneFrameRect{10, 10, 32, 32}, SceneFrameRect{0, 0, 16, 16}},
+             SceneFrameTilemapCell{SceneFrameRect{42, 10, 32, 32}, SceneFrameRect{16, 0, 16, 16}}},
+            true});
+        f.tilemaps.push_back(SceneFrameTilemap{
+            2, "tiles-img",
+            {SceneFrameTilemapCell{SceneFrameRect{0, 0, 32, 32}, SceneFrameRect{0, 0, 16, 16}}},
+            false});
+
+        applyDragPreviewOffset(f, 1, Vec2{7.f, -3.f});
+
+        CHECK(f.entities[0].bounds.x == 17.f);
+        CHECK(f.entities[0].bounds.y == 7.f);
+        CHECK(f.entities[1].bounds.x == 0.f);   // untouched: not the dragged entity
+        CHECK(f.sprites[0].destination.x == 17.f);
+        CHECK(f.sprites[0].destination.y == 7.f);
+        CHECK(f.colliders[0].worldBounds.x == 17.f);
+        CHECK(f.colliders[0].worldBounds.y == 7.f);
+        CHECK(f.tilemaps[0].cells[0].destination.x == 17.f);
+        CHECK(f.tilemaps[0].cells[0].destination.y == 7.f);
+        CHECK(f.tilemaps[0].cells[1].destination.x == 49.f);
+        CHECK(f.tilemaps[0].cells[1].destination.y == 7.f);
+        // Untouched: entity 2's tilemap is not the one being dragged.
+        CHECK(f.tilemaps[1].cells[0].destination.x == 0.f);
+        CHECK(f.tilemaps[1].cells[0].destination.y == 0.f);
     }
 
     // -- collectSceneFrameSnapshot: an instance's TilemapComponent resolves
@@ -5995,24 +5631,11 @@ int main() {
         CHECK(collectBoxColliderBounds(c.document(), kSceneA, INVALID_ENTITY).size() == 2);
     }
 
-    // -- (6b) Editor overlay and runtime share the same world-bounds formula --
-    {
-        Transform transform;
-        transform.position = {25.f, 40.f};
-        const Vec2 offset{5.f, -10.f};
-        const Vec2 size{20.f, 12.f};
-        const WorldRect editorBounds = boxColliderWorldBounds(transform, offset, size);
-
-        RuntimeEntity entity;
-        entity.transform = transform;
-        entity.collider = RuntimeBoxCollider{offset, size, true, BoxColliderMode::Solid};
-        const Aabb runtimeBounds = runtimeColliderBounds(entity);
-
-        CHECK(runtimeBounds.minX == editorBounds.x);
-        CHECK(runtimeBounds.minY == editorBounds.y);
-        CHECK(runtimeBounds.maxX == editorBounds.x + editorBounds.width);
-        CHECK(runtimeBounds.maxY == editorBounds.y + editorBounds.height);
-    }
+    // RU-03 (D-01): (6b) "Editor overlay and runtime share the same world-bounds
+    // formula" removed - it parity-checked the editor's boxColliderWorldBounds()
+    // against PlaySession's own hand-written runtimeColliderBounds(), which no
+    // longer exists (GameplaySession's real Physics owns collider bounds now,
+    // not exposed through PlaySession's facade).
 
     // -- (7) Save/reload persists object-type collider, never per instance ----
     {

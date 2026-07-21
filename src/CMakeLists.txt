@@ -14,7 +14,6 @@ add_library(artcade-editor-core STATIC
     editor-native/model/generated_sfx_preset_catalog.cpp
     editor-native/model/project_io.cpp
     editor-native/model/path_confinement.cpp
-    editor-native/model/play_sound_preload.cpp
     editor-native/model/script_editor_state.cpp
     editor-native/model/script_text_ops.cpp
     editor-native/model/script_language_service.cpp
@@ -55,6 +54,7 @@ add_library(artcade-editor-core STATIC
     editor-native/commands/tilemap_commands.cpp
     editor-native/commands/sprite_animation_commands.cpp
     editor-native/commands/logic_board_commands.cpp
+    editor-native/commands/global_variable_commands.cpp
     editor-native/commands/entity_commands.cpp
     editor-native/commands/scene_commands.cpp
     editor-native/commands/scene_layer_commands.cpp
@@ -89,6 +89,18 @@ target_link_libraries(artcade-editor-core PUBLIC
     artcade-sprite-animation-core
     ArtCade::Sfx
     lua54
+    # RU-01: ProjectSerializer::deserialize() delegates project-JSON field
+    # reading to the canonical ProjectJson::read_* functions for current-
+    # format files (docs/PLAY_RUNTIME_UNIFICATION_ROADMAP.md §8).
+    artcade-project-json
+    # RU-03: PlaySession is now a facade over the real GameplaySession (same
+    # simulation game.exe/WASM use) instead of its own hand-written runtime -
+    # pulls in World/scene-system/runtime-entity-gateway/physics/Logic/Script/
+    # GameAPI/LuaHost/Audio/Input transitively.
+    artcade-gameplay-session
+    # RU-04: Play-start parses the project through the same AssetLoader the
+    # exported game uses (docs/PLAY_RUNTIME_UNIFICATION_ROADMAP.md §11).
+    artcade-asset-system
 )
 
 # ----------------------------------------------------------------------------
@@ -171,6 +183,7 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/ui/ui_markup.cpp
     editor-native/ui/editor_ui.cpp
     editor-native/ui/logic_board_editor_controller.cpp
+    editor-native/ui/logic_property_editor.cpp
     editor-native/ui/script_editor_controller.cpp
     editor-native/ui/sprite_animation_editor_controller.cpp
     editor-native/ui/tileset_editor_controller.cpp

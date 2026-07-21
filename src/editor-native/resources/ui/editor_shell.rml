@@ -156,6 +156,7 @@
                         <div class="create-dropdown">
                             <div id="create-scene-entry" class="menu-entry" data-action="add-scene">Create Scene</div>
                             <div id="create-entity-entry" class="menu-entry" data-action="add-entity">Create Entity</div>
+                            <div id="create-tilemap-entity-entry" class="menu-entry" data-action="add-tilemap-entity">Create Tilemap Entity</div>
                             <div id="create-instance-entry" class="menu-entry" data-action="add-instance">Create Instance</div>
                             <div id="create-instance-of-type-list"></div>
                         </div>
@@ -256,7 +257,12 @@
     <div id="split-console" class="hsplit" data-action="resize-console"></div>
 
     <div id="console" class="panel">
-        <div class="panel-header"><span class="icon">&#xebdc;</span>CONSOLE<span id="console-counts" class="console-counts"></span><button id="btn-console-copy" class="header-btn disabled" data-action="copy-console">Copy</button></div>
+        <div class="panel-header">
+            <span class="icon">&#xebdc;</span>CONSOLE
+            <span id="console-counts" class="console-counts"></span>
+            <button id="btn-console-copy" class="header-btn disabled" data-action="copy-console">Copy</button>
+            <button class="header-btn console-close-btn" data-action="toggle-console" title="Close Console">Close</button>
+        </div>
         <div class="console-toolbar">
             <button id="btn-console-info" class="console-toggle" data-action="toggle-console-info" title="Show log messages">Log</button>
             <button id="btn-console-warning" class="console-toggle" data-action="toggle-console-warning" title="Show warnings">Warn</button>

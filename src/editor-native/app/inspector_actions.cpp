@@ -50,6 +50,45 @@ EditorOperationResult addSpriteRenderer(EditorCoordinator& coordinator) {
     return coordinator.execute(AddSpriteRendererToObjectTypeCommand{objectTypeId});
 }
 
+EditorOperationResult addSpriteAnimator(EditorCoordinator& coordinator) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
+        return fail(coordinator, "No selected Object Type");
+    }
+    const EntityDef* type = coordinator.document().findObjectType(objectTypeId);
+    if (!type || !type->spriteRenderer) {
+        return fail(coordinator,
+                    "Sprite Animator requires Sprite Renderer on the Object Type");
+    }
+    if (type->spriteAnimator) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+
+    const SpriteAnimationAssetDef* fallback = nullptr;
+    const SpriteAnimationAssetDef* chosen = nullptr;
+    for (const SpriteAnimationAssetDef& asset :
+         coordinator.document().data().spriteAnimationAssets) {
+        if (asset.clips.empty()) continue;
+        if (!fallback) fallback = &asset;
+        if (!type->spriteRenderer->imageAssetId.empty()
+            && asset.sourceImageAssetId == type->spriteRenderer->imageAssetId) {
+            chosen = &asset;
+            break;
+        }
+    }
+    if (!chosen) chosen = fallback;
+    if (!chosen) {
+        return fail(coordinator,
+                    "Sprite Animator requires a Sprite Animation asset with at least one clip");
+    }
+
+    SpriteAnimatorComponent component;
+    component.animationAssetId = chosen->id;
+    component.defaultClipId = chosen->clips.front().id;
+    return coordinator.execute(
+        AddSpriteAnimatorToObjectTypeCommand{objectTypeId, std::move(component)});
+}
+
 EditorOperationResult removeSpriteRenderer(EditorCoordinator& coordinator) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {
@@ -236,6 +275,35 @@ EditorOperationResult setTopDownControllerSpeed(EditorCoordinator& coordinator, 
         return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(SetTopDownControllerSpeedCommand{objectTypeId, speed});
+}
+
+EditorOperationResult setTopDownControllerAcceleration(
+    EditorCoordinator& coordinator, float value) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
+        return fail(coordinator, "No selected object type");
+    }
+    return coordinator.execute(
+        SetTopDownControllerAccelerationCommand{objectTypeId, value});
+}
+
+EditorOperationResult setTopDownControllerFriction(
+    EditorCoordinator& coordinator, float value) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
+        return fail(coordinator, "No selected object type");
+    }
+    return coordinator.execute(SetTopDownControllerFrictionCommand{objectTypeId, value});
+}
+
+EditorOperationResult setTopDownControllerFourDirections(
+    EditorCoordinator& coordinator, bool value) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
+        return fail(coordinator, "No selected object type");
+    }
+    return coordinator.execute(
+        SetTopDownControllerFourDirectionsCommand{objectTypeId, value});
 }
 
 EditorOperationResult addPlatformerController(EditorCoordinator& coordinator) {

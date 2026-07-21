@@ -517,6 +517,14 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Entities</span>"
                 "<span class=\"prop-readonly\">"
               + std::to_string(scene->instances.size()) + "</span></div>";
+        html += field("Background R", "commit-scene-background-r",
+                      num(scene->backgroundColor.r), playing);
+        html += field("Background G", "commit-scene-background-g",
+                      num(scene->backgroundColor.g), playing);
+        html += field("Background B", "commit-scene-background-b",
+                      num(scene->backgroundColor.b), playing);
+        html += field("Background A", "commit-scene-background-a",
+                      num(scene->backgroundColor.a), playing);
 
         // -- WORLD BOUNDS (world units; resizing never moves instances) ---------
         html += header("world-bounds", isSectionCollapsed("world-bounds"),
@@ -699,6 +707,10 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     // (legacy/dangling data), since there is nothing to rename in that case.
     const std::string typeLabel = type ? type->name : inst->objectTypeId;
     html += field("Type", "commit-type-name", typeLabel, playing || !type);
+    html += "<div class=\"prop-row\"><span class=\"prop-label\">Entity Visible</span>"
+            "<button class=\"" + instanceBtn + "\" data-action=\"toggle-instance-visible\">";
+    html += inst->visible ? "On" : "Off";
+    html += "</button></div>";
 
     // Layer picker (only when the scene declares layers; legacy scenes have none).
     const SceneDef* instScene = coordinator.document().findScene(coordinator.state().activeSceneId);
@@ -884,11 +896,39 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 html += "<div class=\"type-owned-note\">Inherited from Object Type. "
                         "Edits change the type for every instance unless you Override.</div>";
             }
-            html += "<div class=\"prop-row\"><span class=\"prop-label\">Default Clip</span>"
-                    "<span class=\"prop-readonly\">"
-                  + escapeRml(animationClipDisplayName(coordinator, animator.animationAssetId,
-                                                       animator.defaultClipId))
-                  + "</span></div>";
+            const SpriteAnimationAssetDef* animatorAsset =
+                coordinator.document().findSpriteAnimationAsset(animator.animationAssetId);
+            const bool clipDisabled =
+                resolvedAnimator.origin == ComponentOrigin::InstanceOverride
+                    ? instanceDisabled : playing;
+            if (animatorAsset && !animatorAsset->clips.empty()) {
+                const bool clipOpen =
+                    openDropdownId_ == "animator-default-clip" && !clipDisabled;
+                html += dropdownTrigger(
+                    "Default Clip", "animator-default-clip",
+                    animationClipDisplayName(coordinator, animator.animationAssetId,
+                                             animator.defaultClipId),
+                    clipOpen, clipDisabled);
+                if (clipOpen) {
+                    html += "<div class=\"drop-list\">";
+                    for (const SpriteAnimationClipDef& clip : animatorAsset->clips) {
+                        const bool isCurrent = clip.id == animator.defaultClipId;
+                        html += "<div class=\"drop-entry";
+                        if (isCurrent) html += " selected";
+                        html += isCurrent
+                            ? "\" data-action=\"toggle-inspector-dropdown\""
+                              " data-arg=\"animator-default-clip\">"
+                            : "\" data-action=\"set-animator-default-clip\" data-arg=\""
+                                + escapeRml(clip.id) + "\">";
+                        if (isCurrent) html += "<span class=\"drop-mark\">&#x25cf;</span> ";
+                        html += escapeRml(clip.name.empty() ? clip.id : clip.name) + "</div>";
+                    }
+                    html += "</div>";
+                }
+            } else {
+                html += "<div class=\"prop-row\"><span class=\"prop-label\">Default Clip</span>"
+                        "<span class=\"prop-readonly warn\">(missing)</span></div>";
+            }
             // OT path by default — never silently write instance overrides.
             if (resolvedAnimator.origin == ComponentOrigin::InstanceOverride) {
                 html += field("Speed", "commit-animator-speed", num(animator.playbackSpeed),
@@ -1099,6 +1139,15 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                        "&#xec8e;", "Top Down Controller", "TYPE", "", "remove-top-down", playing);
         html += typeOwnedLockNote;
         html += field("Speed", "commit-topdown-speed", num(controller->maxSpeed), playing);
+        html += field("Acceleration", "commit-topdown-acceleration",
+                      num(controller->acceleration), playing);
+        html += field("Friction", "commit-topdown-friction",
+                      num(controller->friction), playing);
+        html += "<div class=\"prop-row\"><span class=\"prop-label\">Four Directions</span>"
+                "<button class=\"" + btn
+              + "\" data-action=\"toggle-topdown-four-directions\">"
+              + (controller->fourDirections ? std::string("On") : std::string("Off"))
+              + "</button></div>";
     }
 
     // -- Platformer Controller (object-type owned) ----------------------------
@@ -1118,22 +1167,43 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     // -- Add Component menu (only addable components; one movement driver) -----
     const bool hasDriver = type
         && (type->linearMover || type->topDownController || type->platformerController);
-    struct Addable { const char* label; const char* action; bool show; };
+    bool hasAnimationWithClip = false;
+    for (const SpriteAnimationAssetDef& asset :
+         coordinator.document().data().spriteAnimationAssets) {
+        if (!asset.clips.empty()) {
+            hasAnimationWithClip = true;
+            break;
+        }
+    }
+    const char* animatorPreflight = type && !type->spriteRenderer
+        ? "Add Sprite Renderer first"
+        : "Create a Sprite Animation asset with at least one clip first";
+    struct Addable {
+        const char* label;
+        const char* action;
+        bool show;
+        bool enabled;
+        const char* disabledReason;
+    };
     const Addable addable[] = {
         // Sprite capability is Object-Type-owned, like the gameplay components.
         {"Sprite Renderer", "add-sprite-renderer",
-            type && !type->spriteRenderer},
-        {"Box Collider 2D", "add-box-collider", type && !collider},
+            type && !type->spriteRenderer, true, ""},
+        {"Sprite Animator", "add-sprite-animator",
+            type && !type->spriteAnimator,
+            type && type->spriteRenderer && hasAnimationWithClip,
+            animatorPreflight},
+        {"Box Collider 2D", "add-box-collider", type && !collider, true, ""},
         // The three movement drivers are mutually exclusive: offer none once one exists.
-        {"Top Down Controller", "add-top-down", type && !hasDriver},
-        {"Platformer Controller", "add-platformer", type && !hasDriver},
-        {"Linear Mover", "add-linear-mover", type && !hasDriver},
+        {"Top Down Controller", "add-top-down", type && !hasDriver, true, ""},
+        {"Platformer Controller", "add-platformer", type && !hasDriver, true, ""},
+        {"Linear Mover", "add-linear-mover", type && !hasDriver, true, ""},
         // Instance-level like Sprite Renderer; needs at least one tileset to
         // reference (auto-assigns the first one - the tileset picker above
         // lets it be changed afterward).
         {"Tilemap", "add-tilemap-component",
             !instanceLocked && !inst->tilemap.has_value()
-                && !coordinator.document().data().tilesets.empty()},
+                && !coordinator.document().data().tilesets.empty(), true, ""},
     };
     bool anyAddable = false;
     for (const Addable& a : addable) anyAddable = anyAddable || a.show;
@@ -1149,9 +1219,19 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             html += "<div class=\"add-list\">";
             for (const Addable& a : addable) {
                 if (!a.show) continue;
-                html += "<div class=\"add-entry\" data-action=\"";
-                html += a.action;
-                html += "\">";
+                html += "<div class=\"add-entry";
+                if (!a.enabled) html += " disabled";
+                html += "\"";
+                if (a.enabled) {
+                    html += " data-action=\"";
+                    html += a.action;
+                    html += "\"";
+                } else {
+                    html += " title=\"";
+                    html += escapeRml(a.disabledReason);
+                    html += "\"";
+                }
+                html += ">";
                 html += a.label;
                 html += "</div>";
             }

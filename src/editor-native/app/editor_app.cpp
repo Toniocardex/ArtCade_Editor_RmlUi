@@ -31,7 +31,6 @@
 #include "editor-native/commands/generated_sfx_commands.h"
 #include "editor-native/model/path_confinement.h"
 #include "editor-native/model/play_session.h"
-#include "editor-native/model/play_sound_preload.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_animation_slicing.h"
 #include "editor-native/model/tilemap_stroke_preview.h"
@@ -334,13 +333,10 @@ int EditorApp::run(int argc, char** argv) {
     projectSession.bindUi();
 
     artcade::sfx::RaylibPreview sfxPreview;
-    bool ownsAudioDevice = false;
-    // Prefer a process-lifetime device: Init once after the window is up so
-    // neither Start Play nor the first Play Sound pays InitAudioDevice cost.
-    if (!IsAudioDeviceReady()) {
-        InitAudioDevice();
-        ownsAudioDevice = IsAudioDeviceReady();
-    }
+    // SFX preview (Generated SFX authoring) owns the audio device independent
+    // of Play — Play now routes through the real Modules::Audio the active
+    // PlaySession owns, not a Raylib-side cache of its own.
+    if (!IsAudioDeviceReady()) InitAudioDevice();
     auto sfxOutputRepository =
         std::make_shared<FilesystemGeneratedSfxOutputRepository>();
     GeneratedSfxGenerationService sfxGeneration{sfxOutputRepository};
@@ -349,92 +345,6 @@ int EditorApp::run(int argc, char** argv) {
     GeneratedSfxOutputTransaction sfxOutputTransaction{
         coordinator, sfxOutputRepository};
     bool sfxBatchWasActive = false;
-    // Play Sound's Raylib-side cache: loaded once per referenced audio asset at
-    // Start Play, reused for every firing this session. Keyed by AssetId,
-    // matching RuntimeAudioCommand/PlayAssetCatalogSnapshot::audioAssets.
-    // Play-scoped only — cleared on Stop and rebuilt on every Start (Generated
-    // SFX may have been regenerated between sessions).
-    std::unordered_map<AssetId, Sound> playSoundCache;
-    std::unordered_set<std::string> playAudioDiagnostics;
-    const auto logPlayAudioErrorOnce = [&](const AssetId& id,
-                                            const std::string& reason) {
-        const std::string key = id + "\n" + reason;
-        if (playAudioDiagnostics.insert(key).second)
-            coordinator.logError("Play Sound '" + id + "': " + reason);
-    };
-    const auto clearPlaySoundCache = [&] {
-        for (auto& [unused, sound] : playSoundCache) {
-            (void)unused;
-            UnloadSound(sound);
-        }
-        playSoundCache.clear();
-        playAudioDiagnostics.clear();
-    };
-    const auto preparePlaySoundCache = [&]() -> bool {
-        clearPlaySoundCache();
-
-        if (!IsAudioDeviceReady()) {
-            InitAudioDevice();
-            ownsAudioDevice = IsAudioDeviceReady();
-        }
-        if (!IsAudioDeviceReady()) {
-            coordinator.logError(
-                "Cannot start Play: audio device is unavailable");
-            return false;
-        }
-
-        const PlaySession* session = coordinator.playSession();
-        if (!session) {
-            coordinator.logError(
-                "Cannot prepare audio without an active PlaySession");
-            return false;
-        }
-
-        const std::filesystem::path assetRoot =
-            projectSession.assetRoot(resourceRoot);
-        std::vector<PlaySoundPreloadEntry> plan;
-        std::string planError;
-        if (!planPlaySoundPreload(session->assets(), assetRoot, &plan, &planError)) {
-            coordinator.logError(planError.empty()
-                ? "Cannot start Play: audio preload planning failed"
-                : planError);
-            clearPlaySoundCache();
-            return false;
-        }
-
-        const double preloadStart = GetTime();
-        for (const PlaySoundPreloadEntry& entry : plan) {
-            const double loadStart = GetTime();
-            Sound sound = LoadSound(entry.resolvedPath.string().c_str());
-            const double loadMs = (GetTime() - loadStart) * 1000.0;
-            if (!IsSoundReady(sound)) {
-                coordinator.logError(
-                    "Cannot start Play: audio file could not be decoded: "
-                    + entry.sourcePath);
-                clearPlaySoundCache();
-                return false;
-            }
-            const auto [it, inserted] =
-                playSoundCache.emplace(entry.assetId, sound);
-            (void)it;
-            if (!inserted) {
-                UnloadSound(sound);
-                coordinator.logError(
-                    "Cannot start Play: duplicate audio asset in snapshot: "
-                    + entry.assetId);
-                clearPlaySoundCache();
-                return false;
-            }
-            TraceLog(LOG_INFO,
-                     "[audio preload] asset=%s load=%.2fms",
-                     entry.assetId.c_str(), loadMs);
-        }
-        TraceLog(LOG_INFO,
-                 "[audio preload] %zu assets loaded in %.2f ms",
-                 playSoundCache.size(),
-                 (GetTime() - preloadStart) * 1000.0);
-        return true;
-    };
 
     // One preflight authority for UI capability and click-time revalidation.
     // Unknown ids are prospective Create-from-Current identities; existing ids
@@ -553,19 +463,38 @@ int EditorApp::run(int argc, char** argv) {
     });
 
     // Fit View / auto-fit: frame the active scene, centred, with a small padding.
-    // Workspace-only (recenter pan to 0 + zoom-to-fit via intents); the viewport
-    // rect is known only here. Shared by the Scene Inspector button and the
-    // first-open auto-fit below.
+    // Workspace-only (recenter pan + zoom-to-fit via intents); the rects are
+    // known only here. Shared by the Scene Inspector button and the first-open
+    // auto-fit below. Fit is an explicit user command, so - unlike passive
+    // rendering/picking - it always centres in visibleRect (what can actually
+    // be seen right now), never in cameraAnchorRect: otherwise, with the Tile
+    // Palette dock open, "Fit" could centre the scene partly behind the dock.
     const auto fitActiveScene = [&]() -> bool {
         const SceneId active = coordinator.state().activeSceneId;
         const SceneDef* scene = coordinator.document().findScene(active);
         if (!scene || scene->worldSize.x <= 0.f || scene->worldSize.y <= 0.f) return false;
-        const ViewportRect rect = viewportRectFromDocument(host.document());
-        if (rect.width <= 0 || rect.height <= 0) return false;
-        const float fit = computeFitZoom(scene->worldSize, rect, kSceneFitPadding);
+        const ViewportRect visibleRect = viewportRectFromDocument(host.document());
+        if (visibleRect.width <= 0 || visibleRect.height <= 0) return false;
+        const ViewportRect cameraAnchorRect =
+            elementContentRectFromDocument(host.document(), "center-content");
+        const float fit = computeFitZoom(scene->worldSize, visibleRect, kSceneFitPadding);
+        coordinator.apply(SetViewportZoomIntent{active, fit});   // intent clamps
+        // The camera anchors on cameraAnchorRect's centre (see
+        // SceneViewportProjection), so centring the world in visibleRect
+        // instead means solving for the pan that makes them agree:
+        //   visibleCentre = (worldCentre - target) * zoom + anchorCentre
+        //   target = worldCentre + pan  =>  pan = (anchorCentre - visibleCentre) / zoom
+        // Reads the zoom back so a clamped fit still centres correctly.
+        const float appliedZoom = coordinator.sceneView(active).zoom;
+        const Vec2 anchorCenter{cameraAnchorRect.x + cameraAnchorRect.width * 0.5f,
+                                cameraAnchorRect.y + cameraAnchorRect.height * 0.5f};
+        const Vec2 visibleCenter{visibleRect.x + visibleRect.width * 0.5f,
+                                 visibleRect.y + visibleRect.height * 0.5f};
+        const Vec2 targetPan{(anchorCenter.x - visibleCenter.x) / appliedZoom,
+                             (anchorCenter.y - visibleCenter.y) / appliedZoom};
         const EditorSceneViewState view = coordinator.sceneView(active);
-        coordinator.apply(PanViewportIntent{active, {-view.pan.x, -view.pan.y}});  // centre (pan 0)
-        coordinator.apply(SetViewportZoomIntent{active, fit});                     // intent clamps
+        coordinator.apply(PanViewportIntent{
+            active, {targetPan.x - view.pan.x, targetPan.y - view.pan.y}});
         return true;
     };
     ui.setFitViewHandler([&]() { fitActiveScene(); });
@@ -1219,7 +1148,30 @@ int EditorApp::run(int argc, char** argv) {
         if (!nonSceneWorkspace && !rml.textFocus && IsKeyPressed(KEY_DELETE)) {
             deleteSelectedEntity(coordinator);
         }
-        const ViewportRect rect = viewportRectFromDocument(host.document());
+        const ViewportRect visibleRect = viewportRectFromDocument(host.document());
+        // Includes the Tile Palette dock's footprint even when it's eating
+        // space from the bottom of #viewport, so the camera keeps anchoring on
+        // the same area regardless of whether the dock is open - opening/
+        // closing it crops the visible area instead of visibly translating
+        // whatever is already drawn (see SceneViewportProjection).
+        const ViewportRect cameraAnchorRect =
+            elementContentRectFromDocument(host.document(), "center-content");
+        // Resolves the camera for whichever scene is actually driving the
+        // Scene View right now (Play's own scene, or the edit-mode active
+        // scene), reading workspace pan/zoom fresh each call - the only
+        // through-line every Scene View camera build goes through this frame.
+        const auto sceneViewportProjectionFor =
+            [&](const ViewportRect& visible, const ViewportRect& anchor) {
+                const PlaySession* ps = coordinator.playSession();
+                const SceneId camActive = ps ? ps->sceneId() : coordinator.state().activeSceneId;
+                const Vec2 camWorldSize = ps
+                    ? ps->scene().worldSize
+                    : (coordinator.document().findScene(camActive)
+                           ? coordinator.document().findScene(camActive)->worldSize
+                           : Vec2{});
+                return resolveSceneViewportProjection(
+                    visible, anchor, coordinator.sceneView(camActive), camWorldSize);
+            };
         const bool contextMenuHit = ui.isContextMenuHit(
             static_cast<int>(static_cast<float>(GetMouseX()) * uiPixelScaleX()),
             static_cast<int>(static_cast<float>(GetMouseY()) * uiPixelScaleY()));
@@ -1233,34 +1185,13 @@ int EditorApp::run(int argc, char** argv) {
         // Keyboard ownership is a durable Scene View state, not a side effect
         // of the cursor's current position. Play started from Scene acquires it;
         // any explicit UI/text/window/popup transition releases it.
-        // A fresh Play always re-resolves audio from disk (same "re-validate at
-        // every Play start" convention materialize() already applies to every
-        // other asset kind) — otherwise a Generated SFX regenerated between two
-        // Play sessions would keep playing back whatever was cached from the
-        // first one.
-        // The cache is Play-scoped even though EditorApp owns the Raylib
-        // handles. Preload is part of Start Play preparation: simulation must
-        // not run until every referenced Sound is ready (or Play is aborted).
-        if (!playing && previousPlaying) clearPlaySoundCache();
-        if (playing && !previousPlaying) {
-            if (!preparePlaySoundCache()) {
-                const auto stopped = coordinator.stopPlaying();
-                if (!stopped.ok) {
-                    coordinator.logError(
-                        "Audio preload failed and Stop Play also failed: "
-                        + stopped.error);
-                }
-                playing = false;
-            } else {
-                gameplayInputFocused = !nonSceneWorkspace;
-            }
-        }
+        if (playing && !previousPlaying) gameplayInputFocused = !nonSceneWorkspace;
         if (!playing || nonSceneWorkspace || rml.textFocus || !IsWindowFocused() || popupOpen
             || animationEditorOpen || tilesetEditorOpen)
             gameplayInputFocused = false;
         if (playing && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             gameplayInputFocused = !nonSceneWorkspace && !rml.textFocus && !popupOpen
-                && !contextMenuHit && rect.contains(GetMouseX(), GetMouseY());
+                && !contextMenuHit && visibleRect.contains(GetMouseX(), GetMouseY());
         }
         previousPlaying = playing;
         const ViewportRect animationInputRect = animationEditorOpen
@@ -1270,43 +1201,31 @@ int EditorApp::run(int argc, char** argv) {
             ? resolveTilesetEditorCanvasContentRect(tilesetDocument)
             : ViewportRect{};
         if (!animationEditorOpen && !tilesetEditorOpen && !nonSceneWorkspace) {
-            routeViewportInput(coordinator, rect, rml, contextMenuHit);
+            routeViewportInput(coordinator, sceneViewportProjectionFor(visibleRect, cameraAnchorRect),
+                               rml, contextMenuHit);
         }
+        // Rebuilt after routeViewportInput, which is the only router that can
+        // change pan/zoom (mouse wheel / middle-drag) - everything below this
+        // point in the frame (pick/drag, tilemap paint, context menu, pointer
+        // readout, drag preview, and this frame's render) shares this single
+        // resolved projection, so a wheel-zoom is never one frame stale for
+        // some consumers and current for others.
+        const SceneViewportProjection projection =
+            sceneViewportProjectionFor(visibleRect, cameraAnchorRect);
         if (playing) {
             const float dt = GetFrameTime();
-            coordinator.advanceRuntime(dt);               // authored motion (LinearMover)
             // Simulation continues in every workspace. Keyboard input belongs
             // to the Scene View's persistent gameplay focus; pointer hover is
-            // deliberately irrelevant here.
+            // deliberately irrelevant here. Movement is always Logic Board/
+            // Script authored now (GameplaySession, same as the exported
+            // game) — there is no host-side hardcoded movement to poll.
             RuntimeInputSnapshot input;
             if (shouldForwardGameplayKeyboardInput({
                     !nonSceneWorkspace, gameplayInputFocused, IsWindowFocused(),
                     rml.textFocus, popupOpen})) {
-                input.moveLeft  = IsKeyDown(KEY_LEFT)  || IsKeyDown(KEY_A);
-                input.moveRight = IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D);
-                input.moveUp    = IsKeyDown(KEY_UP)    || IsKeyDown(KEY_W);
-                input.moveDown  = IsKeyDown(KEY_DOWN)  || IsKeyDown(KEY_S);
-                // Edge-triggered jump for the PlatformerController (Space / W / Up).
-                input.jumpPressed = IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_W)
-                                 || IsKeyPressed(KEY_UP);
                 collectLogicKeyPresses(input);
             }
-            coordinator.updateRuntime(input, dt);         // input-driven (TopDownController)
-
-            // Play Sound hot path: PlaySession only queues (Raylib-free). After
-            // Start Play preload, drain is cache lookup + volume + PlaySound —
-            // never InitAudioDevice / filesystem / LoadSound.
-            const std::vector<RuntimeAudioCommand> audioCommands = coordinator.drainAudioCommands();
-            for (const RuntimeAudioCommand& command : audioCommands) {
-                const auto cacheIt = playSoundCache.find(command.audioAssetId);
-                if (cacheIt == playSoundCache.end()) {
-                    logPlayAudioErrorOnce(command.audioAssetId,
-                        "audio asset was not prepared at Play start");
-                    continue;
-                }
-                SetSoundVolume(cacheIt->second, command.volume);
-                PlaySound(cacheIt->second);
-            }
+            coordinator.tickRuntime(input, dt);
         } else if (!animationEditorOpen && !tilesetEditorOpen && !nonSceneWorkspace) {
             // First time this scene is active in Edit mode: frame it once. The
             // flag lives in the scene's view state, so it shares the sceneViews
@@ -1317,10 +1236,10 @@ int EditorApp::run(int argc, char** argv) {
                 if (fitActiveScene()) coordinator.markSceneViewInitialized(editScene);
             }
             if (!rml.textFocus && IsKeyPressed(KEY_ESCAPE)) routeGlobalEscape(coordinator);
-            routeViewportPickDrag(coordinator, rect, rml, drag, contextMenuHit);
-            routeViewportContextMenu(coordinator, ui, rect, rml, contextClick,
+            routeViewportPickDrag(coordinator, projection, rml, drag, contextMenuHit);
+            routeViewportContextMenu(coordinator, ui, projection, rml, contextClick,
                                      pendingContextSpawn, contextMenuHit);
-            routeViewportTilemapPaint(coordinator, rect, rml);
+            routeViewportTilemapPaint(coordinator, projection, rml);
         }
 
         // Pointer world/cell readout (Edit mode, mouse over the viewport).
@@ -1329,11 +1248,10 @@ int EditorApp::run(int argc, char** argv) {
             ViewportPointerReadout pointerReadout;
             if (!coordinator.isPlaying() && !animationEditorOpen && !tilesetEditorOpen
                 && !nonSceneWorkspace
-                && rect.contains(GetMouseX(), GetMouseY())) {
+                && visibleRect.contains(GetMouseX(), GetMouseY())) {
                 const SceneId& active = coordinator.state().activeSceneId;
                 if (const SceneDef* scene = coordinator.document().findScene(active)) {
-                    const SceneViewCamera camera = makeSceneViewCamera(
-                        rect, coordinator.sceneView(active), scene->worldSize);
+                    const SceneViewCamera& camera = projection.camera;
                     pointerReadout = makePointerReadout(
                         Vec2{static_cast<float>(GetMouseX()),
                              static_cast<float>(GetMouseY())},
@@ -1347,9 +1265,11 @@ int EditorApp::run(int argc, char** argv) {
         // open yet (a new/Untitled project) they fall back to the executable resources.
         const std::filesystem::path assetRoot =
             projectSession.assetRoot(resourceRoot);
-        const auto& textureRequests = coordinator.playSession()
-            ? textureRequestCatalog.forPlay(coordinator.playSession()->assets(), assetRoot)
-            : textureRequestCatalog.forDocument(coordinator.document(), assetRoot);
+        // Play draws the same image assets as Edit (GameplaySession loads
+        // straight from the document, no unsaved-snapshot divergence like
+        // Scripts have) - one shared texture request source for both.
+        const auto& textureRequests =
+            textureRequestCatalog.forDocument(coordinator.document(), assetRoot);
         if (!coordinator.isPlaying() && animationEditorOpen) {
             routeSpriteAnimationCanvasInput(
                 coordinator, animationInputRect, rml, textureCache, textureRequests);
@@ -1450,10 +1370,7 @@ int EditorApp::run(int argc, char** argv) {
                 coordinator.logWarning(
                     "Discarded Generated SFX result: " + completed->message);
             } else if (completed->kind == GeneratedSfxServiceEventKind::PreviewReady) {
-                if (!IsAudioDeviceReady()) {
-                    InitAudioDevice();
-                    ownsAudioDevice = IsAudioDeviceReady();
-                }
+                if (!IsAudioDeviceReady()) InitAudioDevice();
                 const auto loaded = sfxPreview.load(completed->audio);
                 if (!loaded.ok()) coordinator.logError(loaded.error().message);
                 else {
@@ -1510,7 +1427,7 @@ int EditorApp::run(int argc, char** argv) {
         // hang off any single action path. Change-guarded O(1) check per frame.
         projectSession.refreshWindowTitleIfNeeded();
         if (!coordinator.isPlaying() && !animationEditorOpen && !tilesetEditorOpen) {
-            if (const std::optional<Vec2> preview = dragPreviewPosition(coordinator, rect, drag)) {
+            if (const std::optional<Vec2> preview = dragPreviewPosition(coordinator, projection, drag)) {
                 ui.showEntityPositionPreview(drag.entity, *preview);
             }
         }
@@ -1575,18 +1492,11 @@ int EditorApp::run(int argc, char** argv) {
             if (!playSession && drag.active) {
             // Local drag preview: offset the dragged entity by the live delta so
             // the move is visible before the single command lands on release.
-            const std::optional<Vec2> preview = dragPreviewPosition(coordinator, rect, drag);
+            const std::optional<Vec2> preview = dragPreviewPosition(coordinator, projection, drag);
             const Vec2 d = preview
                 ? Vec2{preview->x - drag.startEntityPos.x, preview->y - drag.startEntityPos.y}
                 : Vec2{};
-            for (SceneFrameEntity& e : snapshot.entities)
-                if (e.entityId == drag.entity) { e.bounds.x += d.x; e.bounds.y += d.y; }
-            for (SceneFrameSprite& s : snapshot.sprites)
-                if (s.entityId == drag.entity) { s.destination.x += d.x; s.destination.y += d.y; }
-            // The collider overlay must follow the dragged entity too, otherwise it
-            // lingers at the old position until the move commits on release.
-            for (SceneFrameCollider& col : snapshot.colliders)
-                if (col.entityId == drag.entity) { col.worldBounds.x += d.x; col.worldBounds.y += d.y; }
+            applyDragPreviewOffset(snapshot, drag.entity, d);
             }
             if (!playSession) {
                 applyPendingTilemapStrokePreview(snapshot, coordinator.document(),
@@ -1605,11 +1515,21 @@ int EditorApp::run(int argc, char** argv) {
             EditorSceneViewState renderView;
             if (playSession) {
                 renderView.zoom =
-                    clampZoom(computeFitZoom(snapshot.worldSize, rect, kSceneFitPadding));
+                    clampZoom(computeFitZoom(snapshot.worldSize, visibleRect, kSceneFitPadding));
                 renderView.gridVisible = false;
             } else {
                 renderView = coordinator.sceneView(active);
             }
+            // Play always fits/centres within the actually-visible area (no
+            // separate anchor rect - there is no persistent pan to protect from
+            // a dock toggle, since renderView is rebuilt from scratch above);
+            // Edit mode reuses this frame's already-resolved projection, which
+            // is exactly renderView's own camera since neither pan/zoom nor the
+            // geometry changed between input routing and here.
+            const SceneViewportProjection renderProjection = playSession
+                ? resolveSceneViewportProjection(visibleRect, visibleRect, renderView,
+                                                 snapshot.worldSize)
+                : projection;
             // Asset editors replace the scene viewport only in Edit mode. During
             // Play the runtime scene must always render regardless of workspace UI.
             if (!playSession) {
@@ -1623,13 +1543,13 @@ int EditorApp::run(int argc, char** argv) {
                 textureCache.prepare(snapshot.sprites, snapshot.tilemaps, textureRequests);
                 const SceneGridDefinition displayGrid = viewportDisplayGrid(
                     coordinator.document(), coordinator.state(), active);
-                sceneView.render(snapshot, renderView, displayGrid, rect, textureCache,
+                sceneView.render(snapshot, renderView, displayGrid, renderProjection, textureCache,
                                  canvasFont);
                 if (!playSession) {
                     drawTilemapPaintOverlay(coordinator.document(), coordinator.state().tilemapEditor,
                                             coordinator.effectiveTilemapTool(),
-                                            active, coordinator.selection().primaryEntity, rect,
-                                            renderView, snapshot.worldSize);
+                                            active, coordinator.selection().primaryEntity,
+                                            renderProjection);
                 }
             }
         }
@@ -1884,8 +1804,7 @@ int EditorApp::run(int argc, char** argv) {
     sfxGeneration.shutdown();
     ui.setSfxBatchState(sfxGeneration.batchState());
     sfxPreview.unload();
-    clearPlaySoundCache();
-    if (ownsAudioDevice && IsAudioDeviceReady()) CloseAudioDevice();
+    if (IsAudioDeviceReady()) CloseAudioDevice();
     textureCache.clear();
     unloadCanvasFont(canvasFont);   // GPU atlas: released before CloseWindow
     ui.detach();

@@ -141,6 +141,25 @@ private:
     bool        captured_ = false;
 };
 
+/** Set the root visibility of one scene instance. This is distinct from the
+ *  SpriteRenderer's visibility: false gates the entire instance in Edit and
+ *  Play rendering, including tilemaps and editor placeholders. */
+class SetInstanceVisibleCommand final : public EditorCommand {
+public:
+    SetInstanceVisibleCommand(SceneId sceneId, EntityId id, bool visible);
+
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "SetInstanceVisible"; }
+
+private:
+    SceneId sceneId_;
+    EntityId id_;
+    bool next_ = true;
+    bool previous_ = true;
+    bool captured_ = false;
+};
+
 /** Rename an object type's display name (shared by every instance of that
     type - not the same as RenameEntityCommand, which renames one instance). */
 class RenameObjectTypeCommand final : public EditorCommand {

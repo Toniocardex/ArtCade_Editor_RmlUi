@@ -169,6 +169,14 @@ bool ProjectDocument::setInstanceName(const SceneId& sceneId, EntityId id, std::
     return true;
 }
 
+bool ProjectDocument::setInstanceVisible(const SceneId& sceneId, EntityId id, bool visible) {
+    SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
+    if (!instance) return false;
+    instance->visible = visible;
+    markDirty();
+    return true;
+}
+
 bool ProjectDocument::setSceneName(const SceneId& sceneId, std::string name) {
     SceneDef* scene = mutableScene(sceneId);
     if (!scene) return false;
@@ -592,6 +600,35 @@ bool ProjectDocument::setTopDownControllerSpeed(const std::string& objectTypeId,
     auto it = doc_.objectTypes.find(objectTypeId);
     if (it == doc_.objectTypes.end() || !it->second.topDownController.has_value()) return false;
     it->second.topDownController->maxSpeed = speed;
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::setTopDownControllerAcceleration(
+    const std::string& objectTypeId, float acceleration) {
+    if (!NumericValidation::isNonNegative(acceleration)) return false;
+    auto it = doc_.objectTypes.find(objectTypeId);
+    if (it == doc_.objectTypes.end() || !it->second.topDownController.has_value()) return false;
+    it->second.topDownController->acceleration = acceleration;
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::setTopDownControllerFriction(
+    const std::string& objectTypeId, float friction) {
+    if (!NumericValidation::isNonNegative(friction)) return false;
+    auto it = doc_.objectTypes.find(objectTypeId);
+    if (it == doc_.objectTypes.end() || !it->second.topDownController.has_value()) return false;
+    it->second.topDownController->friction = friction;
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::setTopDownControllerFourDirections(
+    const std::string& objectTypeId, bool fourDirections) {
+    auto it = doc_.objectTypes.find(objectTypeId);
+    if (it == doc_.objectTypes.end() || !it->second.topDownController.has_value()) return false;
+    it->second.topDownController->fourDirections = fourDirections;
     markDirty();
     return true;
 }

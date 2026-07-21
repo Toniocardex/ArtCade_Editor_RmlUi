@@ -21,6 +21,6 @@ class ProjectDocument;
 void drawTilemapPaintOverlay(const ProjectDocument& document, const TilemapEditorState& tilemapEditor,
                              EditorTool effectiveTool,
                              const SceneId& sceneId, EntityId entityId,
-                             const ViewportRect& rect, const EditorSceneViewState& view, Vec2 worldSize);
+                             const SceneViewportProjection& projection);
 
 } // namespace ArtCade::EditorNative

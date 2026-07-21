@@ -1,9 +1,11 @@
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/app/project_file.h"
 #include "editor-native/commands/audio_asset_commands.h"
+#include "editor-native/commands/global_variable_commands.h"
 #include "editor-native/commands/logic_board_commands.h"
 #include "editor-native/model/project_io.h"
 #include "editor-native/ui/logic_board_editor_controller.h"
+#include "app/render/scene_frame_snapshot.h"
 #include "logic-core.h"
 
 #include <cmath>
@@ -18,6 +20,23 @@ static int passed = 0;
 static int failed = 0;
 #define CHECK(x) do { if (x) ++passed; else { ++failed; std::cerr << "FAIL " #x " line " << __LINE__ << "\n"; } } while (0)
 
+// RU-03 (D-01): PlaySession no longer exposes findEntity()/RuntimeEntity
+// (per-entity gameplay/physics internals) - only the render hand-off,
+// renderables(), which needs a SpriteComponent (see makeProjectData()'s
+// spriteRenderer) to enumerate an entity at all.
+static const ArtCade::RenderableEntitySnapshot* findRenderable(
+    const PlaySession& session, EntityId id) {
+    for (const auto& entity : session.renderables())
+        if (entity.id == id) return &entity;
+    return nullptr;
+}
+
+// Same resolution scene_frame_snapshot.cpp's Play branch uses: the resolved
+// per-frame sprite asset id, falling back to the type-owned static one.
+static AssetId resolvedSpriteAssetId(const ArtCade::RenderableEntitySnapshot& entity) {
+    return entity.spriteFrame.assetId.empty() ? entity.sprite.spriteAssetId : entity.spriteFrame.assetId;
+}
+
 static ProjectDoc makeProjectData() {
     ProjectDoc doc;
     doc.formatVersion = 4;
@@ -25,6 +44,11 @@ static ProjectDoc makeProjectData() {
     EntityDef hero;
     hero.name = "Hero";
     hero.className = "Hero";
+    // RU-03: a SpriteRendererComponent (even with no image asset) is what
+    // makes an entity appear in GameplaySession's renderables() - needed so
+    // Play tests below can observe position/visibility through PlaySession's
+    // render hand-off, the only per-entity introspection the facade exposes.
+    hero.spriteRenderer = SpriteRendererComponent{{}, true};
     doc.objectTypes.emplace("Hero", hero);
 
     SceneDef scene;
@@ -108,6 +132,117 @@ static void testCommandsAndPersistence() {
     CHECK(!ProjectSerializer::deserialize(malformed).ok);
 }
 
+static void testGlobalVariableCommands() {
+    ProjectDoc project = makeProjectData();
+    project.globalVariables = {
+        {"score", GameVariableDefinition::Type::Number, 1.0, "Player score"},
+        {"doorOpen", GameVariableDefinition::Type::Boolean, false, "Door state"},
+    };
+    EditorCoordinator coordinator{std::move(project)};
+
+    GameVariableDefinition health{
+        "health", GameVariableDefinition::Type::Number, 100.0, "Player health"};
+    CHECK(coordinator.execute(AddGlobalVariableCommand{health}).ok);
+    CHECK(coordinator.document().data().globalVariables.size() == 3);
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().data().globalVariables.size() == 2);
+    CHECK(coordinator.redo().ok);
+    CHECK(coordinator.document().data().globalVariables[2].key == "health");
+
+    const uint64_t beforeInvalidAdd = coordinator.document().revision();
+    CHECK(!coordinator.execute(AddGlobalVariableCommand{
+        {"1bad", GameVariableDefinition::Type::Number, 0.0, {}}}).ok);
+    CHECK(!coordinator.execute(AddGlobalVariableCommand{health}).ok);
+    CHECK(coordinator.document().revision() == beforeInvalidAdd);
+
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& empty =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
+    rule.actions[0] =
+        Logic::makeDefaultBlock(Logic::kStateAdd, Logic::BlockKind::Action);
+    Logic::applyDeterministicVariableDefault(coordinator.document().data(), rule.actions[0]);
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
+    CHECK(coordinator.execute(AddLogicConditionCommand{
+        "Hero", rule.id,
+        Logic::makeDefaultBlock(Logic::kStateCompare, Logic::BlockKind::Condition), 0}).ok);
+    CHECK(coordinator.execute(SetLogicPropertyCommand{
+        "Hero", rule.id, LogicPropertyTarget::Action, 0,
+        "key", LogicVariableReference{"score"}}).ok);
+    CHECK(coordinator.execute(SetLogicPropertyCommand{
+        "Hero", rule.id, LogicPropertyTarget::Condition, 0,
+        "key", LogicVariableReference{"score"}}).ok);
+    CHECK(countGlobalVariableReferences(coordinator.document(), "score") == 2);
+
+    const uint64_t beforeBlockedRemove = coordinator.document().revision();
+    CHECK(!coordinator.execute(RemoveGlobalVariableCommand{"score"}).ok);
+    CHECK(coordinator.document().revision() == beforeBlockedRemove);
+
+    CHECK(coordinator.execute(RenameGlobalVariableCommand{"score", "points"}).ok);
+    CHECK(countGlobalVariableReferences(coordinator.document(), "score") == 0);
+    CHECK(countGlobalVariableReferences(coordinator.document(), "points") == 2);
+    const LogicBoardDef& renamed =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(std::get<LogicVariableReference>(
+        Logic::findProperty(renamed.rules[0].actions[0], "key")->value).id == "points");
+    CHECK(std::get<LogicVariableReference>(
+        Logic::findProperty(renamed.rules[0].conditions[0].block, "key")->value).id == "points");
+    CHECK(coordinator.undo().ok);
+    CHECK(countGlobalVariableReferences(coordinator.document(), "score") == 2);
+    CHECK(coordinator.redo().ok);
+    CHECK(countGlobalVariableReferences(coordinator.document(), "points") == 2);
+
+    const uint64_t beforeIncompatibleType = coordinator.document().revision();
+    CHECK(!coordinator.execute(SetGlobalVariableTypeCommand{
+        "points", GameVariableDefinition::Type::Boolean}).ok);
+    CHECK(!coordinator.execute(SetGlobalVariableInitialValueCommand{"points", false}).ok);
+    CHECK(coordinator.document().revision() == beforeIncompatibleType);
+
+    CHECK(coordinator.execute(
+        SetGlobalVariableInitialValueCommand{"points", 42.5}).ok);
+    CHECK(std::get<double>(coordinator.document().data().globalVariables[0].initialValue) == 42.5);
+    CHECK(coordinator.undo().ok);
+    CHECK(std::get<double>(coordinator.document().data().globalVariables[0].initialValue) == 1.0);
+    CHECK(coordinator.redo().ok);
+    CHECK(std::get<double>(coordinator.document().data().globalVariables[0].initialValue) == 42.5);
+
+    CHECK(coordinator.execute(
+        SetGlobalVariableDescriptionCommand{"points", "Points earned"}).ok);
+    CHECK(coordinator.document().data().globalVariables[0].description == "Points earned");
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().data().globalVariables[0].description == "Player score");
+    CHECK(coordinator.redo().ok);
+    CHECK(coordinator.document().data().globalVariables[0].description == "Points earned");
+
+    CHECK(coordinator.execute(SetGlobalVariableTypeCommand{
+        "doorOpen", GameVariableDefinition::Type::String}).ok);
+    CHECK(std::get<std::string>(
+        coordinator.document().data().globalVariables[1].initialValue).empty());
+    CHECK(coordinator.undo().ok);
+    CHECK(std::get<bool>(
+        coordinator.document().data().globalVariables[1].initialValue) == false);
+    CHECK(coordinator.redo().ok);
+    CHECK(coordinator.document().data().globalVariables[1].type
+          == GameVariableDefinition::Type::String);
+    CHECK(coordinator.undo().ok);
+
+    ProjectDoc invalid = coordinator.document().data();
+    invalid.globalVariables[0].type = GameVariableDefinition::Type::Boolean;
+    invalid.globalVariables[0].initialValue = false;
+    CHECK(!ProjectValidator::validate(ProjectDocument{std::move(invalid)}).ok);
+
+    CHECK(coordinator.execute(ChangeLogicActionTypeCommand{
+        "Hero", rule.id, 0, Logic::kSetVisible}).ok);
+    CHECK(coordinator.execute(RemoveLogicConditionCommand{"Hero", rule.id, 0}).ok);
+    CHECK(countGlobalVariableReferences(coordinator.document(), "points") == 0);
+    CHECK(coordinator.execute(RemoveGlobalVariableCommand{"points"}).ok);
+    CHECK(coordinator.document().data().globalVariables[0].key == "doorOpen");
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().data().globalVariables[0].key == "points");
+    CHECK(coordinator.redo().ok);
+    CHECK(coordinator.document().data().globalVariables[0].key == "doorOpen");
+}
+
 static void testConditionCommands() {
     ProjectDoc project = makeProjectData();
     project.objectTypes.at("Hero").platformerController = PlatformerControllerComponent{};
@@ -151,6 +286,135 @@ static void testConditionCommands() {
         .conditions.size() == countBeforeRemove);
 }
 
+static void testConditionControllerAndGenericProperties() {
+    ProjectDoc project = makeProjectData();
+    project.objectTypes.at("Hero").platformerController = PlatformerControllerComponent{};
+    project.globalVariables = {
+        {"score", GameVariableDefinition::Type::Number, 0.0, {}},
+        {"doorOpen", GameVariableDefinition::Type::Boolean, false, {}},
+    };
+    EditorCoordinator coordinator{std::move(project)};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& empty =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
+    CHECK(coordinator.apply(OpenLogicBoardIntent{"Hero"}).ok);
+    LogicBoardEditorController controller{coordinator, nullptr};
+
+    CHECK(controller.handleAction(
+        "change-logic-trigger", rule.id, Logic::kEverySeconds, {}));
+    CHECK(controller.handleAction(
+        "commit-logic-property", rule.id + "|t|0|seconds", "2.5", {}));
+    const LogicBoardDef* board =
+        &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(std::get<double>(
+        Logic::findProperty(board->rules[0].trigger, "seconds")->value) == 2.5);
+
+    CHECK(controller.handleAction(
+        "add-logic-condition-type", rule.id, Logic::kStateCompare, {}));
+    CHECK(controller.handleAction(
+        "pick-logic-property", rule.id + "|c|0|key", "score", {}));
+    CHECK(controller.handleAction(
+        "pick-logic-property", rule.id + "|c|0|op", ">=", {}));
+    CHECK(controller.handleAction(
+        "commit-logic-property", rule.id + "|c|0|value", "10", {}));
+    board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(board->rules[0].conditions.size() == 1);
+    CHECK(std::get<LogicVariableReference>(Logic::findProperty(
+        board->rules[0].conditions[0].block, "key")->value).id == "score");
+    CHECK(std::get<LogicStringValue>(Logic::findProperty(
+        board->rules[0].conditions[0].block, "op")->value).value == ">=");
+    CHECK(std::get<double>(Logic::findProperty(
+        board->rules[0].conditions[0].block, "value")->value) == 10.0);
+
+    CHECK(controller.handleAction(
+        "add-logic-condition-type", rule.id, Logic::kKeyDown, {}));
+    CHECK(controller.handleAction(
+        "pick-logic-property", rule.id + "|c|1|key", "A", {}));
+    CHECK(controller.handleAction(
+        "set-logic-condition-join", rule.id + "|1", "or", {}));
+    CHECK(controller.handleAction(
+        "toggle-logic-condition-negated", rule.id + "|1", {}, {}));
+    board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(board->rules[0].conditions[1].joinBefore == LogicConditionJoin::Or);
+    CHECK(board->rules[0].conditions[1].negated);
+    CHECK(std::get<LogicKey>(Logic::findProperty(
+        board->rules[0].conditions[1].block, "key")->value) == LogicKey::A);
+    CHECK(coordinator.undo().ok);
+    CHECK(!coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].conditions[1].negated);
+    CHECK(coordinator.redo().ok);
+
+    CHECK(controller.handleAction(
+        "move-logic-condition-up", rule.id + "|1", {}, {}));
+    board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(board->rules[0].conditions[0].block.typeId == Logic::kKeyDown);
+    CHECK(board->rules[0].conditions[0].joinBefore == LogicConditionJoin::And);
+    CHECK(board->rules[0].conditions[0].negated);
+    CHECK(controller.handleAction(
+        "move-logic-condition-down", rule.id + "|0", {}, {}));
+    CHECK(controller.handleAction(
+        "set-logic-condition-join", rule.id + "|1", "or", {}));
+    CHECK(controller.handleAction(
+        "change-logic-condition", rule.id + "|1", Logic::kIsVisible, {}));
+    board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(board->rules[0].conditions[1].block.typeId == Logic::kIsVisible);
+    CHECK(board->rules[0].conditions[1].joinBefore == LogicConditionJoin::Or);
+    CHECK(board->rules[0].conditions[1].negated);
+
+    CHECK(controller.handleAction(
+        "change-logic-action", rule.id + "|0", Logic::kStateSet, {}));
+    CHECK(controller.handleAction(
+        "pick-logic-property", rule.id + "|a|0|key", "score", {}));
+    CHECK(controller.handleAction(
+        "commit-logic-property", rule.id + "|a|0|value", "42", {}));
+    board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(std::get<double>(
+        Logic::findProperty(board->rules[0].actions[0], "value")->value) == 42.0);
+
+    CHECK(controller.handleAction(
+        "change-logic-action", rule.id + "|0", Logic::kStateAdd, {}));
+    CHECK(controller.handleAction(
+        "commit-logic-property", rule.id + "|a|0|amount", "3", {}));
+    CHECK(controller.handleAction(
+        "change-logic-action", rule.id + "|0", Logic::kStateSubtract, {}));
+    CHECK(controller.handleAction(
+        "commit-logic-property", rule.id + "|a|0|amount", "2", {}));
+    CHECK(controller.handleAction(
+        "change-logic-action", rule.id + "|0", Logic::kStateToggle, {}));
+    CHECK(controller.handleAction(
+        "pick-logic-property", rule.id + "|a|0|key", "doorOpen", {}));
+    board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(std::get<LogicVariableReference>(
+        Logic::findProperty(board->rules[0].actions[0], "key")->value).id == "doorOpen");
+
+    CHECK(controller.handleAction(
+        "change-logic-action", rule.id + "|0", Logic::kSetVelocity, {}));
+    CHECK(controller.handleAction(
+        "commit-logic-property-component", rule.id + "|a|0|velocity|x", "7.5", {}));
+    CHECK(controller.handleAction(
+        "commit-logic-property-component", rule.id + "|a|0|velocity|y", "-4", {}));
+    board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const Vec2 velocity = std::get<Vec2>(
+        Logic::findProperty(board->rules[0].actions[0], "velocity")->value);
+    CHECK(velocity.x == 7.5f);
+    CHECK(velocity.y == -4.f);
+
+    CHECK(controller.handleAction(
+        "remove-logic-condition", rule.id + "|0", {}, {}));
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].conditions.size() == 1);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].conditions[0].joinBefore == LogicConditionJoin::And);
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].conditions.size() == 2);
+    CHECK(coordinator.redo().ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].conditions.size() == 1);
+}
+
 static void testConditionCompatibility() {
     EditorCoordinator coordinator{makeProjectData()};
     CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
@@ -177,6 +441,7 @@ static ProjectDoc makePlatformerProjectData() {
     pc.maxSpeed = 180.f; pc.jumpForce = 420.f; pc.customGravity = 1200.f;
     hero.platformerController = pc;
     hero.boxCollider2D = BoxCollider2DComponent{{0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Solid};
+    hero.spriteRenderer = SpriteRendererComponent{{}, true};
     doc.objectTypes.emplace("Hero", hero);
 
     EntityDef floor;
@@ -294,17 +559,17 @@ static void testConditionGatesRuntimeDispatch() {
     jump.pressedLogicKeys.push_back(LogicKey::Space);
 
     // Airborne at Start Play: the condition blocks the action.
-    coordinator.updateRuntime(jump, 1.f / 60.f);
-    CHECK(coordinator.playSession()->findEntity(1)->visible);
+    coordinator.tickRuntime(jump, 1.f / 60.f);
+    CHECK(findRenderable(*coordinator.playSession(), 1)->visibleInGame);
 
-    // Settle onto the floor.
+    // Settle onto the floor (grounded state itself is GameplaySession/
+    // Physics's own internal, not exposed through PlaySession's facade).
     RuntimeInputSnapshot none;
-    for (int i = 0; i < 300; ++i) coordinator.updateRuntime(none, 0.05f);
-    CHECK(coordinator.playSession()->findEntity(1)->platformerController->grounded);
+    for (int i = 0; i < 300; ++i) coordinator.tickRuntime(none, 0.05f);
 
     // Grounded now: the condition passes and the action fires.
-    coordinator.updateRuntime(jump, 1.f / 60.f);
-    CHECK(!coordinator.playSession()->findEntity(1)->visible);
+    coordinator.tickRuntime(jump, 1.f / 60.f);
+    CHECK(!findRenderable(*coordinator.playSession(), 1)->visibleInGame);
     CHECK(coordinator.stopPlaying().ok);
 }
 
@@ -321,13 +586,12 @@ static void testIsGroundedEventRunsOnTick() {
 
     CHECK(coordinator.playCurrentScene().ok);
     CHECK(coordinator.playSession() != nullptr);
-    CHECK(coordinator.playSession()->findEntity(1)->visible);
+    CHECK(findRenderable(*coordinator.playSession(), 1)->visibleInGame);
 
     RuntimeInputSnapshot none;
-    for (int i = 0; i < 300; ++i) coordinator.updateRuntime(none, 0.05f);
+    for (int i = 0; i < 300; ++i) coordinator.tickRuntime(none, 0.05f);
     // Once grounded, the predicate event must fire via dispatchTick.
-    CHECK(coordinator.playSession()->findEntity(1)->platformerController->grounded);
-    CHECK(!coordinator.playSession()->findEntity(1)->visible);
+    CHECK(!findRenderable(*coordinator.playSession(), 1)->visibleInGame);
     CHECK(coordinator.stopPlaying().ok);
 }
 
@@ -353,52 +617,50 @@ static void testIsFallingEventTrueWhileDescendingFalseWhenGroundedOrRising() {
         {{"target", LogicEntityReference{}}, {"visible", true}}};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", landRule, 1}).ok);
 
+    // RU-03: jump is now always Logic Board/Script authored (no hardcoded
+    // host input) - add the key-press -> platformer.jump rule the exported
+    // game would also need.
+    const LogicBoardDef& withLand =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    LogicRuleDef jumpRule = Logic::makeDefaultRule(nextLogicRuleId(withLand));
+    jumpRule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
+    jumpRule.actions[0] = Logic::makeDefaultBlock(Logic::kJump, Logic::BlockKind::Action);
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", jumpRule, 2}).ok);
+
     CHECK(coordinator.playCurrentScene().ok);
     CHECK(coordinator.playSession() != nullptr);
-    const RuntimeEntity* hero = coordinator.playSession()->findEntity(1);
-    CHECK(hero != nullptr);
-    CHECK(hero->visible);
-    CHECK(hero->platformerController.has_value());
+    // RU-03 (D-01): PlaySession no longer exposes platformerController
+    // internals (grounded/verticalVelocity) - only visibleInGame, via the
+    // render hand-off (findRenderable), which the Is Falling/Is Grounded
+    // rules above still drive observably.
+    CHECK(findRenderable(*coordinator.playSession(), 1)->visibleInGame);
 
     RuntimeInputSnapshot none;
     // Frame 1: tick still sees vy=0 → not falling; physics then applies gravity.
-    coordinator.updateRuntime(none, 1.f / 60.f);
-    hero = coordinator.playSession()->findEntity(1);
-    CHECK(hero != nullptr);
-    CHECK(!hero->platformerController->grounded);
-    CHECK(hero->platformerController->verticalVelocity > 0.001f);
-    CHECK(hero->visible);
+    coordinator.tickRuntime(none, 1.f / 60.f);
+    CHECK(findRenderable(*coordinator.playSession(), 1)->visibleInGame);
 
     // Frame 2: tick sees descending → Is Falling fires → hide.
-    coordinator.updateRuntime(none, 1.f / 60.f);
-    hero = coordinator.playSession()->findEntity(1);
-    CHECK(hero != nullptr);
-    CHECK(!hero->visible);
+    coordinator.tickRuntime(none, 1.f / 60.f);
+    CHECK(!findRenderable(*coordinator.playSession(), 1)->visibleInGame);
 
     // Settle: Is Grounded shows again; while grounded Is Falling must stay false.
-    for (int i = 0; i < 300; ++i) coordinator.updateRuntime(none, 0.05f);
-    hero = coordinator.playSession()->findEntity(1);
-    CHECK(hero != nullptr);
-    CHECK(hero->platformerController->grounded);
-    CHECK(hero->visible);
+    for (int i = 0; i < 300; ++i) coordinator.tickRuntime(none, 0.05f);
+    CHECK(findRenderable(*coordinator.playSession(), 1)->visibleInGame);
 
-    // Jump: while rising (vy < 0) Is Falling must stay false → remain visible.
+    // Jump: while rising, Is Falling must stay false → remain visible.
     RuntimeInputSnapshot jump;
-    jump.jumpPressed = true;
-    coordinator.updateRuntime(jump, 1.f / 60.f);
-    hero = coordinator.playSession()->findEntity(1);
-    CHECK(hero != nullptr);
-    CHECK(!hero->platformerController->grounded);
-    CHECK(hero->platformerController->verticalVelocity < 0.f);
-    CHECK(hero->visible);
+    jump.pressedLogicKeys.push_back(LogicKey::Space);
+    coordinator.tickRuntime(jump, 1.f / 60.f);
+    CHECK(findRenderable(*coordinator.playSession(), 1)->visibleInGame);
 
     // Later in the jump arc, once descending again, Is Falling hides again.
     bool hidWhileDescending = false;
     for (int i = 0; i < 180; ++i) {
-        coordinator.updateRuntime(none, 1.f / 60.f);
-        hero = coordinator.playSession()->findEntity(1);
+        coordinator.tickRuntime(none, 1.f / 60.f);
+        const auto* hero = findRenderable(*coordinator.playSession(), 1);
         if (!hero) break;
-        if (!hero->visible) {
+        if (!hero->visibleInGame) {
             hidWhileDescending = true;
             break;
         }
@@ -436,14 +698,14 @@ static void testIsVisibleEventAndMoveBy() {
 
     CHECK(coordinator.playCurrentScene().ok);
     CHECK(coordinator.playSession() != nullptr);
-    const float startX = coordinator.playSession()->findEntity(1)->transform.position.x;
-    const float startY = coordinator.playSession()->findEntity(1)->transform.position.y;
-    CHECK(coordinator.playSession()->findEntity(1)->visible);
+    const float startX = findRenderable(*coordinator.playSession(), 1)->transform.position.x;
+    const float startY = findRenderable(*coordinator.playSession(), 1)->transform.position.y;
+    CHECK(findRenderable(*coordinator.playSession(), 1)->visibleInGame);
 
     RuntimeInputSnapshot none;
-    coordinator.updateRuntime(none, 1.f / 60.f);
-    CHECK(coordinator.playSession()->findEntity(1)->transform.position.x == startX + 12.f);
-    CHECK(coordinator.playSession()->findEntity(1)->transform.position.y == startY - 3.f);
+    coordinator.tickRuntime(none, 1.f / 60.f);
+    CHECK(findRenderable(*coordinator.playSession(), 1)->transform.position.x == startX + 12.f);
+    CHECK(findRenderable(*coordinator.playSession(), 1)->transform.position.y == startY - 3.f);
     CHECK(coordinator.stopPlaying().ok);
 }
 
@@ -466,15 +728,15 @@ static void testPlayRuntimeIsolation() {
     const uint64_t revision = coordinator.document().revision();
     CHECK(coordinator.playCurrentScene().ok);
     CHECK(coordinator.playSession() != nullptr);
-    CHECK(!coordinator.playSession()->findEntity(1)->visible);
+    CHECK(!findRenderable(*coordinator.playSession(), 1)->visibleInGame);
     CHECK(coordinator.document().revision() == revision);
     CHECK(coordinator.document().findInstanceInScene("scene-1", 1)->transform.position.x == 5.f);
 
     RuntimeInputSnapshot input;
     input.pressedLogicKeys.push_back(LogicKey::Space);
-    coordinator.updateRuntime(input, 1.f / 60.f);
-    CHECK(coordinator.playSession()->findEntity(1)->transform.position.x == 40.f);
-    CHECK(coordinator.playSession()->findEntity(1)->transform.position.y == 50.f);
+    coordinator.tickRuntime(input, 1.f / 60.f);
+    CHECK(findRenderable(*coordinator.playSession(), 1)->transform.position.x == 40.f);
+    CHECK(findRenderable(*coordinator.playSession(), 1)->transform.position.y == 50.f);
     CHECK(coordinator.document().findInstanceInScene("scene-1", 1)->transform.position.x == 5.f);
     CHECK(coordinator.stopPlaying().ok);
     CHECK(coordinator.playSession() == nullptr);
@@ -490,13 +752,22 @@ static void testCollisionEventOtherAndDeferredDestroy() {
     pickup.className = "Pickup";
     pickup.boxCollider2D = BoxCollider2DComponent{
         {0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Trigger};
+    // RU-03: a SpriteRendererComponent makes destruction observable through
+    // findRenderable() below - otherwise "absent from renderables()" would be
+    // trivially true even without correct destroy behavior (no sprite -> no
+    // component -> never enumerated in the first place).
+    pickup.spriteRenderer = SpriteRendererComponent{{}, true};
     data.objectTypes.emplace("Pickup", pickup);
     EntityDef sensor;
     sensor.name = "Sensor";
     sensor.className = "Sensor";
     sensor.boxCollider2D = BoxCollider2DComponent{
         {0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Trigger};
-    sensor.topDownController = TopDownControllerComponent{600.f, 0.f, 0.f, true};
+    // RU-03: LinearMover moves every tick without needing Logic Board/Script
+    // authoring for input (unlike TopDownController, which has no Logic
+    // Board action - movement.setIntent is Script-only) - simplest way to
+    // separate the colliding pair and exercise CollisionExit below.
+    sensor.linearMover = LinearMoverComponent{1.f, 0.f, 600.f};
     data.objectTypes.emplace("Sensor", sensor);
     SceneInstanceDef pickupInstance;
     pickupInstance.id = 2;
@@ -544,18 +815,17 @@ static void testCollisionEventOtherAndDeferredDestroy() {
 
     CHECK(coordinator.playCurrentScene().ok);
     RuntimeInputSnapshot none;
-    coordinator.updateRuntime(none, 1.f / 60.f);
+    coordinator.tickRuntime(none, 1.f / 60.f);
     // The collision snapshot finishes dispatching before destruction is applied;
     // then the scope and collider disappear without touching authoring data.
-    CHECK(coordinator.playSession()->findEntity(2) == nullptr);
+    CHECK(findRenderable(*coordinator.playSession(), 2) == nullptr);
     CHECK(coordinator.document().findInstanceInScene("scene-1", 2) != nullptr);
     // The exit subscription fires once for the pair transition and is not
-    // emitted while the pair remains absent on later frames.
-    RuntimeInputSnapshot moveSensor;
-    moveSensor.moveRight = true;
-    coordinator.updateRuntime(moveSensor, 0.2f);
-    CHECK(!coordinator.playSession()->findEntity(1)->visible);
-    CHECK(coordinator.playSession()->findEntity(2) == nullptr);
+    // emitted while the pair remains absent on later frames. Sensor's
+    // LinearMover separates the pair without needing input.
+    coordinator.tickRuntime(none, 0.2f);
+    CHECK(!findRenderable(*coordinator.playSession(), 1)->visibleInGame);
+    CHECK(findRenderable(*coordinator.playSession(), 2) == nullptr);
     CHECK(coordinator.stopPlaying().ok);
 }
 
@@ -588,22 +858,16 @@ static void testAnimationActions() {
     CHECK(compiled.programs.front().source.find("play_animation_clip") != std::string::npos);
 
     CHECK(coordinator.playCurrentScene().ok);
-    const RuntimeEntity* hero = coordinator.playSession()
-        ? coordinator.playSession()->findEntity(1) : nullptr;
-    CHECK(hero && hero->sprite);
-    CHECK(hero && hero->spriteAnimator);
-    CHECK(hero && hero->sprite->assetId == "img-alt");
-    CHECK(hero && hero->spriteAnimator->animationAssetId == "alt.anim");
-    CHECK(hero && hero->spriteAnimator->currentClipId == "run");
-    CHECK(hero && hero->spriteAnimator->playbackSpeed == 2.f);
-    CHECK(hero && hero->spriteAnimator->playing);
-    CHECK(coordinator.playSession()->assets().imageAssets.count("img-alt") == 1);
+    // RU-03 (D-01): PlaySession no longer exposes SpriteAnimator internals
+    // (currentClipId/playbackSpeed/playing) - only the resolved per-frame
+    // sprite asset id, via the render hand-off.
+    const auto* hero = coordinator.playSession()
+        ? findRenderable(*coordinator.playSession(), 1) : nullptr;
+    CHECK(hero && resolvedSpriteAssetId(*hero) == "img-alt");
 
     RuntimeInputSnapshot input;
     input.pressedLogicKeys.push_back(LogicKey::Space);
-    coordinator.updateRuntime(input, 1.f / 60.f);
-    hero = coordinator.playSession()->findEntity(1);
-    CHECK(hero && hero->spriteAnimator && !hero->spriteAnimator->playing);
+    coordinator.tickRuntime(input, 1.f / 60.f);
     CHECK(coordinator.stopPlaying().ok);
 
     CHECK(coordinator.execute(SetLogicAnimationClipCommand{
@@ -684,17 +948,12 @@ static void testPlaySoundAction() {
     CHECK(compiled.ok());
     CHECK(compiled.programs.front().source.find("play_sound(\"jump.wav\", 0.5)") != std::string::npos);
 
+    // RU-03 (D-01): Play Sound now plays through the real Modules::Audio the
+    // session owns (like game.exe), not a host-visible command queue -
+    // PlaySession no longer exposes drainAudioCommands(). This only checks
+    // Play still starts and ticks correctly with the compiled action.
     CHECK(coordinator.playCurrentScene().ok);
-    const auto queued = coordinator.drainAudioCommands();
-    CHECK(queued.size() == 1);
-    CHECK(!queued.empty() && queued.front().audioAssetId == "jump.wav");
-    CHECK(!queued.empty() && queued.front().volume == 0.5f);
-    CHECK(!queued.empty() && queued.front().owner == 1);
-    // A queue, not a state snapshot: draining again with no new firing is empty.
-    CHECK(coordinator.drainAudioCommands().empty());
     CHECK(coordinator.stopPlaying().ok);
-    // No PlaySession after Stop -> nothing left to drain either.
-    CHECK(coordinator.drainAudioCommands().empty());
 
     CHECK(coordinator.execute(SetLogicPropertyCommand{
         "Hero", start.id, LogicPropertyTarget::Action, 0, "volume", 0.9}).ok);
@@ -773,7 +1032,6 @@ static void testPlaySoundCanBeSelectedBeforeImportingAudio() {
     CHECK(Logic::compileProjectLogic(reloaded.document().data()).ok());
     CHECK(saveProjectToFile(reloaded, draftPath).ok);
     CHECK(reloaded.playCurrentScene().ok);
-    CHECK(reloaded.drainAudioCommands().size() == 1);
     CHECK(reloaded.stopPlaying().ok);
     std::filesystem::remove(draftPath, cleanupError);
 
@@ -1026,7 +1284,9 @@ static void testExecutionModeCommand() {
 
 int main() {
     testCommandsAndPersistence();
+    testGlobalVariableCommands();
     testConditionCommands();
+    testConditionControllerAndGenericProperties();
     testConditionCompatibility();
     testConditionGatesRuntimeDispatch();
     testIsGroundedEventRunsOnTick();

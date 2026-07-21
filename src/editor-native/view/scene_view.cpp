@@ -109,6 +109,33 @@ bool hasVisibleTilemapCells(const SceneFrameSnapshot& frame, EntityId entityId) 
     return false;
 }
 
+// Unrotated AABB spanning every painted cell of an entity's Tilemap - built
+// from the same destination rects the render pass above already draws, so
+// the selection outline matches the painted area instead of staying pinned
+// to the entity's small placeholder box (which can sit far from the tiles
+// once the tilemap has been painted with an offset).
+std::optional<SceneFrameRect> tilemapCellBounds(const SceneFrameSnapshot& frame,
+                                                 EntityId entityId) {
+    std::optional<SceneFrameRect> bounds;
+    for (const SceneFrameTilemap& tilemap : frame.tilemaps) {
+        if (tilemap.entityId != entityId) continue;
+        for (const SceneFrameTilemapCell& cell : tilemap.cells) {
+            const SceneFrameRect& d = cell.destination;
+            if (!bounds) {
+                bounds = d;
+                continue;
+            }
+            const float minX = std::min(bounds->x, d.x);
+            const float minY = std::min(bounds->y, d.y);
+            const float maxX = std::max(bounds->x + bounds->width, d.x + d.width);
+            const float maxY = std::max(bounds->y + bounds->height, d.y + d.height);
+            bounds = SceneFrameRect{minX, minY, maxX - minX, maxY - minY};
+        }
+        break;   // one Tilemap component per entity
+    }
+    return bounds;
+}
+
 void drawMissingSprite(const SceneFrameSprite& sprite, float zoom) {
     const SceneFrameTransform2D xf = visualOf(sprite.destination, sprite.rotationRadians);
     const float degrees = sprite.rotationRadians * kRadToDeg;
@@ -150,9 +177,10 @@ void drawDashedRectangle(Rectangle r, float thickness, Color color) {
 void SceneView::render(const SceneFrameSnapshot& frame,
                        const EditorSceneViewState& view,
                        const SceneGridDefinition& displayGrid,
-                       const ViewportRect& rect,
+                       const SceneViewportProjection& projection,
                        const TextureCache& textures,
                        const CanvasFont& canvasFont) const {
+    const ViewportRect& rect = projection.visibleRect;
     if (!rect.valid()) return;
 
     BeginScissorMode(rect.x, rect.y, rect.width, rect.height);
@@ -167,7 +195,7 @@ void SceneView::render(const SceneFrameSnapshot& frame,
     }
 
     const Vector2 world{frame.worldSize.x, frame.worldSize.y};
-    const SceneViewCamera vc = makeSceneViewCamera(rect, view, frame.worldSize);
+    const SceneViewCamera& vc = projection.camera;
     Camera2D cam{};
     cam.offset = Vector2{vc.offset.x, vc.offset.y};
     cam.target = Vector2{vc.target.x, vc.target.y};
@@ -316,16 +344,30 @@ void SceneView::render(const SceneFrameSnapshot& frame,
         if (entity.selected) {
             // Prefer the entity/sprite oriented visual for the selection outline
             // so a rotated instance does not get an AABB box disconnected from
-            // what is drawn. Collider/tilemap still contribute to containment
-            // via editorBoundsForEntity, but the outline follows the visual.
+            // what is drawn. Collider still only contributes to containment via
+            // editorBoundsForEntity, but a populated Tilemap has no single
+            // "visual" like a sprite does, so its outline instead spans every
+            // painted cell - otherwise the outline would stay pinned to the
+            // small placeholder box while the actual tiles render elsewhere.
             SceneFrameTransform2D outline = visualOf(entity.bounds, entity.rotationRadians);
+            bool matchedContent = false;
             for (const SceneFrameSprite& sprite : frame.sprites) {
                 if (sprite.entityId != entity.entityId || !sprite.visible
                     || sprite.assetId.empty()) {
                     continue;
                 }
                 outline = visualOf(sprite.destination, sprite.rotationRadians);
+                matchedContent = true;
                 break;
+            }
+            if (!matchedContent) {
+                // Tiles render unrotated (see the DrawTexturePro call above),
+                // so the outline must be too - rotating it would disagree with
+                // what is actually on screen.
+                if (const std::optional<SceneFrameRect> tilemapBounds =
+                        tilemapCellBounds(frame, entity.entityId)) {
+                    outline = visualOf(*tilemapBounds, 0.f);
+                }
             }
             // Inflate slightly in local space for a readable pad around the visual.
             outline.size.x += 6.f;

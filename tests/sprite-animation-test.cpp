@@ -472,7 +472,7 @@ int main() {
         const uint64_t revision = c.document().revision();
         CHECK(c.playCurrentScene().ok);
         CHECK(c.playSession() != nullptr);
-        c.advanceRuntime(1.f / 8.f);
+        c.tickRuntime(RuntimeInputSnapshot{}, 1.f / 8.f);
         const SceneFrameSnapshot snap = collectSceneFrameSnapshot(*c.playSession());
         CHECK(snap.sprites.size() == 2);
         CHECK(snap.sprites[0].hasSource);
@@ -500,7 +500,12 @@ int main() {
         CHECK(!playError.empty());
     }
 
-    // -- Play Started / Finished pulse; hold must not re-Finished --------------
+    // RU-03 (D-01): "Play Started / Finished pulse; hold must not re-Finished"
+    // simplified - PlaySession no longer drains animation lifecycle events
+    // (D-01: only the render hand-off is public); SpriteAnimator's Started/
+    // Finished event semantics are GameplaySession's own and already
+    // characterized there. This only checks Play still ticks correctly
+    // through a one-shot clip's full duration and past it.
     {
         ProjectDoc doc = makeAnimationDoc();
         doc.objectTypes.at("Hero").spriteAnimator->autoPlay = true;
@@ -512,21 +517,8 @@ int main() {
         std::string playError;
         auto session = PlaySession::startActiveScene(document, kSceneA, &playError);
         CHECK(session.has_value());
-        auto started = session->drainAnimationEvents();
-        CHECK(!started.empty());
-        CHECK(started.front().kind == AnimationRuntimeEventKind::Started);
-        for (int i = 0; i < 30; ++i) session->advance(0.1f);
-        auto finished = session->drainAnimationEvents();
-        bool sawFinished = false;
-        for (const AnimationRuntimeEvent& event : finished) {
-            if (event.kind == AnimationRuntimeEventKind::Finished) sawFinished = true;
-        }
-        CHECK(sawFinished);
-        session->advance(0.5f);
-        auto held = session->drainAnimationEvents();
-        for (const AnimationRuntimeEvent& event : held) {
-            CHECK(event.kind != AnimationRuntimeEventKind::Finished);
-        }
+        for (int i = 0; i < 30; ++i) session->tick(RuntimeInputSnapshot{}, 0.1f);
+        session->tick(RuntimeInputSnapshot{}, 0.5f);
     }
 
     // -- OT Inspector path mutates Object Type, not instance override -----------
@@ -574,7 +566,10 @@ int main() {
         CHECK(playError.find("defaultClipId") != std::string::npos);
     }
 
-    // -- Logic play_clip during update drains Started same frame --------------
+    // RU-03 (D-01): "Logic play_clip during update drains Started same frame"
+    // simplified - same removed animation-event introspection as above. This
+    // only checks Play still ticks correctly when a Logic Board rule fires
+    // animation.play_clip in response to input.
     {
         ProjectDoc doc = makeAnimationDoc();
         doc.objectTypes.at("Hero").spriteAnimator->autoPlay = false;
@@ -592,19 +587,9 @@ int main() {
         std::string playError;
         auto session = PlaySession::startActiveScene(document, kSceneA, &playError);
         CHECK(session.has_value());
-        (void)session->drainAnimationEvents();
         RuntimeInputSnapshot input;
         input.pressedLogicKeys.push_back(LogicKey::Space);
-        session->update(input, 1.f / 60.f);
-        const auto events = session->drainAnimationEvents();
-        bool sawStarted = false;
-        for (const AnimationRuntimeEvent& event : events) {
-            if (event.kind == AnimationRuntimeEventKind::Started
-                && event.clipId == "idle") {
-                sawStarted = true;
-            }
-        }
-        CHECK(sawStarted);
+        session->tick(input, 1.f / 60.f);
     }
 
     // -- v9 ownership migrate: no global first-wins on unrelated assets -------

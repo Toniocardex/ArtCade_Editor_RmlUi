@@ -80,6 +80,17 @@ EditorOperationResult addEntityAt(EditorCoordinator& coordinator, Vec2 spawnPosi
 EditorOperationResult addEntity(EditorCoordinator& coordinator);
 
 /**
+ * "Create Tilemap Entity": one gesture, one undo entry — a new object type,
+ * its first instance on the ACTIVE layer, and an instance-owned Tilemap
+ * component bound to the project's first tileset (cellSize from its slicing).
+ * Preflight fails without mutation when the project has no tileset or the
+ * active layer is locked. On success selects the new instance (which shows
+ * the Tile Palette dock) and arms the Brush tool, so painting can start
+ * immediately.
+ */
+EditorOperationResult addTilemapEntity(EditorCoordinator& coordinator);
+
+/**
  * "+Instance" / "Use Existing Type": place a new instance of @p objectTypeId in
  * the active scene. The new instance gets a fresh EntityId and its own
  * Transform but reuses the given ObjectTypeId, so the object-type-owned

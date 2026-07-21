@@ -55,11 +55,14 @@ EditorOperationResult CreateEntityCommand::apply(ProjectDocument& document) {
     if (!layerId_.empty() && !document.hasLayer(sceneId_, layerId_)) {
         return EditorOperationResult::failure("Target layer does not exist in the scene");
     }
+    // "" means the scene default - resolved here, not left on the instance:
+    // the canonical project format (validate_current_project_document)
+    // requires every instance to carry a real, non-empty layerId.
+    const std::string targetLayer = layerId_.empty() ? scene->defaultLayerId : layerId_;
     if (!captured_) {
         // Gates only the first apply() (the new user gesture) - a later redo
         // reuses this same command and must not be blocked by the layer's
         // lock state at redo time.
-        const std::string& targetLayer = layerId_.empty() ? scene->defaultLayerId : layerId_;
         if (document.isLayerLocked(sceneId_, targetLayer)) {
             return EditorOperationResult::failure("Cannot create instance: target layer is locked");
         }
@@ -70,7 +73,7 @@ EditorOperationResult CreateEntityCommand::apply(ProjectDocument& document) {
     instance.objectTypeId       = objectTypeId_;
     instance.instanceName       = instanceName_;
     instance.transform.position = position_;
-    instance.layerId            = layerId_;
+    instance.layerId            = targetLayer;
     if (!document.createInstance(sceneId_, std::move(instance))) {
         return EditorOperationResult::failure("Failed to create instance");
     }
@@ -122,8 +125,11 @@ EditorOperationResult CreateEntityWithDefaultTypeCommand::apply(ProjectDocument&
     if (!layerId_.empty() && !document.hasLayer(sceneId_, layerId_)) {
         return EditorOperationResult::failure("Target layer does not exist in the scene");
     }
+    // "" means the scene default - resolved here, not left on the instance:
+    // the canonical project format (validate_current_project_document)
+    // requires every instance to carry a real, non-empty layerId.
+    const std::string targetLayer = layerId_.empty() ? scene->defaultLayerId : layerId_;
     if (!captured_) {
-        const std::string& targetLayer = layerId_.empty() ? scene->defaultLayerId : layerId_;
         if (document.isLayerLocked(sceneId_, targetLayer)) {
             return EditorOperationResult::failure("Cannot create instance: target layer is locked");
         }
@@ -143,7 +149,7 @@ EditorOperationResult CreateEntityWithDefaultTypeCommand::apply(ProjectDocument&
     instance.objectTypeId       = objectTypeId_;
     instance.instanceName       = instanceName_;
     instance.transform.position = position_;
-    instance.layerId            = layerId_;
+    instance.layerId            = targetLayer;
 
     ProjectDoc staged = document.data();
     auto stagedScene = staged.scenes.find(sceneId_);
@@ -399,6 +405,45 @@ EditorOperationResult RenameEntityCommand::undo(ProjectDocument& document) {
     }
     return EditorOperationResult::success(
         kRenameInvalidation, DomainChange::entityChanged(sceneId_, id_));
+}
+
+// ----------------------------------------------------------------------------
+// SetInstanceVisibleCommand
+// ----------------------------------------------------------------------------
+SetInstanceVisibleCommand::SetInstanceVisibleCommand(
+    SceneId sceneId, EntityId id, bool visible)
+    : sceneId_(std::move(sceneId)), id_(id), next_(visible) {}
+
+EditorOperationResult SetInstanceVisibleCommand::apply(ProjectDocument& document) {
+    const SceneInstanceDef* current = document.findInstanceInScene(sceneId_, id_);
+    if (!current) {
+        return EditorOperationResult::failure(
+            "No instance with that id in the target scene");
+    }
+    if (current->visible == next_) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+    if (!captured_) {
+        if (document.isInstanceLayerLocked(sceneId_, *current)) {
+            return EditorOperationResult::failure(
+                "Cannot change instance visibility: layer is locked");
+        }
+        previous_ = current->visible;
+        captured_ = true;
+    }
+    if (!document.setInstanceVisible(sceneId_, id_, next_)) {
+        return EditorOperationResult::failure("Failed to set instance visibility");
+    }
+    return EditorOperationResult::success(
+        kPositionInvalidation, DomainChange::entityChanged(sceneId_, id_));
+}
+
+EditorOperationResult SetInstanceVisibleCommand::undo(ProjectDocument& document) {
+    if (!captured_ || !document.setInstanceVisible(sceneId_, id_, previous_)) {
+        return EditorOperationResult::failure("Cannot undo instance visibility change");
+    }
+    return EditorOperationResult::success(
+        kPositionInvalidation, DomainChange::entityChanged(sceneId_, id_));
 }
 
 // ----------------------------------------------------------------------------

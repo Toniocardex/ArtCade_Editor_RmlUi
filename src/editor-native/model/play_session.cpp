@@ -1,390 +1,148 @@
 #include "editor-native/model/play_session.h"
 
-#include "editor-native/model/box_collider_geometry.h"
+#include "editor-native/model/path_confinement.h"
 #include "editor-native/model/project_document.h"
-#include "editor-native/model/sprite_render_view.h"
+#include "editor-native/model/project_io.h"
 #include "editor-native/model/tilemap_render_view.h"
-#include "logic-core.h"
-#include "sprite-animation-core.h"
 
-#include <algorithm>
-#include <cmath>
+#include "app/src/gameplay_session.h"
+#include "app/render/scene_frame_snapshot.h"
+#include "core/engine-context.h"
+#include "core/project-current-format.h"
+#include "logic-core.h"
+#include "modules/asset-system/include/asset-loader.h"
+#include "modules/audio/include/audio.h"
+#include "modules/input/include/input.h"
+#include "script-core.h"
+#include "script-runtime.h"
+
+#include <nlohmann/json.hpp>
+
+#include <atomic>
+#include <fstream>
+#include <unordered_map>
 #include <utility>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace ArtCade::EditorNative {
 
-struct PlaySession::LogicHostAdapter final : Logic::ILogicRuntimeHost {
-    explicit LogicHostAdapter(PlaySession* owner) : owner(owner) {}
-
-    bool setVisible(EntityId id, bool value) override {
-        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
-        if (!entity) return false;
-        entity->visible = value;
-        return true;
-    }
-
-    bool isVisible(EntityId id) override {
-        const RuntimeEntity* entity = owner ? owner->findEntity(id) : nullptr;
-        return entity && entity->visible;
-    }
-
-    bool setPosition(EntityId id, Vec2 value) override {
-        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
-        if (!entity || !std::isfinite(value.x) || !std::isfinite(value.y)) return false;
-        entity->transform.position = value;
-        owner->refreshStaticCollider(id);
-        return true;
-    }
-
-    bool translate(EntityId id, Vec2 delta) override {
-        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
-        if (!entity || !std::isfinite(delta.x) || !std::isfinite(delta.y)) return false;
-        entity->transform.position.x += delta.x;
-        entity->transform.position.y += delta.y;
-        owner->refreshStaticCollider(id);
-        return true;
-    }
-
-    bool setRotation(EntityId id, float radians) override {
-        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
-        if (!entity || !std::isfinite(radians)) return false;
-        entity->transform.rotation = radians;
-        owner->refreshStaticCollider(id);
-        return true;
-    }
-
-    bool rotateBy(EntityId id, float deltaRadians) override {
-        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
-        if (!entity || !std::isfinite(deltaRadians)) return false;
-        entity->transform.rotation += deltaRadians;
-        owner->refreshStaticCollider(id);
-        return true;
-    }
-
-    bool setScale(EntityId id, Vec2 scale) override {
-        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
-        if (!entity || !std::isfinite(scale.x) || !std::isfinite(scale.y)
-            || scale.x <= 0.f || scale.y <= 0.f) {
-            return false;
-        }
-        entity->transform.scale = scale;
-        owner->refreshStaticCollider(id);
-        return true;
-    }
-
-    bool isGrounded(EntityId id) override {
-        const RuntimeEntity* entity = owner ? owner->findEntity(id) : nullptr;
-        return entity && entity->platformerController && entity->platformerController->grounded;
-    }
-    bool isFalling(EntityId id) override {
-        const RuntimeEntity* entity = owner ? owner->findEntity(id) : nullptr;
-        if (!entity || !entity->platformerController) return false;
-        const RuntimePlatformerController& pc = *entity->platformerController;
-        if (pc.grounded) return false;
-        // +Y down (same convention as updatePlatformer). Rising after jump is
-        // negative velocity and must not count as falling.
-        constexpr float kFallingEpsilon = 0.001f;
-        return pc.verticalVelocity > kFallingEpsilon;
-    }
-    bool requestPlatformerMove(EntityId id, float axis) override {
-        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
-        if (!entity || !entity->platformerController || !std::isfinite(axis)) return false;
-        owner->platformerMoveIntents_[id] = std::clamp(axis, -1.f, 1.f);
-        return true;
-    }
-    bool requestPlatformerJump(EntityId id) override {
-        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
-        if (!entity || !entity->platformerController) return false;
-        owner->platformerJumpIntents_[id] = true;
-        return true;
-    }
-    bool isObjectType(EntityId id, const ObjectTypeId& objectTypeId) override {
-        const RuntimeEntity* entity = owner ? owner->findEntity(id) : nullptr;
-        return entity && entity->objectTypeId == objectTypeId;
-    }
-    bool requestDestroy(EntityId id) override {
-        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
-        if (!entity || entity->destroyed) return false;
-        owner->pendingDestroy_.insert(id);
-        return true;
-    }
-    bool playAnimationClip(EntityId id, const AssetId& animationAssetId,
-                           const std::string& clipId) override {
-        return owner && owner->playAnimationClip(id, animationAssetId, clipId);
-    }
-    bool stopAnimation(EntityId id) override {
-        return owner && owner->stopAnimation(id);
-    }
-    bool setAnimationPlaybackSpeed(EntityId id, float speed) override {
-        return owner && owner->setAnimationPlaybackSpeed(id, speed);
-    }
-    bool playSound(EntityId id, const AssetId& audioAssetId, float volume) override {
-        return owner && owner->playSound(id, audioAssetId, volume);
-    }
-
-    bool setStateNumber(const GameVariableId& id, double value) override {
-        return owner && owner->setRuntimeStateNumber(id, value);
-    }
-    bool addStateNumber(const GameVariableId& id, double delta) override {
-        return owner && owner->addRuntimeStateNumber(id, delta);
-    }
-    bool toggleStateBoolean(const GameVariableId& id) override {
-        return owner && owner->toggleRuntimeStateBoolean(id);
-    }
-    std::optional<double> getStateNumber(const GameVariableId& id) const override {
-        return owner ? owner->getRuntimeStateNumber(id) : std::nullopt;
-    }
-
-    bool setVelocity(EntityId id, Vec2 velocity) override {
-        RuntimeEntity* entity = owner ? owner->findEntityMutable(id) : nullptr;
-        if (!entity || !std::isfinite(velocity.x) || !std::isfinite(velocity.y)) return false;
-        entity->transform.velocity = velocity;
-        return true;
-    }
-
-    bool isKeyDown(LogicKey key) override {
-        return owner && owner->isLogicKeyHeld(key);
-    }
-
-    EntityId spawnObjectType(EntityId /*owner*/, const ObjectTypeId& /*objectTypeId*/,
-                             float /*x*/, float /*y*/) override {
-        // Editor Play spawn is not implemented in this slice; fail explicitly.
-        return INVALID_ENTITY;
-    }
-
-    PlaySession* owner = nullptr;
-};
-
 namespace {
 
-constexpr float kOneWayContactEpsilon = 0.001f;
+// RU-04 (docs/PLAY_RUNTIME_UNIFICATION_ROADMAP.md §11): a fresh, unique
+// scratch directory per materialize() call - never reused, always removed
+// before returning. Only ever holds project.json (see materialize()'s
+// comment on why asset bytes never need to be copied here), so this can be
+// created/torn down synchronously within a single Play-start.
+std::filesystem::path makeScratchDir() {
+    static std::atomic<unsigned> counter{0};
+    const unsigned long pid =
+#ifdef _WIN32
+        static_cast<unsigned long>(::GetCurrentProcessId());
+#else
+        static_cast<unsigned long>(::getpid());
+#endif
+    std::error_code ec;
+    std::filesystem::path dir = std::filesystem::temp_directory_path(ec);
+    if (ec) dir = std::filesystem::current_path();
+    dir /= "artcade-play-" + std::to_string(pid) + "-"
+         + std::to_string(counter.fetch_add(1, std::memory_order_relaxed));
+    std::filesystem::create_directories(dir, ec);
+    return dir;
+}
 
-const ImageAssetDef* findImageAsset(const ProjectDocument& document, const AssetId& id) {
-    for (const ImageAssetDef& asset : document.data().imageAssets) {
-        if (asset.assetId == id) return &asset;
+struct ScratchDirGuard {
+    std::filesystem::path dir;
+    ~ScratchDirGuard() {
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
     }
-    return nullptr;
-}
-
-const SpriteAnimationAssetDef* findSpriteAnimationAsset(const ProjectDocument& document,
-                                                        const AssetId& id) {
-    for (const SpriteAnimationAssetDef& asset : document.data().spriteAnimationAssets) {
-        if (asset.id == id) return &asset;
-    }
-    return nullptr;
-}
-
-const SpriteAnimationClipDef* findAnimationClip(const SpriteAnimationAssetDef& asset,
-                                                const std::string& clipId) {
-    for (const SpriteAnimationClipDef& clip : asset.clips) {
-        if (clip.id == clipId) return &clip;
-    }
-    return nullptr;
-}
-
-const RuntimeSpriteAnimationClip* findRuntimeAnimationClip(
-    const RuntimeSpriteAnimationAsset& asset, const std::string& clipId) {
-    const auto it = asset.clipIndex.find(clipId);
-    if (it == asset.clipIndex.end() || it->second >= asset.clips.size()) return nullptr;
-    return &asset.clips[it->second];
-}
-
-AnimationFrameRect frameRect(const SpriteFrameDef& frame) {
-    return AnimationFrameRect{
-        static_cast<float>(frame.x),
-        static_cast<float>(frame.y),
-        static_cast<float>(frame.width),
-        static_cast<float>(frame.height),
-    };
-}
-
-const SpriteFrameDef* findAssetFrame(const SpriteAnimationAssetDef& asset,
-                                     const SpriteFrameId& frameId) {
-    for (const SpriteFrameDef& frame : asset.frames) {
-        if (frame.id == frameId) return &frame;
-    }
-    return nullptr;
-}
-
-const Vec3* fillFor(const ProjectDocument& document, const std::string& typeId) {
-    const auto& types = document.data().objectTypes;
-    const auto it = types.find(typeId);
-    return it == types.end() ? nullptr : &it->second.sprite.fillColor;
-}
-
-bool tryMaterializeSpriteAnimationAsset(const SpriteAnimationAssetDef& asset,
-                                        RuntimeSpriteAnimationAsset& out,
-                                        std::string* error) {
-    out = RuntimeSpriteAnimationAsset{};
-    out.id = asset.id;
-    out.sourceImageAssetId = asset.sourceImageAssetId;
-    out.clips.reserve(asset.clips.size());
-    for (const SpriteAnimationClipDef& clip : asset.clips) {
-        RuntimeSpriteAnimationClip runtimeClip;
-        runtimeClip.id = clip.id;
-        runtimeClip.framesPerSecond = clip.framesPerSecond;
-        runtimeClip.playbackMode = clip.playbackMode;
-        runtimeClip.frames.reserve(clip.frameIds.size());
-        for (const SpriteFrameId& frameId : clip.frameIds) {
-            const SpriteFrameDef* frame = findAssetFrame(asset, frameId);
-            if (!frame) {
-                if (error) {
-                    *error = "Cannot start Play: animation " + asset.id
-                           + " clip " + clip.id + " references missing frame "
-                           + frameId;
-                }
-                return false;
-            }
-            runtimeClip.frames.push_back(RuntimeAnimationFrame{frameRect(*frame)});
-        }
-        out.clipIndex.emplace(runtimeClip.id, out.clips.size());
-        out.clips.push_back(std::move(runtimeClip));
-    }
-    return true;
-}
-
-// Mirrors the canonical runtime (World::tickLinearMovers): velocity is the
-// normalized authored direction scaled by a non-negative speed.
-Vec2 normalizeOrZero(Vec2 v) {
-    const float len = std::sqrt(v.x * v.x + v.y * v.y);
-    if (len <= 0.f) return Vec2{0.f, 0.f};
-    return Vec2{v.x / len, v.y / len};
-}
-
-const LinearMoverComponent* moverFor(const ProjectDocument& document,
-                                     const std::string& typeId) {
-    const auto& types = document.data().objectTypes;
-    const auto it = types.find(typeId);
-    if (it == types.end() || !it->second.linearMover) return nullptr;
-    return &*it->second.linearMover;
-}
-
-const TopDownControllerComponent* controllerFor(const ProjectDocument& document,
-                                                const std::string& typeId) {
-    const auto& types = document.data().objectTypes;
-    const auto it = types.find(typeId);
-    if (it == types.end() || !it->second.topDownController) return nullptr;
-    return &*it->second.topDownController;
-}
-
-const PlatformerControllerComponent* platformerFor(const ProjectDocument& document,
-                                                   const std::string& typeId) {
-    const auto& types = document.data().objectTypes;
-    const auto it = types.find(typeId);
-    if (it == types.end() || !it->second.platformerController) return nullptr;
-    return &*it->second.platformerController;
-}
-
-const BoxCollider2DComponent* colliderFor(const ProjectDocument& document,
-                                          const std::string& typeId) {
-    const auto& types = document.data().objectTypes;
-    const auto it = types.find(typeId);
-    if (it == types.end() || !it->second.boxCollider2D) return nullptr;
-    return &*it->second.boxCollider2D;
-}
-
-// Movers are constrained only by a solid body collider. Trigger and one-way
-// colliders can be authored on an object type, but they do not make that mover
-// itself a blocking body.
-bool isSolidMover(const std::optional<RuntimeBoxCollider>& collider) {
-    return collider && collider->enabled && collider->mode == BoxColliderMode::Solid;
-}
-
-bool isStaticObstacle(const std::optional<RuntimeBoxCollider>& collider) {
-    return collider && collider->enabled
-        && (collider->mode == BoxColliderMode::Solid
-            || collider->mode == BoxColliderMode::OneWayPlatform);
-}
-
-bool overlaps(const Aabb& a, const Aabb& b) {
-    return a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY;
-}
-
-std::pair<EntityId, EntityId> collisionPair(EntityId a, EntityId b) {
-    return a < b ? std::make_pair(a, b) : std::make_pair(b, a);
-}
-
-// Largest fraction of `move` allowed along one axis before the mover box [lo,hi]
-// would penetrate a solid box [sLo,sHi], given the boxes already overlap on the
-// cross axis. Only solids genuinely ahead constrain the move, so an already-
-// penetrated box never yanks the mover back (no auto-depenetration).
-float clampAxis(float move, float lo, float hi, float sLo, float sHi) {
-    if (move > 0.f) {
-        const float gap = sLo - hi;            // distance to the solid ahead
-        if (gap >= 0.f && gap < move) return gap;
-    } else if (move < 0.f) {
-        const float gap = sHi - lo;            // negative distance to the solid behind
-        if (gap <= 0.f && gap > move) return gap;
-    }
-    return move;
-}
-
-float clampOneWayPlatform(float move, float moverBottom, float platformTop) {
-    if (move <= 0.f) return move;
-    if (moverBottom > platformTop + kOneWayContactEpsilon) return move;
-    const float gap = platformTop - moverBottom;
-    return (gap >= 0.f && gap <= move + kOneWayContactEpsilon) ? gap : move;
-}
+};
 
 } // namespace
 
-Aabb runtimeColliderBounds(const RuntimeEntity& entity) {
-    const RuntimeBoxCollider& c = *entity.collider;
-    const WorldRect bounds = boxColliderWorldBounds(entity.transform, c.offset, c.size);
-    return Aabb{bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height};
-}
+// RU-02c host-port adapter (docs/RU02_GAMEPLAY_SESSION_REFACTOR.md 4.3),
+// same shape as runtime-cpp's own app_modules.h::AudioServiceAdapter - no
+// gameplay logic, only forwards Audio::update() so Logic Board audio.*
+// actions can play through the real Modules::Audio this session owns.
+class PlaySession::AudioServiceAdapter final : public IGameplayAudioService {
+public:
+    explicit AudioServiceAdapter(Modules::Audio& audio) : audio_(audio) {}
+    void update() override { audio_.update(); }
 
-PlaySession::~PlaySession() = default;
+private:
+    Modules::Audio& audio_;
+};
+
+PlaySession::PlaySession() = default;
+
+PlaySession::~PlaySession() { shutdownRuntime(); }
 
 PlaySession::PlaySession(PlaySession&& other) noexcept
     : scene_(std::move(other.scene_)),
-      assets_(std::move(other.assets_)),
-      spriteAnimationAssets_(std::move(other.spriteAnimationAssets_)),
-      staticColliders_(std::move(other.staticColliders_)),
-      logicHost_(std::move(other.logicHost_)),
-      logicRuntime_(std::move(other.logicRuntime_)),
-      scriptRuntime_(std::move(other.scriptRuntime_)),
-      platformerMoveIntents_(std::move(other.platformerMoveIntents_)),
-      platformerJumpIntents_(std::move(other.platformerJumpIntents_)),
-      logicScopesByEntity_(std::move(other.logicScopesByEntity_)),
-      activeCollisionPairs_(std::move(other.activeCollisionPairs_)),
-      pendingDestroy_(std::move(other.pendingDestroy_)),
-      pendingAudioCommands_(std::move(other.pendingAudioCommands_)),
-      pendingAnimationEvents_(std::move(other.pendingAnimationEvents_)),
-      dispatchedAnimationEvents_(std::move(other.dispatchedAnimationEvents_)) {
-    if (logicHost_) logicHost_->owner = this;
-}
+      renderEntityOrder_(std::move(other.renderEntityOrder_)),
+      tilemaps_(std::move(other.tilemaps_)),
+      ctx_(std::move(other.ctx_)),
+      runtime_(std::move(other.runtime_)),
+      audio_(std::move(other.audio_)),
+      input_(std::move(other.input_)),
+      audioAdapter_(std::move(other.audioAdapter_)) {}
 
 PlaySession& PlaySession::operator=(PlaySession&& other) noexcept {
     if (this == &other) return *this;
-    logicRuntime_.reset();
-    scriptRuntime_.reset();
-    logicHost_.reset();
+    shutdownRuntime();
     scene_ = std::move(other.scene_);
-    assets_ = std::move(other.assets_);
-    spriteAnimationAssets_ = std::move(other.spriteAnimationAssets_);
-    staticColliders_ = std::move(other.staticColliders_);
-    logicHost_ = std::move(other.logicHost_);
-    logicRuntime_ = std::move(other.logicRuntime_);
-    scriptRuntime_ = std::move(other.scriptRuntime_);
-    platformerMoveIntents_ = std::move(other.platformerMoveIntents_);
-    platformerJumpIntents_ = std::move(other.platformerJumpIntents_);
-    logicScopesByEntity_ = std::move(other.logicScopesByEntity_);
-    activeCollisionPairs_ = std::move(other.activeCollisionPairs_);
-    pendingDestroy_ = std::move(other.pendingDestroy_);
-    pendingAudioCommands_ = std::move(other.pendingAudioCommands_);
-    pendingAnimationEvents_ = std::move(other.pendingAnimationEvents_);
-    dispatchedAnimationEvents_ = std::move(other.dispatchedAnimationEvents_);
-    if (logicHost_) logicHost_->owner = this;
+    renderEntityOrder_ = std::move(other.renderEntityOrder_);
+    tilemaps_ = std::move(other.tilemaps_);
+    ctx_ = std::move(other.ctx_);
+    runtime_ = std::move(other.runtime_);
+    audio_ = std::move(other.audio_);
+    input_ = std::move(other.input_);
+    audioAdapter_ = std::move(other.audioAdapter_);
     return *this;
 }
 
-std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& document,
-                                                    const SceneId& sceneId,
-                                                    const std::vector<Scripts::ScriptProgram>& scripts,
-                                                    std::string* error) {
-    // Compile every board before creating any runtime entity. A blocking
-    // diagnostic rejects Play atomically and leaves authoring untouched.
+void PlaySession::shutdownRuntime() {
+    if (runtime_) {
+        // Same relative order as Application::shutdownModules()
+        // (app_bootstrap.cpp) for the gameplay-owned graph.
+        runtime_->shutdownLogicModules();
+        runtime_->shutdownScriptRuntime();
+        runtime_->shutdownScriptingModules();
+        runtime_->shutdownGraph();
+        runtime_->shutdownPhysics();
+        runtime_->shutdownUtilities();
+        runtime_.reset();
+    }
+    audioAdapter_.reset();
+    if (audio_) { audio_->shutdown(); audio_.reset(); }
+    if (input_) { input_->shutdown(); input_.reset(); }
+}
+
+void PlaySession::setAssetRoot(const std::filesystem::path& root) {
+    if (!audio_) return;
+    audio_->setAssetPathResolver([root](const std::string& ref) -> std::string {
+        const PathConfinementResult resolved =
+            resolvePathInsideRoot(root, std::filesystem::u8path(ref));
+        return resolved.ok ? resolved.value.string() : ref;
+    });
+}
+
+std::optional<PlaySession> PlaySession::materialize(
+    const ProjectDocument& document,
+    const SceneId& sceneId,
+    const std::vector<Scripts::ScriptProgram>& scripts,
+    std::string* error) {
+    // Compile every Logic Board before touching the runtime. A blocking
+    // diagnostic rejects Play atomically and leaves authoring untouched -
+    // same contract the old hand-written materialize() had.
     const Logic::LogicCompileResult logic = Logic::compileProjectLogic(document.data());
     if (!logic.ok()) {
         if (error) {
@@ -397,11 +155,16 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
         return std::nullopt;
     }
 
-    std::unordered_map<AssetId, const Scripts::ScriptProgram*> scriptPrograms;
+    // Editor-only concern (game.exe loads pre-compiled bytecode from disk;
+    // the editor Play button hands over the in-memory/unsaved script buffer
+    // instead) - validate the snapshot is complete and each program compiles,
+    // same checks the old materialize() ran, now feeding
+    // GameplaySession::setScriptCatalog() instead of a private ScriptRuntime.
+    std::unordered_map<AssetId, Scripts::ScriptProgram> scriptPrograms;
     if (!scripts.empty()) {
         Scripts::ScriptRuntime validator;
         for (const Scripts::ScriptProgram& program : scripts) {
-            if (!scriptPrograms.emplace(program.assetId, &program).second) {
+            if (!scriptPrograms.emplace(program.assetId, program).second) {
                 if (error) *error = "Cannot start Play: duplicate Script Program snapshot";
                 return std::nullopt;
             }
@@ -414,8 +177,7 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
             }
         }
     }
-    const std::vector<AssetId> linkedScriptAssets =
-        document.referencedScriptAssetIds(true);
+    const std::vector<AssetId> linkedScriptAssets = document.referencedScriptAssetIds(true);
     if (scriptPrograms.size() != linkedScriptAssets.size()) {
         if (error) *error = "Cannot start Play: Script Program snapshot is incomplete";
         return std::nullopt;
@@ -433,365 +195,196 @@ std::optional<PlaySession> PlaySession::materialize(const ProjectDocument& docum
         return std::nullopt;
     }
 
+    std::unordered_map<ObjectTypeId, std::vector<ScriptAttachmentDef>> scriptAttachments;
+    for (const auto& [typeId, objectType] : document.data().objectTypes) {
+        if (!objectType.scripts) continue;
+        scriptAttachments.emplace(typeId, objectType.scripts->attachments);
+    }
+    for (const auto& [typeId, attachments] : scriptAttachments) {
+        (void)typeId;
+        for (const ScriptAttachmentDef& attachment : attachments) {
+            if (!attachment.enabled) continue;
+            if (scriptPrograms.count(attachment.scriptAssetId) == 0) {
+                if (error) {
+                    *error = "Cannot start Play: no saved snapshot for Script Asset "
+                           + attachment.scriptAssetId;
+                }
+                return std::nullopt;
+            }
+        }
+    }
+
     PlaySession session;
-    session.scene().sourceSceneId = scene->id;
-    session.scene().name = scene->name;
-    session.scene().worldSize = scene->worldSize;
-    session.scene().backgroundColor = scene->backgroundColor;
-    for (const GameVariableDefinition& variable : document.data().globalVariables) {
-        session.runtimeVariableTypes_[variable.key] = variable.type;
-        session.runtimeVariables_[variable.key] = variable.initialValue;
+    session.scene_.sourceSceneId = scene->id;
+    session.scene_.name = scene->name;
+    session.scene_.worldSize = scene->worldSize;
+    session.scene_.backgroundColor = scene->backgroundColor;
+
+    // RU-04 (docs/PLAY_RUNTIME_UNIFICATION_ROADMAP.md §11): Play now parses
+    // the project through the exact same canonical loader the exported game
+    // uses (Modules::AssetLoader::loadDirectory), not just the same read_*
+    // functions RU-01 already shares - this also exercises AssetLoader's own
+    // orchestration (validate_current_project_json, manifest indexing)
+    // end to end, which a direct ProjectDocument::deserialize() call never
+    // touches. Round-trips through a throwaway scratch directory holding only
+    // project.json: AssetLoader::parseProjectJson never reads asset bytes
+    // eagerly (images/audio are resolved lazily, later, against the real
+    // project root via PlaySession::setAssetRoot() - untouched by this), so
+    // no asset files need to be copied here. generatedSfx does not survive
+    // this round-trip (no ProjectJson::read_generated_sfx exists - the
+    // exported game never rigenerates SFX, only plays the baked
+    // AudioAssetDef the Generate step already produced), which is the same
+    // gap the exported game already has today, not one introduced here.
+    const SerializeResult serialized = ProjectSerializer::serialize(document);
+    if (!serialized.ok) {
+        if (error) *error = "Cannot start Play: failed to serialize project for load";
+        return std::nullopt;
     }
-
-    // Structural order (SceneDef::instances' own): simulation must never be
-    // coupled to the visual layer order (see RuntimeScene::renderOrder below).
-    std::unordered_map<EntityId, std::size_t> indexByEntity;
-    auto preloadAnimationAsset = [&](const AssetId& animationAssetId) -> bool {
-        if (session.spriteAnimationAssets_.count(animationAssetId) != 0) return true;
-        const SpriteAnimationAssetDef* animation =
-            findSpriteAnimationAsset(document, animationAssetId);
-        if (!animation) {
-            if (error) *error = "Cannot start Play: animation source is missing";
-            return false;
-        }
-        if (!animation->sourceImageAssetId.empty()) {
-            const ImageAssetDef* sheet =
-                findImageAsset(document, animation->sourceImageAssetId);
-            if (!sheet) {
-                if (error) {
-                    *error = "Cannot start Play: animation references missing image "
-                           + animation->sourceImageAssetId;
-                }
-                return false;
-            }
-            session.assets_.imageAssets.emplace(
-                sheet->assetId, RuntimeImageAsset{sheet->assetId, sheet->sourcePath});
-        }
-        RuntimeSpriteAnimationAsset runtime;
-        if (!tryMaterializeSpriteAnimationAsset(*animation, runtime, error)) {
-            return false;
-        }
-        session.spriteAnimationAssets_.emplace(animation->id, std::move(runtime));
-        return true;
-    };
-
-    for (const auto& [unused, objectType] : document.data().objectTypes) {
-        (void)unused;
-        if (!objectType.logicBoard) continue;
-        for (const LogicRuleDef& rule : objectType.logicBoard->rules) {
-            for (const LogicBlockDef& action : rule.actions) {
-                if (action.typeId != Logic::kAnimationPlayClip) continue;
-                const LogicPropertyDef* property =
-                    Logic::findProperty(action, "animationAssetId");
-                const auto* ref = property
-                    ? std::get_if<LogicAssetReference>(&property->value) : nullptr;
-                if (ref && !ref->id.empty() && !preloadAnimationAsset(ref->id))
-                    return std::nullopt;
-            }
-        }
-    }
-
-    // Manual code resolves assets dynamically by AssetId, so its immutable Play
-    // catalog must contain every registered animation rather than attempting
-    // document/file lookup from a callback.
-    if (!scriptPrograms.empty()) {
-        for (const SpriteAnimationAssetDef& animation :
-             document.data().spriteAnimationAssets) {
-            if (!preloadAnimationAsset(animation.id)) return std::nullopt;
-        }
-    }
-
-    // Referenced audio assets are resolved into metadata up front (same as
-    // animation sheets). EditorApp loads Raylib Sound handles at Start Play from
-    // this snapshot — PlaySession never opens files or owns Sound.
-    auto preloadAudioAsset = [&](const AssetId& audioAssetId) -> bool {
-        if (session.assets_.audioAssets.count(audioAssetId) != 0) return true;
-        const AudioAssetDef* audio = document.findAudioAsset(audioAssetId);
-        if (!audio) {
-            if (error) *error = "Cannot start Play: audio asset is missing " + audioAssetId;
-            return false;
-        }
-        if (audio->loadMode != AudioLoadMode::StaticSound) {
+    // Fail fast with a specific diagnostic before touching disk: the same
+    // validator AssetLoader::parseProjectJson calls internally, just without
+    // a generic "rejected" message hiding which field tripped it.
+    {
+        std::string validationError;
+        nlohmann::json parsed;
+        bool parseOk = true;
+        try { parsed = nlohmann::json::parse(serialized.value); }
+        catch (...) { parseOk = false; }
+        if (!parseOk || !ProjectJson::validate_current_project_json(parsed, validationError)) {
             if (error) {
-                *error = "Cannot start Play: Play Sound requires a static audio asset "
-                       + audioAssetId;
-            }
-            return false;
-        }
-        session.assets_.audioAssets.emplace(
-            audio->assetId, RuntimeAudioAsset{audio->assetId, audio->sourcePath, audio->loadMode});
-        return true;
-    };
-
-    for (const auto& [unused, objectType] : document.data().objectTypes) {
-        (void)unused;
-        if (!objectType.logicBoard) continue;
-        for (const LogicRuleDef& rule : objectType.logicBoard->rules) {
-            for (const LogicBlockDef& action : rule.actions) {
-                if (action.typeId != Logic::kAudioPlaySound) continue;
-                const LogicPropertyDef* property = Logic::findProperty(action, "audioAssetId");
-                const auto* ref = property
-                    ? std::get_if<LogicAssetReference>(&property->value) : nullptr;
-                if (ref && !ref->id.empty() && !preloadAudioAsset(ref->id))
-                    return std::nullopt;
-            }
-        }
-    }
-
-    if (!scriptPrograms.empty()) {
-        for (const AudioAssetDef& audio : document.data().audioAssets) {
-            if (audio.loadMode == AudioLoadMode::StaticSound
-                && !preloadAudioAsset(audio.assetId)) return std::nullopt;
-        }
-    }
-
-    for (const SceneInstanceDef& instance : scene->instances) {
-        RuntimeEntity entity;
-        entity.id = instance.id;
-        entity.objectTypeId = instance.objectTypeId;
-        entity.name = instance.instanceName;
-        entity.transform = instance.transform;
-        const auto objectTypeIt = document.data().objectTypes.find(instance.objectTypeId);
-        entity.visible = instance.visible
-            && (objectTypeIt == document.data().objectTypes.end() || objectTypeIt->second.visible);
-        if (const Vec3* fill = fillFor(document, instance.objectTypeId)) {
-            entity.fillColor = *fill;
-        }
-        // Exactly one movement writer per entity. The Add commands reject a
-        // second driver, but a hand-edited file could still carry several, so
-        // materialize with a fixed priority: Platformer > TopDown > LinearMover.
-        const LinearMoverComponent* mover = moverFor(document, instance.objectTypeId);
-        const TopDownControllerComponent* controller =
-            controllerFor(document, instance.objectTypeId);
-        const PlatformerControllerComponent* platformer =
-            platformerFor(document, instance.objectTypeId);
-        if (platformer) {
-            entity.platformerController = RuntimePlatformerController{
-                std::max(0.f, platformer->maxSpeed),      // Move Speed
-                std::max(0.f, platformer->jumpForce),     // Jump Speed
-                std::max(0.f, platformer->customGravity), // Gravity
-                0.f, false};
-        } else if (controller) {
-            entity.topDownController = RuntimeTopDownController{std::max(0.f, controller->maxSpeed)};
-        } else if (mover && !mover->_paused) {
-            const Vec2 dir = normalizeOrZero(Vec2{mover->directionX, mover->directionY});
-            const float speed = std::max(0.f, mover->speed);
-            entity.velocity = Vec2{dir.x * speed, dir.y * speed};
-        }
-        if (const BoxCollider2DComponent* box = colliderFor(document, instance.objectTypeId)) {
-            entity.collider = RuntimeBoxCollider{box->offset, box->size, box->enabled, box->mode};
-        }
-        // A static solid is an obstacle: an active solid collider on an entity that
-        // is not itself a kinematic mover (mover-vs-mover is out of scope).
-        const bool isMover = (mover != nullptr) || (controller != nullptr) || (platformer != nullptr);
-        if (!isMover && isStaticObstacle(entity.collider)) {
-            session.staticColliders_.push_back(
-                StaticRuntimeCollider{entity.id, runtimeColliderBounds(entity), entity.collider->mode});
-        }
-
-        const SpriteRenderView sprite = resolveSpriteRenderer(document, sceneId, instance.id);
-        ResolvedSpritePresentation presentation;
-        if (objectTypeIt != document.data().objectTypes.end()) {
-            presentation = resolveSpritePresentation(objectTypeIt->second, instance);
-        }
-        if (sprite.animatorInvalid) {
-            if (error) {
-                *error = sprite.diagnosticMessage.empty()
-                    ? "Cannot start Play: SpriteAnimator is invalid"
-                    : ("Cannot start Play: " + sprite.diagnosticMessage);
+                *error = "Cannot start Play: canonical loader rejected the project"
+                       + (validationError.empty() ? std::string{} : " [" + validationError + "]");
             }
             return std::nullopt;
         }
-        if (presentation.animator && !presentation.animator->animationAssetId.empty()
-            && (!sprite.present || sprite.assetId.empty())) {
-            if (error) *error = "Cannot start Play: animation source is incomplete";
+    }
+    const std::filesystem::path scratchDir = makeScratchDir();
+    ScratchDirGuard scratchDirGuard{scratchDir};
+    {
+        std::ofstream projectFile(scratchDir / "project.json", std::ios::binary);
+        if (!projectFile) {
+            if (error) *error = "Cannot start Play: failed to write temp project package";
             return std::nullopt;
         }
-        if (sprite.present && !sprite.assetId.empty()) {
-            const ImageAssetDef* image = findImageAsset(document, sprite.assetId);
-            if (!image) {
-                if (error) {
-                    *error = "Cannot start Play: sprite references missing image asset "
-                           + sprite.assetId;
-                }
-                return std::nullopt;
-            }
-            entity.sprite = RuntimeSpriteComponent{
-                sprite.assetId, sprite.sourceRect, sprite.hasSourceRect, sprite.visible};
-            session.assets_.imageAssets.emplace(
-                image->assetId, RuntimeImageAsset{image->assetId, image->sourcePath});
-
-            if (presentation.animator && !presentation.animator->animationAssetId.empty()) {
-                const SpriteAnimationAssetDef* animation =
-                    findSpriteAnimationAsset(document, presentation.animator->animationAssetId);
-                if (!animation) {
-                    if (error) *error = "Cannot start Play: animation source is incomplete";
-                    return std::nullopt;
-                }
-                const SpriteAnimationClipDef* clip =
-                    findAnimationClip(*animation, presentation.animator->defaultClipId);
-                if (!clip) {
-                    if (!presentation.animator->defaultClipId.empty()) {
-                        if (error) {
-                            *error = "Cannot start Play: SpriteAnimator defaultClipId is missing";
-                        }
-                        return std::nullopt;
-                    }
-                    if (!animation->clips.empty()) clip = &animation->clips.front();
-                }
-                if (!clip) {
-                    if (error) *error = "Cannot start Play: default animation clip is missing";
-                    return std::nullopt;
-                }
-                // Preload the shared sheet up front so a clip switch never does
-                // file I/O inside the game loop.
-                if (!preloadAnimationAsset(animation->id)) return std::nullopt;
-                const auto runtimeAssetIt = session.spriteAnimationAssets_.find(animation->id);
-                const RuntimeSpriteAnimationClip* runtimeClip =
-                    runtimeAssetIt == session.spriteAnimationAssets_.end()
-                    ? nullptr
-                    : findRuntimeAnimationClip(runtimeAssetIt->second, clip->id);
-                RuntimeSpriteAnimatorState animator;
-                animator.animationAssetId = animation->id;
-                animator.currentClipId = clip->id;
-                animator.playbackSpeed = presentation.animator->playbackSpeed;
-                animator.playing = presentation.animator->autoPlay
-                    && runtimeClip && !runtimeClip->frames.empty();
-                animator.finished = false;
-                entity.sprite->assetId = animation->sourceImageAssetId;
-                if (runtimeClip && !runtimeClip->frames.empty()) {
-                    entity.sprite->sourceRect = runtimeClip->frames.front().sourceRect;
-                    entity.sprite->hasSourceRect = true;
-                }
-                entity.spriteAnimator = std::move(animator);
-                if (entity.spriteAnimator->playing) {
-                    session.queueAnimationEvent(
-                        entity.id, AnimationRuntimeEventKind::Started, clip->id);
-                }
-            }
+        projectFile << serialized.value;
+        if (!projectFile) {
+            if (error) *error = "Cannot start Play: failed to write temp project package";
+            return std::nullopt;
         }
-
-        if (instance.tilemap.has_value()) {
-            const TilesetAsset* tileset = document.findTilesetAsset(instance.tilemap->tilesetAssetId);
-            if (!tileset) {
-                if (error) {
-                    *error = "Cannot start Play: tilemap references missing tileset "
-                           + instance.tilemap->tilesetAssetId;
-                }
-                return std::nullopt;
-            }
-            const ImageAssetDef* tilesetImage = findImageAsset(document, tileset->imageAssetId);
-            if (!tilesetImage) {
-                if (error) {
-                    *error = "Cannot start Play: tileset references missing image asset "
-                           + tileset->imageAssetId;
-                }
-                return std::nullopt;
-            }
-            // Strict: an unresolvable tile id fails Play atomically rather
-            // than silently starting with content the author placed missing
-            // (Edit's own tilemapRenderCells stays lenient - see its doc).
-            const std::optional<std::vector<TilemapResolvedCell>> resolved =
-                resolveTilemapCellsStrict(*instance.tilemap, *tileset);
-            if (!resolved) {
-                if (error) {
-                    *error = "Cannot start Play: tilemap entity " + std::to_string(instance.id)
-                           + " references an unknown tile id";
-                }
-                return std::nullopt;
-            }
-            // Dedup is free: emplace on an already-present AssetId is a no-op,
-            // so two tilemaps (or a tilemap and a sprite) sharing one image
-            // asset still load exactly one texture.
-            session.assets_.imageAssets.emplace(
-                tilesetImage->assetId, RuntimeImageAsset{tilesetImage->assetId, tilesetImage->sourcePath});
-
-            RuntimeTilemap runtimeTilemap;
-            runtimeTilemap.imageAssetId = tileset->imageAssetId;
-            runtimeTilemap.cellSize = instance.tilemap->cellSize;
-            runtimeTilemap.cells.reserve(resolved->size());
-            for (const TilemapResolvedCell& cell : *resolved) {
-                runtimeTilemap.cells.push_back(RuntimeTilemapCell{
-                    cell.cellX, cell.cellY,
-                    AnimationFrameRect{cell.source.x, cell.source.y, cell.source.width, cell.source.height}});
-            }
-            entity.tilemap = std::move(runtimeTilemap);
-        }
-
-        indexByEntity.emplace(entity.id, session.scene().entities.size());
-        session.scene().entities.push_back(std::move(entity));
     }
 
-    // Render order is purely a draw-order hint for the Play snapshot, built
-    // separately from the structural entities list above so a scene layer
-    // reorder can never affect simulation order.
+    ProjectDoc doc;
+    Modules::AssetLoader loader;
+    loader.init();
+    if (!loader.loadDirectory(scratchDir.string(), doc)) {
+        if (error) *error = "Cannot start Play: canonical loader rejected the project";
+        return std::nullopt;
+    }
+
+    // World::init(doc) activates whatever doc.activeSceneId names - Play
+    // Current Scene requests a scene that may differ from the project's own
+    // start scene, so materialize a copy with that one override (same "one
+    // materialization, immutable" rule the plan requires - this copy is never
+    // written back).
+    doc.activeSceneId = sceneId;
+
+    // Composition root, mirroring Application::initUtilities()/
+    // initSubsystems() (app_bootstrap.cpp) step for step - the same
+    // GameplaySession game.exe/WASM use, not a parallel one.
+    session.runtime_ = std::make_unique<GameplaySession>();
+    std::string bootError;
+    const auto bootStep = [&](const char* step, bool ok) {
+        if (!ok && bootError.empty()) {
+            bootError = std::string("Cannot start Play: failed to initialize ") + step;
+        }
+        return ok;
+    };
+    if (!session.runtime_->initializeUtilities(bootStep)) {
+        if (error) *error = bootError;
+        return std::nullopt;
+    }
+
+    // Heap-allocated, owned by the returned PlaySession (see play_session.h):
+    // GameAPI/LuaHost/etc. bind this EngineContext by reference and read it
+    // for the whole Play session, so it must outlive this function - a
+    // materialize()-local would leave them holding a dangling reference to
+    // freed stack memory the instant this function returns.
+    session.ctx_ = std::make_unique<EngineContext>();
+    EngineContext& ctx = *session.ctx_;
+    // No presentation Renderer: the editor's own Scene View draws from the
+    // frame snapshot (scene_frame_snapshot.cpp), never through GameplaySession/
+    // World directly - World already tolerates a null renderer (RU-02a).
+    if (!session.runtime_->initialize(
+            PhysicsMode::Auto, ctx, /*presentationRenderer=*/nullptr, bootStep,
+            [](const Modules::SceneTransitionResult&) {})) {
+        if (error) *error = bootError;
+        return std::nullopt;
+    }
+
+    session.audio_ = std::make_unique<Modules::Audio>();
+    // Audio device availability is host environment, not a Play precondition:
+    // a missing/unavailable device degrades to silent Play Sound rather than
+    // blocking Play (see setAssetRoot()'s doc comment - the same philosophy).
+    session.audio_->init();
+    session.audio_->setRuntimeAssetCatalog(doc.audioAssets);
+
+    session.input_ = std::make_unique<Modules::Input>();
+    if (!bootStep("input", session.input_->init())) {
+        if (error) *error = bootError;
+        return std::nullopt;
+    }
+
+    if (!session.runtime_->initializeGameplayModules(
+            ctx, *session.audio_, *session.input_, bootStep)) {
+        if (error) *error = bootError;
+        return std::nullopt;
+    }
+
+    session.audioAdapter_ = std::make_unique<AudioServiceAdapter>(*session.audio_);
+    session.runtime_->wireHostPorts(session.audioAdapter_.get(), nullptr, nullptr);
+
+    if (!session.runtime_->loadLogicPrograms(logic.programs, &bootError)) {
+        if (error) *error = "Cannot start Play: " + bootError;
+        return std::nullopt;
+    }
+    session.runtime_->setScriptCatalog(std::move(scriptPrograms), std::move(scriptAttachments));
+    session.runtime_->loadWorldProject(doc);
+    if (!session.runtime_->installLogicScopesForActiveScene()) {
+        if (error) *error = "Cannot start Play: failed to install Logic Board scopes";
+        return std::nullopt;
+    }
+    if (!session.runtime_->installScriptScopesForActiveScene()) {
+        if (error) *error = "Cannot start Play: failed to install Script scopes";
+        return std::nullopt;
+    }
+
+    // ADR-0001: compile entity-owned tilemaps once into PlaySession. Missing
+    // tileset/image or unresolvable TileIds skip that instance (Play still
+    // starts — same lenient gate RU-03 tests lock in); painted valid maps are
+    // projected into SceneFrameSnapshot each frame without rereading the
+    // authoring document.
     for (const SceneInstanceDef* inst : document.instancesInRenderOrder(sceneId)) {
-        const auto it = indexByEntity.find(inst->id);
-        if (it != indexByEntity.end()) session.scene().renderOrder.push_back(it->second);
-    }
-
-    if (!logic.programs.empty() || !scriptPrograms.empty()) {
-        session.logicHost_ = std::make_unique<LogicHostAdapter>(&session);
-    }
-    if (!logic.programs.empty()) {
-        session.logicRuntime_ = std::make_unique<Logic::LogicRuntime>(*session.logicHost_);
-        std::string logicError;
-        if (!session.logicRuntime_->loadPrograms(logic.programs, &logicError)) {
-            if (error) *error = "Cannot start Play: " + logicError;
-            return std::nullopt;
+        session.renderEntityOrder_.push_back(inst->id);
+        if (!inst->tilemap.has_value()) continue;
+        const TilesetAsset* tileset =
+            document.findTilesetAsset(inst->tilemap->tilesetAssetId);
+        if (!tileset || !document.findImageAsset(tileset->imageAssetId)) continue;
+        const std::optional<std::vector<TilemapResolvedCell>> resolved =
+            resolveTilemapCellsStrict(*inst->tilemap, *tileset);
+        if (!resolved) continue;
+        PlayTilemap playTm;
+        playTm.entityId = inst->id;
+        playTm.imageAssetId = tileset->imageAssetId;
+        playTm.cellSize = inst->tilemap->cellSize;
+        playTm.authoredOrigin = inst->transform.position;
+        playTm.visible = inst->visible;
+        playTm.cells.reserve(resolved->size());
+        for (const TilemapResolvedCell& cell : *resolved) {
+            playTm.cells.push_back(PlayTilemapCell{
+                cell.cellX, cell.cellY,
+                cell.source.x, cell.source.y, cell.source.width, cell.source.height});
         }
-        for (const RuntimeEntity& entity : session.scene_.entities) {
-            const auto typeIt = document.data().objectTypes.find(entity.objectTypeId);
-            if (typeIt == document.data().objectTypes.end() || !typeIt->second.logicBoard) continue;
-            const auto scope = session.logicRuntime_->install(entity.objectTypeId, entity.id, &logicError);
-            if (!scope) {
-                if (error) *error = "Cannot start Play: " + logicError;
-                return std::nullopt;
-            }
-            session.logicScopesByEntity_.emplace(entity.id, *scope);
-        }
+        session.tilemaps_.push_back(std::move(playTm));
     }
-
-    if (!scriptPrograms.empty()) {
-        session.scriptRuntime_ =
-            std::make_unique<Scripts::ScriptRuntime>(*session.logicHost_);
-        for (const RuntimeEntity& entity : session.scene_.entities) {
-            const auto typeIt = document.data().objectTypes.find(entity.objectTypeId);
-            if (typeIt == document.data().objectTypes.end() || !typeIt->second.scripts) continue;
-            for (const ScriptAttachmentDef& attachment : typeIt->second.scripts->attachments) {
-                if (!attachment.enabled) continue;
-                const auto program = scriptPrograms.find(attachment.scriptAssetId);
-                if (program == scriptPrograms.end()) {
-                    if (error) {
-                        *error = "Cannot start Play: no saved snapshot for Script Asset "
-                               + attachment.scriptAssetId;
-                    }
-                    return std::nullopt;
-                }
-                std::string scriptError;
-                if (!session.scriptRuntime_->install(
-                        *program->second, entity.id, attachment.id, &scriptError)) {
-                    if (error) {
-                        *error = "Cannot start Play: " + program->second->sourcePath
-                               + ": " + scriptError;
-                    }
-                    return std::nullopt;
-                }
-            }
-        }
-    }
-
-    // Deterministic lifecycle order: generated Logic programs first, followed
-    // by manual Script attachments in structural entity + persisted order.
-    if (session.logicRuntime_) {
-        session.logicRuntime_->beginFrame();
-        session.logicRuntime_->dispatchStart();
-    }
-    if (session.scriptRuntime_) session.scriptRuntime_->dispatchStart();
-
-    // AutoPlay Started pulses queued during entity materialize — drain once
-    // hosts are ready so Logic sees them on the first frame.
-    session.drainAnimationEventsToHosts();
 
     return session;
 }
@@ -801,9 +394,10 @@ std::optional<PlaySession> PlaySession::startProject(const ProjectDocument& docu
     return materialize(document, document.startSceneId(), {}, error);
 }
 
-std::optional<PlaySession> PlaySession::startProject(const ProjectDocument& document,
-                                                     const std::vector<Scripts::ScriptProgram>& scripts,
-                                                     std::string* error) {
+std::optional<PlaySession> PlaySession::startProject(
+    const ProjectDocument& document,
+    const std::vector<Scripts::ScriptProgram>& scripts,
+    std::string* error) {
     return materialize(document, document.startSceneId(), scripts, error);
 }
 
@@ -813,450 +407,36 @@ std::optional<PlaySession> PlaySession::startActiveScene(const ProjectDocument& 
     return materialize(document, sceneId, {}, error);
 }
 
-std::optional<PlaySession> PlaySession::startActiveScene(const ProjectDocument& document,
-                                                        const SceneId& sceneId,
-                                                        const std::vector<Scripts::ScriptProgram>& scripts,
-                                                        std::string* error) {
+std::optional<PlaySession> PlaySession::startActiveScene(
+    const ProjectDocument& document,
+    const SceneId& sceneId,
+    const std::vector<Scripts::ScriptProgram>& scripts,
+    std::string* error) {
     return materialize(document, sceneId, scripts, error);
 }
 
-const RuntimeEntity* PlaySession::findEntity(EntityId id) const {
-    for (const RuntimeEntity& entity : scene_.entities) {
-        if (entity.id == id && !entity.destroyed) return &entity;
+void PlaySession::tick(const RuntimeInputSnapshot& input, float dt) {
+    if (!runtime_ || !input_) return;
+    input_->poll();
+    GameplayInputFrame frame;
+    frame.pressed = input.pressedLogicKeys;
+    frame.released = input.releasedLogicKeys;
+    frame.held = input.heldLogicKeys;
+    runtime_->dispatchInput(frame);
+    if (std::isfinite(dt) && dt > 0.f) {
+        runtime_->tickFixedStep(dt);
     }
-    return nullptr;
-}
-
-RuntimeEntity* PlaySession::findEntityMutable(EntityId id) {
-    for (RuntimeEntity& entity : scene_.entities) {
-        if (entity.id == id && !entity.destroyed) return &entity;
-    }
-    return nullptr;
-}
-
-void PlaySession::refreshStaticCollider(EntityId owner) {
-    RuntimeEntity* entity = findEntityMutable(owner);
-    if (!entity || !entity->collider) return;
-    for (StaticRuntimeCollider& collider : staticColliders_) {
-        if (collider.owner == owner) collider.bounds = runtimeColliderBounds(*entity);
-    }
-}
-
-void PlaySession::dispatchCollisionTransitions() {
-    if (!logicRuntime_ && !scriptRuntime_) return;
-    std::set<std::pair<EntityId, EntityId>> current;
-    for (std::size_t i = 0; i < scene_.entities.size(); ++i) {
-        const RuntimeEntity& a = scene_.entities[i];
-        if (a.destroyed || !a.collider || !a.collider->enabled) continue;
-        const Aabb aBounds = runtimeColliderBounds(a);
-        for (std::size_t j = i + 1; j < scene_.entities.size(); ++j) {
-            const RuntimeEntity& b = scene_.entities[j];
-            if (b.destroyed || !b.collider || !b.collider->enabled) continue;
-            if (overlaps(aBounds, runtimeColliderBounds(b))) current.insert(collisionPair(a.id, b.id));
-        }
-    }
-    std::set<std::pair<EntityId, EntityId>> entered;
-    std::set<std::pair<EntityId, EntityId>> exited;
-    for (const auto& pair : current)
-        if (activeCollisionPairs_.count(pair) == 0) entered.insert(pair);
-    for (const auto& pair : activeCollisionPairs_)
-        if (current.count(pair) == 0) exited.insert(pair);
-
-    const auto dispatch = [&](const auto& edges, auto invoke) {
-        for (const RuntimeEntity& entity : scene_.entities) {
-            if (entity.destroyed) continue;
-            for (const auto& pair : edges) {
-                EntityId other = INVALID_ENTITY;
-                if (pair.first == entity.id) other = pair.second;
-                else if (pair.second == entity.id) other = pair.first;
-                if (other != INVALID_ENTITY) invoke(entity.id, other);
-            }
-        }
-    };
-    if (logicRuntime_) {
-        dispatch(entered, [&](EntityId owner, EntityId other) {
-            logicRuntime_->dispatchCollisionEnter(owner, other);
-        });
-        dispatch(exited, [&](EntityId owner, EntityId other) {
-            logicRuntime_->dispatchCollisionExit(owner, other);
-        });
-    }
-    // Generated Logic consumes the complete immutable edge snapshot first;
-    // manual scopes then receive the same ordered pairs.
-    if (scriptRuntime_) {
-        dispatch(entered, [&](EntityId owner, EntityId other) {
-            scriptRuntime_->dispatchCollisionEnter(owner, other);
-        });
-        dispatch(exited, [&](EntityId owner, EntityId other) {
-            scriptRuntime_->dispatchCollisionExit(owner, other);
-        });
-    }
-    activeCollisionPairs_ = std::move(current);
-}
-
-void PlaySession::flushPendingDestroys() {
-    if (pendingDestroy_.empty()) return;
-    for (const EntityId id : pendingDestroy_) {
-        RuntimeEntity* entity = findEntityMutable(id);
-        if (!entity) continue;
-        entity->destroyed = true;
-        entity->visible = false;
-        if (entity->collider) entity->collider->enabled = false;
-        if (logicRuntime_) {
-            const auto scope = logicScopesByEntity_.find(id);
-            if (scope != logicScopesByEntity_.end()) logicRuntime_->cancelScope(scope->second);
-        }
-        if (scriptRuntime_) scriptRuntime_->cancelOwner(id);
-        logicScopesByEntity_.erase(id);
-        platformerMoveIntents_.erase(id);
-        platformerJumpIntents_.erase(id);
-        staticColliders_.erase(std::remove_if(staticColliders_.begin(), staticColliders_.end(),
-            [&](const StaticRuntimeCollider& collider) { return collider.owner == id; }),
-            staticColliders_.end());
-        for (auto it = activeCollisionPairs_.begin(); it != activeCollisionPairs_.end();) {
-            if (it->first == id || it->second == id) it = activeCollisionPairs_.erase(it);
-            else ++it;
-        }
-    }
-    pendingDestroy_.clear();
-}
-
-bool PlaySession::playAnimationClip(EntityId id, const AssetId& animationAssetId,
-                                    const std::string& clipId) {
-    RuntimeEntity* entity = findEntityMutable(id);
-    if (!entity || !entity->sprite || !entity->spriteAnimator
-        || animationAssetId.empty() || clipId.empty()) {
-        return false;
-    }
-    const auto assetIt = spriteAnimationAssets_.find(animationAssetId);
-    if (assetIt == spriteAnimationAssets_.end()) return false;
-    const RuntimeSpriteAnimationClip* clip =
-        findRuntimeAnimationClip(assetIt->second, clipId);
-    if (!clip || clip->frames.empty() || clip->framesPerSecond <= 0.f) return false;
-
-    RuntimeSpriteAnimatorState& animator = *entity->spriteAnimator;
-    // Clip change before Once end: no Finished on the old clip — only Started
-    // for the new play request (even when restarting the same clip).
-    animator.animationAssetId = animationAssetId;
-    animator.currentClipId = clipId;
-    animator.currentFrameIndex = 0;
-    animator.elapsedSeconds = 0.f;
-    animator.playing = true;
-    animator.finished = false;
-
-    entity->sprite->assetId = assetIt->second.sourceImageAssetId;
-    entity->sprite->sourceRect = clip->frames.front().sourceRect;
-    entity->sprite->hasSourceRect = true;
-    queueAnimationEvent(id, AnimationRuntimeEventKind::Started, clipId);
-    return true;
-}
-
-bool PlaySession::stopAnimation(EntityId id) {
-    RuntimeEntity* entity = findEntityMutable(id);
-    if (!entity || !entity->spriteAnimator) return false;
-    // Stop: playing=false, keep frame; never emit Finished.
-    entity->spriteAnimator->playing = false;
-    return true;
-}
-
-bool PlaySession::setAnimationPlaybackSpeed(EntityId id, float speed) {
-    RuntimeEntity* entity = findEntityMutable(id);
-    if (!entity || !entity->spriteAnimator || !std::isfinite(speed) || speed <= 0.f)
-        return false;
-    entity->spriteAnimator->playbackSpeed = speed;
-    return true;
-}
-
-// Queues rather than plays: PlaySession stays free of Raylib (see the class
-// comment), so the actual sound only starts once EditorApp drains this queue
-// after update() and pushes it through its own Sound cache.
-bool PlaySession::playSound(EntityId id, const AssetId& audioAssetId, float volume) {
-    const RuntimeEntity* entity = findEntity(id);
-    if (!entity || entity->destroyed || audioAssetId.empty() || !std::isfinite(volume)) return false;
-    if (assets_.audioAssets.count(audioAssetId) == 0) return false;
-    pendingAudioCommands_.push_back(RuntimeAudioCommand{
-        RuntimeAudioCommand::Type::PlayOneShot, id, audioAssetId, std::clamp(volume, 0.f, 1.f)});
-    return true;
-}
-
-std::vector<RuntimeAudioCommand> PlaySession::drainAudioCommands() {
-    std::vector<RuntimeAudioCommand> drained = std::move(pendingAudioCommands_);
-    pendingAudioCommands_.clear();
-    return drained;
-}
-
-void PlaySession::queueAnimationEvent(EntityId entityId, AnimationRuntimeEventKind kind,
-                                      std::string clipId) {
-    pendingAnimationEvents_.push_back(
-        AnimationRuntimeEvent{entityId, kind, std::move(clipId)});
-}
-
-void PlaySession::drainAnimationEventsToHosts() {
-    if (pendingAnimationEvents_.empty()) return;
-    // Snapshot first so nested playAnimationClip from Logic handlers can queue
-    // new pulses without invalidating this drain or losing them to clear().
-    std::vector<AnimationRuntimeEvent> draining = std::move(pendingAnimationEvents_);
-    pendingAnimationEvents_.clear();
-    std::stable_sort(draining.begin(), draining.end(),
-        [](const AnimationRuntimeEvent& a, const AnimationRuntimeEvent& b) {
-            if (a.entityId != b.entityId) return a.entityId < b.entityId;
-            if (a.kind != b.kind) {
-                return static_cast<int>(a.kind) < static_cast<int>(b.kind);
-            }
-            return a.clipId < b.clipId;
-        });
-    for (const AnimationRuntimeEvent& event : draining) {
-        if (logicRuntime_) {
-            if (event.kind == AnimationRuntimeEventKind::Started) {
-                logicRuntime_->dispatchAnimationStarted(event.entityId);
-            } else {
-                logicRuntime_->dispatchAnimationFinished(event.entityId);
-            }
-        }
-        dispatchedAnimationEvents_.push_back(event);
-    }
-}
-
-std::vector<AnimationRuntimeEvent> PlaySession::drainAnimationEvents() {
-    std::vector<AnimationRuntimeEvent> drained = std::move(dispatchedAnimationEvents_);
-    dispatchedAnimationEvents_.clear();
-    return drained;
 }
 
 std::vector<Scripts::ScriptRuntimeDiagnostic> PlaySession::drainScriptDiagnostics() {
-    return scriptRuntime_
-        ? scriptRuntime_->drainDiagnostics()
-        : std::vector<Scripts::ScriptRuntimeDiagnostic>{};
+    return runtime_ ? runtime_->drainScriptDiagnostics()
+                     : std::vector<Scripts::ScriptRuntimeDiagnostic>{};
 }
 
-KinematicMoveResult PlaySession::moveKinematicEntity(RuntimeEntity& entity, Vec2 desiredDelta) {
-    KinematicMoveResult result;
-
-    // A mover without an active solid collider is unconstrained.
-    if (!isSolidMover(entity.collider)) {
-        entity.transform.position.x += desiredDelta.x;
-        entity.transform.position.y += desiredDelta.y;
-        result.appliedDelta = desiredDelta;
-        return result;
-    }
-
-    // -- X axis: clamp against every solid the mover overlaps on Y -------------
-    {
-        const Aabb m = runtimeColliderBounds(entity);
-        float dx = desiredDelta.x;
-        for (const StaticRuntimeCollider& s : staticColliders_) {
-            if (s.mode != BoxColliderMode::Solid) continue;
-            if (m.minY < s.bounds.maxY && s.bounds.minY < m.maxY) {
-                dx = clampAxis(dx, m.minX, m.maxX, s.bounds.minX, s.bounds.maxX);
-            }
-        }
-        if (desiredDelta.x > 0.f && dx < desiredDelta.x) result.hitRight = true;
-        if (desiredDelta.x < 0.f && dx > desiredDelta.x) result.hitLeft = true;
-        entity.transform.position.x += dx;
-        result.appliedDelta.x = dx;
-    }
-
-    // -- Y axis: re-evaluate with the updated X so corners slide ---------------
-    {
-        const Aabb m = runtimeColliderBounds(entity);
-        float dy = desiredDelta.y;
-        for (const StaticRuntimeCollider& s : staticColliders_) {
-            if (m.minX >= s.bounds.maxX || s.bounds.minX >= m.maxX) continue;
-            if (s.mode == BoxColliderMode::Solid) {
-                dy = clampAxis(dy, m.minY, m.maxY, s.bounds.minY, s.bounds.maxY);
-            } else if (s.mode == BoxColliderMode::OneWayPlatform) {
-                dy = clampOneWayPlatform(dy, m.maxY, s.bounds.minY);
-            }
-        }
-        // World +Y is down: a clamped downward move is ground, upward is ceiling.
-        if (desiredDelta.y > 0.f && dy < desiredDelta.y) result.hitGround = true;
-        if (desiredDelta.y < 0.f && dy > desiredDelta.y) result.hitCeiling = true;
-        entity.transform.position.y += dy;
-        result.appliedDelta.y = dy;
-    }
-
-    return result;
-}
-
-void PlaySession::advance(float dt) {
-    if (dt <= 0.f) return;
-    for (RuntimeEntity& entity : scene_.entities) {
-        if (entity.destroyed) continue;
-        if (!entity.sprite || !entity.spriteAnimator || !entity.spriteAnimator->playing) continue;
-        RuntimeSpriteAnimatorState& animator = *entity.spriteAnimator;
-        const auto assetIt = spriteAnimationAssets_.find(animator.animationAssetId);
-        if (assetIt == spriteAnimationAssets_.end()) continue;
-        const RuntimeSpriteAnimationClip* clip =
-            findRuntimeAnimationClip(assetIt->second, animator.currentClipId);
-        if (!clip || clip->frames.empty() || clip->framesPerSecond <= 0.f
-            || animator.playbackSpeed <= 0.f) {
-            continue;
-        }
-        Animation::AnimationPlaybackCursor cursor;
-        cursor.frameIndex = animator.currentFrameIndex;
-        cursor.elapsedSeconds = animator.elapsedSeconds;
-        cursor.playbackSpeed = animator.playbackSpeed;
-        cursor.playing = animator.playing;
-        cursor.completed = animator.finished;
-        const Animation::AnimationAdvanceResult advanced = Animation::advanceAnimation(
-            clip->frames.size(), clip->framesPerSecond, clip->playbackMode, cursor, dt);
-        animator.currentFrameIndex = advanced.cursor.frameIndex;
-        animator.elapsedSeconds = advanced.cursor.elapsedSeconds;
-        animator.playing = advanced.cursor.playing;
-        animator.finished = advanced.cursor.completed;
-        if (advanced.completedThisStep) {
-            queueAnimationEvent(
-                entity.id, AnimationRuntimeEventKind::Finished, animator.currentClipId);
-        }
-        const std::size_t index =
-            std::min(animator.currentFrameIndex, clip->frames.size() - 1);
-        // Texture follows the asset sheet (preloaded), so a future clip switch
-        // changes the region with no I/O.
-        entity.sprite->assetId = assetIt->second.sourceImageAssetId;
-        entity.sprite->sourceRect = clip->frames[index].sourceRect;
-        entity.sprite->hasSourceRect = true;
-    }
-    drainAnimationEventsToHosts();
-    // Authored velocity (LinearMover) routed through the one resolver.
-    for (RuntimeEntity& entity : scene_.entities) {
-        if (entity.destroyed) continue;
-        moveKinematicEntity(entity, Vec2{entity.velocity.x * dt, entity.velocity.y * dt});
-    }
-}
-
-void PlaySession::updateTopDown(RuntimeEntity& entity, const RuntimeInputSnapshot& input,
-                                float dt) {
-    // Opposite inputs cancel; the diagonal is normalized so it is never faster.
-    const Vec2 direction = normalizeOrZero(Vec2{
-        static_cast<float>(input.moveRight) - static_cast<float>(input.moveLeft),
-        static_cast<float>(input.moveDown) - static_cast<float>(input.moveUp),
-    });
-    if (direction.x == 0.f && direction.y == 0.f) return;
-    const float speed = entity.topDownController->speed;
-    moveKinematicEntity(entity, Vec2{direction.x * speed * dt, direction.y * speed * dt});
-}
-
-void PlaySession::updatePlatformer(RuntimeEntity& entity, const RuntimeInputSnapshot& input,
-                                   float dt) {
-    RuntimePlatformerController& pc = *entity.platformerController;
-
-    // Jump is an edge input and only fires from the ground.
-    const bool logicJump = platformerJumpIntents_.count(entity.id) != 0;
-    if ((input.jumpPressed || logicJump) && pc.grounded) {
-        pc.verticalVelocity = -pc.jumpSpeed;   // -Y is up
-        pc.grounded = false;
-    }
-    pc.verticalVelocity += pc.gravity * dt;    // +Y is down
-
-    float axis = static_cast<float>(input.moveRight) - static_cast<float>(input.moveLeft);
-    if (const auto it = platformerMoveIntents_.find(entity.id); it != platformerMoveIntents_.end())
-        axis = it->second;
-    const float dx = axis
-                     * pc.moveSpeed * dt;
-    const float dy = pc.verticalVelocity * dt;
-
-    const KinematicMoveResult moved = moveKinematicEntity(entity, Vec2{dx, dy});
-
-    if (moved.hitCeiling) pc.verticalVelocity = 0.f;   // stop rising into a ceiling
-    if (moved.hitGround) {
-        pc.grounded = true;
-        pc.verticalVelocity = 0.f;
-    } else {
-        pc.grounded = false;                           // no floor contact this step
-    }
-}
-
-void PlaySession::update(const RuntimeInputSnapshot& input, float dt) {
-    platformerMoveIntents_.clear();
-    platformerJumpIntents_.clear();
-    heldLogicKeys_ = input.heldLogicKeys;
-    if (logicRuntime_) {
-        logicRuntime_->beginFrame();
-        for (LogicKey key : input.pressedLogicKeys) logicRuntime_->dispatchKeyPressed(key);
-        for (LogicKey key : input.releasedLogicKeys) logicRuntime_->dispatchKeyReleased(key);
-        for (LogicKey key : input.heldLogicKeys) logicRuntime_->dispatchKeyHeld(key);
-    }
-    if (scriptRuntime_) {
-        scriptRuntime_->dispatchInput(Scripts::ScriptInputSnapshot{
-            input.pressedLogicKeys, input.releasedLogicKeys, input.heldLogicKeys});
-    }
-    // Destruction requested by either language remains deferred until every
-    // scope has consumed the same input snapshot.
-    flushPendingDestroys();
-    if (!std::isfinite(dt) || dt <= 0.f) return;
-    // Predicate events (Is Grounded, Every Frame, timers) compile to on_update.
-    // Tick must run after input dispatch and before movement so intents are
-    // visible to platformer/top-down this frame — same order as the game loop.
-    if (logicRuntime_ && logicRuntime_->requiresTick()) logicRuntime_->dispatchTick(dt);
-    flushPendingDestroys();
-    if (scriptRuntime_) scriptRuntime_->update(dt);
-    flushPendingDestroys();
-    // One movement writer per entity (enforced at authoring): dispatch by driver.
-    for (RuntimeEntity& entity : scene_.entities) {
-        if (entity.destroyed) continue;
-        if (entity.topDownController)        updateTopDown(entity, input, dt);
-        else if (entity.platformerController) updatePlatformer(entity, input, dt);
-    }
-    dispatchCollisionTransitions();
-    flushPendingDestroys();
-    // Logic/Script play_clip during update queues Started here; drain same frame
-    // so on_animation_started is not deferred until the next advance().
-    drainAnimationEventsToHosts();
-}
-
-bool PlaySession::setRuntimeStateNumber(const GameVariableId& id, double value) {
-    const auto typeIt = runtimeVariableTypes_.find(id);
-    if (typeIt == runtimeVariableTypes_.end()
-        || typeIt->second != GameVariableDefinition::Type::Number
-        || !std::isfinite(value)) {
-        return false;
-    }
-    runtimeVariables_[id] = value;
-    return true;
-}
-
-bool PlaySession::addRuntimeStateNumber(const GameVariableId& id, double delta) {
-    const auto typeIt = runtimeVariableTypes_.find(id);
-    if (typeIt == runtimeVariableTypes_.end()
-        || typeIt->second != GameVariableDefinition::Type::Number
-        || !std::isfinite(delta)) {
-        return false;
-    }
-    auto& stored = runtimeVariables_[id];
-    const double* current = std::get_if<double>(&stored);
-    if (!current || !std::isfinite(*current)) return false;
-    stored = *current + delta;
-    return true;
-}
-
-bool PlaySession::toggleRuntimeStateBoolean(const GameVariableId& id) {
-    const auto typeIt = runtimeVariableTypes_.find(id);
-    if (typeIt == runtimeVariableTypes_.end()
-        || typeIt->second != GameVariableDefinition::Type::Boolean) {
-        return false;
-    }
-    auto& stored = runtimeVariables_[id];
-    const bool* current = std::get_if<bool>(&stored);
-    if (!current) return false;
-    stored = !*current;
-    return true;
-}
-
-std::optional<double> PlaySession::getRuntimeStateNumber(const GameVariableId& id) const {
-    const auto typeIt = runtimeVariableTypes_.find(id);
-    if (typeIt == runtimeVariableTypes_.end()
-        || typeIt->second != GameVariableDefinition::Type::Number) {
-        return std::nullopt;
-    }
-    const auto valueIt = runtimeVariables_.find(id);
-    if (valueIt == runtimeVariables_.end()) return std::nullopt;
-    const double* current = std::get_if<double>(&valueIt->second);
-    if (!current || !std::isfinite(*current)) return std::nullopt;
-    return *current;
-}
-
-bool PlaySession::isLogicKeyHeld(LogicKey key) const {
-    return std::find(heldLogicKeys_.begin(), heldLogicKeys_.end(), key) != heldLogicKeys_.end();
+std::vector<RenderableEntitySnapshot> PlaySession::renderables() const {
+    if (!runtime_) return {};
+    auto out = runtime_->buildFrameSnapshot(::ArtCade::SceneFrameSnapshot{}).renderables;
+    return out;
 }
 
 } // namespace ArtCade::EditorNative

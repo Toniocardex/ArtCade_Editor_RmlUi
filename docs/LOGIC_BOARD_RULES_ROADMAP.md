@@ -21,8 +21,13 @@
 | 2D.2. Action audio | Completata | `audio.play_sound` usa solo `AudioAssetDef` statici; la policy core Authoring/Executable rende i draft salvabili ma non eseguibili, e la cache Raylib play-scoped viene rilasciata su Stop. |
 | 2D.X. Runtime Logic Host parity | Completata | Adapter non astratto, destroy differito con scope cleanup, animazione asset-scoped, audio risolto; target game nativo/WASM verdi. |
 | 2D.3. Entity utilities | Completata | `entity.translate_by` (Move By) con editor offset e `entity.is_visible` come Event predicato; host `isVisible` in PlaySession/runtime. |
-| 2E. Variabili | Da fare | Bloccata dalla decisione di ownership della slice. |
-| 2F. Tempo e messaggi | Da fare | Dopo contratto dedicato. |
+| 2A.1. Metadata semantici authoring | Completata | `logic-core` possiede semantic, constraint, opzioni e policy empty; la UI è una proiezione descriptor-driven verificata da contract test. |
+| 2A.2. Conditions authoring | Completata | Add/Change/Remove/Move, AND/OR/NOT, proprietà generiche e Undo/Redo attraversano Intent/Command atomici. |
+| 2E. Variabili | In corso | Foundation globale e blocchi Number/Toggle completati; override iniziali per istanza e famiglie Boolean/String complete restano pianificati. |
+| 2E.0. Global variable authoring | Completata | Definizioni project-owned, rename atomico dei riferimenti, delete bloccato sui ref, type/value/description e Undo/Redo. |
+| 2E.1. State Number + Toggle Boolean | Completata | `state.set/add/subtract/compare/toggle` percorrono descriptor, validator, compiler, runtime e UI generica. |
+| 2F. Tempo e messaggi | In corso | Timer ripetuto e Wait completati; messaggi e payload restano backlog dedicato. |
+| 2F.0. Timer authoring | Completata | `event.every_seconds` e `flow.wait` hanno proprietà generiche validate e lifetime nello scope Play. |
 
 ### Aggiornamenti trasversali completati
 
@@ -304,29 +309,70 @@ controller. Nessun reverse-sync verso `ProjectDocument`.
 
 **Obiettivo:** introdurre stato gameplay mutabile con ownership e scope espliciti. È una slice autonoma, non un'aggiunta al catalogo precedente.
 
-**Decisioni da approvare prima del codice**
+**Ownership e policy approvate**
 
-- Oggetto Type: definizione (`VariableId`, tipo, valore iniziale, limiti).
-- Entity instance: solo override iniziale consentito dalla policy.
-- PlaySession: unico valore mutabile a runtime.
-- Logic Board: referenzia solo `VariableId`; il nome è presentazione.
+- `ProjectDocument` possiede le definizioni globali (`VariableId`, tipo, valore
+  iniziale, descrizione). Il drawer mantiene soltanto lo stato visuale aperto/chiuso.
+- `VariableId` è il riferimento stabile persistito dai blocchi. Rename aggiorna
+  definizione e tutti i `LogicVariableReference` in un solo Command; Delete è
+  bloccato finché esiste almeno un riferimento.
+- Il tipo della definizione deve restare compatibile con ogni blocco referenziante.
+  Un cambio tipo valido resetta il valore iniziale al default deterministico del
+  nuovo tipo ed è interamente reversibile con Undo/Redo.
+- `PlaySession` materializza una copia dei valori iniziali ed è l'unica autorità
+  sui valori mutabili durante Play. Stop distrugge quella copia; non esiste
+  reverse-sync verso l'authoring.
+- Le definizioni sono project-global. Override iniziali per Entity instance non
+  sono stati introdotti e richiedono una slice/schema dedicati.
 
-Poi aggiungere in ordine: modello/serializer e migration se necessaria; validator; materializzazione; host runtime; Conditions `compare_number`, `boolean_is`, `string_equals`; Actions `set`, `add`, `subtract`, `toggle`; picker e test. Nessuna modifica runtime torna nell'authoring senza un futuro comando esplicito di Apply Runtime Changes.
+**Completato:** modello/serializer, validator, materializzazione, host runtime,
+Condition Number `state.compare`, Actions Number `state.set`, `state.add`,
+`state.subtract`, Action Boolean `state.toggle`, picker filtrato per tipo,
+property editor generico, Command e test.
 
-**Demo/DoD:** danno a un nemico decrementa Health nella PlaySession; Undo/Redo agisce sulle definizioni authoring, non sui valori runtime; gli scope e i tipi invalidi falliscono con diagnostica.
+**Rimane:** Condition Boolean/String e Action String complete, eventuali limiti
+tipizzati e la decisione/schema per override iniziali di istanza. Nessuna modifica
+runtime torna nell'authoring senza un futuro Command esplicito di Apply Runtime Changes.
 
-### 2F. Tempo e messaggi — backlog dopo le variabili
+**Demo/DoD corrente:** un blocco decrementa una variabile Number nella
+PlaySession; Undo/Redo agisce sulle definizioni authoring, non sui valori runtime;
+riferimenti mancanti e tipi incompatibili falliscono con diagnostica.
+
+### 2F. Tempo e messaggi
 
 | Kind | Blocchi |
 |---|---|
-| Trigger | `system.every_tick`, `system.after_delay`, `system.every_interval`, `message.on_message` |
-| Action | `message.send_message` |
+| Trigger completato | `event.every_seconds` |
+| Action completata | `flow.wait` |
+| Backlog | `message.on_message`, `message.send_message` |
 
-Questa fase richiede un mini-contract separato per ordine di dispatch, `dt`, payload, scope, limite timer/subscription e cancellazione. Non anticiparla: un tick globale o timer impliciti violerebbero il requisito event-only della roadmap.
+I timer completati usano `dt` del runtime e appartengono allo scope della board:
+Stop, destroy e replace cancellano callback e continuazioni. Intervalli non finiti
+o non positivi sono invalidi; la UI committa il valore soltanto tramite Command.
+Messaggi, payload, ordering fra sender/receiver e limiti subscription richiedono
+ancora un mini-contract separato.
+
+### Policy Conditions e property editor (completata)
+
+- Ogni Condition persiste come clausola ordinata con `joinBefore` e `negated`;
+  la prima clausola usa sempre AND. NOT si applica alla singola clausola e AND
+  ha precedenza su OR nella compilazione.
+- Add/Change/Remove/Move e le modifiche AND/OR/NOT sono Command atomici con
+  snapshot esatto per Undo/Redo. Dopo remove/move la prima clausola viene
+  normalizzata ad AND.
+- `logic-core` possiede kind, semantic, constraint numerici, opzioni enum e
+  policy `allowEmpty`. RmlUi usa questi metadata per Bool, Number/Integer,
+  String/reference, Vec2, enum e Key; i metadata non vengono persistiti.
+- I target Self nascosti e le coppie atomiche Animation asset/clip non diventano
+  authority UI: restano rispettivamente metadata core e Command dedicato.
 
 ## 4. Backlog esplicitamente non incluso nelle prime ondate
 
-Restano fuori fino a una slice dedicata: `Other Has Tag`, `Destroy Other`, `Set Position` specializzato, branching OR/gruppi, variabili collection, messaggi con payload complesso e qualsiasi scripting utente. Possono riusare foundation e capability già introdotte, ma non devono entrare come blocchi solo visuali.
+Restano fuori fino a una slice dedicata: `Other Has Tag`, `Destroy Other`,
+raggruppamenti espliciti oltre la precedenza AND/OR già supportata, variabili
+collection, messaggi con payload complesso e qualsiasi scripting utente. Possono
+riusare foundation e capability già introdotte, ma non devono entrare come
+blocchi solo visuali.
 
 ## 5. Gate obbligatori per ciascuna ondata
 

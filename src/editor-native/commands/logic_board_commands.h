@@ -169,6 +169,28 @@ private:
     std::optional<LogicBoardDef> before_;
 };
 
+class SetLogicConditionJoinCommand final : public EditorCommand {
+public:
+    SetLogicConditionJoinCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
+                                 std::size_t index, LogicConditionJoin join);
+    ARTCADE_LOGIC_BOARD_COMMAND_COMMON(SetLogicConditionJoin)
+private:
+    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t index_ = 0;
+    LogicConditionJoin join_ = LogicConditionJoin::And;
+    std::optional<LogicBoardDef> before_;
+};
+
+class SetLogicConditionNegatedCommand final : public EditorCommand {
+public:
+    SetLogicConditionNegatedCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
+                                    std::size_t index, bool negated);
+    ARTCADE_LOGIC_BOARD_COMMAND_COMMON(SetLogicConditionNegated)
+private:
+    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t index_ = 0;
+    bool negated_ = false;
+    std::optional<LogicBoardDef> before_;
+};
+
 enum class LogicPropertyTarget { Trigger, Action, Condition };
 
 class SetLogicPropertyCommand final : public EditorCommand {

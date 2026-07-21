@@ -4,6 +4,7 @@
 #include "editor-native/commands/generated_sfx_commands.h"
 #include "editor-native/view/scene_grid.h"
 #include "logic-core.h"
+#include "script-core.h"
 
 #include <cassert>
 #include <algorithm>
@@ -381,11 +382,15 @@ EditorInvalidation EditorCoordinator::reconcileWorkspace() {
     if (state_.tilemapEditor.pendingStroke) {
         const PendingTileStroke& stroke = *state_.tilemapEditor.pendingStroke;
         const SceneInstanceDef* inst = document_.findInstanceInScene(stroke.sceneId, stroke.entityId);
-        if (!inst || !inst->tilemap.has_value()) {
-            // The entity being painted (or its component) vanished mid-stroke -
-            // discard only the stroke, not the tile/tool preferences the user
-            // already chose (stamp, rectangleOutlineMode, ...). This
-            // bypasses routeViewportTilemapPaint's own End/Cancel calls, so a
+        if (!inst || !inst->tilemap.has_value()
+            || document_.isInstanceLayerLocked(stroke.sceneId, *inst)) {
+            // The entity being painted (or its component) vanished mid-stroke,
+            // or its layer got locked out from under the gesture
+            // (SetLayerLockedCommand, undo/redo included) - a locked layer
+            // must reject edits *now*, not just future Begins. Discard only
+            // the stroke, not the tile/tool preferences the user already
+            // chose (stamp, rectangleOutlineMode, ...). This bypasses
+            // routeViewportTilemapPaint's own End/Cancel calls, so a
             // right-click Eraser override in progress is dropped here too -
             // otherwise it would be stuck on Eraser with no stroke left to
             // ever trigger its cleanup.
@@ -398,7 +403,8 @@ EditorInvalidation EditorCoordinator::reconcileWorkspace() {
     if (state_.tilemapEditor.pendingRectangle) {
         const PendingTileRectangle& rect = *state_.tilemapEditor.pendingRectangle;
         const SceneInstanceDef* inst = document_.findInstanceInScene(rect.sceneId, rect.entityId);
-        if (!inst || !inst->tilemap.has_value()) {
+        if (!inst || !inst->tilemap.has_value()
+            || document_.isInstanceLayerLocked(rect.sceneId, *inst)) {
             state_.tilemapEditor.pendingRectangle.reset();
             state_.tilemapEditor.hoveredCell.reset();
             extra |= EditorInvalidation::Viewport;
@@ -625,7 +631,8 @@ EditorOperationResult EditorCoordinator::playProject() {
 }
 
 EditorOperationResult EditorCoordinator::playProject(
-    const std::vector<Scripts::ScriptProgram>& scripts) {
+    const std::vector<Scripts::ScriptProgram>& scripts,
+    const std::filesystem::path& assetRoot) {
     if (isPlaying()) {
         appendConsole(ConsoleMessage::Level::Warning, "Already playing");
         return EditorOperationResult::failure("Already playing");
@@ -635,6 +642,9 @@ EditorOperationResult EditorCoordinator::playProject(
                       "Cannot play project: no valid start scene");
         return EditorOperationResult::failure("Cannot play project: no valid start scene");
     }
+    // Drop uncommitted paint/rect workspace state — Play materializes the
+    // document only; a mid-stroke preview must not outlive Start Play.
+    cancelPendingTilemapGesture();
     std::string error;
     std::optional<PlaySession> session = PlaySession::startProject(document_, scripts, &error);
     if (!session.has_value()) {
@@ -642,6 +652,7 @@ EditorOperationResult EditorCoordinator::playProject(
         appendConsole(ConsoleMessage::Level::Error, message);
         return EditorOperationResult::failure(message);
     }
+    session->setAssetRoot(assetRoot);
     const CenterWorkspaceMode originWorkspace = state_.centerWorkspaceMode;
     const bool fromAuthoringWorkspace = originWorkspace != CenterWorkspaceMode::Scene;
     PlayNavigationState navigation;
@@ -681,7 +692,8 @@ EditorOperationResult EditorCoordinator::playCurrentScene() {
 }
 
 EditorOperationResult EditorCoordinator::playCurrentScene(
-    const std::vector<Scripts::ScriptProgram>& scripts) {
+    const std::vector<Scripts::ScriptProgram>& scripts,
+    const std::filesystem::path& assetRoot) {
     if (isPlaying()) {
         appendConsole(ConsoleMessage::Level::Warning, "Already playing");
         return EditorOperationResult::failure("Already playing");
@@ -691,6 +703,7 @@ EditorOperationResult EditorCoordinator::playCurrentScene(
                       "Cannot play current scene: no active scene");
         return EditorOperationResult::failure("Cannot play current scene: no active scene");
     }
+    cancelPendingTilemapGesture();
     std::string error;
     std::optional<PlaySession> session =
         PlaySession::startActiveScene(document_, state_.activeSceneId, scripts, &error);
@@ -699,6 +712,7 @@ EditorOperationResult EditorCoordinator::playCurrentScene(
         appendConsole(ConsoleMessage::Level::Error, message);
         return EditorOperationResult::failure(message);
     }
+    session->setAssetRoot(assetRoot);
     const CenterWorkspaceMode originWorkspace = state_.centerWorkspaceMode;
     const bool fromAuthoringWorkspace = originWorkspace != CenterWorkspaceMode::Scene;
     PlayNavigationState navigation;
@@ -742,7 +756,8 @@ void EditorCoordinator::recordAppliedScriptSources(
 }
 
 EditorOperationResult EditorCoordinator::restartPlaying(
-    const std::vector<Scripts::ScriptProgram>& scripts) {
+    const std::vector<Scripts::ScriptProgram>& scripts,
+    const std::filesystem::path& assetRoot) {
     if (!isPlaying() || !playLaunch_) {
         appendConsole(ConsoleMessage::Level::Warning, "Cannot restart: Play is not running");
         return EditorOperationResult::failure("Cannot restart: Play is not running");
@@ -767,6 +782,7 @@ EditorOperationResult EditorCoordinator::restartPlaying(
         appendConsole(ConsoleMessage::Level::Error, message);
         return EditorOperationResult::failure(message);
     }
+    replacement->setAssetRoot(assetRoot);
 
     const CenterWorkspaceMode originWorkspace = state_.centerWorkspaceMode;
     const bool fromAuthoringWorkspace = originWorkspace != CenterWorkspaceMode::Scene;
@@ -833,13 +849,9 @@ EditorOperationResult EditorCoordinator::stopPlaying() {
     return EditorOperationResult::success(invalidation);
 }
 
-void EditorCoordinator::advanceRuntime(float dt) {
-    if (playSession_) playSession_->advance(dt);
-}
-
-void EditorCoordinator::updateRuntime(const RuntimeInputSnapshot& input, float dt) {
+void EditorCoordinator::tickRuntime(const RuntimeInputSnapshot& input, float dt) {
     if (!playSession_) return;
-    playSession_->update(input, dt);
+    playSession_->tick(input, dt);
     const std::vector<Scripts::ScriptRuntimeDiagnostic> diagnostics =
         playSession_->drainScriptDiagnostics();
     for (const Scripts::ScriptRuntimeDiagnostic& diagnostic : diagnostics) {
@@ -852,10 +864,6 @@ void EditorCoordinator::updateRuntime(const RuntimeInputSnapshot& input, float d
                                          diagnostic.line, diagnostic.column}});
     }
     if (!diagnostics.empty()) accumulate(EditorInvalidation::Console);
-}
-
-std::vector<RuntimeAudioCommand> EditorCoordinator::drainAudioCommands() {
-    return playSession_ ? playSession_->drainAudioCommands() : std::vector<RuntimeAudioCommand>{};
 }
 
 // ----------------------------------------------------------------------------

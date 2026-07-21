@@ -14,6 +14,40 @@ namespace ArtCade::EditorNative {
 // command here is addressed by (sceneId, id), mirroring the SpriteAnimator
 // command family exactly.
 
+// "Create Tilemap Entity": one user gesture, one undo entry. Atomically
+// creates a new ObjectTypeDef, its first instance on the given layer, and an
+// instance-owned TilemapComponent bound to an existing tileset (cellSize
+// derived from the tileset's slicing). Mirrors CreateEntityWithDefaultType-
+// Command's staged-commit contract: all validation happens up front, then a
+// single commitStagedCommand, so no partial mutation is possible. Undo
+// removes instance + object type together (fails if the type gained other
+// instances meanwhile, same as CreateEntityWithDefaultTypeCommand).
+class CreateTilemapEntityCommand final : public EditorCommand {
+public:
+    CreateTilemapEntityCommand(SceneId sceneId, EntityId id,
+                               std::string objectTypeId, std::string objectTypeName,
+                               std::string instanceName, Vec2 position,
+                               std::string layerId, AssetId tilesetAssetId);
+
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "CreateTilemapEntity"; }
+
+private:
+    SceneId     sceneId_;
+    EntityId    id_ = 0;
+    std::string objectTypeId_;
+    std::string objectTypeName_;
+    std::string instanceName_;
+    Vec2        position_{};
+    std::string layerId_;   // "" = scene default (the caller passes the active layer)
+    AssetId     tilesetAssetId_;
+    // Gates the layer-lock check to the first apply() only - a later redo
+    // reuses this same command and must not be blocked by the layer's lock
+    // state at redo time.
+    bool        captured_ = false;
+};
+
 class AddTilemapComponentCommand final : public EditorCommand {
 public:
     AddTilemapComponentCommand(SceneId sceneId, EntityId id, TilemapComponent component);
