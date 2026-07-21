@@ -237,13 +237,22 @@ EntityId pickEntityAt(const SceneFrameSnapshot& frame, Vec2 worldPoint) {
             }
             break;   // one SpriteRenderer per entity
         }
+        bool hasPopulatedTilemap = false;
         for (const SceneFrameTilemap& tilemap : frame.tilemaps) {
             if (tilemap.entityId != id) continue;
+            hasPopulatedTilemap = !tilemap.cells.empty();
             for (const SceneFrameTilemapCell& cell : tilemap.cells) {
                 if (rectContains(cell.destination, worldPoint)) return id;
             }
             break;   // one Tilemap component per entity
         }
+        // A populated Tilemap's hit area is exactly its painted cells, just
+        // checked above - a click inside the entity's placeholder box but
+        // outside every cell (e.g. a gap in a sparse tilemap, or anywhere
+        // once cells extend past the placeholder) must miss rather than fall
+        // back to the placeholder, or the placeholder would stay a second,
+        // disconnected hit target over content that already owns the area.
+        if (hasPopulatedTilemap) continue;
         // Placeholder body + a short band above for the on-screen name chip.
         // Always available as fallback so invisible sprites / empty tilemaps
         // (still drawn as placeholders) remain pickable.
