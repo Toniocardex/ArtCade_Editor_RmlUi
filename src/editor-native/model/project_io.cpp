@@ -17,6 +17,7 @@
 #include "core/collision-json.h"
 #include "core/entity-json.h"
 #include "core/project-current-format.h"
+#include "core/project-global-variables-format.h"
 #include "core/project-meta-json.h"
 #include "core/scene-json.h"
 
@@ -1819,6 +1820,12 @@ DeserializeResult ProjectMigration::migrate(ProjectDocument document) {
 
 DeserializeResult ProjectValidator::validate(ProjectDocument document) {
     const ProjectDoc& data = document.data();
+
+    std::string globalVariableError;
+    if (!ProjectJson::validate_current_global_variables_document(
+            data.globalVariables, globalVariableError)) {
+        return DeserializeResult::failure(globalVariableError);
+    }
 
     for (const auto& [objectTypeId, type] : data.objectTypes) {
         if (type.logicBoard) {

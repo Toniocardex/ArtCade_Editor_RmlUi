@@ -133,6 +133,7 @@ void assignContextualDefaults(const ProjectDocument& document, LogicBlockDef& bl
     assignDefaultCollisionObjectType(document, block);
     assignDefaultAnimationClip(document, block);
     assignDefaultAudioAsset(document, block);
+    Logic::applyDeterministicVariableDefault(document.data(), block);
 }
 
 } // namespace
@@ -378,6 +379,7 @@ EditorOperationResult RemoveLogicConditionCommand::apply(ProjectDocument& docume
     if (!rule || index_ >= rule->conditions.size())
         return EditorOperationResult::failure("Unknown Logic condition");
     rule->conditions.erase(rule->conditions.begin() + static_cast<std::ptrdiff_t>(index_));
+    if (!rule->conditions.empty()) rule->conditions.front().joinBefore = LogicConditionJoin::And;
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult RemoveLogicConditionCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
@@ -396,6 +398,7 @@ EditorOperationResult MoveLogicConditionCommand::apply(ProjectDocument& document
     LogicConditionClause moved = std::move(rule->conditions[from_]);
     rule->conditions.erase(rule->conditions.begin() + static_cast<std::ptrdiff_t>(from_));
     rule->conditions.insert(rule->conditions.begin() + static_cast<std::ptrdiff_t>(to_), std::move(moved));
+    rule->conditions.front().joinBefore = LogicConditionJoin::And;
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult MoveLogicConditionCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
@@ -418,6 +421,39 @@ EditorOperationResult ChangeLogicConditionTypeCommand::apply(ProjectDocument& do
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult ChangeLogicConditionTypeCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
+
+SetLogicConditionJoinCommand::SetLogicConditionJoinCommand(
+    ObjectTypeId id, LogicRuleId ruleId, std::size_t index, LogicConditionJoin join)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), index_(index), join_(join) {}
+EditorOperationResult SetLogicConditionJoinCommand::apply(ProjectDocument& document) {
+    const LogicBoardDef* current = boardOf(document, objectTypeId_);
+    if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
+    LogicBoardDef next = *current;
+    LogicRuleDef* rule = ruleOf(next, ruleId_);
+    if (!rule || index_ >= rule->conditions.size())
+        return EditorOperationResult::failure("Unknown Logic condition");
+    if (index_ == 0 && join_ != LogicConditionJoin::And)
+        return EditorOperationResult::failure("First Logic condition must use AND");
+    rule->conditions[index_].joinBefore = join_;
+    COMMIT_NEXT_BOARD(next);
+}
+EditorOperationResult SetLogicConditionJoinCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
+
+SetLogicConditionNegatedCommand::SetLogicConditionNegatedCommand(
+    ObjectTypeId id, LogicRuleId ruleId, std::size_t index, bool negated)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)),
+      index_(index), negated_(negated) {}
+EditorOperationResult SetLogicConditionNegatedCommand::apply(ProjectDocument& document) {
+    const LogicBoardDef* current = boardOf(document, objectTypeId_);
+    if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
+    LogicBoardDef next = *current;
+    LogicRuleDef* rule = ruleOf(next, ruleId_);
+    if (!rule || index_ >= rule->conditions.size())
+        return EditorOperationResult::failure("Unknown Logic condition");
+    rule->conditions[index_].negated = negated_;
+    COMMIT_NEXT_BOARD(next);
+}
+EditorOperationResult SetLogicConditionNegatedCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
 SetLogicPropertyCommand::SetLogicPropertyCommand(ObjectTypeId id, LogicRuleId ruleId,
                                                  LogicPropertyTarget target, std::size_t blockIndex,

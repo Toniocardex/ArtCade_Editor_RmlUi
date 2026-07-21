@@ -101,7 +101,7 @@ private:
     bool    captured_ = false;
 };
 
-/** Set one scene's background colour. Invalidates Viewport. */
+/** Set one scene's background colour. Invalidates Inspector | Viewport. */
 class SetSceneBackgroundCommand final : public EditorCommand {
 public:
     SetSceneBackgroundCommand(SceneId sceneId, Vec4 color);

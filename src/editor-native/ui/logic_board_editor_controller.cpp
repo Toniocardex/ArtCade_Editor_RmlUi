@@ -2,6 +2,7 @@
 
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/app/inspector_commit.h"
+#include "editor-native/commands/global_variable_commands.h"
 #include "editor-native/commands/logic_board_commands.h"
 #include "logic-core.h"
 
@@ -33,6 +34,29 @@ std::string defaultClipId(const SpriteAnimationAssetDef& asset) {
     return asset.clips.empty() ? std::string{} : asset.clips.front().id;
 }
 
+struct PropertyAddress {
+    LogicRuleId ruleId;
+    LogicPropertyTarget target = LogicPropertyTarget::Trigger;
+    std::size_t index = 0;
+    std::string key;
+    std::string component;
+};
+
+std::optional<PropertyAddress> parsePropertyAddress(const std::string& encoded) {
+    const std::vector<std::string> parts = splitPipe(encoded);
+    if (parts.size() != 4 && parts.size() != 5) return std::nullopt;
+    char* end = nullptr;
+    const unsigned long index = std::strtoul(parts[2].c_str(), &end, 10);
+    if (!end || *end != '\0' || parts[0].empty() || parts[3].empty()) return std::nullopt;
+    LogicPropertyTarget target = LogicPropertyTarget::Trigger;
+    if (parts[1] == "a") target = LogicPropertyTarget::Action;
+    else if (parts[1] == "c") target = LogicPropertyTarget::Condition;
+    else if (parts[1] != "t") return std::nullopt;
+    return PropertyAddress{
+        parts[0], target, static_cast<std::size_t>(index), parts[3],
+        parts.size() == 5 ? parts[4] : std::string{}};
+}
+
 } // namespace
 
 LogicBoardEditorController::LogicBoardEditorController(
@@ -54,6 +78,10 @@ void LogicBoardEditorController::toggleDropdown(const std::string& dropdownId) {
 
 void LogicBoardEditorController::closeDropdown() {
     panel_.closeDropdown();
+}
+
+void LogicBoardEditorController::toggleVariablesDrawer() {
+    panel_.toggleVariablesDrawer(document_, coordinator_);
 }
 
 void LogicBoardEditorController::toggleRuleCollapsed(const std::string& ruleId) {
@@ -113,11 +141,75 @@ bool LogicBoardEditorController::handleAction(
         coordinator_.apply(SetLogicBoardSearchIntent{value});
         return true;
     }
+    if (action == "toggle-global-variables") {
+        panel_.toggleVariablesDrawer(document_, coordinator_);
+        return true;
+    }
+    const bool variableAuthoringAction =
+        action == "add-global-variable" || action == "remove-global-variable"
+        || action == "commit-global-variable-key" || action == "set-global-variable-type"
+        || action == "commit-global-variable-value"
+        || action == "toggle-global-variable-value"
+        || action == "commit-global-variable-description";
+    if (variableAuthoringAction) {
+        if (coordinator_.isPlaying()) return true;
+        if (action == "add-global-variable") {
+            GameVariableDefinition definition;
+            for (int n = 1;; ++n) {
+                definition.key = "variable-" + std::to_string(n);
+                const auto& variables = coordinator_.document().data().globalVariables;
+                const bool taken = std::any_of(
+                    variables.begin(), variables.end(),
+                    [&](const GameVariableDefinition& item) {
+                        return item.key == definition.key;
+                    });
+                if (!taken) break;
+            }
+            coordinator_.execute(AddGlobalVariableCommand{std::move(definition)});
+        } else if (action == "remove-global-variable") {
+            coordinator_.execute(RemoveGlobalVariableCommand{arg});
+        } else if (action == "commit-global-variable-key") {
+            coordinator_.execute(RenameGlobalVariableCommand{arg, value});
+        } else if (action == "set-global-variable-type") {
+            const auto type = value == "boolean" ? GameVariableDefinition::Type::Boolean
+                : value == "string" ? GameVariableDefinition::Type::String
+                                    : GameVariableDefinition::Type::Number;
+            coordinator_.execute(SetGlobalVariableTypeCommand{arg, type});
+        } else if (action == "commit-global-variable-value") {
+            const auto& variables = coordinator_.document().data().globalVariables;
+            const auto it = std::find_if(
+                variables.begin(), variables.end(),
+                [&](const GameVariableDefinition& item) { return item.key == arg; });
+            if (it == variables.end()) return true;
+            if (it->type == GameVariableDefinition::Type::String) {
+                coordinator_.execute(SetGlobalVariableInitialValueCommand{arg, value});
+            } else if (it->type == GameVariableDefinition::Type::Number) {
+                const std::optional<float> parsed = parseNumberField(value);
+                if (!parsed) coordinator_.logError("Global variable value must be a finite number");
+                else coordinator_.execute(
+                    SetGlobalVariableInitialValueCommand{arg, static_cast<double>(*parsed)});
+            }
+        } else if (action == "toggle-global-variable-value") {
+            const auto& variables = coordinator_.document().data().globalVariables;
+            const auto it = std::find_if(
+                variables.begin(), variables.end(),
+                [&](const GameVariableDefinition& item) { return item.key == arg; });
+            if (it != variables.end()) {
+                if (const auto* current = std::get_if<bool>(&it->initialValue))
+                    coordinator_.execute(SetGlobalVariableInitialValueCommand{arg, !*current});
+            }
+        } else if (action == "commit-global-variable-description") {
+            coordinator_.execute(SetGlobalVariableDescriptionCommand{arg, value});
+        }
+        return true;
+    }
     if (action == "change-logic-trigger" || action == "change-logic-action"
         || action == "add-logic-action-type"
+        || action == "change-logic-condition" || action == "add-logic-condition-type"
         || action == "set-logic-event-collision-object-type"
         || action == "set-logic-animation-asset" || action == "set-logic-animation-clip"
-        || action == "set-logic-execution-mode") {
+        || action == "set-logic-execution-mode"
+        || action == "pick-logic-property") {
         panel_.closeDropdown();
     }
 
@@ -164,7 +256,17 @@ bool LogicBoardEditorController::handleAction(
         || action == "set-logic-audio-asset" || action == "commit-logic-audio-volume"
         || action == "toggle-logic-event-expected"
         || action == "set-logic-event-collision-object-type"
-        || action == "set-logic-execution-mode";
+        || action == "set-logic-execution-mode"
+        || action == "add-logic-condition-type"
+        || action == "change-logic-condition"
+        || action == "remove-logic-condition"
+        || action == "move-logic-condition-up"
+        || action == "move-logic-condition-down"
+        || action == "set-logic-condition-join"
+        || action == "toggle-logic-condition-negated"
+        || action == "pick-logic-property" || action == "commit-logic-property"
+        || action == "toggle-logic-property"
+        || action == "commit-logic-property-component";
     if (coordinator_.isPlaying() && authoringAction) return true;
 
     if (action == "create-logic-board") {
@@ -198,6 +300,182 @@ bool LogicBoardEditorController::handleAction(
         index = static_cast<std::size_t>(parsed);
         return true;
     };
+
+    const auto blockAt = [&](const PropertyAddress& address) -> const LogicBlockDef* {
+        const LogicRuleDef* rule = ruleById(address.ruleId);
+        if (!rule) return nullptr;
+        switch (address.target) {
+        case LogicPropertyTarget::Trigger: return &rule->trigger;
+        case LogicPropertyTarget::Action:
+            return address.index < rule->actions.size() ? &rule->actions[address.index] : nullptr;
+        case LogicPropertyTarget::Condition:
+            return address.index < rule->conditions.size()
+                ? &rule->conditions[address.index].block : nullptr;
+        }
+        return nullptr;
+    };
+    const auto executeProperty = [&](const PropertyAddress& address, LogicValue propertyValue) {
+        coordinator_.execute(SetLogicPropertyCommand{
+            objectTypeId, address.ruleId, address.target, address.index,
+            address.key, std::move(propertyValue)});
+    };
+
+    if (action == "add-logic-condition-type") {
+        coordinator_.apply(AddLogicConditionTypeIntent{objectTypeId, arg, value});
+        return true;
+    }
+    if (action == "change-logic-condition" || action == "remove-logic-condition"
+        || action == "move-logic-condition-up" || action == "move-logic-condition-down"
+        || action == "set-logic-condition-join"
+        || action == "toggle-logic-condition-negated") {
+        LogicRuleId ruleId;
+        std::size_t conditionIndex = 0;
+        if (!parseActionArg(arg, ruleId, conditionIndex)) {
+            coordinator_.logError("Invalid Logic condition address");
+            return true;
+        }
+        const LogicRuleDef* rule = ruleById(ruleId);
+        if (!rule || conditionIndex >= rule->conditions.size()) {
+            coordinator_.logError("Unknown Logic condition");
+            return true;
+        }
+        if (action == "change-logic-condition") {
+            coordinator_.apply(ChangeLogicConditionTypeIntent{
+                objectTypeId, ruleId, conditionIndex, value});
+        } else if (action == "remove-logic-condition") {
+            coordinator_.execute(RemoveLogicConditionCommand{
+                objectTypeId, ruleId, conditionIndex});
+        } else if (action == "move-logic-condition-up") {
+            if (conditionIndex > 0) coordinator_.execute(MoveLogicConditionCommand{
+                objectTypeId, ruleId, conditionIndex, conditionIndex - 1});
+        } else if (action == "move-logic-condition-down") {
+            if (conditionIndex + 1 < rule->conditions.size())
+                coordinator_.execute(MoveLogicConditionCommand{
+                    objectTypeId, ruleId, conditionIndex, conditionIndex + 1});
+        } else if (action == "set-logic-condition-join") {
+            coordinator_.execute(SetLogicConditionJoinCommand{
+                objectTypeId, ruleId, conditionIndex,
+                value == "or" ? LogicConditionJoin::Or : LogicConditionJoin::And});
+        } else {
+            coordinator_.execute(SetLogicConditionNegatedCommand{
+                objectTypeId, ruleId, conditionIndex,
+                !rule->conditions[conditionIndex].negated});
+        }
+        return true;
+    }
+
+    if (action == "pick-logic-property" || action == "commit-logic-property"
+        || action == "toggle-logic-property"
+        || action == "commit-logic-property-component") {
+        const std::optional<PropertyAddress> address = parsePropertyAddress(arg);
+        if (!address) {
+            coordinator_.logError("Invalid Logic property address");
+            return true;
+        }
+        const LogicBlockDef* block = blockAt(*address);
+        const Logic::LogicBlockDescriptor* descriptor =
+            block ? Logic::findDescriptor(block->typeId) : nullptr;
+        const Logic::LogicPropertyDescriptor* propertyDescriptor = nullptr;
+        if (descriptor) {
+            const auto it = std::find_if(
+                descriptor->properties.begin(), descriptor->properties.end(),
+                [&](const Logic::LogicPropertyDescriptor& candidate) {
+                    return candidate.key == address->key;
+                });
+            if (it != descriptor->properties.end()) propertyDescriptor = &*it;
+        }
+        if (!block || !propertyDescriptor) {
+            coordinator_.logError("Unknown Logic property");
+            return true;
+        }
+        const LogicPropertyDef* current = Logic::findProperty(*block, address->key);
+        if (action == "toggle-logic-property") {
+            const bool oldValue = current && std::get_if<bool>(&current->value)
+                ? std::get<bool>(current->value) : false;
+            executeProperty(*address, !oldValue);
+            return true;
+        }
+        if (action == "commit-logic-property-component") {
+            Vec2 next{};
+            if (current) if (const auto* valueNow = std::get_if<Vec2>(&current->value)) next = *valueNow;
+            const std::optional<float> parsed = parseNumberField(value);
+            if (!parsed) {
+                coordinator_.logError("Logic vector component must be a finite number");
+                return true;
+            }
+            if (address->component == "x") next.x = *parsed;
+            else if (address->component == "y") next.y = *parsed;
+            else {
+                coordinator_.logError("Unknown Logic vector component");
+                return true;
+            }
+            executeProperty(*address, next);
+            return true;
+        }
+
+        // Animation asset+clip is a coupled invariant: changing either side
+        // remains one atomic command, even though both widgets are descriptor-driven.
+        if (block->typeId == Logic::kAnimationPlayClip
+            && address->target == LogicPropertyTarget::Action
+            && (address->key == "animationAssetId" || address->key == "clipId")) {
+            AssetId assetId;
+            std::string clipId;
+            if (const LogicPropertyDef* asset = Logic::findProperty(*block, "animationAssetId"))
+                if (const auto* ref = std::get_if<LogicAssetReference>(&asset->value)) assetId = ref->id;
+            if (const LogicPropertyDef* clip = Logic::findProperty(*block, "clipId"))
+                if (const auto* text = std::get_if<LogicStringValue>(&clip->value)) clipId = text->value;
+            if (address->key == "animationAssetId") {
+                assetId = value;
+                if (const SpriteAnimationAssetDef* asset =
+                        coordinator_.document().findSpriteAnimationAsset(assetId))
+                    clipId = defaultClipId(*asset);
+            } else {
+                clipId = value;
+            }
+            coordinator_.execute(SetLogicAnimationClipCommand{
+                objectTypeId, address->ruleId, address->index, assetId, clipId});
+            return true;
+        }
+
+        switch (propertyDescriptor->valueKind) {
+        case Logic::LogicValueKind::Bool:
+            executeProperty(*address, value == "true" || value == "1");
+            break;
+        case Logic::LogicValueKind::Integer: {
+            char* end = nullptr;
+            const long long parsed = std::strtoll(value.c_str(), &end, 10);
+            if (!end || *end != '\0') coordinator_.logError("Logic integer is invalid");
+            else executeProperty(*address, static_cast<int64_t>(parsed));
+            break;
+        }
+        case Logic::LogicValueKind::Number: {
+            const std::optional<float> parsed = parseNumberField(value);
+            if (!parsed) coordinator_.logError("Logic number must be finite");
+            else executeProperty(*address, static_cast<double>(*parsed));
+            break;
+        }
+        case Logic::LogicValueKind::String:
+            executeProperty(*address, LogicStringValue{value});
+            break;
+        case Logic::LogicValueKind::Asset:
+            executeProperty(*address, LogicAssetReference{value});
+            break;
+        case Logic::LogicValueKind::Variable:
+            executeProperty(*address, LogicVariableReference{value});
+            break;
+        case Logic::LogicValueKind::Key: {
+            const std::optional<LogicKey> key = Logic::logicKeyFromName(value);
+            if (!key) coordinator_.logError("Unsupported Logic key");
+            else executeProperty(*address, *key);
+            break;
+        }
+        case Logic::LogicValueKind::Vec2:
+        case Logic::LogicValueKind::Entity:
+            coordinator_.logError("Logic property requires a specialized editor");
+            break;
+        }
+        return true;
+    }
 
     if (action == "add-logic-rule") {
         if (view.tab != LogicBoardTab::Rules) return true;

@@ -2063,7 +2063,8 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         if (!coordinator_.isPlaying()) inspector_.toggleAddMenu(document_, coordinator_);
         return;
     }
-    if (action == "add-sprite-renderer" || action == "add-box-collider"
+    if (action == "add-sprite-renderer" || action == "add-sprite-animator"
+        || action == "add-box-collider"
         || action == "add-linear-mover" || action == "add-top-down"
         || action == "add-platformer" || action == "add-tilemap-component") {
         inspector_.closeAddMenu();   // then fall through to execute the add
@@ -2078,7 +2079,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     }
     if (action == "set-entity-layer" || action == "set-sprite-asset"
         || action == "set-sprite-animation" || action == "set-tilemap-tileset"
-        || action == "attach-script") {
+        || action == "set-animator-default-clip" || action == "attach-script") {
         inspector_.closeDropdowns();   // then fall through to execute the pick
     }
 
@@ -2150,8 +2151,18 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         coordinator_.apply(SelectEntityIntent{INVALID_ENTITY});
     } else if (action == "add-sprite-renderer") {
         addSpriteRenderer(coordinator_);
+    } else if (action == "add-sprite-animator") {
+        addSpriteAnimator(coordinator_);
     } else if (action == "remove-sprite-renderer") {
         removeSpriteRenderer(coordinator_);
+    } else if (action == "toggle-instance-visible") {
+        const SceneId& sceneId = coordinator_.state().activeSceneId;
+        const SceneInstanceDef* inst =
+            coordinator_.document().findInstanceInScene(sceneId, selected);
+        if (inst) {
+            coordinator_.execute(
+                SetInstanceVisibleCommand{sceneId, selected, !inst->visible});
+        }
     } else if (action == "toggle-sprite-visible") {
         const SpriteRenderView resolved = resolveSpriteRenderer(
             coordinator_.document(), coordinator_.state().activeSceneId,
@@ -2164,6 +2175,40 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         // dedicated action (open-sprite-animation, the Edit button), so this
         // no longer pops the editor open as a side effect of picking a clip.
         if (!coordinator_.isPlaying()) setSpriteRendererAnimation(coordinator_, arg);
+    } else if (action == "set-animator-default-clip") {
+        const SceneId& sceneId = coordinator_.state().activeSceneId;
+        const SceneInstanceDef* inst =
+            coordinator_.document().findInstanceInScene(sceneId, selected);
+        const EntityDef* type = inst
+            ? coordinator_.document().findObjectType(inst->objectTypeId) : nullptr;
+        if (!inst || !type || !type->spriteAnimator) {
+            coordinator_.logError("Object Type has no SpriteAnimator");
+        } else {
+            const ResolvedSpriteAnimator resolved = resolveSpriteAnimator(*type, *inst);
+            if (resolved.origin == ComponentOrigin::InstanceOverride
+                && inst->spriteAnimatorOverride) {
+                SpriteAnimatorOverride delta = *inst->spriteAnimatorOverride;
+                delta.capabilityEnabled.reset();
+                if ((!delta.animationAssetId
+                     || *delta.animationAssetId == type->spriteAnimator->animationAssetId)
+                    && arg == type->spriteAnimator->defaultClipId) {
+                    delta.defaultClipId.reset();
+                } else {
+                    delta.defaultClipId = arg;
+                }
+                if (!delta.defaultClipId && !delta.autoPlay && !delta.playbackSpeed
+                    && !delta.animationAssetId) {
+                    coordinator_.execute(
+                        ClearInstanceAnimatorOverrideCommand{sceneId, selected});
+                } else {
+                    coordinator_.execute(SetInstanceAnimatorOverrideCommand{
+                        sceneId, selected, std::move(delta)});
+                }
+            } else {
+                coordinator_.execute(
+                    SetObjectTypeInitialClipCommand{inst->objectTypeId, arg});
+            }
+        }
     } else if (action == "commit-animator-speed-ot") {
         const std::optional<float> parsed = parseNumberField(value);
         if (!parsed.has_value()) {
@@ -2407,10 +2452,28 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         addTopDownController(coordinator_);
     } else if (action == "remove-top-down") {
         removeTopDownController(coordinator_);
-    } else if (action == "commit-topdown-speed") {
+    } else if (action == "commit-topdown-speed"
+               || action == "commit-topdown-acceleration"
+               || action == "commit-topdown-friction") {
         const std::optional<float> parsed = parseNumberField(value);
-        if (!parsed.has_value()) coordinator_.logError("Top Down speed is not a number");
-        else setTopDownControllerSpeed(coordinator_, *parsed);
+        if (!parsed.has_value()) {
+            coordinator_.logError("Top Down Controller value is not a number");
+        } else if (action == "commit-topdown-speed") {
+            setTopDownControllerSpeed(coordinator_, *parsed);
+        } else if (action == "commit-topdown-acceleration") {
+            setTopDownControllerAcceleration(coordinator_, *parsed);
+        } else {
+            setTopDownControllerFriction(coordinator_, *parsed);
+        }
+    } else if (action == "toggle-topdown-four-directions") {
+        const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
+            coordinator_.state().activeSceneId, selected);
+        const EntityDef* type = inst
+            ? coordinator_.document().findObjectType(inst->objectTypeId) : nullptr;
+        if (type && type->topDownController) {
+            setTopDownControllerFourDirections(
+                coordinator_, !type->topDownController->fourDirections);
+        }
     } else if (action == "add-platformer") {
         addPlatformerController(coordinator_);
     } else if (action == "remove-platformer") {
@@ -2470,6 +2533,26 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
             if (action == "commit-scene-width") size.x = *parsed;
             else                                size.y = *parsed;
             coordinator_.execute(SetSceneSizeCommand{coordinator_.state().activeSceneId, size});
+        }
+    } else if (action == "commit-scene-background-r"
+               || action == "commit-scene-background-g"
+               || action == "commit-scene-background-b"
+               || action == "commit-scene-background-a") {
+        const SceneDef* scene =
+            coordinator_.document().findScene(coordinator_.state().activeSceneId);
+        const std::optional<float> parsed = parseNumberField(value);
+        if (!scene) {
+            coordinator_.logError("No selected scene");
+        } else if (!parsed.has_value()) {
+            coordinator_.logError("Scene background component is not a number");
+        } else {
+            Vec4 color = scene->backgroundColor;
+            if (action == "commit-scene-background-r") color.r = *parsed;
+            else if (action == "commit-scene-background-g") color.g = *parsed;
+            else if (action == "commit-scene-background-b") color.b = *parsed;
+            else color.a = *parsed;
+            coordinator_.execute(
+                SetSceneBackgroundCommand{coordinator_.state().activeSceneId, color});
         }
     } else if (action == "add-tilemap-component") {
         addTilemapComponent(coordinator_);
@@ -2647,6 +2730,9 @@ bool EditorUi::handleHierarchyAction(const std::string& action, const std::strin
     } else if (action == "add-entity") {
         if (addEntityRequest_) addEntityRequest_();
         else addEntity(coordinator_);
+    } else if (action == "add-tilemap-entity") {
+        hideContextMenus();
+        addTilemapEntity(coordinator_);
     } else if (action == "add-instance") {
         hideContextMenus();
         if (addInstanceRequest_) addInstanceRequest_();

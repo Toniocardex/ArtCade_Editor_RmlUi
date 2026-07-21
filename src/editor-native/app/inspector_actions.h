@@ -15,10 +15,14 @@ class EditorCoordinator;
 // property bag, no component registry; one typed action per operation.
 // =============================================================================
 
-/** Add a sprite renderer to the selected instance. No selection → no-op. */
+/** Add a sprite renderer to the selected Object Type. */
 EditorOperationResult addSpriteRenderer(EditorCoordinator& coordinator);
 
-/** Remove the sprite renderer from the selected instance. */
+/** Add a Sprite Animator to the selected Object Type using a valid project
+ *  animation and its first clip as deterministic defaults. */
+EditorOperationResult addSpriteAnimator(EditorCoordinator& coordinator);
+
+/** Remove the sprite renderer from the selected Object Type. */
 EditorOperationResult removeSpriteRenderer(EditorCoordinator& coordinator);
 
 /** Set the selected sprite renderer's visibility. */
@@ -49,6 +53,9 @@ EditorOperationResult setLinearMoverSpeed(EditorCoordinator& coordinator, float 
 EditorOperationResult addTopDownController(EditorCoordinator& coordinator);
 EditorOperationResult removeTopDownController(EditorCoordinator& coordinator);
 EditorOperationResult setTopDownControllerSpeed(EditorCoordinator& coordinator, float speed);
+EditorOperationResult setTopDownControllerAcceleration(EditorCoordinator& coordinator, float value);
+EditorOperationResult setTopDownControllerFriction(EditorCoordinator& coordinator, float value);
+EditorOperationResult setTopDownControllerFourDirections(EditorCoordinator& coordinator, bool value);
 
 EditorOperationResult addPlatformerController(EditorCoordinator& coordinator);
 EditorOperationResult removePlatformerController(EditorCoordinator& coordinator);

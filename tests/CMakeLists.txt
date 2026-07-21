@@ -73,6 +73,7 @@ artcade_test(logic_board_editor_test
 target_sources(logic_board_editor_test PRIVATE
     ${CMAKE_SOURCE_DIR}/src/editor-native/ui/logic_board_editor_controller.cpp
     ${CMAKE_SOURCE_DIR}/src/editor-native/ui/logic_board_panel.cpp
+    ${CMAKE_SOURCE_DIR}/src/editor-native/ui/logic_property_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/editor-native/ui/ui_markup.cpp)
 target_link_libraries(logic_board_editor_test PRIVATE RmlUi::Core)
 

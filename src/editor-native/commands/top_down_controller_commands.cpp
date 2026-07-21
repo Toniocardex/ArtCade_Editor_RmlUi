@@ -124,4 +124,104 @@ EditorOperationResult SetTopDownControllerSpeedCommand::undo(ProjectDocument& do
     return EditorOperationResult::success(kControllerInvalidation, changed(objectTypeId_));
 }
 
+SetTopDownControllerAccelerationCommand::SetTopDownControllerAccelerationCommand(
+    std::string objectTypeId, float acceleration)
+    : objectTypeId_(std::move(objectTypeId)), next_(acceleration) {}
+
+EditorOperationResult SetTopDownControllerAccelerationCommand::apply(
+    ProjectDocument& document) {
+    if (!std::isfinite(next_) || next_ < 0.f) {
+        return EditorOperationResult::failure(
+            "TopDownController acceleration must be >= 0");
+    }
+    const TopDownControllerComponent* current = controllerOf(document, objectTypeId_);
+    if (!current) return EditorOperationResult::failure("Object type has no TopDownController");
+    if (current->acceleration == next_) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+    if (!captured_) {
+        previous_ = current->acceleration;
+        captured_ = true;
+    }
+    if (!document.setTopDownControllerAcceleration(objectTypeId_, next_)) {
+        return EditorOperationResult::failure("Failed to set TopDownController acceleration");
+    }
+    return EditorOperationResult::success(kControllerInvalidation, changed(objectTypeId_));
+}
+
+EditorOperationResult SetTopDownControllerAccelerationCommand::undo(
+    ProjectDocument& document) {
+    if (!captured_
+        || !document.setTopDownControllerAcceleration(objectTypeId_, previous_)) {
+        return EditorOperationResult::failure(
+            "Cannot undo TopDownController acceleration change");
+    }
+    return EditorOperationResult::success(kControllerInvalidation, changed(objectTypeId_));
+}
+
+SetTopDownControllerFrictionCommand::SetTopDownControllerFrictionCommand(
+    std::string objectTypeId, float friction)
+    : objectTypeId_(std::move(objectTypeId)), next_(friction) {}
+
+EditorOperationResult SetTopDownControllerFrictionCommand::apply(
+    ProjectDocument& document) {
+    if (!std::isfinite(next_) || next_ < 0.f) {
+        return EditorOperationResult::failure("TopDownController friction must be >= 0");
+    }
+    const TopDownControllerComponent* current = controllerOf(document, objectTypeId_);
+    if (!current) return EditorOperationResult::failure("Object type has no TopDownController");
+    if (current->friction == next_) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+    if (!captured_) {
+        previous_ = current->friction;
+        captured_ = true;
+    }
+    if (!document.setTopDownControllerFriction(objectTypeId_, next_)) {
+        return EditorOperationResult::failure("Failed to set TopDownController friction");
+    }
+    return EditorOperationResult::success(kControllerInvalidation, changed(objectTypeId_));
+}
+
+EditorOperationResult SetTopDownControllerFrictionCommand::undo(
+    ProjectDocument& document) {
+    if (!captured_ || !document.setTopDownControllerFriction(objectTypeId_, previous_)) {
+        return EditorOperationResult::failure(
+            "Cannot undo TopDownController friction change");
+    }
+    return EditorOperationResult::success(kControllerInvalidation, changed(objectTypeId_));
+}
+
+SetTopDownControllerFourDirectionsCommand::SetTopDownControllerFourDirectionsCommand(
+    std::string objectTypeId, bool fourDirections)
+    : objectTypeId_(std::move(objectTypeId)), next_(fourDirections) {}
+
+EditorOperationResult SetTopDownControllerFourDirectionsCommand::apply(
+    ProjectDocument& document) {
+    const TopDownControllerComponent* current = controllerOf(document, objectTypeId_);
+    if (!current) return EditorOperationResult::failure("Object type has no TopDownController");
+    if (current->fourDirections == next_) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+    if (!captured_) {
+        previous_ = current->fourDirections;
+        captured_ = true;
+    }
+    if (!document.setTopDownControllerFourDirections(objectTypeId_, next_)) {
+        return EditorOperationResult::failure(
+            "Failed to set TopDownController four-direction mode");
+    }
+    return EditorOperationResult::success(kControllerInvalidation, changed(objectTypeId_));
+}
+
+EditorOperationResult SetTopDownControllerFourDirectionsCommand::undo(
+    ProjectDocument& document) {
+    if (!captured_
+        || !document.setTopDownControllerFourDirections(objectTypeId_, previous_)) {
+        return EditorOperationResult::failure(
+            "Cannot undo TopDownController four-direction mode change");
+    }
+    return EditorOperationResult::success(kControllerInvalidation, changed(objectTypeId_));
+}
+
 } // namespace ArtCade::EditorNative

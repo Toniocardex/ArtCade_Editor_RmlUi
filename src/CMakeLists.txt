@@ -54,6 +54,7 @@ add_library(artcade-editor-core STATIC
     editor-native/commands/tilemap_commands.cpp
     editor-native/commands/sprite_animation_commands.cpp
     editor-native/commands/logic_board_commands.cpp
+    editor-native/commands/global_variable_commands.cpp
     editor-native/commands/entity_commands.cpp
     editor-native/commands/scene_commands.cpp
     editor-native/commands/scene_layer_commands.cpp
@@ -182,6 +183,7 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/ui/ui_markup.cpp
     editor-native/ui/editor_ui.cpp
     editor-native/ui/logic_board_editor_controller.cpp
+    editor-native/ui/logic_property_editor.cpp
     editor-native/ui/script_editor_controller.cpp
     editor-native/ui/sprite_animation_editor_controller.cpp
     editor-native/ui/tileset_editor_controller.cpp

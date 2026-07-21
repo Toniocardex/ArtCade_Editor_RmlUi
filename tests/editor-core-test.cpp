@@ -687,6 +687,30 @@ int main() {
         CHECK(guarded.document().data().objectTypes.at("Hero").spriteAnimator);
     }
 
+    // -- Sprite Animator exposure: preflight chooses a valid default ----------
+    {
+        ProjectDoc data = makeAnimationDoc();
+        data.objectTypes.at("Hero").spriteAnimator.reset();
+        EditorCoordinator c{std::move(data)};
+        CHECK(c.apply(SelectEntityIntent{kHero}).ok);
+        CHECK(addSpriteAnimator(c).ok);
+        const SpriteAnimatorComponent* animator =
+            c.document().data().objectTypes.at("Hero").spriteAnimator
+                ? &*c.document().data().objectTypes.at("Hero").spriteAnimator
+                : nullptr;
+        CHECK(animator != nullptr);
+        CHECK(animator->animationAssetId == "hero.anim");
+        CHECK(animator->defaultClipId == "idle");
+        CHECK(c.undo().ok);
+        CHECK(!c.document().data().objectTypes.at("Hero").spriteAnimator);
+
+        EditorCoordinator noAnimation{makeInheritedDoc()};
+        CHECK(noAnimation.apply(SelectEntityIntent{kHero}).ok);
+        const uint64_t revision = noAnimation.document().revision();
+        CHECK(!addSpriteAnimator(noAnimation).ok);
+        CHECK(noAnimation.document().revision() == revision);
+    }
+
     // -- 2D.0D: orphan/invalid deltas and referenced clips fail in core -------
     {
         ProjectDoc orphan = makeInheritedDoc();
@@ -1403,7 +1427,11 @@ int main() {
         CHECK(SceneDef{}.backgroundColor.r == 1.f);
         CHECK(!c.execute(CreateSceneCommand{"scene-a", "dup"}).ok); // duplicate rejected
 
-        CHECK(c.execute(SetSceneBackgroundCommand{kSceneA, {1.f, 0.f, 0.f, 1.f}}).ok);
+        const EditorOperationResult background = c.execute(
+            SetSceneBackgroundCommand{kSceneA, {1.f, 0.f, 0.f, 1.f}});
+        CHECK(background.ok);
+        CHECK(background.invalidation
+              == (EditorInvalidation::Inspector | EditorInvalidation::Viewport));
         CHECK(c.document().findScene(kSceneA)->backgroundColor.r == 1.f);
         c.undo();                                                // undo background
         CHECK(c.document().findScene(kSceneA)->backgroundColor.r == 0.1f);
@@ -2494,6 +2522,31 @@ int main() {
         CHECK(c.document().revision() > 0);
     }
 
+    // -- Instance visibility gates the whole entity in Edit and Play ----------
+    {
+        EditorCoordinator c{makeInheritedDoc()};
+        CHECK(collectSceneFrameSnapshot(
+            c.document(), kSceneA, kHero).entities.size() == 1);
+        CHECK(c.execute(SetInstanceVisibleCommand{kSceneA, kHero, false}).ok);
+        CHECK(!c.document().findInstanceInScene(kSceneA, kHero)->visible);
+        const SceneFrameSnapshot hiddenEdit =
+            collectSceneFrameSnapshot(c.document(), kSceneA, kHero);
+        CHECK(hiddenEdit.entities.empty());
+        CHECK(hiddenEdit.sprites.empty());
+        CHECK(hiddenEdit.tilemaps.empty());
+        CHECK(hiddenEdit.colliders.empty());
+        CHECK(c.undo().ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->visible);
+        CHECK(c.redo().ok);
+
+        CHECK(c.playProject().ok);
+        const SceneFrameSnapshot hiddenPlay =
+            collectSceneFrameSnapshot(*c.playSession());
+        CHECK(hiddenPlay.entities.empty());
+        CHECK(hiddenPlay.sprites.empty());
+        CHECK(hiddenPlay.tilemaps.empty());
+    }
+
     // -- Play materialization covers absence, visibility, and dangling assets ---
     // RU-03: a spriteless entity gets no SpriteComponent in World, and
     // visible=false resolves to the shared visibleInGame tag - either way the
@@ -3012,6 +3065,11 @@ int main() {
     // -- save/load preserves the component; Add/Remove/SetSpeed undo+redo -----
     {
         EditorCoordinator c{makeTopDownDoc(140.f)};
+        CHECK(c.execute(
+            SetTopDownControllerAccelerationCommand{"Hero", 700.f}).ok);
+        CHECK(c.execute(SetTopDownControllerFrictionCommand{"Hero", 800.f}).ok);
+        CHECK(c.execute(
+            SetTopDownControllerFourDirectionsCommand{"Hero", true}).ok);
         const std::filesystem::path path = testTempDir() / "topdown.artcade-project";
         CHECK(saveProjectToFile(c, path).ok);
         EditorCoordinator reloaded{ProjectDoc{}};
@@ -3019,12 +3077,34 @@ int main() {
         const auto& tdc = reloaded.document().data().objectTypes.at("Hero").topDownController;
         CHECK(tdc.has_value());
         CHECK(tdc->maxSpeed == 140.f);
+        CHECK(tdc->acceleration == 700.f);
+        CHECK(tdc->friction == 800.f);
+        CHECK(tdc->fourDirections);
     }
     {
         EditorCoordinator c{makeInheritedDoc()};
         CHECK(c.execute(AddTopDownControllerCommand{"Hero"}).ok);
         CHECK(c.execute(SetTopDownControllerSpeedCommand{"Hero", 250.f}).ok);
         CHECK(c.document().data().objectTypes.at("Hero").topDownController->maxSpeed == 250.f);
+        CHECK(c.execute(
+            SetTopDownControllerAccelerationCommand{"Hero", 900.f}).ok);
+        CHECK(c.execute(SetTopDownControllerFrictionCommand{"Hero", 1200.f}).ok);
+        CHECK(c.execute(
+            SetTopDownControllerFourDirectionsCommand{"Hero", true}).ok);
+        const TopDownControllerComponent& edited =
+            *c.document().data().objectTypes.at("Hero").topDownController;
+        CHECK(edited.acceleration == 900.f);
+        CHECK(edited.friction == 1200.f);
+        CHECK(edited.fourDirections);
+        CHECK(c.undo().ok);   // undo fourDirections
+        CHECK(!c.document().data().objectTypes.at("Hero")
+                   .topDownController->fourDirections);
+        CHECK(c.undo().ok);   // undo friction
+        CHECK(c.document().data().objectTypes.at("Hero")
+                  .topDownController->friction == 2200.f);
+        CHECK(c.undo().ok);   // undo acceleration
+        CHECK(c.document().data().objectTypes.at("Hero")
+                  .topDownController->acceleration == 1600.f);
         CHECK(c.undo().ok);   // undo speed
         CHECK(c.document().data().objectTypes.at("Hero").topDownController->maxSpeed == 260.f);
         CHECK(c.undo().ok);   // undo add
@@ -3040,6 +3120,10 @@ int main() {
         EditorCoordinator c{makeTopDownDoc(100.f)};
         const uint64_t revisionBefore = c.document().revision();
         CHECK(!c.execute(SetTopDownControllerSpeedCommand{"Hero", -1.f}).ok);
+        CHECK(!c.execute(
+            SetTopDownControllerAccelerationCommand{"Hero", -1.f}).ok);
+        CHECK(!c.execute(SetTopDownControllerFrictionCommand{
+            "Hero", std::numeric_limits<float>::infinity()}).ok);
         CHECK(c.document().revision() == revisionBefore);
         EditorCoordinator c2{makeInheritedDoc()};
         c2.consumeInvalidations();

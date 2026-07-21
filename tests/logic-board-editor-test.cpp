@@ -1,6 +1,7 @@
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/app/project_file.h"
 #include "editor-native/commands/audio_asset_commands.h"
+#include "editor-native/commands/global_variable_commands.h"
 #include "editor-native/commands/logic_board_commands.h"
 #include "editor-native/model/project_io.h"
 #include "editor-native/ui/logic_board_editor_controller.h"
@@ -131,6 +132,117 @@ static void testCommandsAndPersistence() {
     CHECK(!ProjectSerializer::deserialize(malformed).ok);
 }
 
+static void testGlobalVariableCommands() {
+    ProjectDoc project = makeProjectData();
+    project.globalVariables = {
+        {"score", GameVariableDefinition::Type::Number, 1.0, "Player score"},
+        {"doorOpen", GameVariableDefinition::Type::Boolean, false, "Door state"},
+    };
+    EditorCoordinator coordinator{std::move(project)};
+
+    GameVariableDefinition health{
+        "health", GameVariableDefinition::Type::Number, 100.0, "Player health"};
+    CHECK(coordinator.execute(AddGlobalVariableCommand{health}).ok);
+    CHECK(coordinator.document().data().globalVariables.size() == 3);
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().data().globalVariables.size() == 2);
+    CHECK(coordinator.redo().ok);
+    CHECK(coordinator.document().data().globalVariables[2].key == "health");
+
+    const uint64_t beforeInvalidAdd = coordinator.document().revision();
+    CHECK(!coordinator.execute(AddGlobalVariableCommand{
+        {"1bad", GameVariableDefinition::Type::Number, 0.0, {}}}).ok);
+    CHECK(!coordinator.execute(AddGlobalVariableCommand{health}).ok);
+    CHECK(coordinator.document().revision() == beforeInvalidAdd);
+
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& empty =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
+    rule.actions[0] =
+        Logic::makeDefaultBlock(Logic::kStateAdd, Logic::BlockKind::Action);
+    Logic::applyDeterministicVariableDefault(coordinator.document().data(), rule.actions[0]);
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
+    CHECK(coordinator.execute(AddLogicConditionCommand{
+        "Hero", rule.id,
+        Logic::makeDefaultBlock(Logic::kStateCompare, Logic::BlockKind::Condition), 0}).ok);
+    CHECK(coordinator.execute(SetLogicPropertyCommand{
+        "Hero", rule.id, LogicPropertyTarget::Action, 0,
+        "key", LogicVariableReference{"score"}}).ok);
+    CHECK(coordinator.execute(SetLogicPropertyCommand{
+        "Hero", rule.id, LogicPropertyTarget::Condition, 0,
+        "key", LogicVariableReference{"score"}}).ok);
+    CHECK(countGlobalVariableReferences(coordinator.document(), "score") == 2);
+
+    const uint64_t beforeBlockedRemove = coordinator.document().revision();
+    CHECK(!coordinator.execute(RemoveGlobalVariableCommand{"score"}).ok);
+    CHECK(coordinator.document().revision() == beforeBlockedRemove);
+
+    CHECK(coordinator.execute(RenameGlobalVariableCommand{"score", "points"}).ok);
+    CHECK(countGlobalVariableReferences(coordinator.document(), "score") == 0);
+    CHECK(countGlobalVariableReferences(coordinator.document(), "points") == 2);
+    const LogicBoardDef& renamed =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(std::get<LogicVariableReference>(
+        Logic::findProperty(renamed.rules[0].actions[0], "key")->value).id == "points");
+    CHECK(std::get<LogicVariableReference>(
+        Logic::findProperty(renamed.rules[0].conditions[0].block, "key")->value).id == "points");
+    CHECK(coordinator.undo().ok);
+    CHECK(countGlobalVariableReferences(coordinator.document(), "score") == 2);
+    CHECK(coordinator.redo().ok);
+    CHECK(countGlobalVariableReferences(coordinator.document(), "points") == 2);
+
+    const uint64_t beforeIncompatibleType = coordinator.document().revision();
+    CHECK(!coordinator.execute(SetGlobalVariableTypeCommand{
+        "points", GameVariableDefinition::Type::Boolean}).ok);
+    CHECK(!coordinator.execute(SetGlobalVariableInitialValueCommand{"points", false}).ok);
+    CHECK(coordinator.document().revision() == beforeIncompatibleType);
+
+    CHECK(coordinator.execute(
+        SetGlobalVariableInitialValueCommand{"points", 42.5}).ok);
+    CHECK(std::get<double>(coordinator.document().data().globalVariables[0].initialValue) == 42.5);
+    CHECK(coordinator.undo().ok);
+    CHECK(std::get<double>(coordinator.document().data().globalVariables[0].initialValue) == 1.0);
+    CHECK(coordinator.redo().ok);
+    CHECK(std::get<double>(coordinator.document().data().globalVariables[0].initialValue) == 42.5);
+
+    CHECK(coordinator.execute(
+        SetGlobalVariableDescriptionCommand{"points", "Points earned"}).ok);
+    CHECK(coordinator.document().data().globalVariables[0].description == "Points earned");
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().data().globalVariables[0].description == "Player score");
+    CHECK(coordinator.redo().ok);
+    CHECK(coordinator.document().data().globalVariables[0].description == "Points earned");
+
+    CHECK(coordinator.execute(SetGlobalVariableTypeCommand{
+        "doorOpen", GameVariableDefinition::Type::String}).ok);
+    CHECK(std::get<std::string>(
+        coordinator.document().data().globalVariables[1].initialValue).empty());
+    CHECK(coordinator.undo().ok);
+    CHECK(std::get<bool>(
+        coordinator.document().data().globalVariables[1].initialValue) == false);
+    CHECK(coordinator.redo().ok);
+    CHECK(coordinator.document().data().globalVariables[1].type
+          == GameVariableDefinition::Type::String);
+    CHECK(coordinator.undo().ok);
+
+    ProjectDoc invalid = coordinator.document().data();
+    invalid.globalVariables[0].type = GameVariableDefinition::Type::Boolean;
+    invalid.globalVariables[0].initialValue = false;
+    CHECK(!ProjectValidator::validate(ProjectDocument{std::move(invalid)}).ok);
+
+    CHECK(coordinator.execute(ChangeLogicActionTypeCommand{
+        "Hero", rule.id, 0, Logic::kSetVisible}).ok);
+    CHECK(coordinator.execute(RemoveLogicConditionCommand{"Hero", rule.id, 0}).ok);
+    CHECK(countGlobalVariableReferences(coordinator.document(), "points") == 0);
+    CHECK(coordinator.execute(RemoveGlobalVariableCommand{"points"}).ok);
+    CHECK(coordinator.document().data().globalVariables[0].key == "doorOpen");
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().data().globalVariables[0].key == "points");
+    CHECK(coordinator.redo().ok);
+    CHECK(coordinator.document().data().globalVariables[0].key == "doorOpen");
+}
+
 static void testConditionCommands() {
     ProjectDoc project = makeProjectData();
     project.objectTypes.at("Hero").platformerController = PlatformerControllerComponent{};
@@ -172,6 +284,135 @@ static void testConditionCommands() {
     CHECK(coordinator.undo().ok);
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
         .conditions.size() == countBeforeRemove);
+}
+
+static void testConditionControllerAndGenericProperties() {
+    ProjectDoc project = makeProjectData();
+    project.objectTypes.at("Hero").platformerController = PlatformerControllerComponent{};
+    project.globalVariables = {
+        {"score", GameVariableDefinition::Type::Number, 0.0, {}},
+        {"doorOpen", GameVariableDefinition::Type::Boolean, false, {}},
+    };
+    EditorCoordinator coordinator{std::move(project)};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& empty =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
+    CHECK(coordinator.apply(OpenLogicBoardIntent{"Hero"}).ok);
+    LogicBoardEditorController controller{coordinator, nullptr};
+
+    CHECK(controller.handleAction(
+        "change-logic-trigger", rule.id, Logic::kEverySeconds, {}));
+    CHECK(controller.handleAction(
+        "commit-logic-property", rule.id + "|t|0|seconds", "2.5", {}));
+    const LogicBoardDef* board =
+        &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(std::get<double>(
+        Logic::findProperty(board->rules[0].trigger, "seconds")->value) == 2.5);
+
+    CHECK(controller.handleAction(
+        "add-logic-condition-type", rule.id, Logic::kStateCompare, {}));
+    CHECK(controller.handleAction(
+        "pick-logic-property", rule.id + "|c|0|key", "score", {}));
+    CHECK(controller.handleAction(
+        "pick-logic-property", rule.id + "|c|0|op", ">=", {}));
+    CHECK(controller.handleAction(
+        "commit-logic-property", rule.id + "|c|0|value", "10", {}));
+    board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(board->rules[0].conditions.size() == 1);
+    CHECK(std::get<LogicVariableReference>(Logic::findProperty(
+        board->rules[0].conditions[0].block, "key")->value).id == "score");
+    CHECK(std::get<LogicStringValue>(Logic::findProperty(
+        board->rules[0].conditions[0].block, "op")->value).value == ">=");
+    CHECK(std::get<double>(Logic::findProperty(
+        board->rules[0].conditions[0].block, "value")->value) == 10.0);
+
+    CHECK(controller.handleAction(
+        "add-logic-condition-type", rule.id, Logic::kKeyDown, {}));
+    CHECK(controller.handleAction(
+        "pick-logic-property", rule.id + "|c|1|key", "A", {}));
+    CHECK(controller.handleAction(
+        "set-logic-condition-join", rule.id + "|1", "or", {}));
+    CHECK(controller.handleAction(
+        "toggle-logic-condition-negated", rule.id + "|1", {}, {}));
+    board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(board->rules[0].conditions[1].joinBefore == LogicConditionJoin::Or);
+    CHECK(board->rules[0].conditions[1].negated);
+    CHECK(std::get<LogicKey>(Logic::findProperty(
+        board->rules[0].conditions[1].block, "key")->value) == LogicKey::A);
+    CHECK(coordinator.undo().ok);
+    CHECK(!coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].conditions[1].negated);
+    CHECK(coordinator.redo().ok);
+
+    CHECK(controller.handleAction(
+        "move-logic-condition-up", rule.id + "|1", {}, {}));
+    board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(board->rules[0].conditions[0].block.typeId == Logic::kKeyDown);
+    CHECK(board->rules[0].conditions[0].joinBefore == LogicConditionJoin::And);
+    CHECK(board->rules[0].conditions[0].negated);
+    CHECK(controller.handleAction(
+        "move-logic-condition-down", rule.id + "|0", {}, {}));
+    CHECK(controller.handleAction(
+        "set-logic-condition-join", rule.id + "|1", "or", {}));
+    CHECK(controller.handleAction(
+        "change-logic-condition", rule.id + "|1", Logic::kIsVisible, {}));
+    board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(board->rules[0].conditions[1].block.typeId == Logic::kIsVisible);
+    CHECK(board->rules[0].conditions[1].joinBefore == LogicConditionJoin::Or);
+    CHECK(board->rules[0].conditions[1].negated);
+
+    CHECK(controller.handleAction(
+        "change-logic-action", rule.id + "|0", Logic::kStateSet, {}));
+    CHECK(controller.handleAction(
+        "pick-logic-property", rule.id + "|a|0|key", "score", {}));
+    CHECK(controller.handleAction(
+        "commit-logic-property", rule.id + "|a|0|value", "42", {}));
+    board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(std::get<double>(
+        Logic::findProperty(board->rules[0].actions[0], "value")->value) == 42.0);
+
+    CHECK(controller.handleAction(
+        "change-logic-action", rule.id + "|0", Logic::kStateAdd, {}));
+    CHECK(controller.handleAction(
+        "commit-logic-property", rule.id + "|a|0|amount", "3", {}));
+    CHECK(controller.handleAction(
+        "change-logic-action", rule.id + "|0", Logic::kStateSubtract, {}));
+    CHECK(controller.handleAction(
+        "commit-logic-property", rule.id + "|a|0|amount", "2", {}));
+    CHECK(controller.handleAction(
+        "change-logic-action", rule.id + "|0", Logic::kStateToggle, {}));
+    CHECK(controller.handleAction(
+        "pick-logic-property", rule.id + "|a|0|key", "doorOpen", {}));
+    board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(std::get<LogicVariableReference>(
+        Logic::findProperty(board->rules[0].actions[0], "key")->value).id == "doorOpen");
+
+    CHECK(controller.handleAction(
+        "change-logic-action", rule.id + "|0", Logic::kSetVelocity, {}));
+    CHECK(controller.handleAction(
+        "commit-logic-property-component", rule.id + "|a|0|velocity|x", "7.5", {}));
+    CHECK(controller.handleAction(
+        "commit-logic-property-component", rule.id + "|a|0|velocity|y", "-4", {}));
+    board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const Vec2 velocity = std::get<Vec2>(
+        Logic::findProperty(board->rules[0].actions[0], "velocity")->value);
+    CHECK(velocity.x == 7.5f);
+    CHECK(velocity.y == -4.f);
+
+    CHECK(controller.handleAction(
+        "remove-logic-condition", rule.id + "|0", {}, {}));
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].conditions.size() == 1);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].conditions[0].joinBefore == LogicConditionJoin::And);
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].conditions.size() == 2);
+    CHECK(coordinator.redo().ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
+        ->rules[0].conditions.size() == 1);
 }
 
 static void testConditionCompatibility() {
@@ -1043,7 +1284,9 @@ static void testExecutionModeCommand() {
 
 int main() {
     testCommandsAndPersistence();
+    testGlobalVariableCommands();
     testConditionCommands();
+    testConditionControllerAndGenericProperties();
     testConditionCompatibility();
     testConditionGatesRuntimeDispatch();
     testIsGroundedEventRunsOnTick();

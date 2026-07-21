@@ -32,6 +32,8 @@ public:
                         const EditorCoordinator& coordinator,
                         const std::string& dropdownId);
     void closeDropdown() { openDropdownId_.clear(); }
+    void toggleVariablesDrawer(
+        Rml::ElementDocument* document, const EditorCoordinator& coordinator);
 
     // Entries for the floating Object Type menu (one `.drop-entry` per
     // existing type, the current selection marked), for EditorUi to place
@@ -89,6 +91,7 @@ private:
     // hook). A stale rule-scoped id (e.g. "key|<removed-rule>") is inert by
     // construction: it simply never matches a dropdown id rendered again.
     mutable std::string openDropdownId_;
+    mutable bool variablesDrawerOpen_ = false;
     mutable std::optional<LogicBoardTab> lastTab_;
     // Presentation-only per-rule collapse state, scoped to renderedObjectTypeId_.
     mutable std::unordered_set<LogicRuleId> collapsedRuleIds_;
