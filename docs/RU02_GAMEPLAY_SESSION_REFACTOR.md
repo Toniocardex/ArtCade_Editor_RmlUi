@@ -706,7 +706,7 @@ Prima di procedere conviene formalizzare un debt register di RU-02/RU-03, distin
 
 ## 14. Debito P0 da eliminare obbligatoriamente
 
-### D-01 — `EditorNative::PlaySession` come secondo runtime
+### D-01 — `EditorNative::PlaySession` come secondo runtime — ✅ CHIUSO (RU-03)
 
 Il debito più importante. L'attuale editor Play possiede strutture e algoritmi propri per: entità runtime; TopDown e Platformer; collider AABB; movimento kinematico; Tilemap runtime; Sprite Animator; transizioni di collisione; Logic host; Script Runtime; variabili; audio command queue. La classe contiene proprie strutture `RuntimeEntity`, `RuntimePlatformerController`, `RuntimeBoxCollider`, `RuntimeScene` e propri metodi `moveKinematicEntity()`, `dispatchCollisionTransitions()` e `flushPendingDestroys()`.
 
@@ -715,6 +715,8 @@ Questo non è soltanto codice duplicato. È una seconda definizione della semant
 **Destinazione**: alla fine di RU-03, `EditorNative::PlaySession` eliminata oppure ridotta a una façade editoriale senza gameplay (vedi §7). La façade può gestire: Start/Stop; asset preload editoriale; routing input; raccolta diagnostiche; aggiornamento UI. Non può contenere simulazione.
 
 **Gate di cancellazione**: nessun `RuntimeEntity` editoriale parallelo; nessuna fisica editoriale; nessun host Logic editoriale; nessun Script Runtime editoriale; nessuna animazione editoriale runtime; nessun collision tracking duplicato.
+
+**Chiuso in RU-03**: `PlaySession` è ora una façade su `GameplaySession` reale (`play_session.h/.cpp`, vedi [PLAY_RUNTIME_UNIFICATION_ROADMAP.md](PLAY_RUNTIME_UNIFICATION_ROADMAP.md) §10 per la nota di chiusura completa). Rimossi: `RuntimeEntity`/`RuntimeScene`/`RuntimeTopDownController`/`RuntimePlatformerController`/`RuntimeBoxCollider`/`RuntimeTilemap`/movimento cinematico hand-rolled/audio-command-queue/`play_sound_preload.*`. Verificato: `grep` per questi simboli in `src/editor-native/` non trova più definizioni, solo commenti storici. Suite di test aggiornate (`editor-core-test.cpp`, `tileset-tilemap-test.cpp`, `script-asset-test.cpp`, `sprite-animation-test.cpp`, `logic-board-editor-test.cpp`) per usare il render hand-off (`PlaySession::renderables()`/`buildFrame()`-equivalente) al posto dell'introspezione diretta rimossa; alcuni test che caratterizzavano solo la vecchia simulazione parallela (LinearMover/TopDownController/PlatformerController/collisioni AABB hand-rolled) sono stati rimossi perché quel comportamento ora appartiene esclusivamente a `GameplaySession`/`World`, già coperto da `gameplay-tick-order-characterization-test.cpp` lato runtime.
 
 ### D-02 — Fixed tick dentro Application
 

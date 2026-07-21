@@ -69,7 +69,7 @@ La migrazione è conclusa soltanto quando:
 | RU-02f | P0 | Trasferimento ownership dei moduli gameplay + shutdown/restart affidabili | [x] | RU-02e | runtime |
 | RU-02g | P0 | Confine frame/presentazione: renderer legge solo `GameplayFrameSnapshot` | [x] | RU-02f | runtime |
 | RU-02h | P0 | Pulizia e congelamento API pubblica di `GameplaySession` | [x] | RU-02g | runtime |
-| RU-03 | P0 | Integrazione Editor Play con `GameplaySession`; `EditorNative::PlaySession` → façade o rimossa | [ ] | RU-02h, RU-01, RU-01a | editor, runtime |
+| RU-03 | P0 | Integrazione Editor Play con `GameplaySession`; `EditorNative::PlaySession` → façade o rimossa | [x] | RU-02h, RU-01, RU-01a | editor, runtime |
 | RU-04 | P0 | Play-start come "export a temp + load via `AssetLoader`" | [ ] | RU-01, RU-01a, RU-03 | editor |
 | RU-05 | P0 | Ritiro di `PlaySession`/`RuntimeEntity`/`RuntimeScene` e codice duplicato | [ ] | RU-04 | editor |
 | GATE-FINAL | Gate | Parity audit sui 3 gate games, Windows + Web | [ ] | RU-05 | editor, runtime |
@@ -244,9 +244,11 @@ Grep sistematico di chiamate raylib in ogni modulo (`InitWindow`, `IsKeyDown`, `
 
 L'eseguibile standalone si comporta in modo osservabilmente identico a prima (nessuna regressione), e `GameplaySession` è istanziabile e tickabile senza possedere finestra/input OS.
 
-## 10. Fase RU-03 — `EditorGameplayRuntimeHost` sostituisce lo stub
+## 10. Fase RU-03 — `EditorGameplayRuntimeHost` sostituisce lo stub — ✅ COMPLETATA (percorso diverso da quello sotto)
 
 > **Superseduta/assorbita da [RU02_GAMEPLAY_SESSION_REFACTOR.md](RU02_GAMEPLAY_SESSION_REFACTOR.md) §7 e §14 (D-01)**: il piano congelato tratta RU-03 come "integrazione Editor Play con `GameplaySession`" a tutto tondo — `EditorGameplayRuntimeHost`/`RuntimeLogicHostAdapter` restano il riferimento per lo spawn (contenuto sotto ancora valido), ma il gate di uscita reale è l'eliminazione di `EditorNative::PlaySession` come secondo runtime (D-01), non solo la sostituzione dello stub. La tabella di delega metodo-per-metodo sotto resta la spec di implementazione corretta per la parte adapter.
+
+> **Nota di chiusura (implementazione reale, non lo studio sotto)**: il percorso seguito non ha costruito un nuovo `EditorGameplayRuntimeHost`/`IGameplayRuntimeHost` da 24 metodi. `EditorNative::PlaySession` è stata riscritta come façade sottile che possiede direttamente una `GameplaySession` reale (`std::unique_ptr<GameplaySession>`) più `Modules::Audio`/`Modules::Input` propri, seguendo passo-passo la stessa sequenza di composition root di `Application::init*` (`app_bootstrap.cpp`) — non una composizione parallela. L'unica porta host-adapter scritta ad hoc è `AudioServiceAdapter : IGameplayAudioService` (stesso pattern D-20, solo forwarding a `Modules::Audio::update()`); dialog gate e profiler sink restano `nullptr` (non ancora usati da Play). `spawnObjectType`/Logic/Script scope installation passano dai metodi già pubblici di `GameplaySession` (`loadLogicPrograms`, `setScriptCatalog`, `installLogicScopesForActiveScene`, `installScriptScopesForActiveScene`, `wireHostPorts`), non da un adapter scritto a mano metodo-per-metodo. Risultato pratico identico al gate di uscita dichiarato sotto (spawn/Logic/Script reali, nessuno stub), ma con meno codice nuovo perché `GameplaySession` espone già la superficie necessaria dopo RU-02. Rimosso interamente: `RuntimeEntity`/`RuntimeScene`/`RuntimeTopDownController`/`RuntimePlatformerController`/`RuntimeBoxCollider`/`RuntimeTilemap`/il movimento cinematico hand-rolled/l'audio-command-queue/`play_sound_preload.*` — D-01 è chiuso, non solo mitigato. Gap noto e accettato deliberatamente (non introdotto da questa slice): il tilemap per-istanza/entity-owned non ha equivalente in `RenderableEntitySnapshot` — solo la griglia scena-level già esistente renderizza in Play, come già accade in `game.exe`/WASM oggi.
 
 **Problema**
 
