@@ -68,7 +68,7 @@ La migrazione è conclusa soltanto quando:
 | RU-02e | P0 | Estrarre il composition root gameplay in `GameplaySession::initialize()` | [x] | RU-02d | runtime |
 | RU-02f | P0 | Trasferimento ownership dei moduli gameplay + shutdown/restart affidabili | [x] | RU-02e | runtime |
 | RU-02g | P0 | Confine frame/presentazione: renderer legge solo `GameplayFrameSnapshot` | [x] | RU-02f | runtime |
-| RU-02h | P0 | Pulizia e congelamento API pubblica di `GameplaySession` | [-] | RU-02g | runtime |
+| RU-02h | P0 | Pulizia e congelamento API pubblica di `GameplaySession` | [x] | RU-02g | runtime |
 | RU-03 | P0 | Integrazione Editor Play con `GameplaySession`; `EditorNative::PlaySession` → façade o rimossa | [ ] | RU-02h, RU-01, RU-01a | editor, runtime |
 | RU-04 | P0 | Play-start come "export a temp + load via `AssetLoader`" | [ ] | RU-01, RU-01a, RU-03 | editor |
 | RU-05 | P0 | Ritiro di `PlaySession`/`RuntimeEntity`/`RuntimeScene` e codice duplicato | [ ] | RU-04 | editor |
