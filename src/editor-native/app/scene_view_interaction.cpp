@@ -263,6 +263,20 @@ void routeViewportContextMenu(EditorCoordinator& coordinator, EditorUi& ui,
         ui.hideContextMenus();
         return;
     }
+
+    // Dismiss open menus on a real click that missed them. This must run for
+    // every Edit-mode tool: Hierarchy/Assets row menus are side-panel UI and
+    // stay valid while Brush/Eraser/etc. is active. Never force-close them
+    // every frame just because a paint tool owns the viewport — that made the
+    // Hierarchy "⌄" menu flash open then shut immediately after processFrame
+    // deferred its show (menu opens at end of frame N, this path killed it at
+    // the start of frame N+1).
+    if ((IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE)
+         || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
+        && !contextMenuHit) {
+        ui.hideContextMenus();
+    }
+
     // A paint tool owns the viewport's right-click too (Eraser's right-click
     // shortcut in routeViewportTilemapPaint) - the entity-creation menu is a
     // Select-tool concept and must not fight it for the same gesture, mirroring
@@ -270,17 +284,10 @@ void routeViewportContextMenu(EditorCoordinator& coordinator, EditorUi& ui,
     if (coordinator.state().activeTool != EditorTool::Select) {
         click = ViewportContextClick{};
         pendingSpawnPosition.reset();
-        ui.hideContextMenus();
         return;
     }
 
-    if ((IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE))
-        && !contextMenuHit) {
-        ui.hideContextMenus();
-    }
-
     if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
-        ui.hideContextMenus();
         pendingSpawnPosition.reset();
         const ViewportInputContext ctx{rect.contains(GetMouseX(), GetMouseY()),
                                        /*rmlConsumedEvent*/ contextMenuHit, rml.textFocus,
