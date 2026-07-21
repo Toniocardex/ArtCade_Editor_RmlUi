@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace ArtCade::EditorNative {
@@ -142,6 +143,10 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
     };
 
     for (const SceneInstanceDef* inst : document.instancesInRenderOrder(sceneId)) {
+        // SceneInstanceDef::visible is the root authoring visibility. Unlike
+        // SpriteRenderer.visible it gates every visual owned by the instance:
+        // placeholder, sprite, tilemap, collider overlay, bounds and picking.
+        if (!inst->visible) continue;
         if (!hiddenLayers.empty() && hiddenLayers.count(document.effectiveLayerId(sceneId, *inst))) {
             continue;
         }
@@ -158,16 +163,10 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
     return snapshot;
 }
 
-// RU-03: reads GameplaySession::buildFrameSnapshot()'s renderables (via
-// PlaySession::buildFrame()) instead of the old hand-written RuntimeEntity/
-// RuntimeScene - the shared runtime resolves transform/sprite/visibility the
-// same way for Play here and for game.exe/WASM. Deliberately not preserved:
-// entity name (RenderableEntitySnapshot doesn't track it - not gameplay-
-// visible data, so the on-screen label is blank during Play) and entity-
-// owned/per-instance tilemap rendering (the shared runtime never supported
-// it - only the legacy scene-level merged grid renders - so this is
-// pre-existing shared-runtime debt exposed by the switch, not a regression
-// introduced by it; see play_session.h's header comment).
+// RU-03: sprite/transform/visibility come from GameplaySession renderables.
+// Entity-owned tilemaps are editor Play-only (ADR-0001): compiled into
+// PlaySession at materialize and projected here each frame from the entity's
+// *current* transform when present in renderables, else the authored origin.
 SceneFrameSnapshot collectSceneFrameSnapshot(const PlaySession& session) {
     SceneFrameSnapshot snapshot;
     const PlaySceneInfo& scene = session.scene();
@@ -177,34 +176,103 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const PlaySession& session) {
     snapshot.worldSize = scene.worldSize;
     snapshot.backgroundColor = scene.backgroundColor;
 
-    for (const ArtCade::RenderableEntitySnapshot& entity : session.renderables()) {
-        if (!entity.visibleInGame) continue;
+    const std::vector<ArtCade::RenderableEntitySnapshot> renderables = session.renderables();
+    std::unordered_map<EntityId, const ArtCade::RenderableEntitySnapshot*> renderableById;
+    renderableById.reserve(renderables.size());
+    for (const ArtCade::RenderableEntitySnapshot& entity : renderables) {
+        renderableById.emplace(entity.id, &entity);
+    }
+
+    std::unordered_map<EntityId, const PlayTilemap*> tilemapById;
+    tilemapById.reserve(session.tilemaps().size());
+    for (const PlayTilemap& tilemap : session.tilemaps()) {
+        tilemapById.emplace(tilemap.entityId, &tilemap);
+    }
+
+    const auto emitSprite = [&](const ArtCade::RenderableEntitySnapshot& entity,
+                                const SceneFrameRect& bounds, float rotationRadians) {
+        const AssetId resolvedAssetId = entity.spriteFrame.assetId.empty()
+            ? entity.sprite.spriteAssetId : entity.spriteFrame.assetId;
+        if (resolvedAssetId.empty()) return;
+        const bool hasSource = AppRender::sprite_frame_has_pixels(entity.spriteFrame.frame);
+        snapshot.sprites.push_back(SceneFrameSprite{
+            entity.id,
+            resolvedAssetId,
+            bounds,
+            Vec2{bounds.width * 0.5f, bounds.height * 0.5f},
+            /*visible=*/true,
+            false,
+            hasSource
+                ? SceneFrameRect{static_cast<float>(entity.spriteFrame.frame.x),
+                                 static_cast<float>(entity.spriteFrame.frame.y),
+                                 static_cast<float>(entity.spriteFrame.frame.w),
+                                 static_cast<float>(entity.spriteFrame.frame.h)}
+                : SceneFrameRect{},
+            hasSource,
+            rotationRadians,
+        });
+    };
+
+    const auto emitTilemap = [&](const PlayTilemap& tilemap, Vec2 origin) {
+        if (tilemap.cells.empty()) return;
+        std::vector<SceneFrameTilemapCell> cells;
+        cells.reserve(tilemap.cells.size());
+        for (const PlayTilemapCell& cell : tilemap.cells) {
+            cells.push_back(SceneFrameTilemapCell{
+                tilemapCellDestination(origin, tilemap.cellSize, cell.cellX, cell.cellY),
+                SceneFrameRect{cell.sourceX, cell.sourceY, cell.sourceW, cell.sourceH},
+            });
+        }
+        snapshot.tilemaps.push_back(SceneFrameTilemap{
+            tilemap.entityId, tilemap.imageAssetId, std::move(cells), false});
+    };
+
+    // Walk the materialize-time layer order so tilemaps interleave with sprites.
+    std::unordered_set<EntityId> visited;
+    for (const EntityId id : session.renderEntityOrder()) {
+        visited.insert(id);
+        const auto rendIt = renderableById.find(id);
+        const ArtCade::RenderableEntitySnapshot* rend =
+            rendIt != renderableById.end() ? rendIt->second : nullptr;
+        const auto tmIt = tilemapById.find(id);
+        const PlayTilemap* tilemap = tmIt != tilemapById.end() ? tmIt->second : nullptr;
+        const bool entityVisible = rend ? rend->visibleInGame
+                                        : (tilemap && tilemap->visible);
+        const bool showTilemap = entityVisible && tilemap && !tilemap->cells.empty();
+        const bool showRenderable = rend && rend->visibleInGame;
+        if (!showRenderable && !showTilemap) continue;
+
+        if (showRenderable) {
+            const SceneFrameTransform2D xf = instanceVisual(rend->transform);
+            const SceneFrameRect bounds = unrotatedRect(xf);
+            snapshot.entities.push_back(SceneFrameEntity{
+                rend->id, std::string{}, rend->sprite.fillColor, bounds, false,
+                xf.rotationRadians});
+            emitSprite(*rend, bounds, xf.rotationRadians);
+            if (showTilemap) emitTilemap(*tilemap, rend->transform.position);
+        } else {
+            // Tilemap-only (no sprite renderable): draw cells, never the Edit
+            // placeholder box.
+            Transform authored;
+            authored.position = tilemap->authoredOrigin;
+            const SceneFrameTransform2D xf = instanceVisual(authored);
+            snapshot.entities.push_back(SceneFrameEntity{
+                id, std::string{}, Vec3{}, unrotatedRect(xf), false, xf.rotationRadians});
+            emitTilemap(*tilemap, tilemap->authoredOrigin);
+        }
+    }
+
+    // Any renderable not in the captured order (defensive) still draws.
+    for (const ArtCade::RenderableEntitySnapshot& entity : renderables) {
+        if (!entity.visibleInGame || visited.count(entity.id) != 0) continue;
         const SceneFrameTransform2D xf = instanceVisual(entity.transform);
         const SceneFrameRect bounds = unrotatedRect(xf);
         snapshot.entities.push_back(SceneFrameEntity{
-            entity.id, std::string{}, entity.sprite.fillColor, bounds, false, xf.rotationRadians});
-
-        const AssetId resolvedAssetId = entity.spriteFrame.assetId.empty()
-            ? entity.sprite.spriteAssetId : entity.spriteFrame.assetId;
-        if (!resolvedAssetId.empty()) {
-            const bool hasSource =
-                AppRender::sprite_frame_has_pixels(entity.spriteFrame.frame);
-            snapshot.sprites.push_back(SceneFrameSprite{
-                entity.id,
-                resolvedAssetId,
-                bounds,
-                Vec2{bounds.width * 0.5f, bounds.height * 0.5f},
-                /*visible=*/true,
-                false,
-                hasSource
-                    ? SceneFrameRect{static_cast<float>(entity.spriteFrame.frame.x),
-                                     static_cast<float>(entity.spriteFrame.frame.y),
-                                     static_cast<float>(entity.spriteFrame.frame.w),
-                                     static_cast<float>(entity.spriteFrame.frame.h)}
-                    : SceneFrameRect{},
-                hasSource,
-                xf.rotationRadians,
-            });
+            entity.id, std::string{}, entity.sprite.fillColor, bounds, false,
+            xf.rotationRadians});
+        emitSprite(entity, bounds, xf.rotationRadians);
+        if (const auto tmIt = tilemapById.find(entity.id); tmIt != tilemapById.end()) {
+            emitTilemap(*tmIt->second, entity.transform.position);
         }
     }
 

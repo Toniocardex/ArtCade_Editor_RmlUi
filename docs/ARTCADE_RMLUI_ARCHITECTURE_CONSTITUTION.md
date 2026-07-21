@@ -421,6 +421,16 @@ Per ogni risorsa devono essere noti:
 - Le risorse grafiche vengono rilasciate prima del contesto grafico da cui dipendono.
 - Le callback Lua vengono rimosse prima di chiudere lo stato Lua.
 
+### AC-LIFE-002 — Process-global resource rule (P0)
+
+Ogni risorsa globale del backend — audio device, window, graphics context, input backend — possiede **un solo owner host per processo**. Le `GameplaySession`/`PlaySession` possono consumare tali risorse esclusivamente tramite servizi borrowed e non possono inizializzarle, reinizializzarle o distruggerle (nessuna `InitAudioDevice`/`CloseAudioDevice`/`InitWindow`/`CloseWindow` dentro la simulazione o i suoi moduli quando l'host ha già aperto la risorsa). L'ownership delle risorse *caricate* dalla sessione (Sound, Music, texture di sessione, cache runtime) resta invece locale alla sessione e viene sempre rilasciata allo Stop, indipendentemente dall'ownership del device sottostante.
+
+Origine: incidente 2026-07-21 — doppia `InitAudioDevice()` al Start Play reinizializzava il singleton miniaudio sotto il worker thread WASAPI vivo (crash sistematico; vedi RU02 D-23).
+
+### AC-LIFE-003 — Lifetime rule (P0)
+
+Nessun modulo può conservare reference o pointer verso oggetti stack-locali o con lifetime più breve del modulo stesso. Ogni dipendenza conservata (es. `GameAPI` → `const EngineContext&`) deve avere ownership o lifetime esplicitamente garantiti dal composition root, e l'ordine di distruzione deve garantire che i consumatori vengano distrutti prima del provider (membri dichiarati in ordine tale che il context sia distrutto per ultimo, o shutdown esplicito prima del reset).
+
 ---
 
 ## 17. Stato operativo e capability

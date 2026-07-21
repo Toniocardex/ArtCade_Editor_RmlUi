@@ -860,6 +860,20 @@ Il fixed tick stampa direttamente gli errori Script — lega la simulazione a un
 
 **Destinazione**: una porta `IRuntimeProfilerSink` oppure metriche restituite dalla sessione. La sessione non deve dipendere dal profiler posseduto da `Application`.
 
+### D-23 — Device audio lifecycle nascosto dentro `Modules::Audio`
+
+**Incidente (2026-07-21)**: `PlaySession::materialize()` creava un `Modules::Audio` proprio e `Audio::init()` chiamava `InitAudioDevice()` senza guardia sopra il device che l'host editor aveva già aperto per il preview SFX. Raylib/miniaudio usano un singleton globale di processo: la seconda init reinizializzava la struct `ma_device` sotto il worker thread WASAPI vivo, corrompendola — crash sistematico in `ma_device_stop__wasapi` pochi secondi dopo ogni Start Play, con falsi punti di crash sul main thread. Speculare allo Stop: `Audio::shutdown()` chiudeva il device sotto l'host.
+
+**Mitigazione applicata**: flag `ownsDevice` in `Audio::init()`/`shutdown()` — il modulo apre il device solo se `!IsAudioDeviceReady()` (ownership verificata dopo l'apertura), lo chiude solo se lo ha aperto lui, init/shutdown idempotenti, `SetMasterVolume` in init solo se owner. Comportamento invariato nel gioco esportato (unico proprietario).
+
+**Destinazione**: separare device lifecycle da gameplay audio service. `EditorHost`/`NativeGameHost` → `AudioDeviceHost` (unico `InitAudioDevice`/`CloseAudioDevice` per processo); `GameplaySession` → `GameplayAudioService` borrowed che usa il device dell'host e non conosce il lifecycle globale raylib. Le risorse caricate dalla sessione (Sound/Music/cache) restano session-owned e vengono sempre scaricate allo Stop, indipendentemente dall'ownership del device. **Priorità**: P0/P1.
+
+### D-24 — Master volume globale toccato dalla sessione borrowed
+
+`SetMasterVolume()` agisce sul device globale: quando Play riusa il device dell'editor, la sessione altererebbe anche il volume dei preview editoriali. Mitigato in D-23 (init non tocca più il master se borrowed), ma `Audio::setMasterVolume()` resta una scrittura globale invocabile dal gameplay.
+
+**Destinazione**: master volume host-owned; music/SFX/UI volume come bus/mixer della `GameplaySession` (guadagni per voce o bus), mai il master globale del processo a ogni Start Play. **Priorità**: P1.
+
 ## 18. Debito transitorio ammesso
 
 Alcuni elementi possono sopravvivere temporaneamente, ma devono avere una fase di rimozione dichiarata.
@@ -905,6 +919,8 @@ Non tutto ciò che copia dati è una seconda autorità.
 | D-20 | Accesso mutabile agli interni | P0 | RU-02h |
 | D-21 | Diagnostiche su stderr | P1 | RU-02c/h |
 | D-22 | Profiler concreto nella sessione | P1 | RU-02c/e |
+| D-23 | Device audio lifecycle dentro `Modules::Audio` (mitigato con `ownsDevice`) | P0/P1 | post RU-03 |
+| D-24 | Master volume globale modificabile dalla sessione borrowed | P1 | post RU-03 |
 
 ## 21. Criterio per considerare il debito cancellato
 

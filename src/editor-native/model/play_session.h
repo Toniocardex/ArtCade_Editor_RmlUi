@@ -20,14 +20,11 @@
 // preload cache - see play_sound_preload.h's removal). Play Sound now plays
 // through the real Modules::Audio this class owns, exactly like game.exe.
 //
-// Known, deliberately accepted gap (not a regression *from this change* -
-// verified the shared runtime never supported it either): per-instance/
-// entity-owned tilemap components (ADR-0001) have no equivalent in World's
-// RenderableEntitySnapshot - only the legacy scene-level merged grid renders.
-// A project relying on entity-owned tilemap painting during Play will not
-// see it here, same as it would not see it in game.exe/WASM today. This is
-// pre-existing shared-runtime debt, not something to reintroduce a parallel
-// implementation for.
+// Known gap closed for *editor Play Scene View only* (ADR-0001 Slice 8):
+// entity-owned TilemapComponent cells are materialized once into PlaySession
+// (PlayTilemap) and projected into SceneFrameSnapshot.tilemaps each frame.
+// game.exe / shared World still only render the legacy scene-level grid —
+// that remains cross-repo debt, not reintroduced here as a second World path.
 //
 // runtime_/audio_/input_ are owned via unique_ptr (not by value): none of
 // GameplaySession/Modules::Audio/Modules::Input were designed to be moved
@@ -50,6 +47,7 @@ namespace ArtCade {
 class GameplaySession;
 struct RenderableEntitySnapshot;
 struct GameplayInputFrame;
+struct EngineContext;
 namespace Modules {
 class Audio;
 class Input;
@@ -90,6 +88,29 @@ struct PlaySceneInfo {
     Vec4 backgroundColor;
 };
 
+// One populated tilemap cell in *local* cell coordinates — never world-space.
+// World destinations are recomputed each Play frame from the owning entity's
+// current transform (renderables when present, else authored origin).
+struct PlayTilemapCell {
+    int cellX = 0;
+    int cellY = 0;
+    float sourceX = 0.f;
+    float sourceY = 0.f;
+    float sourceW = 0.f;
+    float sourceH = 0.f;
+};
+
+// Independent copy of a TilemapComponent compiled once at Start Play
+// (ADR-0001). No pointer back to ProjectDocument.
+struct PlayTilemap {
+    EntityId entityId = INVALID_ENTITY;
+    AssetId  imageAssetId;
+    Vec2     cellSize{32.f, 32.f};
+    Vec2     authoredOrigin{};   // fallback when the entity is not in renderables
+    bool     visible = true;     // authored root visibility fallback
+    std::vector<PlayTilemapCell> cells;
+};
+
 // Runtime side of Play/Stop. Built once from ProjectDocument at Start Play
 // (materialize), then draw/tick read this session and never the authoring
 // document.
@@ -119,6 +140,11 @@ public:
 
     const SceneId& sceneId() const { return scene_.sourceSceneId; }
     const PlaySceneInfo& scene() const { return scene_; }
+
+    // Layer back-to-front entity ids captured at materialize (render-only).
+    const std::vector<EntityId>& renderEntityOrder() const { return renderEntityOrder_; }
+    // Entity-owned tilemaps materialized once; empty cells = invisible in Play.
+    const std::vector<PlayTilemap>& tilemaps() const { return tilemaps_; }
 
     // Wires Play Sound (Logic Board audio.playSound / Script ctx:playSound)
     // to resolve relative asset sourcePaths against the real project
@@ -168,6 +194,15 @@ private:
     void shutdownRuntime();
 
     PlaySceneInfo scene_;
+    std::vector<EntityId> renderEntityOrder_;
+    std::vector<PlayTilemap> tilemaps_;
+    // Heap-allocated (not a materialize()-local): GameplaySession's
+    // sub-modules (GameAPI, LuaHost, ...) bind ctx by reference and read it
+    // for the whole Play session, so its storage must outlive materialize()
+    // and live exactly as long as runtime_ does. Declared before runtime_ so
+    // it's destroyed *after* runtime_ (members unwind in reverse declaration
+    // order) - runtime_'s own shutdown may still touch ctx-bound state.
+    std::unique_ptr<EngineContext> ctx_;
     std::unique_ptr<GameplaySession> runtime_;
     std::unique_ptr<Modules::Audio> audio_;
     std::unique_ptr<Modules::Input> input_;

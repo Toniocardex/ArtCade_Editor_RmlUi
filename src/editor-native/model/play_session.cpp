@@ -3,6 +3,7 @@
 #include "editor-native/model/path_confinement.h"
 #include "editor-native/model/project_document.h"
 #include "editor-native/model/project_io.h"
+#include "editor-native/model/tilemap_render_view.h"
 
 #include "app/src/gameplay_session.h"
 #include "app/render/scene_frame_snapshot.h"
@@ -86,6 +87,9 @@ PlaySession::~PlaySession() { shutdownRuntime(); }
 
 PlaySession::PlaySession(PlaySession&& other) noexcept
     : scene_(std::move(other.scene_)),
+      renderEntityOrder_(std::move(other.renderEntityOrder_)),
+      tilemaps_(std::move(other.tilemaps_)),
+      ctx_(std::move(other.ctx_)),
       runtime_(std::move(other.runtime_)),
       audio_(std::move(other.audio_)),
       input_(std::move(other.input_)),
@@ -95,6 +99,9 @@ PlaySession& PlaySession::operator=(PlaySession&& other) noexcept {
     if (this == &other) return *this;
     shutdownRuntime();
     scene_ = std::move(other.scene_);
+    renderEntityOrder_ = std::move(other.renderEntityOrder_);
+    tilemaps_ = std::move(other.tilemaps_);
+    ctx_ = std::move(other.ctx_);
     runtime_ = std::move(other.runtime_);
     audio_ = std::move(other.audio_);
     input_ = std::move(other.input_);
@@ -296,7 +303,13 @@ std::optional<PlaySession> PlaySession::materialize(
         return std::nullopt;
     }
 
-    EngineContext ctx;
+    // Heap-allocated, owned by the returned PlaySession (see play_session.h):
+    // GameAPI/LuaHost/etc. bind this EngineContext by reference and read it
+    // for the whole Play session, so it must outlive this function - a
+    // materialize()-local would leave them holding a dangling reference to
+    // freed stack memory the instant this function returns.
+    session.ctx_ = std::make_unique<EngineContext>();
+    EngineContext& ctx = *session.ctx_;
     // No presentation Renderer: the editor's own Scene View draws from the
     // frame snapshot (scene_frame_snapshot.cpp), never through GameplaySession/
     // World directly - World already tolerates a null renderer (RU-02a).
@@ -344,6 +357,35 @@ std::optional<PlaySession> PlaySession::materialize(
         return std::nullopt;
     }
 
+    // ADR-0001: compile entity-owned tilemaps once into PlaySession. Missing
+    // tileset/image or unresolvable TileIds skip that instance (Play still
+    // starts — same lenient gate RU-03 tests lock in); painted valid maps are
+    // projected into SceneFrameSnapshot each frame without rereading the
+    // authoring document.
+    for (const SceneInstanceDef* inst : document.instancesInRenderOrder(sceneId)) {
+        session.renderEntityOrder_.push_back(inst->id);
+        if (!inst->tilemap.has_value()) continue;
+        const TilesetAsset* tileset =
+            document.findTilesetAsset(inst->tilemap->tilesetAssetId);
+        if (!tileset || !document.findImageAsset(tileset->imageAssetId)) continue;
+        const std::optional<std::vector<TilemapResolvedCell>> resolved =
+            resolveTilemapCellsStrict(*inst->tilemap, *tileset);
+        if (!resolved) continue;
+        PlayTilemap playTm;
+        playTm.entityId = inst->id;
+        playTm.imageAssetId = tileset->imageAssetId;
+        playTm.cellSize = inst->tilemap->cellSize;
+        playTm.authoredOrigin = inst->transform.position;
+        playTm.visible = inst->visible;
+        playTm.cells.reserve(resolved->size());
+        for (const TilemapResolvedCell& cell : *resolved) {
+            playTm.cells.push_back(PlayTilemapCell{
+                cell.cellX, cell.cellY,
+                cell.source.x, cell.source.y, cell.source.width, cell.source.height});
+        }
+        session.tilemaps_.push_back(std::move(playTm));
+    }
+
     return session;
 }
 
@@ -381,7 +423,9 @@ void PlaySession::tick(const RuntimeInputSnapshot& input, float dt) {
     frame.released = input.releasedLogicKeys;
     frame.held = input.heldLogicKeys;
     runtime_->dispatchInput(frame);
-    if (std::isfinite(dt) && dt > 0.f) runtime_->tickFixedStep(dt);
+    if (std::isfinite(dt) && dt > 0.f) {
+        runtime_->tickFixedStep(dt);
+    }
 }
 
 std::vector<Scripts::ScriptRuntimeDiagnostic> PlaySession::drainScriptDiagnostics() {
@@ -391,7 +435,8 @@ std::vector<Scripts::ScriptRuntimeDiagnostic> PlaySession::drainScriptDiagnostic
 
 std::vector<RenderableEntitySnapshot> PlaySession::renderables() const {
     if (!runtime_) return {};
-    return runtime_->buildFrameSnapshot(::ArtCade::SceneFrameSnapshot{}).renderables;
+    auto out = runtime_->buildFrameSnapshot(::ArtCade::SceneFrameSnapshot{}).renderables;
+    return out;
 }
 
 } // namespace ArtCade::EditorNative
