@@ -4,7 +4,7 @@
 **Ambito:** editor desktop nativo (`ArtCade_Editor_RmlUi`) e runtime condiviso (`ArtCade-Studio_V2/runtime-cpp`, collegato tramite junction `vendor/artcade-runtime`)
 **Scopo:** eliminare la doppia simulazione Editor Play / gioco esportato (blocco P0-A dell'audit tecnico) e riusare lo stesso lavoro come fondazione per l'Export (blocco P0-B)
 **Baseline:** audit tecnico + investigazione architetturale del 2026-07-20 (vedi §2); studio di dettaglio RU-01/RU-02/RU-03 del 2026-07-20 (vedi rispettive sezioni)
-**Ultimo aggiornamento:** 2026-07-20
+**Ultimo aggiornamento:** 2026-07-21
 
 ## 1. Autorità e precedenza
 
@@ -71,7 +71,7 @@ La migrazione è conclusa soltanto quando:
 | RU-02h | P0 | Pulizia e congelamento API pubblica di `GameplaySession` | [x] | RU-02g | runtime |
 | RU-03 | P0 | Integrazione Editor Play con `GameplaySession`; `EditorNative::PlaySession` → façade o rimossa | [x] | RU-02h, RU-01, RU-01a | editor, runtime |
 | RU-04 | P0 | Play-start come "export a temp + load via `AssetLoader`" | [x] | RU-01, RU-01a, RU-03 | editor |
-| RU-05 | P0 | Ritiro di `PlaySession`/`RuntimeEntity`/`RuntimeScene` e codice duplicato | [ ] | RU-04 | editor |
+| RU-05 | P0 | Ritiro di `PlaySession`/`RuntimeEntity`/`RuntimeScene` e codice duplicato | [x] | RU-04 | editor |
 | GATE-FINAL | Gate | Parity audit sui 3 gate games, Windows + Web | [ ] | RU-05 | editor, runtime |
 
 Stati ammessi: `[ ]` non iniziato, `[-]` in corso, `[x]` completato, `[!]` bloccato con motivazione registrata.
@@ -344,7 +344,13 @@ Oggi `EditorCoordinator::playProject`/`playCurrentScene` (`editor_coordinator.cp
 
 Play nell'editor usa lo stesso World/gateway/Logic/Script/camera del gioco esportato, caricati tramite lo stesso parser e lo stesso loader; nessuna regressione sui test di isolamento camera esistenti.
 
-## 12. Fase RU-05 — Ritiro di `PlaySession` e codice duplicato
+## 12. Fase RU-05 — Ritiro di `PlaySession` e codice duplicato — ✅ COMPLETATA (gate già soddisfatto da RU-03)
+
+> **Nota di chiusura**: questa fase presupponeva l'architettura originale (§10) in cui un nuovo `EditorGameplayRuntimeHost` avrebbe sostituito `PlaySession` come punto di integrazione, rendendo `PlaySession`/`RuntimeEntity`/`RuntimeScene` codice morto da eliminare interamente. Quel percorso non è stato seguito (vedi nota di chiusura RU-03, §10): `PlaySession` è diventata essa stessa la façade sottile su `GameplaySession` — non è mai stata sostituita da una classe diversa, quindi non è "morta", resta il punto di integrazione vivo e necessario tra Play e la simulazione condivisa.
+>
+> **Verifica esplicita fatta per questa chiusura** (grep mirato su `src/` e `tests/`, non ipotizzato): nessun simbolo reale `RuntimeEntity`/`RuntimeScene`/`RuntimeTopDownController`/`RuntimePlatformerController`/`RuntimeBoxCollider`/`RuntimeTilemap`/`LogicHostAdapter`/`PlaySession::isKeyDown`/`RuntimeAudioCommand`/`PlayAssetCatalogSnapshot`/`AnimationRuntimeEvent` residuo — solo commenti storici che documentano cosa è stato rimosso in RU-03 (lasciati intenzionalmente per motivare le scelte di design attuali, non codice morto). Nessun file `.cpp` orfano in `src/editor-native/model/` non referenziato da `src/CMakeLists.txt`. Build pulita di `artcade-editor-core` da zero senza warning di simboli non referenziati.
+>
+> **Gate di uscita già raggiunto**: una sola implementazione di simulazione gameplay esiste nel monorepo logico (`GameplaySession`, in `runtime-cpp`), usata sia da Play (tramite la façade `PlaySession`) sia dall'Export (`game.exe`/WASM) — raggiunto in RU-03, confermato ancora valido qui. Non c'è stato bisogno di alcuna rimozione di codice in questa fase: nessun file toccato, nessun commit di codice.
 
 **Problema**
 
