@@ -2,20 +2,70 @@
 
 #include "editor-native/model/path_confinement.h"
 #include "editor-native/model/project_document.h"
+#include "editor-native/model/project_io.h"
 
 #include "app/src/gameplay_session.h"
 #include "app/render/scene_frame_snapshot.h"
 #include "core/engine-context.h"
+#include "core/project-current-format.h"
 #include "logic-core.h"
+#include "modules/asset-system/include/asset-loader.h"
 #include "modules/audio/include/audio.h"
 #include "modules/input/include/input.h"
 #include "script-core.h"
 #include "script-runtime.h"
 
+#include <nlohmann/json.hpp>
+
+#include <atomic>
+#include <fstream>
 #include <unordered_map>
 #include <utility>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace ArtCade::EditorNative {
+
+namespace {
+
+// RU-04 (docs/PLAY_RUNTIME_UNIFICATION_ROADMAP.md §11): a fresh, unique
+// scratch directory per materialize() call - never reused, always removed
+// before returning. Only ever holds project.json (see materialize()'s
+// comment on why asset bytes never need to be copied here), so this can be
+// created/torn down synchronously within a single Play-start.
+std::filesystem::path makeScratchDir() {
+    static std::atomic<unsigned> counter{0};
+    const unsigned long pid =
+#ifdef _WIN32
+        static_cast<unsigned long>(::GetCurrentProcessId());
+#else
+        static_cast<unsigned long>(::getpid());
+#endif
+    std::error_code ec;
+    std::filesystem::path dir = std::filesystem::temp_directory_path(ec);
+    if (ec) dir = std::filesystem::current_path();
+    dir /= "artcade-play-" + std::to_string(pid) + "-"
+         + std::to_string(counter.fetch_add(1, std::memory_order_relaxed));
+    std::filesystem::create_directories(dir, ec);
+    return dir;
+}
+
+struct ScratchDirGuard {
+    std::filesystem::path dir;
+    ~ScratchDirGuard() {
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }
+};
+
+} // namespace
 
 // RU-02c host-port adapter (docs/RU02_GAMEPLAY_SESSION_REFACTOR.md 4.3),
 // same shape as runtime-cpp's own app_modules.h::AudioServiceAdapter - no
@@ -163,12 +213,71 @@ std::optional<PlaySession> PlaySession::materialize(
     session.scene_.worldSize = scene->worldSize;
     session.scene_.backgroundColor = scene->backgroundColor;
 
+    // RU-04 (docs/PLAY_RUNTIME_UNIFICATION_ROADMAP.md §11): Play now parses
+    // the project through the exact same canonical loader the exported game
+    // uses (Modules::AssetLoader::loadDirectory), not just the same read_*
+    // functions RU-01 already shares - this also exercises AssetLoader's own
+    // orchestration (validate_current_project_json, manifest indexing)
+    // end to end, which a direct ProjectDocument::deserialize() call never
+    // touches. Round-trips through a throwaway scratch directory holding only
+    // project.json: AssetLoader::parseProjectJson never reads asset bytes
+    // eagerly (images/audio are resolved lazily, later, against the real
+    // project root via PlaySession::setAssetRoot() - untouched by this), so
+    // no asset files need to be copied here. generatedSfx does not survive
+    // this round-trip (no ProjectJson::read_generated_sfx exists - the
+    // exported game never rigenerates SFX, only plays the baked
+    // AudioAssetDef the Generate step already produced), which is the same
+    // gap the exported game already has today, not one introduced here.
+    const SerializeResult serialized = ProjectSerializer::serialize(document);
+    if (!serialized.ok) {
+        if (error) *error = "Cannot start Play: failed to serialize project for load";
+        return std::nullopt;
+    }
+    // Fail fast with a specific diagnostic before touching disk: the same
+    // validator AssetLoader::parseProjectJson calls internally, just without
+    // a generic "rejected" message hiding which field tripped it.
+    {
+        std::string validationError;
+        nlohmann::json parsed;
+        bool parseOk = true;
+        try { parsed = nlohmann::json::parse(serialized.value); }
+        catch (...) { parseOk = false; }
+        if (!parseOk || !ProjectJson::validate_current_project_json(parsed, validationError)) {
+            if (error) {
+                *error = "Cannot start Play: canonical loader rejected the project"
+                       + (validationError.empty() ? std::string{} : " [" + validationError + "]");
+            }
+            return std::nullopt;
+        }
+    }
+    const std::filesystem::path scratchDir = makeScratchDir();
+    ScratchDirGuard scratchDirGuard{scratchDir};
+    {
+        std::ofstream projectFile(scratchDir / "project.json", std::ios::binary);
+        if (!projectFile) {
+            if (error) *error = "Cannot start Play: failed to write temp project package";
+            return std::nullopt;
+        }
+        projectFile << serialized.value;
+        if (!projectFile) {
+            if (error) *error = "Cannot start Play: failed to write temp project package";
+            return std::nullopt;
+        }
+    }
+
+    ProjectDoc doc;
+    Modules::AssetLoader loader;
+    loader.init();
+    if (!loader.loadDirectory(scratchDir.string(), doc)) {
+        if (error) *error = "Cannot start Play: canonical loader rejected the project";
+        return std::nullopt;
+    }
+
     // World::init(doc) activates whatever doc.activeSceneId names - Play
     // Current Scene requests a scene that may differ from the project's own
     // start scene, so materialize a copy with that one override (same "one
     // materialization, immutable" rule the plan requires - this copy is never
     // written back).
-    ProjectDoc doc = document.data();
     doc.activeSceneId = sceneId;
 
     // Composition root, mirroring Application::initUtilities()/

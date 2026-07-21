@@ -41,16 +41,24 @@ ProjectDoc makeDoc() {
     a.id = kSceneA;
     a.name = "Scene A";
     a.backgroundColor = {0.1f, 0.1f, 0.1f, 1.f};
+    // RU-04: mirrors ProjectDocument::createScene() - every real scene always
+    // has at least one layer; the canonical loader (AssetLoader, now on
+    // Play's own path) rejects a scene with an empty layers array.
+    a.layers.push_back(SceneLayerDef{"layer-1", "Layer 1"});
+    a.defaultLayerId = "layer-1";
     SceneInstanceDef hero;
     hero.id = kHero;
     hero.objectTypeId = "Hero";
     hero.instanceName = "Hero";
+    hero.layerId = "layer-1";
     hero.transform.position = {10.f, 20.f};
     a.instances.push_back(hero);
 
     SceneDef b;
     b.id = kSceneB;
     b.name = "Scene B";
+    b.layers.push_back(SceneLayerDef{"layer-1", "Layer 1"});
+    b.defaultLayerId = "layer-1";
 
     doc.scenes.emplace(kSceneA, a);
     doc.scenes.emplace(kSceneB, b);
@@ -65,10 +73,13 @@ ProjectDoc makeReplacementDoc() {
     SceneDef scene;
     scene.id = "scene-replacement";
     scene.name = "Replacement";
+    scene.layers.push_back(SceneLayerDef{"layer-1", "Layer 1"});
+    scene.defaultLayerId = "layer-1";
     SceneInstanceDef instance;
     instance.id = 77;
     instance.objectTypeId = "Enemy";
     instance.instanceName = "Enemy";
+    instance.layerId = "layer-1";
     instance.transform.position = {7.f, 8.f};
     scene.instances.push_back(instance);
     doc.scenes.emplace(scene.id, scene);

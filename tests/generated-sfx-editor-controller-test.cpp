@@ -32,6 +32,11 @@ ProjectDoc makeProject() {
     SceneDef scene;
     scene.id = "scene";
     scene.name = "Scene";
+    // RU-04: every real scene has at least one layer (ProjectDocument::
+    // createScene()'s invariant) - the canonical loader Play now routes
+    // through (AssetLoader) rejects an empty layers array.
+    scene.layers.push_back(SceneLayerDef{"layer-1", "Layer 1"});
+    scene.defaultLayerId = "layer-1";
     project.scenes.emplace(scene.id, scene);
     project.activeSceneId = scene.id;
     return project;

@@ -97,6 +97,9 @@ target_link_libraries(artcade-editor-core PUBLIC
     # pulls in World/scene-system/runtime-entity-gateway/physics/Logic/Script/
     # GameAPI/LuaHost/Audio/Input transitively.
     artcade-gameplay-session
+    # RU-04: Play-start parses the project through the same AssetLoader the
+    # exported game uses (docs/PLAY_RUNTIME_UNIFICATION_ROADMAP.md §11).
+    artcade-asset-system
 )
 
 # ----------------------------------------------------------------------------

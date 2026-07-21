@@ -63,6 +63,7 @@
 #include "script-runtime.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -2403,6 +2404,53 @@ int main() {
         CHECK(c.stopPlaying().ok);
         CHECK(!c.isPlaying());
         CHECK(!c.document().isDirty());    // never mutated by Play/Stop
+    }
+
+    // -- RU-04: Play-start parses through the real canonical AssetLoader, not
+    // just document.data() in memory - leaves no scratch files behind -------
+    {
+        // Count pre-existing scratch directories from any earlier Play in this
+        // process (PlaySession never reuses one - see makeScratchDir()) so a
+        // net-zero delta after Play/Stop is a real "nothing leaked" signal,
+        // not a false pass from a directory some other test already left.
+        const auto countScratchDirs = [] {
+            std::error_code ec;
+            std::size_t count = 0;
+            for (const auto& entry : std::filesystem::directory_iterator(
+                     std::filesystem::temp_directory_path(), ec)) {
+                if (entry.path().filename().string().rfind("artcade-play-", 0) == 0) ++count;
+            }
+            return count;
+        };
+        const std::size_t before = countScratchDirs();
+        EditorCoordinator c{makeInheritedDoc()};
+        CHECK(c.playProject().ok);
+        CHECK(countScratchDirs() == before);   // torn down synchronously in materialize()
+        CHECK(c.stopPlaying().ok);
+        CHECK(countScratchDirs() == before);
+    }
+
+    // -- RU-04: a scene/instance the canonical loader would reject (e.g. an
+    // empty layers array, or an instance pointing at no real layer) fails
+    // Play atomically with an explicit diagnostic - never a silent fallback
+    // to the in-memory ProjectDoc, and never a crash ------------------------
+    {
+        ProjectDoc noLayerDoc = makeDoc();
+        noLayerDoc.scenes.at(kSceneA).layers.clear();
+        noLayerDoc.scenes.at(kSceneA).defaultLayerId.clear();
+        EditorCoordinator noLayer{noLayerDoc};
+        const EditorOperationResult noLayerResult = noLayer.playProject();
+        CHECK(!noLayerResult.ok);
+        CHECK(!noLayerResult.error.empty());
+        CHECK(!noLayer.isPlaying());
+
+        ProjectDoc danglingLayerDoc = makeDoc();
+        danglingLayerDoc.scenes.at(kSceneA).instances.front().layerId = "no-such-layer";
+        EditorCoordinator danglingLayer{danglingLayerDoc};
+        const EditorOperationResult danglingLayerResult = danglingLayer.playProject();
+        CHECK(!danglingLayerResult.ok);
+        CHECK(!danglingLayerResult.error.empty());
+        CHECK(!danglingLayer.isPlaying());
     }
 
     // -- Play materializes runtime sprite data and used assets only ------------

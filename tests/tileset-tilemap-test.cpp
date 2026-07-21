@@ -3108,6 +3108,7 @@ int main() {
         other.id = 99;
         other.objectTypeId = "Other";
         other.instanceName = "Other";
+        other.layerId = "layer-1";
         doc.scenes.at(kSceneA).instances.push_back(other);
         EditorCoordinator c{doc};
         TilesetSlicing slicing;
