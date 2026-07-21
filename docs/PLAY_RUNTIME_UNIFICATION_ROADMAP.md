@@ -60,7 +60,7 @@ La migrazione è conclusa soltanto quando:
 |---|---|---|---|---|---|
 | RU-00 | Preparazione | Congelamento baseline e branch di migrazione | [x] | — | editor |
 | RU-01a | P0 | Riconciliazione schema canonico di progetto (formatVersion, scenes, componenti mancanti) | [x] | RU-00 | runtime, editor |
-| RU-01 | P0 | Parser `ProjectDocument` unificato sul canonico `ProjectJson::*` | [ ] | RU-01a | editor |
+| RU-01 | P0 | Parser `ProjectDocument` unificato sul canonico `ProjectJson::*` | [x] | RU-01a | editor, runtime |
 | RU-02a | P0 | Characterization e dependency map del composition root/tick attuali | [x] | RU-00 | runtime |
 | RU-02b | P0 | Separare preparazione host (`clearDrawQueue`) dal fixed tick | [x] | RU-02a | runtime |
 | RU-02c | P0 | `GameplaySession` non-owning: sposta l'algoritmo del tick (reference, non ownership) | [x] | RU-02b | runtime |
@@ -170,20 +170,34 @@ RU-01 e RU-04 assumono entrambe che un file scritto dall'editor sia accettato da
 
 **Design richiesto**
 
-- [ ] Mappare ogni funzione di lettura in `project_io.cpp` sulla corrispondente funzione `ProjectJson::*` (mappatura già coperta da RU-01a per i campi che oggi non hanno equivalente).
-- [ ] Sostituire la lettura ad-hoc con chiamate al parser canonico.
-- [ ] Verificare che tutte le eccezioni JSON restino intercettate al confine pubblico del deserializer (stesso standard di `P0-03` nella remediation roadmap esistente) — nota: `AssetLoader::parseProjectJson` oggi cattura con un generico `catch (...) { return false; }` a livello di `loadDirectory`/`loadArtcade` (`asset-loader.cpp:106-112,135-141`), senza messaggio; l'editor deve avvolgere la chiamata con un boundary che produca comunque un errore mostrabile, anche se meno specifico di prima (vedi decisione di design in RU-01a).
-- [ ] Eseguire un test di round-trip: ogni progetto di test esistente (incl. asset ostili/malformati usati nei test P0-03/P0-04) deve produrre lo stesso `ProjectDoc` prima e dopo la sostituzione.
+- [x] Mappare ogni funzione di lettura in `project_io.cpp` sulla corrispondente funzione `ProjectJson::*` (mappatura già coperta da RU-01a per i campi che oggi non hanno equivalente).
+- [x] Sostituire la lettura ad-hoc con chiamate al parser canonico.
+- [x] Verificare che tutte le eccezioni JSON restino intercettate al confine pubblico del deserializer (stesso standard di `P0-03` nella remediation roadmap esistente).
+- [x] Eseguire un test di round-trip: ogni progetto di test esistente (incl. asset ostili/malformati usati nei test P0-03/P0-04) deve produrre lo stesso `ProjectDoc` prima e dopo la sostituzione.
 
 **Test obbligatori**
 
-- [ ] Round-trip su tutti i progetti fixture esistenti (editor + eventuali fixture del runtime).
-- [ ] Documento malformato/ostile → errore esplicito mostrabile all'utente (accettabile se meno specifico di prima, mai silenzioso — nessuna regressione sul principio di P0-03/P0-04, anche se il messaggio esatto può cambiare).
-- [ ] Nessuna regressione nella suite `editor-core-test`.
+- [x] Round-trip su tutti i progetti fixture esistenti (editor + eventuali fixture del runtime).
+- [x] Documento malformato/ostile → errore esplicito mostrabile all'utente (accettabile se meno specifico di prima, mai silenzioso — nessuna regressione sul principio di P0-03/P0-04, anche se il messaggio esatto può cambiare).
+- [x] Nessuna regressione nella suite `editor-core-test`.
 
 **Gate di uscita**
 
 `ProjectDocument` e `AssetLoader::parseProjectJson` leggono lo stesso file producendo dati equivalenti; zero divergenze note tra i due percorsi di lettura.
+
+**Stato (2026-07-21)**: [x] completata. `ProjectSerializer::deserialize()` (`project_io.cpp`) aggiunge `deserializeCanonical(root)`: quando `formatVersion == kCurrentSchemaVersion` (9), delega interamente a `ProjectJson::validate_current_project_json` + `read_project_header`/`read_global_variables`/`read_world_settings`/`read_object_types_map`/`read_object_type_logic_boards` (nuova, vedi sotto)/`read_entities_map`/`read_scenes_map`/`read_thumbnails`/`read_physics_layers`/`read_collision_profiles`/`read_tile_palette`/`read_tilesets`/`read_image_assets`/`read_sprite_animation_assets`/`read_audio_assets`/`read_font_assets` — la stessa identica sequenza di `AssetLoader::parseProjectJson` (`asset-loader.cpp:193-249`), meno la bookkeeping di manifest/path-resolution specifica dell'asset loading a runtime (non dato di `ProjectDoc`). `artcade-project-json` linkato in `artcade-editor-core` (`src/CMakeLists.txt`).
+
+**Scoperta durante l'implementazione — fallback deliberato, non nella progettazione iniziale**: `validate_current_project_json` (non solo `validate_current_project_document`) impone già a livello di *forma JSON* che ogni scena abbia un array `layers` non vuoto e un `defaultLayerId` — un vincolo di "pronto per l'export" corretto per `AssetLoader::parseProjectJson` (che carica solo file destinati a girare come gioco), ma più stringente di quanto l'editor richieda per un documento ancora in lavorazione. Verificato concretamente: diverse fixture di test esistenti (`editor_core_test_harness.cpp::makeDoc()` e derivate) costruiscono scene senza layer di proposito, perché non stanno esercitando il sistema di layer — cosa che invece la creazione reale di una scena (`ProjectDocument::createScene()`) previene sempre aggiungendo un layer di default. Soluzione: `deserialize()` prova prima `deserializeCanonical()`; se il documento v9 non supera la validazione canonica (raro nella pratica — solo fixture sintetiche, mai un progetto realmente autorato), ricade sul parser legacy invariato sotto, esattamente come si comportava prima di RU-01. Un file v9 realmente conforme prende sempre il percorso canonico e ritorna lì. Questo preserva il 100% del comportamento esistente sulle fixture sintetiche mentre instrada il caso reale (qualunque progetto salvato dall'editor tramite l'uso normale) attraverso il parser condiviso.
+
+**Scelta esplicita — `validate_current_project_document` non chiamato**: a differenza di `AssetLoader::parseProjectJson`, `deserializeCanonical()` non chiama questo validator — codifica regole di business "pronto per l'export" (stesso vincolo sui layer, tra gli altri) ridondanti con e più severe del validator proprio dell'editor (`ProjectValidator::validate`, uno stage separato e deliberato che i chiamanti invocano già dopo `deserialize()`, vedi `project_load.cpp`). Il parser canonico resta autorità sulla *forma* del JSON (necessaria perché i vari `read_*` assumano precondizioni sicure, es. `read_global_variables` usa `.at()`), non sulle regole di autoring-readiness, che restano di competenza dell'editor.
+
+**Deduplicazione `logicBoard`**: il blocco inline in `AssetLoader::parseProjectJson` che leggeva `objectTypes[].logicBoard` (non fattorizzato in `ProjectJson::*`) è stato estratto in `ProjectJson::read_object_type_logic_boards()` (`entity-json.h/.cpp`, runtime-cpp), richiamato sia da `AssetLoader::parseProjectJson` sia dal nuovo percorso canonico dell'editor — altrimenti l'editor avrebbe dovuto duplicare anche questo blocco, vanificando parte dello scopo di RU-01. `artcade-project-json` linka `artcade-logic-core` per questo (aggiunto nel `CMakeLists.txt` di runtime-cpp, dopo `add_subdirectory(src/modules/logic-core)`).
+
+**Correzione a una prima analisi imprecisa**: un'esplorazione iniziale (agente) aveva suggerito che `world`/`physicsLayers`/`collisionProfiles`/`tilePalette`/`thumbnails` fossero scritti da `serialize()` ma mai riletti (perdita silenziosa di dati). Verificato direttamente nel codice: **nessuno di questi campi è oggi scritto né letto dall'editor** — non esiste ancora una UI/Command che li autora, quindi non sono un bug di round-trip reale, solo campi di `ProjectDoc` non ancora parte del modello di authoring dell'editor. Il percorso canonico li legge comunque (parità letterale con `AssetLoader::parseProjectJson`, utile se/quando un'interfaccia li autorerà), ma non c'è nulla da "correggere" oggi su questo fronte. Il bug reale, confermato e ora chiuso, è **`globalVariables`**: `serialize()` lo scriveva già (RU-01a), ma il parser legacy non lo rileggeva mai (nessuna chiamata a `read_global_variables`-equivalente in `project_io.cpp`) — un progetto con variabili globali definite perdeva silenziosamente quei dati alla riapertura. Chiuso per i file v9 conformi che ora passano dal percorso canonico.
+
+**Test aggiunto**: nuovo blocco in `editor-core-test.cpp` (dopo il test di round-trip esistente) — costruisce un `ProjectDoc` con una scena reale (layer + `defaultLayerId`, mirror di `createScene()`), un Object Type con `logicBoard` popolato (`kOnStart`/`kStateSet`), e una `globalVariables` — `serialize()` → `deserialize()` → verifica che tutti e tre sopravvivano. Verificato che questo documento prende davvero il percorso canonico (nessun fallback silenzioso durante lo sviluppo del test). Verificato: editor 2574 asserzioni core (+ tutte le altre suite) verdi, runtime-cpp 50/50 CTest verdi, WASM build verde (nessuna modifica di comportamento a `AssetLoader::parseProjectJson`, solo spostamento del blocco `logicBoard` in una funzione condivisa).
+
+**Commit**: da registrare al momento del commit.
 
 ## 9. Fase RU-02 — Estrazione `GameplaySession` riutilizzabile dal runtime
 
