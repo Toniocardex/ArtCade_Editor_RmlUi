@@ -1072,6 +1072,156 @@ int main() {
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->tilemap->tilesetAssetId == "tiles-1");
     }
 
+    // -- CreateTilemapEntityCommand: one atomic mutation creates type +
+    // instance (on the requested layer) + tilemap component; a single undo
+    // removes all of it, redo restores it ---------------------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        sliceTilesOne(c);   // tiles-1 sliced 32x32 -> cellSize derives from slicing
+        const std::size_t before = c.undoSize();
+        CHECK(c.execute(CreateTilemapEntityCommand{
+            kSceneA, 100, "object-tm", "Tilemap 1", "Tilemap 1",
+            Vec2{0.f, 0.f}, "layer-1", "tiles-1"}).ok);
+        CHECK(c.undoSize() == before + 1);   // one undo entry for the whole gesture
+        const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, 100);
+        CHECK(inst != nullptr);
+        CHECK(inst->instanceName == "Tilemap 1");
+        CHECK(inst->objectTypeId == "object-tm");
+        CHECK(inst->layerId == "layer-1");
+        CHECK(inst->tilemap.has_value());
+        CHECK(inst->tilemap->tilesetAssetId == "tiles-1");
+        CHECK(inst->tilemap->cellSize.x == 32.f);
+        CHECK(inst->tilemap->cellSize.y == 32.f);
+        CHECK(inst->tilemap->chunks.empty());
+        CHECK(c.document().hasObjectType("object-tm"));
+
+        CHECK(c.undo().ok);   // single undo removes instance AND type
+        CHECK(!c.document().findInstanceInScene(kSceneA, 100));
+        CHECK(!c.document().hasObjectType("object-tm"));
+        CHECK(c.redo().ok);
+        const SceneInstanceDef* again = c.document().findInstanceInScene(kSceneA, 100);
+        CHECK(again != nullptr);
+        CHECK(again->tilemap.has_value());
+        CHECK(c.document().hasObjectType("object-tm"));
+    }
+
+    // -- CreateTilemapEntityCommand: empty layerId resolves to the scene
+    // default (canonical format: no instance carries "") ------------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        CHECK(c.execute(CreateTilemapEntityCommand{
+            kSceneA, 100, "object-tm", "Tilemap 1", "Tilemap 1",
+            Vec2{0.f, 0.f}, /*layerId*/ "", "tiles-1"}).ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, 100)->layerId == "layer-1");
+    }
+
+    // -- CreateTilemapEntityCommand: rejections leave no partial mutation ------
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        SceneLayerDef locked;
+        locked.id = "locked-layer";
+        locked.name = "Locked";
+        locked.locked = true;
+        doc.scenes.at(kSceneA).layers.push_back(locked);
+        EditorCoordinator c{doc};
+        const uint64_t revision = c.document().revision();
+        // Missing tileset.
+        CHECK(!c.execute(CreateTilemapEntityCommand{
+            kSceneA, 100, "object-tm", "T", "T", Vec2{0.f, 0.f},
+            "layer-1", "no-such-tileset"}).ok);
+        // Locked target layer.
+        CHECK(!c.execute(CreateTilemapEntityCommand{
+            kSceneA, 100, "object-tm", "T", "T", Vec2{0.f, 0.f},
+            "locked-layer", "tiles-1"}).ok);
+        // Unknown target layer.
+        CHECK(!c.execute(CreateTilemapEntityCommand{
+            kSceneA, 100, "object-tm", "T", "T", Vec2{0.f, 0.f},
+            "no-such-layer", "tiles-1"}).ok);
+        // Existing object type / instance ids.
+        CHECK(!c.execute(CreateTilemapEntityCommand{
+            kSceneA, kHero, "object-tm", "T", "T", Vec2{0.f, 0.f},
+            "layer-1", "tiles-1"}).ok);
+        CHECK(c.execute(CreateTilemapEntityCommand{
+            kSceneA, 100, "object-tm", "T", "T", Vec2{0.f, 0.f},
+            "layer-1", "tiles-1"}).ok);
+        CHECK(!c.execute(CreateTilemapEntityCommand{
+            kSceneA, 101, "object-tm", "T", "T", Vec2{0.f, 0.f},
+            "layer-1", "tiles-1"}).ok);
+        // Only the one successful create mutated the document.
+        CHECK(!c.document().findInstanceInScene(kSceneA, 101));
+        CHECK(c.document().revision() != revision);
+        CHECK(c.undoSize() == 1);
+    }
+
+    // -- addTilemapEntity action: create on the active layer, then select the
+    // new instance, arm Brush and show the Tile Palette dock --------------------
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        sliceTilesOne(c);
+        CHECK(c.apply(SetTilePaletteDockVisibleIntent{false}).ok);
+        const std::size_t before = c.undoSize();
+        CHECK(addTilemapEntity(c).ok);
+        CHECK(c.undoSize() == before + 1);
+        const EntityId newId = c.selection().primaryEntity;
+        CHECK(newId != INVALID_ENTITY);
+        CHECK(newId != kHero);
+        const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, newId);
+        CHECK(inst != nullptr);
+        CHECK(inst->instanceName == "Tilemap 1");
+        CHECK(inst->layerId == "layer-1");   // the active layer
+        CHECK(inst->tilemap.has_value());
+        CHECK(inst->tilemap->tilesetAssetId == "tiles-1");
+        CHECK(inst->tilemap->cellSize.x == 32.f);   // from the tileset's slicing
+        CHECK(c.state().activeTool == EditorTool::Brush);
+        CHECK(c.uiState().tilePaletteDockVisible);
+        // A second create picks the next free name.
+        CHECK(addTilemapEntity(c).ok);
+        const SceneInstanceDef* second =
+            c.document().findInstanceInScene(kSceneA, c.selection().primaryEntity);
+        CHECK(second != nullptr);
+        CHECK(second->instanceName == "Tilemap 2");
+    }
+
+    // -- addTilemapEntity preflight: no tileset / locked active layer fail
+    // without any mutation -------------------------------------------------------
+    {
+        EditorCoordinator c{makeDoc()};   // no tilesets in the project
+        const uint64_t revision = c.document().revision();
+        CHECK(!addTilemapEntity(c).ok);
+        CHECK(c.document().revision() == revision);
+        CHECK(c.undoSize() == 0);
+    }
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        CHECK(c.execute(SetLayerLockedCommand{kSceneA, "layer-1", true}).ok);
+        const std::size_t before = c.undoSize();
+        const uint64_t revision = c.document().revision();
+        CHECK(!addTilemapEntity(c).ok);
+        CHECK(c.document().revision() == revision);
+        CHECK(c.undoSize() == before);
+    }
+
+    // -- Locking the layer of the entity mid-gesture cancels the pending
+    // stroke/rectangle (a locked layer rejects edits NOW, not just new Begins) --
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(BeginTilePaintStrokeIntent{kSceneA, kHero, EditorTool::Brush, {0, 0}}).ok);
+        CHECK(c.state().tilemapEditor.pendingStroke.has_value());
+        CHECK(c.execute(SetLayerLockedCommand{kSceneA, "layer-1", true}).ok);
+        CHECK(!c.state().tilemapEditor.pendingStroke.has_value());
+
+        // Same for a rectangle drag in progress.
+        CHECK(c.execute(SetLayerLockedCommand{kSceneA, "layer-1", false}).ok);
+        c.apply(SelectEntityIntent{kHero});
+        c.apply(SelectPaintTileIntent{"tile-1"});
+        CHECK(c.apply(BeginTileRectangleIntent{kSceneA, kHero, {0, 0}}).ok);
+        CHECK(c.state().tilemapEditor.pendingRectangle.has_value());
+        CHECK(c.execute(SetLayerLockedCommand{kSceneA, "layer-1", true}).ok);
+        CHECK(!c.state().tilemapEditor.pendingRectangle.has_value());
+    }
+
     // -- RemoveTilemapComponentCommand: success, no-component rejection, undo
     // restores exactly ----------------------------------------------------------
     {
@@ -3174,6 +3324,30 @@ int main() {
             [](const SceneFrameEntity& e) { return e.entityId == kHero; }));
     }
 
+    // -- Painted tilemap cells render in Play (ADR-0001 / editor Scene View) ---
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        setUpTilemapForPainting(c);
+        std::vector<TilemapCellChange> changes;
+        changes.push_back(TilemapCellChange{{0, 0}, std::nullopt,
+                                            TilemapCellValue{"tile-1", TileTransformFlags::None}});
+        changes.push_back(TilemapCellChange{{1, 0}, std::nullopt,
+                                            TilemapCellValue{"tile-2", TileTransformFlags::None}});
+        CHECK(c.execute(PaintTilemapCellsCommand{kSceneA, kHero, changes}).ok);
+        CHECK(c.playCurrentScene().ok);
+
+        const SceneFrameSnapshot snap = collectSceneFrameSnapshot(*c.playSession());
+        const SceneFrameTilemap* playTm = nullptr;
+        for (const SceneFrameTilemap& tm : snap.tilemaps) {
+            if (tm.entityId == kHero) { playTm = &tm; break; }
+        }
+        CHECK(playTm != nullptr);
+        CHECK(playTm->cells.size() == 2);
+        CHECK(!playTm->imageAssetId.empty());
+        CHECK(std::any_of(snap.entities.begin(), snap.entities.end(),
+            [](const SceneFrameEntity& e) { return e.entityId == kHero; }));
+    }
+
     // -- Stop leaves ProjectDocument, dirty, revision and Undo untouched -------
     {
         EditorCoordinator c{makeSpriteDoc()};
@@ -3197,12 +3371,9 @@ int main() {
                   ->tileId == "tile-1");
     }
 
-    // RU-03 (D-01): "Negative coordinates and a rectangular cellSize" and
-    // "Save/load round-trip parity" removed - both asserted per-instance
-    // tilemap rendering during Play (snapshot.tilemaps), the same now-removed
-    // capability documented above. The underlying cell-coordinate/cellSize
-    // math (tilemapRenderCells) is still covered by the Edit-mode tests
-    // earlier in this file; the save/load round-trip of the authored
-    // TilemapComponent itself is covered by the earlier chunk round-trip test.
+    // RU-03 previously removed Play tilemap rendering; ADR-0001 editor Play
+    // path is restored above ("Painted tilemap cells render in Play").
+    // Save/load of TilemapComponent and cell-coordinate math remain covered
+    // by earlier tests in this file.
     return reportAndExit("tileset-tilemap-test");
 }

@@ -4,6 +4,7 @@
 #include "editor-native/commands/editor_intent.h"
 #include "editor-native/commands/entity_commands.h"
 #include "editor-native/commands/scene_commands.h"
+#include "editor-native/commands/tilemap_commands.h"
 #include "editor-native/model/project_document.h"
 
 #include <algorithm>
@@ -188,6 +189,58 @@ EditorOperationResult addEntity(EditorCoordinator& coordinator) {
         normalizeSpawnPosition(
             Vec2{scene->worldSize.x * 0.5f, scene->worldSize.y * 0.5f},
             scene->worldSize));
+}
+
+EditorOperationResult addTilemapEntity(EditorCoordinator& coordinator) {
+    const SceneId& sceneId = coordinator.state().activeSceneId;
+    const SceneDef* scene = coordinator.document().findScene(sceneId);
+    if (sceneId.empty() || !scene) {
+        return EditorOperationResult::failure("No active scene to add a Tilemap entity to");
+    }
+    // Preflight both preconditions here so failure produces a clear, targeted
+    // message and no command runs (nothing is mutated or invalidated). Logged
+    // explicitly: execute() logs its own rejections, but these short-circuit
+    // before any command exists and must not be silent.
+    const auto& tilesets = coordinator.document().data().tilesets;
+    if (tilesets.empty()) {
+        std::string message = "Import a tileset first - a Tilemap entity needs one to paint from";
+        coordinator.logError(message);
+        return EditorOperationResult::failure(std::move(message));
+    }
+    const std::string layerId = coordinator.activeLayerId(sceneId);
+    const std::string targetLayer = layerId.empty() ? scene->defaultLayerId : layerId;
+    if (coordinator.document().isLayerLocked(sceneId, targetLayer)) {
+        std::string message = "Cannot create Tilemap entity: the active layer is locked";
+        coordinator.logError(message);
+        return EditorOperationResult::failure(std::move(message));
+    }
+    const EntityId id = nextAvailableEntityId(coordinator.document(), sceneId);
+    // "Tilemap N" from 1, skipping taken names - matches the palette header's
+    // display ("Painting: Tilemap 1 - ...") from the very first create.
+    std::string instanceName;
+    for (int n = 1;; ++n) {
+        std::string candidate = "Tilemap " + std::to_string(n);
+        bool taken = false;
+        for (const SceneInstanceDef& inst : scene->instances) {
+            if (inst.instanceName == candidate) { taken = true; break; }
+        }
+        if (!taken) { instanceName = std::move(candidate); break; }
+    }
+    const std::string objectTypeId = makeUniqueObjectTypeId(coordinator.document());
+    // Origin, not the viewport centre: the tile grid must align with the
+    // scene's world grid, and painting (not the transform) decides where the
+    // visible content lives.
+    const EditorOperationResult result = coordinator.execute(CreateTilemapEntityCommand{
+        sceneId, id, objectTypeId, /*objectTypeName*/ instanceName, instanceName,
+        Vec2{0.f, 0.f}, targetLayer, tilesets.front().assetId});
+    if (result.ok) {
+        // Workspace follow-ups (not undo-history entries): selecting the new
+        // tilemap makes the Tile Palette dock visible, and Brush arms painting
+        // immediately - create -> paint with zero extra clicks.
+        coordinator.apply(SelectEntityIntent{id});
+        coordinator.apply(SetActiveToolIntent{EditorTool::Brush});
+    }
+    return result;
 }
 
 EditorOperationResult addInstanceOfTypeAt(EditorCoordinator& coordinator,

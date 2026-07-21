@@ -92,6 +92,18 @@ class SetInstanceSpriteOverrideCommand;
 class SetInstanceAnimatorOverrideCommand;
 class ClearInstanceSpriteOverrideCommand;
 class ClearInstanceAnimatorOverrideCommand;
+class AddGlobalVariableCommand;
+class RemoveGlobalVariableCommand;
+class RenameGlobalVariableCommand;
+class SetGlobalVariableTypeCommand;
+class SetGlobalVariableInitialValueCommand;
+class SetGlobalVariableDescriptionCommand;
+class SetLogicConditionJoinCommand;
+class SetLogicConditionNegatedCommand;
+class SetInstanceVisibleCommand;
+class SetTopDownControllerAccelerationCommand;
+class SetTopDownControllerFrictionCommand;
+class SetTopDownControllerFourDirectionsCommand;
 
 // =============================================================================
 // ProjectDocument — the single authoring authority of the native editor.
@@ -204,6 +216,7 @@ private:
     friend class RemoveLinearMoverCommand;
     friend class RenameEntityCommand;
     friend class SetEntityTransformCommand;
+    friend class SetInstanceVisibleCommand;
     friend class SetBoxColliderEnabledCommand;
     friend class SetBoxColliderOffsetCommand;
     friend class SetBoxColliderSizeCommand;
@@ -213,6 +226,9 @@ private:
     friend class AddTopDownControllerCommand;
     friend class RemoveTopDownControllerCommand;
     friend class SetTopDownControllerSpeedCommand;
+    friend class SetTopDownControllerAccelerationCommand;
+    friend class SetTopDownControllerFrictionCommand;
+    friend class SetTopDownControllerFourDirectionsCommand;
     friend class AddSceneLayerCommand;
     friend class RenameSceneLayerCommand;
     friend class MoveSceneLayerCommand;
@@ -258,6 +274,7 @@ private:
     friend class SetAnimationClipFrameIdsCommand;
     friend class SetAnimationClipFrameRateCommand;
     friend class SetAnimationClipPlaybackModeCommand;
+    friend class CreateTilemapEntityCommand;
     friend class AddTilemapComponentCommand;
     friend class RemoveTilemapComponentCommand;
     friend class SetTilemapTilesetCommand;
@@ -271,6 +288,12 @@ private:
     friend class RenameTilesetCommand;
     friend class ChangeTilesetSlicingCommand;
     friend class CreateLogicBoardCommand;
+    friend class AddGlobalVariableCommand;
+    friend class RemoveGlobalVariableCommand;
+    friend class RenameGlobalVariableCommand;
+    friend class SetGlobalVariableTypeCommand;
+    friend class SetGlobalVariableInitialValueCommand;
+    friend class SetGlobalVariableDescriptionCommand;
     friend class RemoveLogicBoardCommand;
     friend class AddLogicRuleCommand;
     friend class RemoveLogicRuleCommand;
@@ -286,6 +309,8 @@ private:
     friend class RemoveLogicConditionCommand;
     friend class MoveLogicConditionCommand;
     friend class ChangeLogicConditionTypeCommand;
+    friend class SetLogicConditionJoinCommand;
+    friend class SetLogicConditionNegatedCommand;
     friend class SetLogicPropertyCommand;
     friend class SetLogicAnimationClipCommand;
 
@@ -295,6 +320,7 @@ private:
     bool patchInstanceTransform(const SceneId& sceneId, EntityId id,
                                 const AuthoredTransformPatch& patch);
     bool setInstanceName(const SceneId& sceneId, EntityId id, std::string name);
+    bool setInstanceVisible(const SceneId& sceneId, EntityId id, bool visible);
     bool setSceneName(const SceneId& sceneId, std::string name);
     // The scene world size (Dimensions). Resizing never moves instances — an
     // entity left outside the new bounds keeps its coordinates (Outside Scene UX
@@ -355,12 +381,13 @@ private:
     bool removeLinearMover(const std::string& objectTypeId);
     bool setLinearMoverDirection(const std::string& objectTypeId, Vec2 direction);
     bool setLinearMoverSpeed(const std::string& objectTypeId, float speed);
-    // TopDownController is authored on the object type only. This slice edits the
-    // movement speed (canonical maxSpeed); the other canonical fields persist
-    // untouched.
+    // TopDownController is authored on the object type only.
     bool addTopDownController(const std::string& objectTypeId, TopDownControllerComponent component);
     bool removeTopDownController(const std::string& objectTypeId);
     bool setTopDownControllerSpeed(const std::string& objectTypeId, float speed);
+    bool setTopDownControllerAcceleration(const std::string& objectTypeId, float acceleration);
+    bool setTopDownControllerFriction(const std::string& objectTypeId, float friction);
+    bool setTopDownControllerFourDirections(const std::string& objectTypeId, bool fourDirections);
     // PlatformerController is authored on the object type only. `field` selects the
     // canonical scalar (0 = maxSpeed, 1 = jumpForce, 2 = customGravity), matching
     // commands/PlatformerField so this header stays free of the command enum.

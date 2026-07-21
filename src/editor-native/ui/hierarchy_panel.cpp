@@ -116,22 +116,74 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
 
     std::string rows;
     const SceneDef* scene = doc.findScene(activeSceneId);
-    if (scene) {
+    // One instance row, shared by the grouped (layered) and flat (legacy)
+    // renderings. `grouped` only adds the indent class.
+    const auto instanceRow = [&](const SceneInstanceDef& inst, bool grouped) {
+        std::string row = "<div class=\"tree-row";
+        if (grouped) row += " in-layer";
+        if (inst.id == selected) row += " selected";
+        row += "\" data-action=\"select-entity\" data-arg=\""
+             + std::to_string(inst.id) + "\">";
+        row += "<span class=\"icon row-icon\">";
+        // A tilemap-owning instance shows the grid glyph (the same one the
+        // Tile Palette's grid toggle uses) instead of the type icon, so the
+        // paintable strata read at a glance in the tree.
+        row += inst.tilemap.has_value() ? "&#xea3b;" : typeIcon(inst.objectTypeId);
+        row += "</span>";
+        row += "<span class=\"row-name\">" + escapeRml(inst.instanceName) + "</span>";
+        row += "<span class=\"row-type\">" + escapeRml(inst.objectTypeId) + "</span>";
+        // Per-entity menu (Create Instance / Delete).
+        row += "<span class=\"row-menu\" data-action=\"open-entity-menu\" data-arg=\""
+             + std::to_string(inst.id) + "\">&#xeb5d;</span>";
+        row += "</div>";
+        return row;
+    };
+    bool anyRowMatchedFilter = false;
+    if (scene && !scene->instances.empty() && !scene->layers.empty()) {
+        // Layered scene: one group per layer, background (layers[0]) at the
+        // top - the list reads in render order, exactly like the stack the
+        // user is composing. Headers always render (an empty layer is a valid
+        // create target: click it -> active layer -> Create Tilemap Entity).
+        const EditorSceneViewState& view = coordinator.sceneView(activeSceneId);
+        const std::string activeLayer = coordinator.activeLayerId(activeSceneId);
+        for (const SceneLayerDef& layer : scene->layers) {
+            const bool isActive = layer.id == activeLayer;
+            const bool isHidden = view.hiddenLayerIds.count(layer.id) > 0;
+            rows += "<div class=\"layer-group-header";
+            if (isActive) rows += " active";
+            if (isHidden) rows += " hidden";
+            // Clicking the header makes the layer active (workspace intent);
+            // the eye/lock children carry their own actions, which win.
+            rows += "\" data-action=\"select-layer\" data-arg=\""
+                  + escapeRml(layer.id) + "\">";
+            rows += "<span class=\"layer-eye\" data-action=\"toggle-layer-visible\""
+                    " data-arg=\"" + escapeRml(layer.id) + "\" title=\""
+                  + (isHidden ? "Show layer in editor" : "Hide layer in editor")
+                  + "\"><span class=\"icon\">&#xea9a;</span></span>";
+            rows += "<span class=\"layer-lock";
+            if (layer.locked) rows += " locked";
+            rows += "\" data-action=\"toggle-layer-locked\" data-arg=\""
+                  + escapeRml(layer.id) + "\" title=\""
+                  + (layer.locked ? "Unlock layer" : "Lock layer")
+                  + "\"><span class=\"icon\">"
+                  + (layer.locked ? "&#xeae2;" : "&#xeae1;") + "</span></span>";
+            rows += "<span class=\"layer-group-name\">";
+            if (isActive) rows += "&#x25cf; ";   // active marker, as in the Inspector
+            rows += escapeRml(layer.name) + "</span>";
+            rows += "</div>";
+            for (const SceneInstanceDef& inst : scene->instances) {
+                if (doc.effectiveLayerId(activeSceneId, inst) != layer.id) continue;
+                if (!matchesFilter(inst.instanceName, filter)) continue;
+                anyRowMatchedFilter = true;
+                rows += instanceRow(inst, /*grouped*/ true);
+            }
+        }
+    } else if (scene) {
+        // Legacy scene without layers: the flat list, unchanged.
         for (const SceneInstanceDef& inst : scene->instances) {
             if (!matchesFilter(inst.instanceName, filter)) continue;
-            rows += "<div class=\"tree-row";
-            if (inst.id == selected) rows += " selected";
-            rows += "\" data-action=\"select-entity\" data-arg=\""
-                  + std::to_string(inst.id) + "\">";
-            rows += "<span class=\"icon row-icon\">";
-            rows += typeIcon(inst.objectTypeId);
-            rows += "</span>";
-            rows += "<span class=\"row-name\">" + escapeRml(inst.instanceName) + "</span>";
-            rows += "<span class=\"row-type\">" + escapeRml(inst.objectTypeId) + "</span>";
-            // Per-entity menu (Create Instance / Delete).
-            rows += "<span class=\"row-menu\" data-action=\"open-entity-menu\" data-arg=\""
-                  + std::to_string(inst.id) + "\">&#xeb5d;</span>";
-            rows += "</div>";
+            anyRowMatchedFilter = true;
+            rows += instanceRow(inst, /*grouped*/ false);
         }
     }
     if (!scene) {
@@ -145,12 +197,15 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
                "<button class=\"panel-btn hierarchy-empty-action";
         if (playing) rows += " disabled";
         rows += "\" data-action=\"add-entity\">Create Entity</button></div>";
-    } else if (rows.empty()) {
+    } else if (!anyRowMatchedFilter) {
         rows = "<div class=\"tree-empty\">No instances match the current filter.</div>";
     } else {
         // What the list contains: instances of the active scene (their object
-        // type shows as the trailing tag).
-        rows = "<div class=\"tree-section\">Instances</div>" + rows;
+        // type shows as the trailing tag), grouped by render layer when the
+        // scene has layers.
+        rows = "<div class=\"tree-section\">"
+             + std::string(scene->layers.empty() ? "Instances" : "Layers")
+             + "</div>" + rows;
     }
     setHtml(document, "hierarchy-list", rows);
 
@@ -170,6 +225,10 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
     setEnabled("btn-create",            !playing);
     setEnabled("create-scene-entry",    !playing);
     setEnabled("create-entity-entry",   hasActiveScene && !playing);
+    // Affordance only (the action preflights for real): greyed without a
+    // scene or during Play; a missing tileset still fails with the explicit
+    // "Import a tileset first" message rather than a mute disabled entry.
+    setEnabled("create-tilemap-entity-entry", hasActiveScene && !playing);
     // Create Instance needs a selected entity to know which object type to
     // instance; an empty catalog therefore disables it (no entity -> no selection).
     setEnabled("create-instance-entry", hasSelection && !playing);
