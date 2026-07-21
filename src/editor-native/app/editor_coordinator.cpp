@@ -4,6 +4,7 @@
 #include "editor-native/commands/generated_sfx_commands.h"
 #include "editor-native/view/scene_grid.h"
 #include "logic-core.h"
+#include "script-core.h"
 
 #include <cassert>
 #include <algorithm>
@@ -625,7 +626,8 @@ EditorOperationResult EditorCoordinator::playProject() {
 }
 
 EditorOperationResult EditorCoordinator::playProject(
-    const std::vector<Scripts::ScriptProgram>& scripts) {
+    const std::vector<Scripts::ScriptProgram>& scripts,
+    const std::filesystem::path& assetRoot) {
     if (isPlaying()) {
         appendConsole(ConsoleMessage::Level::Warning, "Already playing");
         return EditorOperationResult::failure("Already playing");
@@ -642,6 +644,7 @@ EditorOperationResult EditorCoordinator::playProject(
         appendConsole(ConsoleMessage::Level::Error, message);
         return EditorOperationResult::failure(message);
     }
+    session->setAssetRoot(assetRoot);
     const CenterWorkspaceMode originWorkspace = state_.centerWorkspaceMode;
     const bool fromAuthoringWorkspace = originWorkspace != CenterWorkspaceMode::Scene;
     PlayNavigationState navigation;
@@ -681,7 +684,8 @@ EditorOperationResult EditorCoordinator::playCurrentScene() {
 }
 
 EditorOperationResult EditorCoordinator::playCurrentScene(
-    const std::vector<Scripts::ScriptProgram>& scripts) {
+    const std::vector<Scripts::ScriptProgram>& scripts,
+    const std::filesystem::path& assetRoot) {
     if (isPlaying()) {
         appendConsole(ConsoleMessage::Level::Warning, "Already playing");
         return EditorOperationResult::failure("Already playing");
@@ -699,6 +703,7 @@ EditorOperationResult EditorCoordinator::playCurrentScene(
         appendConsole(ConsoleMessage::Level::Error, message);
         return EditorOperationResult::failure(message);
     }
+    session->setAssetRoot(assetRoot);
     const CenterWorkspaceMode originWorkspace = state_.centerWorkspaceMode;
     const bool fromAuthoringWorkspace = originWorkspace != CenterWorkspaceMode::Scene;
     PlayNavigationState navigation;
@@ -742,7 +747,8 @@ void EditorCoordinator::recordAppliedScriptSources(
 }
 
 EditorOperationResult EditorCoordinator::restartPlaying(
-    const std::vector<Scripts::ScriptProgram>& scripts) {
+    const std::vector<Scripts::ScriptProgram>& scripts,
+    const std::filesystem::path& assetRoot) {
     if (!isPlaying() || !playLaunch_) {
         appendConsole(ConsoleMessage::Level::Warning, "Cannot restart: Play is not running");
         return EditorOperationResult::failure("Cannot restart: Play is not running");
@@ -767,6 +773,7 @@ EditorOperationResult EditorCoordinator::restartPlaying(
         appendConsole(ConsoleMessage::Level::Error, message);
         return EditorOperationResult::failure(message);
     }
+    replacement->setAssetRoot(assetRoot);
 
     const CenterWorkspaceMode originWorkspace = state_.centerWorkspaceMode;
     const bool fromAuthoringWorkspace = originWorkspace != CenterWorkspaceMode::Scene;
@@ -833,13 +840,9 @@ EditorOperationResult EditorCoordinator::stopPlaying() {
     return EditorOperationResult::success(invalidation);
 }
 
-void EditorCoordinator::advanceRuntime(float dt) {
-    if (playSession_) playSession_->advance(dt);
-}
-
-void EditorCoordinator::updateRuntime(const RuntimeInputSnapshot& input, float dt) {
+void EditorCoordinator::tickRuntime(const RuntimeInputSnapshot& input, float dt) {
     if (!playSession_) return;
-    playSession_->update(input, dt);
+    playSession_->tick(input, dt);
     const std::vector<Scripts::ScriptRuntimeDiagnostic> diagnostics =
         playSession_->drainScriptDiagnostics();
     for (const Scripts::ScriptRuntimeDiagnostic& diagnostic : diagnostics) {
@@ -852,10 +855,6 @@ void EditorCoordinator::updateRuntime(const RuntimeInputSnapshot& input, float d
                                          diagnostic.line, diagnostic.column}});
     }
     if (!diagnostics.empty()) accumulate(EditorInvalidation::Console);
-}
-
-std::vector<RuntimeAudioCommand> EditorCoordinator::drainAudioCommands() {
-    return playSession_ ? playSession_->drainAudioCommands() : std::vector<RuntimeAudioCommand>{};
 }
 
 // ----------------------------------------------------------------------------

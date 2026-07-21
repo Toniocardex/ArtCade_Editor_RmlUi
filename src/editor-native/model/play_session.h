@@ -1,224 +1,98 @@
 #pragma once
 
-#include "core/types.h"
-#include "logic-runtime.h"
-#include "script-runtime.h"
+// RU-03 (docs/PLAY_RUNTIME_UNIFICATION_ROADMAP.md §10, RU02_GAMEPLAY_SESSION_
+// REFACTOR.md §7/§14 D-01): PlaySession is now a thin facade over the real
+// GameplaySession (runtime-cpp/src/app/src/gameplay_session.h) - the same
+// simulation game.exe/WASM use - instead of its own hand-written runtime
+// (RuntimeEntity/RuntimeScene ECS, kinematic movement, AABB collision
+// resolution, a private Logic/Script host). Public API kept intentionally
+// close to the old shape so editor_coordinator.h/scene_frame_snapshot.h don't
+// need to change: startProject/startActiveScene, sceneId(), scene() (now a
+// small PlaySceneInfo instead of the full RuntimeScene - no external caller
+// ever read individual entities through it, only aggregate metadata),
+// tick() (replaces advance()+update() - both were driven by the same
+// GetFrameTime() call anyway), drainScriptDiagnostics(), and the render
+// hand-off buildFrame() for scene_frame_snapshot.cpp.
+//
+// Removed (verified zero external callers before deleting): entities(),
+// findEntity(), drainAudioCommands(), drainAnimationEvents(), scriptRuntime(),
+// assets()/PlayAssetCatalogSnapshot (only ever fed the now-removed Play Sound
+// preload cache - see play_sound_preload.h's removal). Play Sound now plays
+// through the real Modules::Audio this class owns, exactly like game.exe.
+//
+// Known, deliberately accepted gap (not a regression *from this change* -
+// verified the shared runtime never supported it either): per-instance/
+// entity-owned tilemap components (ADR-0001) have no equivalent in World's
+// RenderableEntitySnapshot - only the legacy scene-level merged grid renders.
+// A project relying on entity-owned tilemap painting during Play will not
+// see it here, same as it would not see it in game.exe/WASM today. This is
+// pre-existing shared-runtime debt, not something to reintroduce a parallel
+// implementation for.
+//
+// runtime_/audio_/input_ are owned via unique_ptr (not by value): none of
+// GameplaySession/Modules::Audio/Modules::Input were designed to be moved
+// (GameplaySession has a user-declared destructor, which suppresses the
+// implicit move constructor; Application itself only ever owns them via
+// unique_ptr too - app_modules.h). PlaySession still needs to be movable
+// (EditorCoordinator stores it in a std::optional it emplaces/reassigns), so
+// owning them behind a pointer sidesteps the question entirely instead of
+// adding move support those classes were never meant to need.
 
-#include <optional>
+#include "core/types.h"
+
+#include <filesystem>
 #include <memory>
-#include <set>
+#include <optional>
 #include <string>
-#include <unordered_map>
 #include <vector>
+
+namespace ArtCade {
+class GameplaySession;
+struct RenderableEntitySnapshot;
+struct GameplayInputFrame;
+namespace Modules {
+class Audio;
+class Input;
+}
+namespace Scripts {
+class ScriptRuntime;
+struct ScriptProgram;
+struct ScriptRuntimeDiagnostic;
+}
+namespace Logic {
+struct LogicProgram;
+}
+} // namespace ArtCade
 
 namespace ArtCade::EditorNative {
 
 class ProjectDocument;
 
-struct RuntimeSpriteComponent {
-    AssetId assetId;
-    AnimationFrameRect sourceRect{};
-    bool hasSourceRect = false;
-    bool visible = true;
-};
-
-struct RuntimeSpriteAnimatorState {
-    AssetId animationAssetId;
-    std::string currentClipId;
-    std::size_t currentFrameIndex = 0;
-    float elapsedSeconds = 0.f;
-    float playbackSpeed = 1.f;
-    bool playing = false;
-    bool finished = false;
-};
-
-// Input-driven top-down movement at a constant speed (the canonical maxSpeed).
-struct RuntimeTopDownController {
-    float speed = 0.f;
-};
-
-// Side-view platforming: horizontal input + gravity-driven vertical velocity,
-// resolved against solids each frame. verticalVelocity and grounded are runtime-
-// only: not persisted, recreated at Start Play, dropped at Stop. Convention:
-// world +Y is down (gravity is positive, a jump sets a negative velocity).
-struct RuntimePlatformerController {
-    float moveSpeed = 0.f;
-    float jumpSpeed = 0.f;
-    float gravity   = 0.f;
-    float verticalVelocity = 0.f;
-    bool  grounded = false;
-};
-
-// Runtime copy of BoxCollider2D, materialized from the object type at Start Play.
-struct RuntimeBoxCollider {
-    Vec2 offset{};
-    Vec2 size{32.f, 32.f};
-    bool enabled = true;
-    BoxColliderMode mode = BoxColliderMode::Solid;
-};
-
-// One populated tilemap cell in *local* cell coordinates - deliberately never
-// world-space: the owning RuntimeEntity's Transform.position can change during
-// Play (a mover), so the world destination is computed fresh every frame in
-// collectSceneFrameSnapshot(const PlaySession&) via tilemapCellDestination(...),
-// never baked in once at materialize time.
-struct RuntimeTilemapCell {
-    int cellX = 0;
-    int cellY = 0;
-    AnimationFrameRect sourceRect{};   // tileset pixel source rect
-};
-
-// Runtime copy of a TilemapComponent (ADR-0001: entity-owned), compiled once at
-// materialize via resolveTilemapCellsStrict(...) - the same tile-id resolution
-// Edit's tilemapRenderCells uses, just strict instead of lenient (Play must
-// reject atomically on an unresolvable tile id, not skip it). No reference
-// back to the authoring TilemapComponent or ProjectDocument. `cells` is
-// already sparse (populated cells only); an entity with a TilemapComponent but
-// no painted cells materializes an empty `cells` vector, which the Play
-// snapshot collector treats as "draw nothing" - never the editor placeholder.
-struct RuntimeTilemap {
-    AssetId imageAssetId;
-    Vec2 cellSize{32.f, 32.f};
-    std::vector<RuntimeTilemapCell> cells;
-};
-
-struct RuntimeEntity {
-    EntityId id = INVALID_ENTITY;
-    ObjectTypeId objectTypeId;
-    std::string name;
-    Transform transform;
-    // Runtime-only root visibility. Logic Board mutates this independently of
-    // SpriteRenderer presence; Stop drops the entire runtime copy.
-    bool visible = true;
-    // Destroy is a runtime-only lifecycle state. The structural vector keeps
-    // stable indices for render order while all simulation/render queries skip it.
-    bool destroyed = false;
-    Vec2 velocity{};   // world units/second, resolved from authoring at materialize
-    Vec3 fillColor{0.47f, 0.49f, 0.52f};
-    std::optional<RuntimeSpriteComponent> sprite;
-    std::optional<RuntimeSpriteAnimatorState> spriteAnimator;
-    std::optional<RuntimeTopDownController> topDownController;
-    std::optional<RuntimePlatformerController> platformerController;
-    std::optional<RuntimeBoxCollider> collider;
-    std::optional<RuntimeTilemap> tilemap;
-};
-
-// World-space axis-aligned bounding box (min/max corners).
-struct Aabb {
-    float minX = 0.f, minY = 0.f, maxX = 0.f, maxY = 0.f;
-};
-
-// What a kinematic move actually did: the applied delta plus which sides hit a
-// solid. The platformer derives grounded/ceiling from these (world +Y is down,
-// so hitGround is a downward contact, hitCeiling an upward one).
-struct KinematicMoveResult {
-    Vec2 appliedDelta{};
-    bool hitLeft = false;
-    bool hitRight = false;
-    bool hitCeiling = false;
-    bool hitGround = false;
-};
-
-struct StaticRuntimeCollider {
-    EntityId owner = INVALID_ENTITY;
-    Aabb bounds;
-    BoxColliderMode mode = BoxColliderMode::Solid;
-};
-
-// The single authoritative runtime collider AABB: center = position + offset,
-// extents = size/2. Mirrors the editor's collider draw convention so physics and
-// the overlay agree. Caller guarantees the entity has a collider.
-Aabb runtimeColliderBounds(const RuntimeEntity& entity);
-
-// Per-frame gameplay input, built by the application from the platform and fed to
-// the session. PlaySession stays free of Raylib/RmlUi.
+// Per-frame gameplay input, built by the application from the platform and
+// fed to the session. PlaySession stays free of Raylib/RmlUi.
 struct RuntimeInputSnapshot {
-    bool moveLeft = false;
-    bool moveRight = false;
-    bool moveUp = false;
-    bool moveDown = false;
-    // Edge-triggered jump (the application computes it with IsKeyPressed, so the
-    // session never sees Raylib). Consumed by the PlatformerController.
-    bool jumpPressed = false;
-    // Edge-triggered Logic Board keys in deterministic registry order.
+    // Edge-triggered Logic Board keys in deterministic registry order - the
+    // only input GameplaySession consumes (GameplayInputFrame), same as
+    // game.exe. Movement is authored via Logic Board/Script (input.key_held
+    // -> platformer.move or similar), never hardcoded in the host.
     std::vector<LogicKey> pressedLogicKeys;
     std::vector<LogicKey> releasedLogicKeys;
     std::vector<LogicKey> heldLogicKeys;
 };
 
-struct RuntimeScene {
+// Scene metadata needed by scene_view_interaction.cpp/editor_ui.cpp/
+// scene_frame_snapshot.cpp - replaces RuntimeScene (which also carried the
+// entity list; nothing outside PlaySession ever read entities through it).
+struct PlaySceneInfo {
     SceneId sourceSceneId;
     std::string name;
     Vec2 worldSize;
     Vec4 backgroundColor;
-    std::vector<RuntimeEntity> entities;   // structural order (SceneDef::instances' own)
-    // Back-to-front render order, as indices into `entities` - built once at
-    // materialize from ProjectDocument::instancesInRenderOrder. A purely
-    // visual draw-order hint for collectSceneFrameSnapshot(const PlaySession&);
-    // advance()/update()/findEntity() always iterate `entities` directly in
-    // its own structural order, so reordering scene layers can never change
-    // simulation order.
-    std::vector<std::size_t> renderOrder;
 };
 
-struct RuntimeImageAsset {
-    AssetId id;
-    std::string sourcePath;
-};
-
-struct RuntimeAnimationFrame {
-    AnimationFrameRect sourceRect{};
-};
-
-struct RuntimeSpriteAnimationClip {
-    std::string id;
-    std::vector<RuntimeAnimationFrame> frames; // denormalized rects in frameIds order
-    float framesPerSecond = 12.f;
-    AnimationPlaybackMode playbackMode = AnimationPlaybackMode::Loop;
-};
-
-struct RuntimeSpriteAnimationAsset {
-    AssetId id;
-    AssetId sourceImageAssetId;
-    std::vector<RuntimeSpriteAnimationClip> clips; // deterministic order
-    std::unordered_map<std::string, std::size_t> clipIndex; // id -> index in clips
-};
-
-struct RuntimeAudioAsset {
-    AssetId id;
-    std::string sourcePath;
-    AudioLoadMode loadMode = AudioLoadMode::StaticSound;
-};
-
-struct PlayAssetCatalogSnapshot {
-    std::unordered_map<AssetId, RuntimeImageAsset> imageAssets;
-    std::unordered_map<AssetId, RuntimeAudioAsset> audioAssets;
-};
-
-// One queued Play Sound request per Logic Board action invocation. Played back
-// by the owner (EditorApp) via drainAudioCommands() — PlaySession itself never
-// touches Raylib (see the class comment below).
-struct RuntimeAudioCommand {
-    enum class Type { PlayOneShot };
-
-    Type type = Type::PlayOneShot;
-    EntityId owner = INVALID_ENTITY;
-    AssetId audioAssetId;
-    float volume = 1.f;
-};
-
-// Pulse events produced while advancing playheads. Never dispatched inside
-// advanceAnimation — queued here, then drained to Logic/Script host.
-enum class AnimationRuntimeEventKind { Started, Finished };
-
-struct AnimationRuntimeEvent {
-    EntityId entityId = INVALID_ENTITY;
-    AnimationRuntimeEventKind kind = AnimationRuntimeEventKind::Started;
-    std::string clipId;
-};
-
-// Runtime side of Play/Stop. It is built once from ProjectDocument at Start
-// Play, then draw/tick read this session and never the authoring document.
+// Runtime side of Play/Stop. Built once from ProjectDocument at Start Play
+// (materialize), then draw/tick read this session and never the authoring
+// document.
 class PlaySession {
 public:
     ~PlaySession();
@@ -244,97 +118,61 @@ public:
         std::string* error = nullptr);
 
     const SceneId& sceneId() const { return scene_.sourceSceneId; }
-    const RuntimeScene& scene() const { return scene_; }
-    RuntimeScene& scene() { return scene_; }
-    const PlayAssetCatalogSnapshot& assets() const { return assets_; }
+    const PlaySceneInfo& scene() const { return scene_; }
 
-    std::vector<RuntimeEntity>& entities() { return scene_.entities; }
-    const std::vector<RuntimeEntity>& entities() const { return scene_.entities; }
-    const RuntimeEntity* findEntity(EntityId id) const;
+    // Wires Play Sound (Logic Board audio.playSound / Script ctx:playSound)
+    // to resolve relative asset sourcePaths against the real project
+    // directory - EditorCoordinator calls this once right after a successful
+    // start, before the first tick(), using the same confinement helper
+    // (resolvePathInsideRoot) the old Play Sound preload cache used. Optional:
+    // if never called (e.g. every existing headless test that only checks
+    // materialize() success), Play Sound resolves nothing and silently no-ops
+    // instead of crashing - audio hardware/asset-root availability degrades
+    // gracefully rather than blocking Play.
+    void setAssetRoot(const std::filesystem::path& root);
 
-    // Runtime simulation step: integrates each entity's authored velocity into
-    // its transform. Pure runtime mutation — never touches ProjectDocument.
-    void advance(float dt);
+    // Replaces advance(dt)+update(input,dt): both used to run once per frame
+    // driven by the same GetFrameTime() anyway (no fixed-step accumulator
+    // existed before this either - not a behavior regression to keep it
+    // that way here). Builds a GameplayInputFrame from the Logic keys and
+    // drives the same dispatchInput()+tickFixedStep() sequence game.exe uses.
+    void tick(const RuntimeInputSnapshot& input, float dt);
 
-    // Input-driven step: moves each TopDownController entity by the (diagonal-
-    // normalized) input direction at its speed. Pure runtime mutation; opposite
-    // inputs cancel; non-finite or non-positive dt is a no-op.
-    void update(const RuntimeInputSnapshot& input, float dt);
-
-    // Moves out every RuntimeAudioCommand queued by Play Sound actions since
-    // the last drain. The caller (EditorApp) owns turning these into actual
-    // playback via its own Raylib Sound cache — PlaySession stays free of
-    // Raylib/RmlUi, same invariant as `update()` above.
-    std::vector<RuntimeAudioCommand> drainAudioCommands();
     std::vector<Scripts::ScriptRuntimeDiagnostic> drainScriptDiagnostics();
-    // Moves pending animation Started/Finished pulses out for tests/hosts.
-    // Logic dispatch happens inside advance(); this drain is residual-only.
-    std::vector<AnimationRuntimeEvent> drainAnimationEvents();
-    const Scripts::ScriptRuntime* scriptRuntime() const { return scriptRuntime_.get(); }
+
+    // Render hand-off for scene_frame_snapshot.cpp's Play overload: resolves
+    // gameplay-visible entities (transform/sprite/visibility) via the same
+    // GameplaySession::buildFrameSnapshot() the shared renderer uses. const:
+    // GameplaySession's own buildFrameSnapshot() is const (reads, never
+    // mutates), so this stays callable through EditorCoordinator::
+    // playSession()'s const pointer. Defined out-of-line (gameplay_session.h/
+    // scene_frame_snapshot.h stay out of this header - only forward-declared -
+    // so editor translation units including play_session.h don't pull in the
+    // whole runtime composition root transitively).
+    // Returns just the renderables, not the runtime's whole SceneFrameSnapshot:
+    // ArtCade::SceneFrameSnapshot shares its bare name with
+    // ArtCade::EditorNative::SceneFrameSnapshot, and forward-declaring it here
+    // would make it visible (via `using namespace ArtCade`) to every test file
+    // that also has `using namespace ArtCade::EditorNative` - an unqualified
+    // ambiguity fully-qualifying this declaration cannot fix, since the
+    // ambiguity comes from the forward declaration existing at all, not from
+    // how it is referenced. RenderableEntitySnapshot has no such collision.
+    std::vector<RenderableEntitySnapshot> renderables() const;
 
 private:
-    struct LogicHostAdapter;
-
-    PlaySession() = default;
+    PlaySession();
     static std::optional<PlaySession> materialize(const ProjectDocument& document,
                                                   const SceneId& sceneId,
                                                   const std::vector<Scripts::ScriptProgram>& scripts,
                                                   std::string* error);
+    void shutdownRuntime();
 
-    // The one internal entry point for runtime movement: LinearMover (advance),
-    // TopDownController and PlatformerController (update) route a desired delta
-    // through here. It resolves the kinematic mover against the static solids with
-    // a per-axis swept clamp (resolve X, then Y using the new X) so movement
-    // slides along walls and never tunnels through thin ones at high speed. A
-    // mover with no active solid collider moves freely. Returns the applied delta
-    // plus the per-side contact flags the platformer needs.
-    KinematicMoveResult moveKinematicEntity(RuntimeEntity& entity, Vec2 desiredDelta);
-
-    // Per-entity input-driven movement, dispatched by `update` so a single entity
-    // has exactly one movement writer.
-    void updateTopDown(RuntimeEntity& entity, const RuntimeInputSnapshot& input, float dt);
-    void updatePlatformer(RuntimeEntity& entity, const RuntimeInputSnapshot& input, float dt);
-    RuntimeEntity* findEntityMutable(EntityId id);
-    void refreshStaticCollider(EntityId owner);
-    void dispatchCollisionTransitions();
-    void flushPendingDestroys();
-    void queueAnimationEvent(EntityId entityId, AnimationRuntimeEventKind kind,
-                             std::string clipId);
-    void drainAnimationEventsToHosts();
-    bool playAnimationClip(EntityId id, const AssetId& animationAssetId,
-                           const std::string& clipId);
-    bool stopAnimation(EntityId id);
-    bool setAnimationPlaybackSpeed(EntityId id, float speed);
-    bool playSound(EntityId id, const AssetId& audioAssetId, float volume);
-    bool setRuntimeStateNumber(const GameVariableId& id, double value);
-    bool addRuntimeStateNumber(const GameVariableId& id, double delta);
-    bool toggleRuntimeStateBoolean(const GameVariableId& id);
-    std::optional<double> getRuntimeStateNumber(const GameVariableId& id) const;
-    bool isLogicKeyHeld(LogicKey key) const;
-
-    RuntimeScene scene_;
-    PlayAssetCatalogSnapshot assets_;
-    std::vector<RuntimeAudioCommand> pendingAudioCommands_;
-    std::vector<AnimationRuntimeEvent> pendingAnimationEvents_;
-    std::vector<AnimationRuntimeEvent> dispatchedAnimationEvents_;
-    std::unordered_map<AssetId, RuntimeSpriteAnimationAsset> spriteAnimationAssets_;
-    // Obstacle colliders frozen at materialize: enabled Solid / OneWayPlatform
-    // colliders on non-movers (mover-vs-mover is out of scope). Trigger is
-    // intentionally absent from resolution.
-    std::vector<StaticRuntimeCollider> staticColliders_;
-    // Heap-stable host/runtime: moving PlaySession into the coordinator never
-    // invalidates the reference retained by LogicRuntime.
-    std::unique_ptr<LogicHostAdapter> logicHost_;
-    std::unique_ptr<Logic::LogicRuntime> logicRuntime_;
-    std::unique_ptr<Scripts::ScriptRuntime> scriptRuntime_;
-    std::unordered_map<EntityId, float> platformerMoveIntents_;
-    std::unordered_map<EntityId, bool> platformerJumpIntents_;
-    std::unordered_map<EntityId, Logic::ScopeToken> logicScopesByEntity_;
-    std::set<std::pair<EntityId, EntityId>> activeCollisionPairs_;
-    std::set<EntityId> pendingDestroy_;
-    std::unordered_map<GameVariableId, GameVariableValue> runtimeVariables_;
-    std::unordered_map<GameVariableId, GameVariableDefinition::Type> runtimeVariableTypes_;
-    std::vector<LogicKey> heldLogicKeys_;
+    PlaySceneInfo scene_;
+    std::unique_ptr<GameplaySession> runtime_;
+    std::unique_ptr<Modules::Audio> audio_;
+    std::unique_ptr<Modules::Input> input_;
+    class AudioServiceAdapter;
+    std::unique_ptr<AudioServiceAdapter> audioAdapter_;
 };
 
 } // namespace ArtCade::EditorNative

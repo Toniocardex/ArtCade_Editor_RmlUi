@@ -31,7 +31,6 @@
 #include "editor-native/commands/generated_sfx_commands.h"
 #include "editor-native/model/path_confinement.h"
 #include "editor-native/model/play_session.h"
-#include "editor-native/model/play_sound_preload.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_animation_slicing.h"
 #include "editor-native/model/tilemap_stroke_preview.h"
@@ -334,13 +333,10 @@ int EditorApp::run(int argc, char** argv) {
     projectSession.bindUi();
 
     artcade::sfx::RaylibPreview sfxPreview;
-    bool ownsAudioDevice = false;
-    // Prefer a process-lifetime device: Init once after the window is up so
-    // neither Start Play nor the first Play Sound pays InitAudioDevice cost.
-    if (!IsAudioDeviceReady()) {
-        InitAudioDevice();
-        ownsAudioDevice = IsAudioDeviceReady();
-    }
+    // SFX preview (Generated SFX authoring) owns the audio device independent
+    // of Play — Play now routes through the real Modules::Audio the active
+    // PlaySession owns, not a Raylib-side cache of its own.
+    if (!IsAudioDeviceReady()) InitAudioDevice();
     auto sfxOutputRepository =
         std::make_shared<FilesystemGeneratedSfxOutputRepository>();
     GeneratedSfxGenerationService sfxGeneration{sfxOutputRepository};
@@ -349,92 +345,6 @@ int EditorApp::run(int argc, char** argv) {
     GeneratedSfxOutputTransaction sfxOutputTransaction{
         coordinator, sfxOutputRepository};
     bool sfxBatchWasActive = false;
-    // Play Sound's Raylib-side cache: loaded once per referenced audio asset at
-    // Start Play, reused for every firing this session. Keyed by AssetId,
-    // matching RuntimeAudioCommand/PlayAssetCatalogSnapshot::audioAssets.
-    // Play-scoped only — cleared on Stop and rebuilt on every Start (Generated
-    // SFX may have been regenerated between sessions).
-    std::unordered_map<AssetId, Sound> playSoundCache;
-    std::unordered_set<std::string> playAudioDiagnostics;
-    const auto logPlayAudioErrorOnce = [&](const AssetId& id,
-                                            const std::string& reason) {
-        const std::string key = id + "\n" + reason;
-        if (playAudioDiagnostics.insert(key).second)
-            coordinator.logError("Play Sound '" + id + "': " + reason);
-    };
-    const auto clearPlaySoundCache = [&] {
-        for (auto& [unused, sound] : playSoundCache) {
-            (void)unused;
-            UnloadSound(sound);
-        }
-        playSoundCache.clear();
-        playAudioDiagnostics.clear();
-    };
-    const auto preparePlaySoundCache = [&]() -> bool {
-        clearPlaySoundCache();
-
-        if (!IsAudioDeviceReady()) {
-            InitAudioDevice();
-            ownsAudioDevice = IsAudioDeviceReady();
-        }
-        if (!IsAudioDeviceReady()) {
-            coordinator.logError(
-                "Cannot start Play: audio device is unavailable");
-            return false;
-        }
-
-        const PlaySession* session = coordinator.playSession();
-        if (!session) {
-            coordinator.logError(
-                "Cannot prepare audio without an active PlaySession");
-            return false;
-        }
-
-        const std::filesystem::path assetRoot =
-            projectSession.assetRoot(resourceRoot);
-        std::vector<PlaySoundPreloadEntry> plan;
-        std::string planError;
-        if (!planPlaySoundPreload(session->assets(), assetRoot, &plan, &planError)) {
-            coordinator.logError(planError.empty()
-                ? "Cannot start Play: audio preload planning failed"
-                : planError);
-            clearPlaySoundCache();
-            return false;
-        }
-
-        const double preloadStart = GetTime();
-        for (const PlaySoundPreloadEntry& entry : plan) {
-            const double loadStart = GetTime();
-            Sound sound = LoadSound(entry.resolvedPath.string().c_str());
-            const double loadMs = (GetTime() - loadStart) * 1000.0;
-            if (!IsSoundReady(sound)) {
-                coordinator.logError(
-                    "Cannot start Play: audio file could not be decoded: "
-                    + entry.sourcePath);
-                clearPlaySoundCache();
-                return false;
-            }
-            const auto [it, inserted] =
-                playSoundCache.emplace(entry.assetId, sound);
-            (void)it;
-            if (!inserted) {
-                UnloadSound(sound);
-                coordinator.logError(
-                    "Cannot start Play: duplicate audio asset in snapshot: "
-                    + entry.assetId);
-                clearPlaySoundCache();
-                return false;
-            }
-            TraceLog(LOG_INFO,
-                     "[audio preload] asset=%s load=%.2fms",
-                     entry.assetId.c_str(), loadMs);
-        }
-        TraceLog(LOG_INFO,
-                 "[audio preload] %zu assets loaded in %.2f ms",
-                 playSoundCache.size(),
-                 (GetTime() - preloadStart) * 1000.0);
-        return true;
-    };
 
     // One preflight authority for UI capability and click-time revalidation.
     // Unknown ids are prospective Create-from-Current identities; existing ids
@@ -1233,28 +1143,7 @@ int EditorApp::run(int argc, char** argv) {
         // Keyboard ownership is a durable Scene View state, not a side effect
         // of the cursor's current position. Play started from Scene acquires it;
         // any explicit UI/text/window/popup transition releases it.
-        // A fresh Play always re-resolves audio from disk (same "re-validate at
-        // every Play start" convention materialize() already applies to every
-        // other asset kind) — otherwise a Generated SFX regenerated between two
-        // Play sessions would keep playing back whatever was cached from the
-        // first one.
-        // The cache is Play-scoped even though EditorApp owns the Raylib
-        // handles. Preload is part of Start Play preparation: simulation must
-        // not run until every referenced Sound is ready (or Play is aborted).
-        if (!playing && previousPlaying) clearPlaySoundCache();
-        if (playing && !previousPlaying) {
-            if (!preparePlaySoundCache()) {
-                const auto stopped = coordinator.stopPlaying();
-                if (!stopped.ok) {
-                    coordinator.logError(
-                        "Audio preload failed and Stop Play also failed: "
-                        + stopped.error);
-                }
-                playing = false;
-            } else {
-                gameplayInputFocused = !nonSceneWorkspace;
-            }
-        }
+        if (playing && !previousPlaying) gameplayInputFocused = !nonSceneWorkspace;
         if (!playing || nonSceneWorkspace || rml.textFocus || !IsWindowFocused() || popupOpen
             || animationEditorOpen || tilesetEditorOpen)
             gameplayInputFocused = false;
@@ -1274,39 +1163,18 @@ int EditorApp::run(int argc, char** argv) {
         }
         if (playing) {
             const float dt = GetFrameTime();
-            coordinator.advanceRuntime(dt);               // authored motion (LinearMover)
             // Simulation continues in every workspace. Keyboard input belongs
             // to the Scene View's persistent gameplay focus; pointer hover is
-            // deliberately irrelevant here.
+            // deliberately irrelevant here. Movement is always Logic Board/
+            // Script authored now (GameplaySession, same as the exported
+            // game) — there is no host-side hardcoded movement to poll.
             RuntimeInputSnapshot input;
             if (shouldForwardGameplayKeyboardInput({
                     !nonSceneWorkspace, gameplayInputFocused, IsWindowFocused(),
                     rml.textFocus, popupOpen})) {
-                input.moveLeft  = IsKeyDown(KEY_LEFT)  || IsKeyDown(KEY_A);
-                input.moveRight = IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D);
-                input.moveUp    = IsKeyDown(KEY_UP)    || IsKeyDown(KEY_W);
-                input.moveDown  = IsKeyDown(KEY_DOWN)  || IsKeyDown(KEY_S);
-                // Edge-triggered jump for the PlatformerController (Space / W / Up).
-                input.jumpPressed = IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_W)
-                                 || IsKeyPressed(KEY_UP);
                 collectLogicKeyPresses(input);
             }
-            coordinator.updateRuntime(input, dt);         // input-driven (TopDownController)
-
-            // Play Sound hot path: PlaySession only queues (Raylib-free). After
-            // Start Play preload, drain is cache lookup + volume + PlaySound —
-            // never InitAudioDevice / filesystem / LoadSound.
-            const std::vector<RuntimeAudioCommand> audioCommands = coordinator.drainAudioCommands();
-            for (const RuntimeAudioCommand& command : audioCommands) {
-                const auto cacheIt = playSoundCache.find(command.audioAssetId);
-                if (cacheIt == playSoundCache.end()) {
-                    logPlayAudioErrorOnce(command.audioAssetId,
-                        "audio asset was not prepared at Play start");
-                    continue;
-                }
-                SetSoundVolume(cacheIt->second, command.volume);
-                PlaySound(cacheIt->second);
-            }
+            coordinator.tickRuntime(input, dt);
         } else if (!animationEditorOpen && !tilesetEditorOpen && !nonSceneWorkspace) {
             // First time this scene is active in Edit mode: frame it once. The
             // flag lives in the scene's view state, so it shares the sceneViews
@@ -1347,9 +1215,11 @@ int EditorApp::run(int argc, char** argv) {
         // open yet (a new/Untitled project) they fall back to the executable resources.
         const std::filesystem::path assetRoot =
             projectSession.assetRoot(resourceRoot);
-        const auto& textureRequests = coordinator.playSession()
-            ? textureRequestCatalog.forPlay(coordinator.playSession()->assets(), assetRoot)
-            : textureRequestCatalog.forDocument(coordinator.document(), assetRoot);
+        // Play draws the same image assets as Edit (GameplaySession loads
+        // straight from the document, no unsaved-snapshot divergence like
+        // Scripts have) - one shared texture request source for both.
+        const auto& textureRequests =
+            textureRequestCatalog.forDocument(coordinator.document(), assetRoot);
         if (!coordinator.isPlaying() && animationEditorOpen) {
             routeSpriteAnimationCanvasInput(
                 coordinator, animationInputRect, rml, textureCache, textureRequests);
@@ -1450,10 +1320,7 @@ int EditorApp::run(int argc, char** argv) {
                 coordinator.logWarning(
                     "Discarded Generated SFX result: " + completed->message);
             } else if (completed->kind == GeneratedSfxServiceEventKind::PreviewReady) {
-                if (!IsAudioDeviceReady()) {
-                    InitAudioDevice();
-                    ownsAudioDevice = IsAudioDeviceReady();
-                }
+                if (!IsAudioDeviceReady()) InitAudioDevice();
                 const auto loaded = sfxPreview.load(completed->audio);
                 if (!loaded.ok()) coordinator.logError(loaded.error().message);
                 else {
@@ -1884,8 +1751,7 @@ int EditorApp::run(int argc, char** argv) {
     sfxGeneration.shutdown();
     ui.setSfxBatchState(sfxGeneration.batchState());
     sfxPreview.unload();
-    clearPlaySoundCache();
-    if (ownsAudioDevice && IsAudioDeviceReady()) CloseAudioDevice();
+    if (IsAudioDeviceReady()) CloseAudioDevice();
     textureCache.clear();
     unloadCanvasFont(canvasFont);   // GPU atlas: released before CloseWindow
     ui.detach();

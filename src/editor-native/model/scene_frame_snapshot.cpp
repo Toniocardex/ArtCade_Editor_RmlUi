@@ -6,6 +6,13 @@
 #include "editor-native/model/sprite_render_view.h"
 #include "editor-native/model/tilemap_render_view.h"
 
+// RU-03: the runtime's own SceneFrameSnapshot/RenderableEntitySnapshot
+// (distinct type from ArtCade::EditorNative::SceneFrameSnapshot above,
+// disambiguated with the ArtCade:: prefix at each use below) and
+// sprite_frame_has_pixels(), needed to read PlaySession::buildFrame().
+#include "app/render/scene_frame_snapshot.h"
+#include "app/render/sprite_frame_resolve.h"
+
 #include <algorithm>
 #include <cmath>
 #include <unordered_set>
@@ -151,73 +158,51 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
     return snapshot;
 }
 
+// RU-03: reads GameplaySession::buildFrameSnapshot()'s renderables (via
+// PlaySession::buildFrame()) instead of the old hand-written RuntimeEntity/
+// RuntimeScene - the shared runtime resolves transform/sprite/visibility the
+// same way for Play here and for game.exe/WASM. Deliberately not preserved:
+// entity name (RenderableEntitySnapshot doesn't track it - not gameplay-
+// visible data, so the on-screen label is blank during Play) and entity-
+// owned/per-instance tilemap rendering (the shared runtime never supported
+// it - only the legacy scene-level merged grid renders - so this is
+// pre-existing shared-runtime debt exposed by the switch, not a regression
+// introduced by it; see play_session.h's header comment).
 SceneFrameSnapshot collectSceneFrameSnapshot(const PlaySession& session) {
     SceneFrameSnapshot snapshot;
-    const RuntimeScene& scene = session.scene();
+    const PlaySceneInfo& scene = session.scene();
     snapshot.sceneId = scene.sourceSceneId;
     snapshot.hasScene = true;
     snapshot.sceneName = scene.name;
     snapshot.worldSize = scene.worldSize;
     snapshot.backgroundColor = scene.backgroundColor;
 
-    // Render order only (indices into scene.entities) - simulation
-    // (advance/update/findEntity) always iterates scene.entities directly in
-    // its own structural order, never this one.
-    for (std::size_t index : scene.renderOrder) {
-        const RuntimeEntity& entity = scene.entities[index];
-        if (entity.destroyed || !entity.visible) continue;
+    for (const ArtCade::RenderableEntitySnapshot& entity : session.renderables()) {
+        if (!entity.visibleInGame) continue;
         const SceneFrameTransform2D xf = instanceVisual(entity.transform);
         const SceneFrameRect bounds = unrotatedRect(xf);
-        const bool hasSprite =
-            entity.sprite.has_value() && !entity.sprite->assetId.empty();
-        const bool paintedTilemap =
-            entity.tilemap.has_value() && !entity.tilemap->cells.empty();
-        // SceneView walks frame.entities in render order; tilemaps are drawn
-        // per entity inside that loop. An unpainted tilemap-only entity stays
-        // out of the snapshot entirely (no placeholder, no cells) - unlike
-        // Edit, where the placeholder is a deliberate authoring affordance.
-        const bool emptyTilemapOnly =
-            entity.tilemap.has_value() && !paintedTilemap && !hasSprite;
-        if (!emptyTilemapOnly) {
-            snapshot.entities.push_back(SceneFrameEntity{
-                entity.id,
-                entity.name,
-                entity.fillColor,
-                bounds,
-                false,
-                xf.rotationRadians,
-            });
-        }
+        snapshot.entities.push_back(SceneFrameEntity{
+            entity.id, std::string{}, entity.sprite.fillColor, bounds, false, xf.rotationRadians});
 
-        if (entity.tilemap.has_value() && !entity.tilemap->cells.empty()) {
-            // Destination is recomputed from the entity's *current* transform
-            // every frame - never cached from Start Play - so the tilemap
-            // keeps following its owning entity if a mover moves it.
-            std::vector<SceneFrameTilemapCell> cells;
-            cells.reserve(entity.tilemap->cells.size());
-            for (const RuntimeTilemapCell& cell : entity.tilemap->cells) {
-                cells.push_back(SceneFrameTilemapCell{
-                    tilemapCellDestination(entity.transform.position, entity.tilemap->cellSize,
-                                           cell.cellX, cell.cellY),
-                    SceneFrameRect{cell.sourceRect.x, cell.sourceRect.y,
-                                  cell.sourceRect.w, cell.sourceRect.h},
-                });
-            }
-            snapshot.tilemaps.push_back(SceneFrameTilemap{
-                entity.id, entity.tilemap->imageAssetId, std::move(cells), false});
-        }
-
-        if (entity.sprite.has_value() && !entity.sprite->assetId.empty()) {
+        const AssetId resolvedAssetId = entity.spriteFrame.assetId.empty()
+            ? entity.sprite.spriteAssetId : entity.spriteFrame.assetId;
+        if (!resolvedAssetId.empty()) {
+            const bool hasSource =
+                AppRender::sprite_frame_has_pixels(entity.spriteFrame.frame);
             snapshot.sprites.push_back(SceneFrameSprite{
                 entity.id,
-                entity.sprite->assetId,
+                resolvedAssetId,
                 bounds,
                 Vec2{bounds.width * 0.5f, bounds.height * 0.5f},
-                entity.sprite->visible,
+                /*visible=*/true,
                 false,
-                SceneFrameRect{entity.sprite->sourceRect.x, entity.sprite->sourceRect.y,
-                               entity.sprite->sourceRect.w, entity.sprite->sourceRect.h},
-                entity.sprite->hasSourceRect,
+                hasSource
+                    ? SceneFrameRect{static_cast<float>(entity.spriteFrame.frame.x),
+                                     static_cast<float>(entity.spriteFrame.frame.y),
+                                     static_cast<float>(entity.spriteFrame.frame.w),
+                                     static_cast<float>(entity.spriteFrame.frame.h)}
+                    : SceneFrameRect{},
+                hasSource,
                 xf.rotationRadians,
             });
         }

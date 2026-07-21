@@ -14,7 +14,6 @@ add_library(artcade-editor-core STATIC
     editor-native/model/generated_sfx_preset_catalog.cpp
     editor-native/model/project_io.cpp
     editor-native/model/path_confinement.cpp
-    editor-native/model/play_sound_preload.cpp
     editor-native/model/script_editor_state.cpp
     editor-native/model/script_text_ops.cpp
     editor-native/model/script_language_service.cpp
@@ -93,6 +92,11 @@ target_link_libraries(artcade-editor-core PUBLIC
     # reading to the canonical ProjectJson::read_* functions for current-
     # format files (docs/PLAY_RUNTIME_UNIFICATION_ROADMAP.md §8).
     artcade-project-json
+    # RU-03: PlaySession is now a facade over the real GameplaySession (same
+    # simulation game.exe/WASM use) instead of its own hand-written runtime -
+    # pulls in World/scene-system/runtime-entity-gateway/physics/Logic/Script/
+    # GameAPI/LuaHost/Audio/Input transitively.
+    artcade-gameplay-session
 )
 
 # ----------------------------------------------------------------------------

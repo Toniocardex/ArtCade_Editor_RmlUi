@@ -156,29 +156,32 @@ public:
     const PlaySession* playSession() const {
         return playSession_ ? &*playSession_ : nullptr;
     }
+    // RU-03: assetRoot (default empty) lets Play Sound resolve real audio
+    // files (PlaySession::setAssetRoot) - ProjectSessionController passes the
+    // real project directory; every existing caller/test that doesn't care
+    // about actual audio playback keeps compiling unchanged against the
+    // default.
     EditorOperationResult playProject();
-    EditorOperationResult playProject(const std::vector<Scripts::ScriptProgram>& scripts);
+    EditorOperationResult playProject(const std::vector<Scripts::ScriptProgram>& scripts,
+                                      const std::filesystem::path& assetRoot = {});
     EditorOperationResult playCurrentScene();
-    EditorOperationResult playCurrentScene(const std::vector<Scripts::ScriptProgram>& scripts);
+    EditorOperationResult playCurrentScene(const std::vector<Scripts::ScriptProgram>& scripts,
+                                           const std::filesystem::path& assetRoot = {});
     EditorOperationResult restartPlaying(
-        const std::vector<Scripts::ScriptProgram>& scripts);
+        const std::vector<Scripts::ScriptProgram>& scripts,
+        const std::filesystem::path& assetRoot = {});
     EditorOperationResult stopPlaying();
     bool scriptRestartRequired() const {
         return isPlaying() && !outdatedPlayScriptAssets_.empty();
     }
 
-    // Runtime simulation step for the active Play session (authored motion).
-    // No-op when not playing; never an EditorCommand, never touches the document.
-    void advanceRuntime(float dt);
-
-    // Input-driven runtime step (TopDownController). Same guarantees as
-    // advanceRuntime; no-op when not playing.
-    void updateRuntime(const RuntimeInputSnapshot& input, float dt);
-
-    // Moves out every Play Sound request queued since the last call. The
-    // caller (EditorApp) is responsible for actual playback (PlaySession
-    // stays free of Raylib); returns empty when not playing.
-    std::vector<RuntimeAudioCommand> drainAudioCommands();
+    // RU-03: single runtime simulation step for the active Play session -
+    // replaces the old advanceRuntime()+updateRuntime() pair (both used to
+    // run once per frame anyway; GameplaySession's dispatchInput+
+    // tickFixedStep is one call, not two). No-op when not playing; never an
+    // EditorCommand, never touches the document. Also drains and forwards
+    // Script diagnostics to the console, same as the old updateRuntime did.
+    void tickRuntime(const RuntimeInputSnapshot& input, float dt);
 
     // Per-frame step of the Sprite Animation Editor clip preview. Workspace
     // state only (previewElapsed/previewFrameIndex), mirroring advanceRuntime:

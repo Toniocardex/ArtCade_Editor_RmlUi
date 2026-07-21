@@ -9,28 +9,24 @@
 namespace ArtCade::EditorNative {
 
 class ProjectDocument;
-struct PlayAssetCatalogSnapshot;
 
-// Cached read-only projection from authoring/runtime image assets to resolved
-// texture requests. Rebuilds only when the authoritative document revision,
-// Play snapshot, or asset root changes.
+// Cached read-only projection from authoring image assets to resolved
+// texture requests. Rebuilds only when the authoritative document revision
+// or asset root changes. Play draws the same image assets as Edit (no
+// unsaved-snapshot divergence like Scripts have), so there is no separate
+// Play-scoped source.
 class TextureRequestCatalog {
 public:
     using Requests = std::unordered_map<AssetId, TextureRequest>;
 
     const Requests& forDocument(const ProjectDocument& document,
                                 const std::filesystem::path& assetRoot);
-    const Requests& forPlay(const PlayAssetCatalogSnapshot& snapshot,
-                            const std::filesystem::path& assetRoot);
 
 private:
-    enum class Source { None, Document, Play };
-
-    Source                          source_ = Source::None;
-    std::uint64_t                   documentRevision_ = 0;
-    const PlayAssetCatalogSnapshot* playSnapshot_ = nullptr;
-    std::filesystem::path           assetRoot_;
-    Requests                        requests_;
+    bool                   hasRequests_ = false;
+    std::uint64_t          documentRevision_ = 0;
+    std::filesystem::path  assetRoot_;
+    Requests               requests_;
 };
 
 } // namespace ArtCade::EditorNative
