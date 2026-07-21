@@ -459,6 +459,88 @@ int main() {
               == 321.f);
     }
 
+    // -- RU-01: canonical read path (formatVersion == kCurrentSchemaVersion)
+    // round-trips a realistic, fully-conformant document. Scene has a real
+    // layer (mirrors ProjectDocument::createScene()'s "layer-1" default) so
+    // this document actually satisfies validate_current_project_json and
+    // takes the new canonical delegation path (ProjectJson::read_* -
+    // project_io.cpp's deserializeCanonical) rather than falling back to the
+    // legacy parser. Proves parity for globalVariables specifically - the
+    // legacy path never read it back at all (RU-01a's writer emits it, but no
+    // reader existed) - and confirms logicBoard still round-trips through
+    // the new path too.
+    {
+        ProjectDoc doc;
+        doc.projectName = "RU01 Parity";
+        doc.activeSceneId = "ru01-scene";
+
+        SceneDef scene;
+        scene.id = "ru01-scene";
+        scene.name = "RU01 Scene";
+        scene.layers.push_back(SceneLayerDef{"layer-1", "Layer 1", false});
+        scene.defaultLayerId = "layer-1";
+        SceneInstanceDef instance;
+        instance.id = 1;
+        instance.objectTypeId = "Hero";
+        instance.instanceName = "Hero";
+        instance.layerId = "layer-1";
+        scene.instances.push_back(instance);
+        doc.scenes.emplace(scene.id, scene);
+
+        EntityDef hero;
+        hero.className = "Hero";
+        hero.name = "Hero";
+        LogicBoardDef board;
+        board.id = "board-hero";
+        LogicRuleDef rule;
+        rule.id = "on-start-rule";
+        rule.name = "On Start Rule";
+        // kOnStart/kStateSet ("event.on_start"/"state.set"): the two simplest Logic Board block
+        // kinds with no sprite/animation/physics component prerequisite -
+        // not exercising Logic Board semantics itself, just picking a
+        // trigger+action pair proven to construct a valid board so this
+        // round-trip test can focus on JSON parity, not block registry rules.
+        rule.trigger = LogicBlockDef{Logic::kOnStart, {}};
+        LogicBlockDef setScore{Logic::kStateSet, {}};
+        setScore.properties.push_back(
+            LogicPropertyDef{"key", LogicValue{LogicVariableReference{"score"}}});
+        setScore.properties.push_back(LogicPropertyDef{"value", LogicValue{1.0}});
+        rule.actions.push_back(std::move(setScore));
+        board.rules.push_back(std::move(rule));
+        hero.logicBoard = std::move(board);
+        doc.objectTypes.emplace("Hero", hero);
+
+        GameVariableDefinition score;
+        score.key = "score";
+        score.type = GameVariableDefinition::Type::Number;
+        score.initialValue = 42.0;
+        score.description = "player score";
+        doc.globalVariables.push_back(score);
+
+        const SerializeResult serialized = ProjectSerializer::serialize(ProjectDocument{doc});
+        CHECK(serialized.ok);
+        CHECK(serialized.value.find("\"formatVersion\": 9") != std::string::npos);
+
+        const DeserializeResult deserialized = ProjectSerializer::deserialize(serialized.value);
+        CHECK(deserialized.ok);
+        const ProjectDoc& roundTripped = deserialized.value.data();
+
+        CHECK(roundTripped.globalVariables.size() == 1);
+        if (roundTripped.globalVariables.size() == 1) {
+            CHECK(roundTripped.globalVariables[0].key == "score");
+            CHECK(std::holds_alternative<double>(roundTripped.globalVariables[0].initialValue));
+            CHECK(std::get<double>(roundTripped.globalVariables[0].initialValue) == 42.0);
+        }
+
+        const auto typeIt = roundTripped.objectTypes.find("Hero");
+        CHECK(typeIt != roundTripped.objectTypes.end());
+        if (typeIt != roundTripped.objectTypes.end()) {
+            CHECK(typeIt->second.logicBoard.has_value());
+            CHECK(typeIt->second.logicBoard && typeIt->second.logicBoard->rules.size() == 1);
+        }
+        CHECK(roundTripped.scenes.count("ru01-scene") == 1);
+    }
+
     // -- Schema v4 promotes sprite defaults and persists sparse deltas only ---
     {
         const std::string v3 = R"json({

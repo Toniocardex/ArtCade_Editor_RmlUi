@@ -10,6 +10,16 @@
 
 #include "editor-native/model/tilemap_validation.h"
 
+// RU-01 (docs/PLAY_RUNTIME_UNIFICATION_ROADMAP.md §8, editor repo): the
+// canonical project-JSON readers current-format files delegate to below -
+// the same functions AssetLoader::parseProjectJson uses at runtime.
+#include "core/asset-json.h"
+#include "core/collision-json.h"
+#include "core/entity-json.h"
+#include "core/project-current-format.h"
+#include "core/project-meta-json.h"
+#include "core/scene-json.h"
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -1083,6 +1093,66 @@ void migrateSpriteAnimationOwnershipV9(ProjectDoc& document) {
     }
 }
 
+// RU-01 (docs/PLAY_RUNTIME_UNIFICATION_ROADMAP.md §8): reads a current-format
+// (formatVersion == kCurrentSchemaVersion) project.json entirely through the
+// same ProjectJson::read_* functions AssetLoader::parseProjectJson uses at
+// runtime (asset-loader.cpp:193-249), so the editor and the exported game
+// always agree on what a v9 file means. Mirrors that function's call order
+// exactly, minus the parts that are AssetLoader-specific asset-resolution
+// bookkeeping the editor doesn't need (manifest index, image-point lookup
+// tables) - not ProjectDoc data - and minus
+// validate_current_project_document(): that check encodes runtime/export-time
+// gameplay-readiness rules (e.g. every scene needs >=1 layer), appropriate for
+// AssetLoader::parseProjectJson, which only ever loads a file meant to
+// actually run as a game. The editor's own ProjectValidator::validate() (a
+// deliberately separate, subsequent stage callers already invoke - see
+// project_load.cpp) is the correct, more lenient place for editor-authoring
+// business rules; documents mid-authoring legitimately may not satisfy every
+// gameplay-readiness rule yet. Confirmed empirically: several existing editor
+// fixtures/tests build scenes with no layers on purpose (not exercising the
+// layer system) and expect deserialize() to still succeed.
+//
+// Deliberately does NOT call materializeProjectEntities(): that derives
+// doc.entities from doc.objectTypes + scene instances for the runtime's own
+// consumption (World::init reads doc.entities directly); the editor's
+// authoring model works from doc.scenes[].instances + doc.objectTypes
+// directly and has never populated doc.entities on load (root.json has no
+// "entities" key at all - confirmed, `serialize()` never emits one). Calling
+// it here would be a new, unrequested behavior change, not parity.
+DeserializeResult deserializeCanonical(const nlohmann::json& root) {
+    std::string error;
+    if (!ProjectJson::validate_current_project_json(root, error)) {
+        return DeserializeResult::failure(error);
+    }
+
+    ProjectDoc doc;
+    ProjectJson::read_project_header(root, doc);
+    ProjectJson::read_global_variables(root, doc);
+
+    if (root.contains("world") && root["world"].is_object()) {
+        ProjectJson::read_world_settings(root["world"], doc.world);
+    }
+
+    ProjectJson::read_object_types_map(root, doc.objectTypes);
+    if (!ProjectJson::read_object_type_logic_boards(root, doc.objectTypes, &error)) {
+        return DeserializeResult::failure(error);
+    }
+    ProjectJson::read_entities_map(root, doc.entities, false);
+    ProjectJson::read_scenes_map(root, doc.scenes);
+    ProjectJson::read_thumbnails(root, doc.thumbnails);
+    ProjectJson::read_physics_layers(root, doc.physicsLayers);
+    ProjectJson::read_collision_profiles(root, doc.collisionProfiles);
+    ProjectJson::read_tile_palette(root, doc.tilePalette);
+    ProjectJson::read_tilesets(root, doc.tilesets);
+
+    ProjectJson::read_image_assets(root, doc.imageAssets);
+    ProjectJson::read_sprite_animation_assets(root, doc.spriteAnimationAssets);
+    ProjectJson::read_audio_assets(root, doc.audioAssets);
+    ProjectJson::read_font_assets(root, doc.fontAssets);
+
+    return DeserializeResult::success(ProjectDocument{std::move(doc)});
+}
+
 } // namespace
 
 DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
@@ -1104,6 +1174,29 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
     (void)readNumber<int>(root, "schemaVersion", 0, "schemaVersion");
     doc.formatVersion = readAliasedNumber<int>(
         root, "formatVersion", "format_version", 0, "formatVersion");
+
+    // RU-01: current-format files delegate entirely to the canonical
+    // ProjectJson::read_* readers (deserializeCanonical, above) - the same
+    // ones AssetLoader::parseProjectJson uses. `validate_current_project_json`
+    // (called first, inside deserializeCanonical) enforces the runtime's full
+    // export-time contract - e.g. every scene needs a non-empty `layers`
+    // array - which is stricter than what the editor's own authoring model
+    // requires while a document is still mid-edit (several editor test
+    // fixtures deliberately build layer-less scenes because they're not
+    // exercising the layer system). A conformant v9 file always takes this
+    // path and returns here; one that doesn't fully conform yet falls through
+    // to the legacy parser below unchanged, exactly like before RU-01 - the
+    // editor stays able to open/round-trip an in-progress document the
+    // runtime's stricter contract would reject outright. Older files
+    // (formatVersion < kCurrentSchemaVersion) always fall through too: the
+    // canonical parser rejects anything but the current format by design
+    // (RU-01a), and ProjectMigration::migrate (unchanged) needs a fully-
+    // parsed legacy-shape ProjectDoc to upgrade from.
+    if (doc.formatVersion == kCurrentSchemaVersion) {
+        DeserializeResult canonical = deserializeCanonical(root);
+        if (canonical.ok) return canonical;
+    }
+
     readScenes(root, doc);
 
     if (const nlohmann::json* objectTypes = optionalArray(root, "objectTypes", "objectTypes")) {

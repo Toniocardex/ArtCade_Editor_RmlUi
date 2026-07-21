@@ -89,6 +89,10 @@ target_link_libraries(artcade-editor-core PUBLIC
     artcade-sprite-animation-core
     ArtCade::Sfx
     lua54
+    # RU-01: ProjectSerializer::deserialize() delegates project-JSON field
+    # reading to the canonical ProjectJson::read_* functions for current-
+    # format files (docs/PLAY_RUNTIME_UNIFICATION_ROADMAP.md §8).
+    artcade-project-json
 )
 
 # ----------------------------------------------------------------------------
