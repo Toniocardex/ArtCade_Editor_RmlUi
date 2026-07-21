@@ -70,7 +70,7 @@ La migrazione è conclusa soltanto quando:
 | RU-02g | P0 | Confine frame/presentazione: renderer legge solo `GameplayFrameSnapshot` | [x] | RU-02f | runtime |
 | RU-02h | P0 | Pulizia e congelamento API pubblica di `GameplaySession` | [x] | RU-02g | runtime |
 | RU-03 | P0 | Integrazione Editor Play con `GameplaySession`; `EditorNative::PlaySession` → façade o rimossa | [x] | RU-02h, RU-01, RU-01a | editor, runtime |
-| RU-04 | P0 | Play-start come "export a temp + load via `AssetLoader`" | [ ] | RU-01, RU-01a, RU-03 | editor |
+| RU-04 | P0 | Play-start come "export a temp + load via `AssetLoader`" | [x] | RU-01, RU-01a, RU-03 | editor |
 | RU-05 | P0 | Ritiro di `PlaySession`/`RuntimeEntity`/`RuntimeScene` e codice duplicato | [ ] | RU-04 | editor |
 | GATE-FINAL | Gate | Parity audit sui 3 gate games, Windows + Web | [ ] | RU-05 | editor, runtime |
 
@@ -299,7 +299,21 @@ L'eseguibile standalone si comporta in modo osservabilmente identico a prima (ne
 
 `EditorGameplayRuntimeHost` non ha metodi stub; uno spawn richiesto da Logic Board o Script tramite questo host produce un'entità reale nel gateway, con Logic/Script installati se l'Object Type ne ha.
 
-## 11. Fase RU-04 — Play-start come "export a temp + load via `AssetLoader`"
+## 11. Fase RU-04 — Play-start come "export a temp + load via `AssetLoader`" — ✅ COMPLETATA (percorso più stretto di quello sotto)
+
+> **Nota di chiusura (implementazione reale)**: come già per RU-03 (§10), il design sotto assumeva pezzi mai costruiti (`EditorGameplayRuntimeHost`, un `CameraManager` da seminare, un `RuntimeEntityGateway` letto direttamente dalla scene view). Il gate reale — Play parsa il progetto tramite lo stesso loader canonico (`Modules::AssetLoader::loadDirectory`) del gioco esportato, non solo gli stessi `ProjectJson::read_*` che RU-01 già condivideva — è stato raggiunto con un cambiamento molto più stretto in `PlaySession::materialize()` (`play_session.cpp`): il `ProjectDocument` viene serializzato (`ProjectSerializer::serialize`), scritto come `project.json` in una scratch directory temporanea creata ad hoc per quella singola chiamata, caricato con `AssetLoader::loadDirectory`, e la directory viene rimossa subito dopo (non a fine sessione di Play — serve solo per il parsing, non per tutta la sessione). Prima di toccare il disco, il JSON viene anche validato esplicitamente con `ProjectJson::validate_current_project_json` per un messaggio di errore specifico (non un generico "rejected"), coerente con lo standard "niente fallback silenzioso" già richiesto altrove.
+>
+> **Perché non serve copiare gli asset**: `AssetLoader::parseProjectJson` non legge mai byte di immagini/audio/font — costruisce solo il `ProjectDoc` e un indice di manifest con i path relativi; il caricamento effettivo dei byte (texture, suoni) resta lazy e continua a risolvere contro la vera directory del progetto tramite `PlaySession::setAssetRoot()` (già esistente da RU-03), mai contro la scratch dir. Questo evita di dover copiare/linkare l'intero albero asset ad ogni Play-start.
+>
+> **Perché Camera/RuntimeEntityGateway diretto non si applicano più**: RU-03 ha già stabilito che l'editor non usa mai `Modules::Renderer`/`CameraManager` per Play — la Scene View dell'editor ha un proprio pipeline di rendering completamente separato che legge da `SceneFrameSnapshot`/`PlaySession::renderables()`. L'isolamento camera Edit/Play era quindi già garantito strutturalmente da RU-03, non un problema aperto qui. **Non verificato in questa slice**: i tre smoke test screenshot manuali `--shot-play`/`--shot-pan`/`--shot-zoom` (flag CLI di `artcade-editor-native.exe`, non parte della suite `build.bat --test`) non sono stati rieseguiti - il cambiamento non tocca la Scene View/camera, ma questa resta una verifica manuale non ancora fatta, non un gate bypassato.
+>
+> **Gap reali scoperti e chiusi grazie a questo instradamento** (il punto esatto di RU-04 - far emergere discrepanze fra cosa l'editor autora e cosa il loader canonico accetta): (1) diversi fixture di test costruivano scene/istanze a mano senza un `layers`/`layerId` valido, cosa che `ProjectDocument::createScene()` garantisce sempre nel percorso di autoring reale ma che Play non validava mai prima di RU-04 - sistemati i fixture (`editor_core_test_harness.cpp`, `generated-sfx-*-test.cpp`, `tileset-tilemap-test.cpp`). (2) **bug reale nell'authoring**, non solo nei test: `CreateEntityCommand`/`CreateEntityWithDefaultTypeCommand` lasciavano `instance.layerId` vuoto quando l'utente non specifica un layer esplicito (inteso come "usa il default"), invece di risolverlo al vero `defaultLayerId` della scena - un'istanza così creata avrebbe sempre fallito il validator canonico. Corretto in `entity_commands.cpp` risolvendo la stringa vuota prima di scrivere l'istanza, non solo nei fixture.
+>
+> **Latenza misurata** (richiesta esplicita della slice, non solo correttezza): ~3 ms medi per il round-trip serialize→scrivi→`AssetLoader::loadDirectory` su un progetto di test rappresentativo (20 campioni, build Release) - trascurabile per l'iterazione interattiva. Nessuna ottimizzazione in-memory necessaria per questa slice.
+>
+> **Input routing**: il punto "instradare la tastiera nell'interfaccia di `GameplaySession` invece del polling diretto in `PlaySession::isKeyDown`" era già chiuso da RU-02d/RU-03 (`GameplayInputFrame`/`dispatchInput()`) - `PlaySession::isKeyDown` non esiste più nella facciata attuale.
+>
+> Verificato: `build.bat --test` tutto verde (incluso un nuovo test di round-trip in `editor-core-test.cpp` che copre successo, pulizia della scratch dir, e rifiuto esplicito su scena/istanza senza layer valido); runtime-cpp non toccato in questa slice (nessuna modifica lato runtime).
 
 **Problema**
 
