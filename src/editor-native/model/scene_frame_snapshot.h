@@ -101,4 +101,14 @@ std::optional<Vec2> positionToBringBoundsInsideScene(const WorldRect& entityBoun
 // query on the frame — no document, no renderer.
 EntityId pickEntityAt(const SceneFrameSnapshot& frame, Vec2 worldPoint);
 
+// In-place local drag preview: offsets every drawn representation of
+// `entity` by `delta` (world units) so the Scene View shows the move before
+// the single SetEntityTransformCommand lands on release. Must cover every
+// snapshot list that carries its own world-space rect independent of
+// SceneFrameEntity::bounds - a list left out here stays frozen at the
+// pre-drag position for the whole gesture and only jumps on release, which
+// reads as stutter even though frame time itself is unaffected. Workspace-
+// only: never touches ProjectDocument, revision, or dirty.
+void applyDragPreviewOffset(SceneFrameSnapshot& snapshot, EntityId entity, Vec2 delta);
+
 } // namespace ArtCade::EditorNative

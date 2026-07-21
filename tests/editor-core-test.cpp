@@ -3522,6 +3522,49 @@ int main() {
         CHECK(emptyBounds->x == 5.f);   // no cells -> falls through to the placeholder bounds
     }
 
+    // -- applyDragPreviewOffset: every drawn representation of the dragged
+    // entity moves by the same delta - a Tilemap's cells included, or the
+    // painted tiles stay frozen at the pre-drag spot for the whole gesture
+    // and only jump to the new position on release (looks like stutter even
+    // though frame time itself is unaffected). Regression for exactly that
+    // bug: editor_app.cpp's live drag preview offset entities/sprites/
+    // colliders but forgot tilemaps ---------------------------------------------
+    {
+        SceneFrameSnapshot f;
+        f.hasScene = true;
+        f.entities.push_back(SceneFrameEntity{1, "TM", {}, SceneFrameRect{10, 10, 5, 5}, true});
+        f.entities.push_back(SceneFrameEntity{2, "Other", {}, SceneFrameRect{0, 0, 5, 5}, false});
+        f.sprites.push_back(SceneFrameSprite{1, "img", SceneFrameRect{10, 10, 5, 5}, {}, true, true});
+        f.colliders.push_back(SceneFrameCollider{1, WorldRect{10, 10, 5, 5},
+                                                  true, BoxColliderMode::Solid, true});
+        f.tilemaps.push_back(SceneFrameTilemap{
+            1, "tiles-img",
+            {SceneFrameTilemapCell{SceneFrameRect{10, 10, 32, 32}, SceneFrameRect{0, 0, 16, 16}},
+             SceneFrameTilemapCell{SceneFrameRect{42, 10, 32, 32}, SceneFrameRect{16, 0, 16, 16}}},
+            true});
+        f.tilemaps.push_back(SceneFrameTilemap{
+            2, "tiles-img",
+            {SceneFrameTilemapCell{SceneFrameRect{0, 0, 32, 32}, SceneFrameRect{0, 0, 16, 16}}},
+            false});
+
+        applyDragPreviewOffset(f, 1, Vec2{7.f, -3.f});
+
+        CHECK(f.entities[0].bounds.x == 17.f);
+        CHECK(f.entities[0].bounds.y == 7.f);
+        CHECK(f.entities[1].bounds.x == 0.f);   // untouched: not the dragged entity
+        CHECK(f.sprites[0].destination.x == 17.f);
+        CHECK(f.sprites[0].destination.y == 7.f);
+        CHECK(f.colliders[0].worldBounds.x == 17.f);
+        CHECK(f.colliders[0].worldBounds.y == 7.f);
+        CHECK(f.tilemaps[0].cells[0].destination.x == 17.f);
+        CHECK(f.tilemaps[0].cells[0].destination.y == 7.f);
+        CHECK(f.tilemaps[0].cells[1].destination.x == 49.f);
+        CHECK(f.tilemaps[0].cells[1].destination.y == 7.f);
+        // Untouched: entity 2's tilemap is not the one being dragged.
+        CHECK(f.tilemaps[1].cells[0].destination.x == 0.f);
+        CHECK(f.tilemaps[1].cells[0].destination.y == 0.f);
+    }
+
     // -- collectSceneFrameSnapshot: an instance's TilemapComponent resolves
     // into snapshot.tilemaps with world-space cells; an empty component still
     // produces an entry, just with no cells --------------------------------------

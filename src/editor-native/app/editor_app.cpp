@@ -1446,14 +1446,7 @@ int EditorApp::run(int argc, char** argv) {
             const Vec2 d = preview
                 ? Vec2{preview->x - drag.startEntityPos.x, preview->y - drag.startEntityPos.y}
                 : Vec2{};
-            for (SceneFrameEntity& e : snapshot.entities)
-                if (e.entityId == drag.entity) { e.bounds.x += d.x; e.bounds.y += d.y; }
-            for (SceneFrameSprite& s : snapshot.sprites)
-                if (s.entityId == drag.entity) { s.destination.x += d.x; s.destination.y += d.y; }
-            // The collider overlay must follow the dragged entity too, otherwise it
-            // lingers at the old position until the move commits on release.
-            for (SceneFrameCollider& col : snapshot.colliders)
-                if (col.entityId == drag.entity) { col.worldBounds.x += d.x; col.worldBounds.y += d.y; }
+            applyDragPreviewOffset(snapshot, drag.entity, d);
             }
             if (!playSession) {
                 applyPendingTilemapStrokePreview(snapshot, coordinator.document(),

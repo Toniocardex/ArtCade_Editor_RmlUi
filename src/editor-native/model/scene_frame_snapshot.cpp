@@ -268,6 +268,25 @@ EntityId pickEntityAt(const SceneFrameSnapshot& frame, Vec2 worldPoint) {
     return INVALID_ENTITY;
 }
 
+void applyDragPreviewOffset(SceneFrameSnapshot& snapshot, EntityId entity, Vec2 delta) {
+    for (SceneFrameEntity& e : snapshot.entities) {
+        if (e.entityId == entity) { e.bounds.x += delta.x; e.bounds.y += delta.y; }
+    }
+    for (SceneFrameSprite& s : snapshot.sprites) {
+        if (s.entityId == entity) { s.destination.x += delta.x; s.destination.y += delta.y; }
+    }
+    for (SceneFrameCollider& col : snapshot.colliders) {
+        if (col.entityId == entity) { col.worldBounds.x += delta.x; col.worldBounds.y += delta.y; }
+    }
+    for (SceneFrameTilemap& tm : snapshot.tilemaps) {
+        if (tm.entityId != entity) continue;
+        for (SceneFrameTilemapCell& cell : tm.cells) {
+            cell.destination.x += delta.x;
+            cell.destination.y += delta.y;
+        }
+    }
+}
+
 std::optional<WorldRect> editorBoundsForEntity(const SceneFrameSnapshot& frame,
                                                EntityId entityId) {
     std::optional<WorldRect> bounds;
