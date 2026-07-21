@@ -226,6 +226,7 @@ body {
 }
 .tile-palette-dock-rail .panel-btn {
     display: block;
+    box-sizing: border-box;
     width: 100%;
     margin: 0;
     padding: 1dp 2dp;
