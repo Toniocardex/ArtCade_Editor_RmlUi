@@ -29,4 +29,15 @@ Vec2 screenToWorld(const SceneViewCamera& camera, Vec2 screen) {
     };
 }
 
+SceneViewportProjection resolveSceneViewportProjection(const ViewportRect& visibleRect,
+                                                        const ViewportRect& cameraAnchorRect,
+                                                        const EditorSceneViewState& view,
+                                                        Vec2 worldSize) {
+    SceneViewportProjection projection;
+    projection.visibleRect = visibleRect;
+    projection.cameraAnchorRect = cameraAnchorRect;
+    projection.camera = makeSceneViewCamera(cameraAnchorRect, view, worldSize);
+    return projection;
+}
+
 } // namespace ArtCade::EditorNative

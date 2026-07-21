@@ -463,19 +463,38 @@ int EditorApp::run(int argc, char** argv) {
     });
 
     // Fit View / auto-fit: frame the active scene, centred, with a small padding.
-    // Workspace-only (recenter pan to 0 + zoom-to-fit via intents); the viewport
-    // rect is known only here. Shared by the Scene Inspector button and the
-    // first-open auto-fit below.
+    // Workspace-only (recenter pan + zoom-to-fit via intents); the rects are
+    // known only here. Shared by the Scene Inspector button and the first-open
+    // auto-fit below. Fit is an explicit user command, so - unlike passive
+    // rendering/picking - it always centres in visibleRect (what can actually
+    // be seen right now), never in cameraAnchorRect: otherwise, with the Tile
+    // Palette dock open, "Fit" could centre the scene partly behind the dock.
     const auto fitActiveScene = [&]() -> bool {
         const SceneId active = coordinator.state().activeSceneId;
         const SceneDef* scene = coordinator.document().findScene(active);
         if (!scene || scene->worldSize.x <= 0.f || scene->worldSize.y <= 0.f) return false;
-        const ViewportRect rect = viewportRectFromDocument(host.document());
-        if (rect.width <= 0 || rect.height <= 0) return false;
-        const float fit = computeFitZoom(scene->worldSize, rect, kSceneFitPadding);
+        const ViewportRect visibleRect = viewportRectFromDocument(host.document());
+        if (visibleRect.width <= 0 || visibleRect.height <= 0) return false;
+        const ViewportRect cameraAnchorRect =
+            elementContentRectFromDocument(host.document(), "center-content");
+        const float fit = computeFitZoom(scene->worldSize, visibleRect, kSceneFitPadding);
+        coordinator.apply(SetViewportZoomIntent{active, fit});   // intent clamps
+        // The camera anchors on cameraAnchorRect's centre (see
+        // SceneViewportProjection), so centring the world in visibleRect
+        // instead means solving for the pan that makes them agree:
+        //   visibleCentre = (worldCentre - target) * zoom + anchorCentre
+        //   target = worldCentre + pan  =>  pan = (anchorCentre - visibleCentre) / zoom
+        // Reads the zoom back so a clamped fit still centres correctly.
+        const float appliedZoom = coordinator.sceneView(active).zoom;
+        const Vec2 anchorCenter{cameraAnchorRect.x + cameraAnchorRect.width * 0.5f,
+                                cameraAnchorRect.y + cameraAnchorRect.height * 0.5f};
+        const Vec2 visibleCenter{visibleRect.x + visibleRect.width * 0.5f,
+                                 visibleRect.y + visibleRect.height * 0.5f};
+        const Vec2 targetPan{(anchorCenter.x - visibleCenter.x) / appliedZoom,
+                             (anchorCenter.y - visibleCenter.y) / appliedZoom};
         const EditorSceneViewState view = coordinator.sceneView(active);
-        coordinator.apply(PanViewportIntent{active, {-view.pan.x, -view.pan.y}});  // centre (pan 0)
-        coordinator.apply(SetViewportZoomIntent{active, fit});                     // intent clamps
+        coordinator.apply(PanViewportIntent{
+            active, {targetPan.x - view.pan.x, targetPan.y - view.pan.y}});
         return true;
     };
     ui.setFitViewHandler([&]() { fitActiveScene(); });
@@ -1129,7 +1148,30 @@ int EditorApp::run(int argc, char** argv) {
         if (!nonSceneWorkspace && !rml.textFocus && IsKeyPressed(KEY_DELETE)) {
             deleteSelectedEntity(coordinator);
         }
-        const ViewportRect rect = viewportRectFromDocument(host.document());
+        const ViewportRect visibleRect = viewportRectFromDocument(host.document());
+        // Includes the Tile Palette dock's footprint even when it's eating
+        // space from the bottom of #viewport, so the camera keeps anchoring on
+        // the same area regardless of whether the dock is open - opening/
+        // closing it crops the visible area instead of visibly translating
+        // whatever is already drawn (see SceneViewportProjection).
+        const ViewportRect cameraAnchorRect =
+            elementContentRectFromDocument(host.document(), "center-content");
+        // Resolves the camera for whichever scene is actually driving the
+        // Scene View right now (Play's own scene, or the edit-mode active
+        // scene), reading workspace pan/zoom fresh each call - the only
+        // through-line every Scene View camera build goes through this frame.
+        const auto sceneViewportProjectionFor =
+            [&](const ViewportRect& visible, const ViewportRect& anchor) {
+                const PlaySession* ps = coordinator.playSession();
+                const SceneId camActive = ps ? ps->sceneId() : coordinator.state().activeSceneId;
+                const Vec2 camWorldSize = ps
+                    ? ps->scene().worldSize
+                    : (coordinator.document().findScene(camActive)
+                           ? coordinator.document().findScene(camActive)->worldSize
+                           : Vec2{});
+                return resolveSceneViewportProjection(
+                    visible, anchor, coordinator.sceneView(camActive), camWorldSize);
+            };
         const bool contextMenuHit = ui.isContextMenuHit(
             static_cast<int>(static_cast<float>(GetMouseX()) * uiPixelScaleX()),
             static_cast<int>(static_cast<float>(GetMouseY()) * uiPixelScaleY()));
@@ -1149,7 +1191,7 @@ int EditorApp::run(int argc, char** argv) {
             gameplayInputFocused = false;
         if (playing && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             gameplayInputFocused = !nonSceneWorkspace && !rml.textFocus && !popupOpen
-                && !contextMenuHit && rect.contains(GetMouseX(), GetMouseY());
+                && !contextMenuHit && visibleRect.contains(GetMouseX(), GetMouseY());
         }
         previousPlaying = playing;
         const ViewportRect animationInputRect = animationEditorOpen
@@ -1159,8 +1201,17 @@ int EditorApp::run(int argc, char** argv) {
             ? resolveTilesetEditorCanvasContentRect(tilesetDocument)
             : ViewportRect{};
         if (!animationEditorOpen && !tilesetEditorOpen && !nonSceneWorkspace) {
-            routeViewportInput(coordinator, rect, rml, contextMenuHit);
+            routeViewportInput(coordinator, sceneViewportProjectionFor(visibleRect, cameraAnchorRect),
+                               rml, contextMenuHit);
         }
+        // Rebuilt after routeViewportInput, which is the only router that can
+        // change pan/zoom (mouse wheel / middle-drag) - everything below this
+        // point in the frame (pick/drag, tilemap paint, context menu, pointer
+        // readout, drag preview, and this frame's render) shares this single
+        // resolved projection, so a wheel-zoom is never one frame stale for
+        // some consumers and current for others.
+        const SceneViewportProjection projection =
+            sceneViewportProjectionFor(visibleRect, cameraAnchorRect);
         if (playing) {
             const float dt = GetFrameTime();
             // Simulation continues in every workspace. Keyboard input belongs
@@ -1185,10 +1236,10 @@ int EditorApp::run(int argc, char** argv) {
                 if (fitActiveScene()) coordinator.markSceneViewInitialized(editScene);
             }
             if (!rml.textFocus && IsKeyPressed(KEY_ESCAPE)) routeGlobalEscape(coordinator);
-            routeViewportPickDrag(coordinator, rect, rml, drag, contextMenuHit);
-            routeViewportContextMenu(coordinator, ui, rect, rml, contextClick,
+            routeViewportPickDrag(coordinator, projection, rml, drag, contextMenuHit);
+            routeViewportContextMenu(coordinator, ui, projection, rml, contextClick,
                                      pendingContextSpawn, contextMenuHit);
-            routeViewportTilemapPaint(coordinator, rect, rml);
+            routeViewportTilemapPaint(coordinator, projection, rml);
         }
 
         // Pointer world/cell readout (Edit mode, mouse over the viewport).
@@ -1197,11 +1248,10 @@ int EditorApp::run(int argc, char** argv) {
             ViewportPointerReadout pointerReadout;
             if (!coordinator.isPlaying() && !animationEditorOpen && !tilesetEditorOpen
                 && !nonSceneWorkspace
-                && rect.contains(GetMouseX(), GetMouseY())) {
+                && visibleRect.contains(GetMouseX(), GetMouseY())) {
                 const SceneId& active = coordinator.state().activeSceneId;
                 if (const SceneDef* scene = coordinator.document().findScene(active)) {
-                    const SceneViewCamera camera = makeSceneViewCamera(
-                        rect, coordinator.sceneView(active), scene->worldSize);
+                    const SceneViewCamera& camera = projection.camera;
                     pointerReadout = makePointerReadout(
                         Vec2{static_cast<float>(GetMouseX()),
                              static_cast<float>(GetMouseY())},
@@ -1377,7 +1427,7 @@ int EditorApp::run(int argc, char** argv) {
         // hang off any single action path. Change-guarded O(1) check per frame.
         projectSession.refreshWindowTitleIfNeeded();
         if (!coordinator.isPlaying() && !animationEditorOpen && !tilesetEditorOpen) {
-            if (const std::optional<Vec2> preview = dragPreviewPosition(coordinator, rect, drag)) {
+            if (const std::optional<Vec2> preview = dragPreviewPosition(coordinator, projection, drag)) {
                 ui.showEntityPositionPreview(drag.entity, *preview);
             }
         }
@@ -1442,7 +1492,7 @@ int EditorApp::run(int argc, char** argv) {
             if (!playSession && drag.active) {
             // Local drag preview: offset the dragged entity by the live delta so
             // the move is visible before the single command lands on release.
-            const std::optional<Vec2> preview = dragPreviewPosition(coordinator, rect, drag);
+            const std::optional<Vec2> preview = dragPreviewPosition(coordinator, projection, drag);
             const Vec2 d = preview
                 ? Vec2{preview->x - drag.startEntityPos.x, preview->y - drag.startEntityPos.y}
                 : Vec2{};
@@ -1465,11 +1515,21 @@ int EditorApp::run(int argc, char** argv) {
             EditorSceneViewState renderView;
             if (playSession) {
                 renderView.zoom =
-                    clampZoom(computeFitZoom(snapshot.worldSize, rect, kSceneFitPadding));
+                    clampZoom(computeFitZoom(snapshot.worldSize, visibleRect, kSceneFitPadding));
                 renderView.gridVisible = false;
             } else {
                 renderView = coordinator.sceneView(active);
             }
+            // Play always fits/centres within the actually-visible area (no
+            // separate anchor rect - there is no persistent pan to protect from
+            // a dock toggle, since renderView is rebuilt from scratch above);
+            // Edit mode reuses this frame's already-resolved projection, which
+            // is exactly renderView's own camera since neither pan/zoom nor the
+            // geometry changed between input routing and here.
+            const SceneViewportProjection renderProjection = playSession
+                ? resolveSceneViewportProjection(visibleRect, visibleRect, renderView,
+                                                 snapshot.worldSize)
+                : projection;
             // Asset editors replace the scene viewport only in Edit mode. During
             // Play the runtime scene must always render regardless of workspace UI.
             if (!playSession) {
@@ -1483,13 +1543,13 @@ int EditorApp::run(int argc, char** argv) {
                 textureCache.prepare(snapshot.sprites, snapshot.tilemaps, textureRequests);
                 const SceneGridDefinition displayGrid = viewportDisplayGrid(
                     coordinator.document(), coordinator.state(), active);
-                sceneView.render(snapshot, renderView, displayGrid, rect, textureCache,
+                sceneView.render(snapshot, renderView, displayGrid, renderProjection, textureCache,
                                  canvasFont);
                 if (!playSession) {
                     drawTilemapPaintOverlay(coordinator.document(), coordinator.state().tilemapEditor,
                                             coordinator.effectiveTilemapTool(),
-                                            active, coordinator.selection().primaryEntity, rect,
-                                            renderView, snapshot.worldSize);
+                                            active, coordinator.selection().primaryEntity,
+                                            renderProjection);
                 }
             }
         }

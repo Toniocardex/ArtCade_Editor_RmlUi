@@ -9,12 +9,13 @@ namespace ArtCade::EditorNative {
 void drawTilemapPaintOverlay(const ProjectDocument& document, const TilemapEditorState& tilemapEditor,
                              EditorTool effectiveTool,
                              const SceneId& sceneId, EntityId entityId,
-                             const ViewportRect& rect, const EditorSceneViewState& view, Vec2 worldSize) {
+                             const SceneViewportProjection& projection) {
+    const ViewportRect& rect = projection.visibleRect;
     if (!tilemapEditor.hoveredCell || !rect.valid()) return;
     const SceneInstanceDef* inst = document.findInstanceInScene(sceneId, entityId);
     if (!inst || !inst->tilemap.has_value()) return;
 
-    const SceneViewCamera vc = makeSceneViewCamera(rect, view, worldSize);
+    const SceneViewCamera& vc = projection.camera;
     Camera2D cam{};
     cam.offset = Vector2{vc.offset.x, vc.offset.y};
     cam.target = Vector2{vc.target.x, vc.target.y};

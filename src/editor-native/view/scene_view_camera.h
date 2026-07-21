@@ -44,4 +44,31 @@ float computeFitZoom(Vec2 worldSize, const ViewportRect& rect, float padding);
 // screen = (world - target) * zoom + offset  =>  inverse below.
 Vec2 screenToWorld(const SceneViewCamera& camera, Vec2 screen);
 
+// Bundles the two rectangles a frame's Scene View work needs, plus the camera
+// resolved from them. `visibleRect` is the true, currently visible/clippable
+// area - scissor, hit-test, Fit's own scale, and default-spawn centring all
+// stay authoritative on it. `cameraAnchorRect` anchors the camera only, and
+// may be taller than visibleRect (e.g. while the Tile Palette dock eats space
+// from the bottom of the Scene View) so a panel opening/closing crops the
+// view instead of recentring it - the content already on screen never visibly
+// moves just because a dock toggled, even though nothing in ProjectDocument
+// changed. When no dock (or other panel) is narrowing the view, the two rects
+// are identical and this degenerates to today's single-rect behaviour.
+struct SceneViewportProjection {
+    ViewportRect visibleRect;
+    ViewportRect cameraAnchorRect;
+    SceneViewCamera camera;
+};
+
+// The sole place a Scene View camera gets built from live rects. Render,
+// pick, drag, paint, zoom-under-cursor and the pointer readout all go through
+// this - never makeSceneViewCamera directly - so they can never independently
+// diverge from one another the way the pre-fix bug (dock toggle visibly
+// translating painted tiles) came from a formula recomputed ad hoc per call
+// site.
+SceneViewportProjection resolveSceneViewportProjection(const ViewportRect& visibleRect,
+                                                        const ViewportRect& cameraAnchorRect,
+                                                        const EditorSceneViewState& view,
+                                                        Vec2 worldSize);
+
 } // namespace ArtCade::EditorNative

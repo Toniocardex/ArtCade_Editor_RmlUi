@@ -35,19 +35,19 @@ ViewportRect resolveSpriteAnimationPreviewContentRect(Rml::ElementDocument* docu
 ViewportRect resolveTilesetEditorCanvasContentRect(Rml::ElementDocument* document);
 void syncEditorOverlayViewport(Rml::ElementDocument* document);
 
-void routeViewportInput(EditorCoordinator& coordinator, const ViewportRect& rect,
+void routeViewportInput(EditorCoordinator& coordinator, const SceneViewportProjection& projection,
                         const RmlInputResult& rml, bool contextMenuHit);
 void routeGlobalEscape(EditorCoordinator& coordinator);
-void routeViewportPickDrag(EditorCoordinator& coordinator, const ViewportRect& rect,
+void routeViewportPickDrag(EditorCoordinator& coordinator, const SceneViewportProjection& projection,
                            const RmlInputResult& rml, ViewportDrag& drag,
                            bool contextMenuHit);
 void routeViewportContextMenu(EditorCoordinator& coordinator, EditorUi& ui,
-                              const ViewportRect& rect, const RmlInputResult& rml,
+                              const SceneViewportProjection& projection, const RmlInputResult& rml,
                               ViewportContextClick& click,
                               std::optional<Vec2>& pendingSpawnPosition,
                               bool contextMenuHit);
 std::optional<Vec2> dragPreviewPosition(const EditorCoordinator& coordinator,
-                                        const ViewportRect& rect,
+                                        const SceneViewportProjection& projection,
                                         const ViewportDrag& drag);
 
 } // namespace ArtCade::EditorNative

@@ -28,8 +28,10 @@ TilemapCellCoord worldToCell(Vec2 world, Vec2 originPosition, Vec2 cellSize) {
 
 } // namespace
 
-void routeViewportTilemapPaint(EditorCoordinator& coordinator, const ViewportRect& rect,
+void routeViewportTilemapPaint(EditorCoordinator& coordinator,
+                               const SceneViewportProjection& projection,
                                const RmlInputResult& rml) {
+    const ViewportRect& rect = projection.visibleRect;
     const EditorTool tool = coordinator.effectiveTilemapTool();
 
     // Lost window focus mid-operation: cancel, never commit - safer to cancel
@@ -58,11 +60,7 @@ void routeViewportTilemapPaint(EditorCoordinator& coordinator, const ViewportRec
         active, coordinator.selection().primaryEntity);
     if (!inst || !inst->tilemap.has_value()) return;
 
-    const SceneFrameSnapshot frame = collectSceneFrameSnapshot(
-        coordinator.document(), active, coordinator.selection().primaryEntity,
-        coordinator.sceneView(active).hiddenLayerIds);
-    const SceneViewCamera cam =
-        makeSceneViewCamera(rect, coordinator.sceneView(active), frame.worldSize);
+    const SceneViewCamera& cam = projection.camera;
     const Vec2 mouse{static_cast<float>(GetMouseX()), static_cast<float>(GetMouseY())};
     const Vec2 world = screenToWorld(cam, mouse);
     const TilemapCellCoord cell =

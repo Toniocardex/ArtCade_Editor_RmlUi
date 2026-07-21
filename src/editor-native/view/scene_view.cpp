@@ -177,9 +177,10 @@ void drawDashedRectangle(Rectangle r, float thickness, Color color) {
 void SceneView::render(const SceneFrameSnapshot& frame,
                        const EditorSceneViewState& view,
                        const SceneGridDefinition& displayGrid,
-                       const ViewportRect& rect,
+                       const SceneViewportProjection& projection,
                        const TextureCache& textures,
                        const CanvasFont& canvasFont) const {
+    const ViewportRect& rect = projection.visibleRect;
     if (!rect.valid()) return;
 
     BeginScissorMode(rect.x, rect.y, rect.width, rect.height);
@@ -194,7 +195,7 @@ void SceneView::render(const SceneFrameSnapshot& frame,
     }
 
     const Vector2 world{frame.worldSize.x, frame.worldSize.y};
-    const SceneViewCamera vc = makeSceneViewCamera(rect, view, frame.worldSize);
+    const SceneViewCamera& vc = projection.camera;
     Camera2D cam{};
     cam.offset = Vector2{vc.offset.x, vc.offset.y};
     cam.target = Vector2{vc.target.x, vc.target.y};

@@ -18,7 +18,7 @@ public:
     void render(const SceneFrameSnapshot& frame,
                 const EditorSceneViewState& view,
                 const SceneGridDefinition& displayGrid,
-                const ViewportRect& rect,
+                const SceneViewportProjection& projection,
                 const TextureCache& textures,
                 const CanvasFont& canvasFont) const;
 };

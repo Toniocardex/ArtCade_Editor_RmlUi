@@ -78,12 +78,12 @@ void syncEditorOverlayViewport(Rml::ElementDocument* document) {
     document->SetProperty("background-color", "#0e0e10");
 }
 
-void routeViewportInput(EditorCoordinator& coordinator, const ViewportRect& rect,
+void routeViewportInput(EditorCoordinator& coordinator, const SceneViewportProjection& projection,
                         const RmlInputResult& rml, bool contextMenuHit) {
     // Inside the viewport region we are not over a panel; a focused text field
     // still blocks the viewport (prompt §19 / §24.16).
     const ViewportInputContext ctx{
-        rect.contains(GetMouseX(), GetMouseY()),
+        projection.visibleRect.contains(GetMouseX(), GetMouseY()),
         /*rmlConsumedEvent*/ contextMenuHit,
         rml.textFocus,
         /*rmlPopupOpen*/ false,
@@ -100,17 +100,20 @@ void routeViewportInput(EditorCoordinator& coordinator, const ViewportRect& rect
                : Vec2{});
 
     // Zoom under the cursor: keep the world point beneath the mouse fixed (more
-    // precise than centre-zoom for level design). All workspace, single camera.
+    // precise than centre-zoom for level design). Both cameras route through
+    // resolveSceneViewportProjection (never makeSceneViewCamera directly), so
+    // "before" and "after" can never disagree with render/pick/drag/paint on
+    // what the camera is.
     const float wheel = GetMouseWheelMove();
     if (wheel != 0.0f) {
         const Vec2 mouse{static_cast<float>(GetMouseX()), static_cast<float>(GetMouseY())};
+        const Vec2 worldBefore = screenToWorld(projection.camera, mouse);
         const EditorSceneViewState before = coordinator.sceneView(active);
-        const Vec2 worldBefore =
-            screenToWorld(makeSceneViewCamera(rect, before, worldSize), mouse);
         coordinator.apply(SetViewportZoomIntent{active, before.zoom * (1.0f + wheel * 0.1f)});
-        const EditorSceneViewState after = coordinator.sceneView(active);
-        const Vec2 worldAfter =
-            screenToWorld(makeSceneViewCamera(rect, after, worldSize), mouse);
+        const SceneViewportProjection afterProjection = resolveSceneViewportProjection(
+            projection.visibleRect, projection.cameraAnchorRect,
+            coordinator.sceneView(active), worldSize);
+        const Vec2 worldAfter = screenToWorld(afterProjection.camera, mouse);
         coordinator.apply(PanViewportIntent{
             active, {worldBefore.x - worldAfter.x, worldBefore.y - worldAfter.y}});
     }
@@ -151,16 +154,14 @@ Vec2 applySceneGridSnap(const EditorCoordinator& coordinator, const SceneId& sce
 }
 
 std::optional<Vec2> dragPreviewPosition(const EditorCoordinator& coordinator,
-                                        const ViewportRect& rect,
+                                        const SceneViewportProjection& projection,
                                         const ViewportDrag& drag) {
     if (!drag.active) return std::nullopt;
     const SceneId active = coordinator.state().activeSceneId;
     const SceneDef* scene = coordinator.document().findScene(active);
     if (!scene) return std::nullopt;
 
-    const SceneViewCamera cam =
-        makeSceneViewCamera(rect, coordinator.sceneView(active), scene->worldSize);
-    const Vec2 cur = screenToWorld(cam, Vec2{static_cast<float>(GetMouseX()),
+    const Vec2 cur = screenToWorld(projection.camera, Vec2{static_cast<float>(GetMouseX()),
                                              static_cast<float>(GetMouseY())});
     const Vec2 d{cur.x - drag.startMouseWorld.x, cur.y - drag.startMouseWorld.y};
     return applySceneGridSnap(
@@ -194,7 +195,7 @@ void routeGlobalEscape(EditorCoordinator& coordinator) {
 // Edit-mode pick + drag: press hit-tests and selects; release commits one move.
 // Motion between press and release is shown as a local preview by the draw path,
 // not as a stream of commands.
-void routeViewportPickDrag(EditorCoordinator& coordinator, const ViewportRect& rect,
+void routeViewportPickDrag(EditorCoordinator& coordinator, const SceneViewportProjection& projection,
                            const RmlInputResult& rml, ViewportDrag& drag,
                            bool contextMenuHit) {
     // A paint tool owns viewport clicks while active - entity pick/drag must
@@ -205,13 +206,12 @@ void routeViewportPickDrag(EditorCoordinator& coordinator, const ViewportRect& r
     const SceneFrameSnapshot frame = collectSceneFrameSnapshot(
         coordinator.document(), active, coordinator.selection().primaryEntity,
         coordinator.sceneView(active).hiddenLayerIds);
-    const SceneViewCamera cam =
-        makeSceneViewCamera(rect, coordinator.sceneView(active), frame.worldSize);
+    const SceneViewCamera& cam = projection.camera;
     const Vec2 mouse{static_cast<float>(GetMouseX()), static_cast<float>(GetMouseY())};
 
     // Space + left-drag is a pan gesture, not a pick (handled by routeViewportInput).
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !IsKeyDown(KEY_SPACE)) {
-        const ViewportInputContext ctx{rect.contains(GetMouseX(), GetMouseY()),
+        const ViewportInputContext ctx{projection.visibleRect.contains(GetMouseX(), GetMouseY()),
                                        /*rmlConsumedEvent*/ contextMenuHit, rml.textFocus,
                                        /*rmlPopupOpen*/ false};
         if (shouldViewportReceiveInput(ctx)) {
@@ -241,7 +241,7 @@ void routeViewportPickDrag(EditorCoordinator& coordinator, const ViewportRect& r
     }
 
     if (drag.active && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
-        if (const std::optional<Vec2> preview = dragPreviewPosition(coordinator, rect, drag)) {
+        if (const std::optional<Vec2> preview = dragPreviewPosition(coordinator, projection, drag)) {
             if (preview->x != drag.startEntityPos.x || preview->y != drag.startEntityPos.y) {
                 coordinator.execute(SetEntityTransformCommand{
                     active, drag.entity, AuthoredTransformPatch{*preview}});
@@ -252,10 +252,11 @@ void routeViewportPickDrag(EditorCoordinator& coordinator, const ViewportRect& r
 }
 
 void routeViewportContextMenu(EditorCoordinator& coordinator, EditorUi& ui,
-                              const ViewportRect& rect, const RmlInputResult& rml,
+                              const SceneViewportProjection& projection, const RmlInputResult& rml,
                               ViewportContextClick& click,
                               std::optional<Vec2>& pendingSpawnPosition,
                               bool contextMenuHit) {
+    const ViewportRect& rect = projection.visibleRect;
     if (coordinator.isPlaying()) {
         click = ViewportContextClick{};
         pendingSpawnPosition.reset();
@@ -308,8 +309,7 @@ void routeViewportContextMenu(EditorCoordinator& coordinator, EditorUi& ui,
     const SceneDef* scene = coordinator.document().findScene(active);
     if (!scene) return;
 
-    const SceneViewCamera camera = makeSceneViewCamera(rect, coordinator.sceneView(active),
-                                                       scene->worldSize);
+    const SceneViewCamera& camera = projection.camera;
     const Vec2 mouse{static_cast<float>(GetMouseX()), static_cast<float>(GetMouseY())};
     if (!sceneSurfaceContains(rect, camera, scene->worldSize, mouse)) return;
 
