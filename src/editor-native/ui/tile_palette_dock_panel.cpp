@@ -1,6 +1,7 @@
 #include "editor-native/ui/tile_palette_dock_panel.h"
 
 #include "editor-native/app/editor_coordinator.h"
+#include "editor-native/model/tile_palette_availability.h"
 #include "editor-native/model/tile_stamp.h"
 #include "editor-native/ui/editor_ui.h"
 #include "editor-native/ui/ui_markup.h"
@@ -20,23 +21,8 @@ const SceneInstanceDef* selectedTilemapInstance(const EditorCoordinator& coordin
     if (coordinator.state().centerWorkspaceMode != CenterWorkspaceMode::Scene) return nullptr;
     const SceneInstanceDef* inst = coordinator.document().findInstanceInScene(
         coordinator.state().activeSceneId, coordinator.selection().primaryEntity);
-    if (!inst || !inst->tilemap.has_value()) return nullptr;
+    if (!inst || !tilemapHasPaintableTileset(coordinator.document(), *inst)) return nullptr;
     return inst;
-}
-
-// Display name of the ACTIVE layer of the active scene ("" when the scene has
-// no layers - legacy documents). Used by the header and the empty state so
-// the paint target is always spelled out.
-std::string activeLayerName(const EditorCoordinator& coordinator) {
-    const SceneId& sceneId = coordinator.state().activeSceneId;
-    const SceneDef* scene = coordinator.document().findScene(sceneId);
-    if (!scene) return {};
-    const std::string layerId = coordinator.activeLayerId(sceneId);
-    const std::string target = layerId.empty() ? scene->defaultLayerId : layerId;
-    for (const SceneLayerDef& layer : scene->layers) {
-        if (layer.id == target) return layer.name;
-    }
-    return {};
 }
 
 // Single-line status readout: what's selected on the left, which tileset
@@ -77,20 +63,7 @@ std::string buildDockBodyHtml(const EditorCoordinator& coordinator,
     const TilesetAsset* tmTileset = coordinator.document().findTilesetAsset(tm.tilesetAssetId);
     std::string html;
 
-    if (!tmTileset) {
-        html += "<div class=\"tile-palette-empty\">Tileset is missing.</div>";
-        return html;
-    }
-    if (!coordinator.document().findImageAsset(tmTileset->imageAssetId)) {
-        html += "<div class=\"tile-palette-empty\">Tileset image is missing.</div>";
-        return html;
-    }
-    if (tmTileset->tiles.empty()) {
-        html += "<div class=\"tile-palette-empty\">This tileset has no sliced tiles."
-                "<br/><button class=\"panel-btn\" data-action=\"open-tilemap-tileset-editor\">"
-                "Open Tileset Editor</button></div>";
-        return html;
-    }
+    if (!tmTileset) return html; // guarded by selectedTilemapInstance().
 
     // -- Left rail: Fit presets, zoom steps, grid toggle, stacked vertically
     // beside the sheet instead of above it - the sheet keeps the dock's full
@@ -166,17 +139,9 @@ void TilePaletteDockPanel::refresh(Rml::ElementDocument* document,
     if (!document) return;
 
     const SceneInstanceDef* inst = selectedTilemapInstance(coordinator);
-    // Without a selected tilemap the dock no longer just disappears: in the
-    // Scene workspace (outside Play, with a scene open) it stays visible as
-    // an empty state that names the active layer and offers the create CTA -
-    // the paint target is a first-class concept, not something the user has
-    // to reverse-engineer from a vanishing panel. It still hides in Play, in
-    // other workspaces, and when the user explicitly closed it.
-    const bool sceneContext = !coordinator.isPlaying()
-        && coordinator.state().centerWorkspaceMode == CenterWorkspaceMode::Scene
-        && coordinator.document().findScene(coordinator.state().activeSceneId) != nullptr;
-    const bool showDock = coordinator.uiState().tilePaletteDockVisible
-        && (inst != nullptr || sceneContext);
+    // A dock without a selected, paintable source only takes space from the
+    // Scene View. Missing or incomplete tilesets are diagnosed in Inspector.
+    const bool showDock = coordinator.uiState().tilePaletteDockVisible && inst != nullptr;
 
     if (Rml::Element* dock = document->GetElementById("tile-palette-dock")) {
         dock->SetClass("hidden", !showDock);
@@ -225,21 +190,7 @@ void TilePaletteDockPanel::refresh(Rml::ElementDocument* document,
         titleEl->SetInnerRML(title);
     }
 
-    if (inst) {
-        body->SetInnerRML(buildDockBodyHtml(coordinator, *inst));
-        return;
-    }
-    const std::string layerName = activeLayerName(coordinator);
-    std::string html = "<div class=\"hierarchy-empty-state tile-palette-empty-state\">"
-        "<span class=\"hierarchy-empty-icon\">&#xea3b;</span>"
-        "<span class=\"hierarchy-empty-title\">No Tilemap selected";
-    if (!layerName.empty()) html += " in &quot;" + escapeRml(layerName) + "&quot;";
-    html += "</span>"
-        "<span class=\"hierarchy-empty-copy\">Create a Tilemap entity on the active layer "
-        "to start painting, or select an existing one in the Hierarchy.</span>"
-        "<button class=\"panel-btn hierarchy-empty-action\" "
-        "data-action=\"add-tilemap-entity\">Create Tilemap Entity</button></div>";
-    body->SetInnerRML(html);
+    body->SetInnerRML(buildDockBodyHtml(coordinator, *inst));
 }
 
 } // namespace ArtCade::EditorNative

@@ -1538,6 +1538,11 @@ int EditorApp::run(int argc, char** argv) {
             if (playSession) {
                 renderView.zoom =
                     clampZoom(computeFitZoom(snapshot.worldSize, visibleRect, kSceneFitPadding));
+                // Play owns its camera state. The Scene View only presents the
+                // runtime centre; it never persists this into EditorState.
+                const Vec2 runtimeCenter = playSession->cameraCenter();
+                renderView.pan = Vec2{runtimeCenter.x - snapshot.worldSize.x * 0.5f,
+                                      runtimeCenter.y - snapshot.worldSize.y * 0.5f};
                 renderView.gridVisible = false;
             } else {
                 renderView = coordinator.sceneView(active);

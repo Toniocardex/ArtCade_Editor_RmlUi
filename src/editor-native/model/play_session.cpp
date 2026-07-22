@@ -439,4 +439,8 @@ std::vector<RenderableEntitySnapshot> PlaySession::renderables() const {
     return out;
 }
 
+Vec2 PlaySession::cameraCenter() const {
+    return runtime_ ? runtime_->cameraCenter() : Vec2{};
+}
+
 } // namespace ArtCade::EditorNative

@@ -1158,7 +1158,8 @@ int main() {
     {
         EditorCoordinator c{makeSpriteDoc()};
         sliceTilesOne(c);
-        CHECK(c.apply(SetTilePaletteDockVisibleIntent{false}).ok);
+        CHECK(!c.uiState().tilePaletteDockVisible);
+        CHECK(c.uiState().tilePaletteDockAutoRevealEnabled);
         const std::size_t before = c.undoSize();
         CHECK(addTilemapEntity(c).ok);
         CHECK(c.undoSize() == before + 1);
@@ -2028,21 +2029,77 @@ int main() {
         CHECK(fitted.textureScale >= 1.f);
     }
 
-    // -- Slice 5: Tile Palette dock auto-opens on Tilemap select; height stays
-    // session-only memory in EditorUiState (clamped); Fit requests are pending
-    // Intents; sparse empty masks shrink content bounds; large sheets clamp scroll.
+    // -- Tile Palette dock never opens for a dangling tileset or an unavailable
+    // image; those remain Inspector recovery states. ---------------------------
+    {
+        ProjectDoc missingTileset = makeSpriteDoc();
+        TilemapComponent component;
+        component.tilesetAssetId = "missing-tileset";
+        missingTileset.scenes.at(kSceneA).instances.front().tilemap = component;
+        EditorCoordinator c{std::move(missingTileset)};
+        const uint64_t revision = c.document().revision();
+        CHECK(c.apply(SelectEntityIntent{kHero}).ok);
+        CHECK(!c.uiState().tilePaletteDockVisible);
+        CHECK(c.apply(ToggleTilePaletteDockIntent{}).ok);
+        CHECK(!c.uiState().tilePaletteDockVisible);
+        CHECK(c.document().revision() == revision);
+        CHECK(c.undoSize() == 0);
+    }
+    {
+        ProjectDoc missingImage = makeSpriteDoc();
+        missingImage.tilesets.front().imageAssetId = "missing-image";
+        TilemapComponent component;
+        component.tilesetAssetId = "tiles-1";
+        missingImage.scenes.at(kSceneA).instances.front().tilemap = component;
+        EditorCoordinator c{std::move(missingImage)};
+        CHECK(c.apply(SelectEntityIntent{kHero}).ok);
+        CHECK(!c.uiState().tilePaletteDockVisible);
+    }
+
+    // -- Tile Palette dock is contextual: it starts closed, reveals only for a
+    // paintable tileset, and honours a manual close for the session. Height
+    // stays session-only memory (clamped); Fit requests are pending Intents;
+    // sparse empty masks shrink content bounds; large sheets clamp scroll.
     {
         EditorCoordinator c{makeSpriteDoc()};
-        CHECK(c.apply(SetTilePaletteDockVisibleIntent{false}).ok);
         CHECK(!c.uiState().tilePaletteDockVisible);
-        setUpTilemapForPainting(c);   // SelectEntity on Tilemap → dock visible
-        CHECK(c.uiState().tilePaletteDockVisible);
+        CHECK(c.uiState().tilePaletteDockAutoRevealEnabled);
 
-        // Manual hide sticks until the next Tilemap select.
-        CHECK(c.apply(SetTilePaletteDockVisibleIntent{false}).ok);
+        // A tileset asset alone is not a palette target, and an unsliced
+        // tileset cannot open the dock even when its Tilemap is selected.
+        TilesetSlicing slicing;
+        slicing.tileWidth = 16;
+        slicing.tileHeight = 16;
+        CHECK(c.execute(AddTilesetAssetCommand{
+            "tiles-unsliced", "Unsplit", "img-hero", slicing}).ok);
         CHECK(!c.uiState().tilePaletteDockVisible);
+        TilemapComponent unsliced;
+        unsliced.tilesetAssetId = "tiles-unsliced";
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, unsliced}).ok);
+        CHECK(c.apply(SelectEntityIntent{kHero}).ok);
+        CHECK(!c.uiState().tilePaletteDockVisible);
+
+        // Switching to a sliced source makes the selected Tilemap usable and
+        // opens the dock on the first selection.
+        sliceTilesOne(c);
+        CHECK(c.execute(SetTilemapTilesetCommand{kSceneA, kHero, "tiles-1"}).ok);
         CHECK(c.apply(SelectEntityIntent{kHero}).ok);
         CHECK(c.uiState().tilePaletteDockVisible);
+
+        // Manual hide stays respected across later valid selections; an
+        // explicit reopen arms automatic reveal again.
+        const uint64_t revisionBeforeDockToggle = c.document().revision();
+        const std::size_t undoBeforeDockToggle = c.undoSize();
+        CHECK(c.apply(SetTilePaletteDockVisibleIntent{false}).ok);
+        CHECK(!c.uiState().tilePaletteDockVisible);
+        CHECK(!c.uiState().tilePaletteDockAutoRevealEnabled);
+        CHECK(c.document().revision() == revisionBeforeDockToggle);
+        CHECK(c.undoSize() == undoBeforeDockToggle);
+        CHECK(c.apply(SelectEntityIntent{kHero}).ok);
+        CHECK(!c.uiState().tilePaletteDockVisible);
+        CHECK(c.apply(SetTilePaletteDockVisibleIntent{true}).ok);
+        CHECK(c.uiState().tilePaletteDockVisible);
+        CHECK(c.uiState().tilePaletteDockAutoRevealEnabled);
 
         // Selecting a non-Tilemap entity does not force the dock closed.
         CHECK(c.apply(SetTilePaletteDockVisibleIntent{false}).ok);

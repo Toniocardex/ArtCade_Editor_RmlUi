@@ -204,6 +204,7 @@ bool LogicBoardEditorController::handleAction(
             const auto type = value == "boolean" ? GameVariableDefinition::Type::Boolean
                 : value == "string" ? GameVariableDefinition::Type::String
                                     : GameVariableDefinition::Type::Number;
+            panel_.closeDropdown();
             coordinator_.execute(SetGlobalVariableTypeCommand{arg, type});
         } else if (action == "commit-global-variable-value") {
             const auto& variables = coordinator_.document().data().globalVariables;
@@ -274,7 +275,8 @@ bool LogicBoardEditorController::handleAction(
     }
 
     const bool authoringAction = action == "create-logic-board" || action == "remove-logic-board"
-        || action == "add-logic-rule" || action == "remove-logic-rule"
+        || action == "add-logic-rule" || action == "duplicate-logic-rule"
+        || action == "remove-logic-rule"
         || action == "move-logic-rule-up" || action == "move-logic-rule-down"
         || action == "toggle-logic-rule" || action == "change-logic-trigger"
         || action == "set-logic-key" || action == "add-logic-action-type"
@@ -514,6 +516,20 @@ bool LogicBoardEditorController::handleAction(
         if (view.tab != LogicBoardTab::Rules) return true;
         coordinator_.execute(AddLogicRuleCommand{
             objectTypeId, Logic::makeDefaultRule(nextLogicRuleId(board)), board.rules.size()});
+    } else if (action == "duplicate-logic-rule") {
+        const EditorOperationResult result = coordinator_.apply(
+            DuplicateLogicRuleIntent{objectTypeId, arg});
+        if (result.ok) {
+            const EntityDef* updatedType = coordinator_.document().findObjectType(objectTypeId);
+            if (updatedType && updatedType->logicBoard) {
+                const auto source = std::find_if(
+                    updatedType->logicBoard->rules.begin(), updatedType->logicBoard->rules.end(),
+                    [&](const LogicRuleDef& rule) { return rule.id == arg; });
+                if (source != updatedType->logicBoard->rules.end()
+                    && source + 1 != updatedType->logicBoard->rules.end())
+                    panel_.revealRuleAfterRefresh((source + 1)->id);
+            }
+        }
     } else if (action == "remove-logic-rule") {
         coordinator_.execute(RemoveLogicRuleCommand{objectTypeId, arg});
     } else if (action == "move-logic-rule-up" || action == "move-logic-rule-down") {

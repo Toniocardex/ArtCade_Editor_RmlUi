@@ -242,38 +242,62 @@ std::string variableInitialValue(const GameVariableDefinition& definition) {
 }
 
 std::string variablesDrawer(
-    const EditorCoordinator& coordinator, bool playing) {
+    const EditorCoordinator& coordinator, bool playing,
+    const std::string& openDropdownId) {
     std::string html =
         "<div class=\"logic-variables-drawer\">"
         "<div class=\"logic-variables-head\"><div>"
         "<span class=\"logic-variables-title\">Project Variables</span>"
         "<span class=\"logic-muted\">Typed globals shared by every Logic Board</span>"
-        "</div><button class=\"logic-btn primary";
+        "</div><div class=\"logic-variables-head-actions\">"
+        "<button class=\"logic-btn primary";
     if (playing) html += " disabled";
-    html += "\" data-action=\"add-global-variable\">+ Variable</button></div>";
+    html += "\" data-action=\"add-global-variable\">+ Variable</button>"
+            "<button class=\"logic-variables-collapse\" data-action=\"toggle-global-variables\" "
+            "title=\"Hide Project Variables\">"
+          + iconMarkup("&#xeb5f;") + "</button></div></div>";
 
     const auto& variables = coordinator.document().data().globalVariables;
     if (variables.empty()) {
         html += "<div class=\"logic-variables-empty\">No project variables yet. "
                 "Create one to use Compare, Set, Add, Subtract or Toggle blocks.</div>";
+    } else {
+        // Column eyebrows: identical boxes without labels read as four anonymous
+        // values. Description is optional notes, not a fourth typed value.
+        html += "<div class=\"logic-variable-columns\">"
+                "<span class=\"logic-variable-col logic-variable-col-key\">Name</span>"
+                "<span class=\"logic-variable-col logic-variable-col-type\">Type</span>"
+                "<span class=\"logic-variable-col logic-variable-col-value\">Value</span>"
+                "<span class=\"logic-variable-col logic-variable-col-description\">Description</span>"
+                "<span class=\"logic-variable-col logic-variable-col-trail\"></span>"
+                "</div>";
     }
     for (const GameVariableDefinition& variable : variables) {
         const std::size_t refs =
             countGlobalVariableReferences(coordinator.document(), variable.key);
+        const std::string typeDropdownId = "variable-type|" + variable.key;
+        const bool typeOpen = openDropdownId == typeDropdownId && !playing;
         html += "<div class=\"logic-variable-row\">";
         html += "<input class=\"logic-variable-key\" data-action=\"commit-global-variable-key\""
                 " data-arg=\"" + escapeRml(variable.key) + "\" value=\""
               + escapeRml(variable.key) + "\"";
         if (playing) html += " disabled=\"disabled\"";
         html += "/>";
-        html += "<div class=\"logic-variable-types\">";
-        for (const auto type : {GameVariableDefinition::Type::Number,
-                                GameVariableDefinition::Type::Boolean,
-                                GameVariableDefinition::Type::String}) {
-            std::string value = type == GameVariableDefinition::Type::Number ? "number"
-                : type == GameVariableDefinition::Type::Boolean ? "boolean" : "string";
-            html += modeOption(variableTypeName(type), value, variable.type == type,
-                               "set-global-variable-type", variable.key, playing);
+        html += "<div class=\"logic-variable-type\">";
+        html += dropdownTriggerMarkup(variableTypeName(variable.type), "toggle-logic-dropdown",
+                                      typeDropdownId, typeOpen, playing);
+        if (typeOpen) {
+            html += "<div class=\"drop-list\">";
+            html += dropEntry("Number", "number",
+                              variable.type == GameVariableDefinition::Type::Number,
+                              typeDropdownId, "set-global-variable-type", variable.key);
+            html += dropEntry("Boolean", "boolean",
+                              variable.type == GameVariableDefinition::Type::Boolean,
+                              typeDropdownId, "set-global-variable-type", variable.key);
+            html += dropEntry("String", "string",
+                              variable.type == GameVariableDefinition::Type::String,
+                              typeDropdownId, "set-global-variable-type", variable.key);
+            html += "</div>";
         }
         html += "</div>";
         if (variable.type == GameVariableDefinition::Type::Boolean) {
@@ -299,12 +323,12 @@ std::string variablesDrawer(
         html += "/>";
         html += "<span class=\"logic-variable-refs\">" + std::to_string(refs)
               + (refs == 1 ? " ref" : " refs") + "</span>";
-        html += "<button class=\"logic-icon-btn";
+        html += "<button class=\"comp-remove";
         if (playing || refs != 0) html += " disabled";
         html += "\" data-action=\"remove-global-variable\" data-arg=\""
               + escapeRml(variable.key) + "\" title=\""
               + (refs == 0 ? "Delete variable" : "Referenced variables cannot be deleted")
-              + "\">&#xd7;</button></div>";
+              + "\">" + iconMarkup("&#xeb41;") + "</button></div>";
     }
     return html + "</div>";
 }
@@ -318,6 +342,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     if (coordinator.isPlaying()) {
         openDropdownId_.clear();
         clearKeyBindingEditor();
+        pendingRevealRuleId_.clear();
     }
     if (!document) return;
     Rml::Element* root = document->GetElementById("logic-board-panel");
@@ -350,6 +375,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         scrollTop_ = 0.f;
         openDropdownId_.clear();
         clearKeyBindingEditor();
+        pendingRevealRuleId_.clear();
         collapsedRuleIds_.clear();
     }
     if (lastTab_ != view.tab) {
@@ -402,7 +428,9 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     }
     html += "<button class=\"logic-variables-toggle";
     if (variablesDrawerOpen_) html += " active";
-    html += "\" data-action=\"toggle-global-variables\" title=\"Project Variables\">Variables ("
+    html += "\" data-action=\"toggle-global-variables\" title=\""
+          + std::string(variablesDrawerOpen_ ? "Hide Project Variables" : "Show Project Variables")
+          + "\">Variables ("
           + std::to_string(coordinator.document().data().globalVariables.size()) + ")</button>";
     html += "</div><span class=\"logic-owner\">OBJECT TYPE · ";
     if (selectedName.empty()) {
@@ -413,11 +441,31 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     }
     html += "</span></div>"; // .logic-heading
     html += "</div>"; // .logic-head
-    if (variablesDrawerOpen_) html += variablesDrawer(coordinator, playing);
+    if (variablesDrawerOpen_) html += variablesDrawer(coordinator, playing, openDropdownId_);
     const auto render = [&]() {
         root->SetInnerRML(html);
         if (Rml::Element* scroll = document->GetElementById("logic-scroll"))
             scroll->SetScrollTop(scrollTop_);
+        if (!pendingRevealRuleId_.empty()) {
+            if (const LogicBoardDef* board = currentBoard(coordinator)) {
+                const auto it = std::find_if(board->rules.begin(), board->rules.end(),
+                    [&](const LogicRuleDef& rule) { return rule.id == pendingRevealRuleId_; });
+                if (it != board->rules.end()) {
+                    const std::string cardId = "logic-rule-" + std::to_string(
+                        static_cast<std::size_t>(it - board->rules.begin()));
+                    if (Rml::Element* card = document->GetElementById(cardId)) {
+                        card->ScrollIntoView(Rml::ScrollIntoViewOptions{
+                            Rml::ScrollAlignment::Nearest, Rml::ScrollAlignment::Nearest,
+                            Rml::ScrollBehavior::Smooth});
+                    }
+                }
+            }
+            pendingRevealRuleId_.clear();
+        }
+        if (!keySearchAddress_.empty()) {
+            if (Rml::Element* input = document->GetElementById("logic-key-search-input"))
+                input->Focus(true);
+        }
         syncResponsiveClass(document);
     };
 
@@ -487,7 +535,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                     && d.severity == Logic::DiagnosticSeverity::Error;
             }));
 
-        html += "<div class=\"logic-rule" + std::string(rule.enabled ? "" : " off") + "\">"
+        html += "<div id=\"logic-rule-" + std::to_string(ruleIndex) + "\" class=\"logic-rule"
+                + std::string(rule.enabled ? "" : " off") + "\">"
                 "<div class=\"logic-rule-head\">";
         html += "<button class=\"logic-rule-caret\" data-action=\"toggle-logic-rule-collapsed\""
                 " data-arg=\"" + escapeRml(rule.id) + "\">"
@@ -502,12 +551,17 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         if (playing) html += " disabled=\"disabled\"";
         html += " data-action=\"toggle-logic-rule\" data-arg=\"" + escapeRml(rule.id) + "\">"
              + std::string(rule.enabled ? "On" : "Off") + "</button>";
-        auto iconButton = [&](const char* action, const char* label, bool disabled = false) {
+        auto iconButton = [&](const char* action, const std::string& label, bool disabled = false,
+                              const char* title = nullptr) {
             html += "<button class=\"logic-icon-btn";
             if (playing || disabled) html += " disabled";
-            html += "\" data-action=\"" + std::string(action) + "\" data-arg=\""
+            html += "\"";
+            if (title) html += " title=\"" + std::string(title) + "\" aria-label=\""
+                                + std::string(title) + "\"";
+            html += " data-action=\"" + std::string(action) + "\" data-arg=\""
                  + escapeRml(rule.id) + "\">" + label + "</button>";
         };
+        iconButton("duplicate-logic-rule", iconMarkup("&#xedef;"), false, "Clone rule");
         iconButton("move-logic-rule-up", "↑", ruleIndex == 0);
         iconButton("move-logic-rule-down", "↓", ruleIndex + 1 == board.rules.size());
         html += "<button class=\"comp-remove";

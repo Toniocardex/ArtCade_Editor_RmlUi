@@ -132,6 +132,85 @@ static void testCommandsAndPersistence() {
     CHECK(!ProjectSerializer::deserialize(malformed).ok);
 }
 
+static void testDuplicateLogicRule() {
+    ProjectDoc project = makeProjectData();
+    LogicBoardDef board;
+    board.id = "logic:Hero";
+    board.sections.push_back(LogicSectionDef{"movement", "Movement"});
+    project.objectTypes.at("Hero").logicBoard = std::move(board);
+    EditorCoordinator coordinator{std::move(project)};
+
+    LogicRuleDef source = Logic::makeDefaultRule("rule-1");
+    source.name = "Move";
+    source.enabled = false;
+    source.executionMode = LogicExecutionMode::OncePerActivation;
+    source.sectionId = "movement";
+    source.trigger = {Logic::kKeyPressed, {{"key", LogicKey::D}}};
+    LogicConditionClause condition;
+    condition.joinBefore = LogicConditionJoin::Or;
+    condition.negated = true;
+    condition.block = Logic::makeDefaultBlock(Logic::kIsVisible, Logic::BlockKind::Condition);
+    source.conditions.push_back(std::move(condition));
+    source.actions[0] = {Logic::kSetVisible,
+        {{"target", LogicEntityReference{}}, {"visible", false}}};
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", source, 0}).ok);
+
+    const uint64_t revisionBefore = coordinator.document().revision();
+    const std::size_t undoBefore = coordinator.undoSize();
+    CHECK(coordinator.apply(DuplicateLogicRuleIntent{"Hero", "rule-1"}).ok);
+    const auto& copiedBoard = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(copiedBoard.rules.size() == 2);
+    const LogicRuleDef& clone = copiedBoard.rules[1];
+    CHECK(clone.id == "rule-2");
+    CHECK(clone.name == "Move Copy");
+    CHECK(clone.enabled == source.enabled);
+    CHECK(clone.executionMode == source.executionMode);
+    CHECK(clone.sectionId == source.sectionId);
+    CHECK(clone.trigger.typeId == source.trigger.typeId);
+    CHECK(std::get<LogicKey>(Logic::findProperty(clone.trigger, "key")->value) == LogicKey::D);
+    CHECK(clone.conditions.size() == 1);
+    CHECK(clone.conditions[0].joinBefore == LogicConditionJoin::Or);
+    CHECK(clone.conditions[0].negated);
+    CHECK(clone.actions.size() == source.actions.size());
+    CHECK(std::get<bool>(Logic::findProperty(clone.actions[0], "visible")->value) == false);
+    CHECK(coordinator.document().revision() == revisionBefore + 1);
+    CHECK(coordinator.undoSize() == undoBefore + 1);
+
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules.size() == 1);
+    CHECK(coordinator.redo().ok);
+    const auto& redoneBoard = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(redoneBoard.rules.size() == 2);
+    CHECK(redoneBoard.rules[1].id == "rule-2");
+    CHECK(redoneBoard.rules[1].name == "Move Copy");
+
+    // The two values are independent after cloning; no mutable authoring data
+    // is shared between cards.
+    CHECK(coordinator.execute(SetLogicRuleEnabledCommand{"Hero", "rule-2", true}).ok);
+    const auto& independentlyEdited = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(!independentlyEdited.rules[0].enabled);
+    CHECK(independentlyEdited.rules[1].enabled);
+
+    const uint64_t revisionBeforeFailure = coordinator.document().revision();
+    const std::size_t undoBeforeFailure = coordinator.undoSize();
+    LogicRuleDef invalidClone = independentlyEdited.rules[0];
+    invalidClone.id = "rule-2";
+    CHECK(!coordinator.execute(DuplicateLogicRuleCommand{
+        "Hero", "rule-1", std::move(invalidClone), 1}).ok);
+    CHECK(!coordinator.apply(DuplicateLogicRuleIntent{"Hero", "missing"}).ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules.size() == 2);
+    CHECK(coordinator.document().revision() == revisionBeforeFailure);
+    CHECK(coordinator.undoSize() == undoBeforeFailure);
+
+    const auto serialized = ProjectSerializer::serialize(coordinator.document());
+    CHECK(serialized.ok);
+    const auto loaded = ProjectSerializer::deserialize(serialized.value);
+    CHECK(loaded.ok);
+    const auto& loadedRules = loaded.value.data().objectTypes.at("Hero").logicBoard->rules;
+    CHECK(loadedRules.size() == 2);
+    CHECK(loadedRules[0].id == "rule-1" && loadedRules[1].id == "rule-2");
+}
+
 static void testGlobalVariableCommands() {
     ProjectDoc project = makeProjectData();
     project.globalVariables = {
@@ -707,6 +786,125 @@ static void testIsVisibleEventAndMoveBy() {
     CHECK(findRenderable(*coordinator.playSession(), 1)->transform.position.x == startX + 12.f);
     CHECK(findRenderable(*coordinator.playSession(), 1)->transform.position.y == startY - 3.f);
     CHECK(coordinator.stopPlaying().ok);
+}
+
+static void testTopDownMovementViaLogicInput() {
+    auto makeCoordinator = [](bool fourDirections) {
+        ProjectDoc document = makeProjectData();
+        TopDownControllerComponent controller;
+        controller.maxSpeed = 260.f;
+        controller.acceleration = 1600.f;
+        controller.friction = 2200.f;
+        controller.fourDirections = fourDirections;
+        document.objectTypes.at("Hero").topDownController = controller;
+        return EditorCoordinator{std::move(document)};
+    };
+    auto addMoveRule = [](EditorCoordinator& coordinator, LogicKey key,
+                          const std::string& direction) {
+        const LogicBoardDef& board =
+            *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+        LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(board));
+        rule.trigger = {Logic::kKeyHeld, {{"key", key}}};
+        rule.actions[0] = {Logic::kTopDownMove,
+                           {{"direction", LogicStringValue{direction}}}};
+        return coordinator.execute(AddLogicRuleCommand{"Hero", std::move(rule),
+                                                        board.rules.size()}).ok;
+    };
+
+    {
+        EditorCoordinator coordinator = makeCoordinator(false);
+        CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+        CHECK(addMoveRule(coordinator, LogicKey::ArrowRight, "Right"));
+        CHECK(addMoveRule(coordinator, LogicKey::ArrowUp, "Up"));
+        const auto compiled = Logic::compileProjectLogic(coordinator.document().data());
+        CHECK(compiled.ok());
+        CHECK(compiled.programs.front().source.find("topdown_move(1, 0)")
+              != std::string::npos);
+
+        const uint64_t revision = coordinator.document().revision();
+        CHECK(coordinator.playCurrentScene().ok);
+        const auto* initial = findRenderable(*coordinator.playSession(), 1);
+        CHECK(initial != nullptr);
+        const Vec2 start = initial->transform.position;
+
+        RuntimeInputSnapshot right;
+        right.heldLogicKeys.push_back(LogicKey::ArrowRight);
+        coordinator.tickRuntime(right, 0.1f);
+        const Vec2 afterRight = findRenderable(*coordinator.playSession(), 1)->transform.position;
+        CHECK(afterRight.x > start.x);
+        CHECK(std::fabs(afterRight.y - start.y) < 0.001f);
+
+        RuntimeInputSnapshot diagonal;
+        diagonal.heldLogicKeys = {LogicKey::ArrowRight, LogicKey::ArrowUp};
+        coordinator.tickRuntime(diagonal, 0.1f);
+        const Vec2 afterDiagonal =
+            findRenderable(*coordinator.playSession(), 1)->transform.position;
+        CHECK(afterDiagonal.x > afterRight.x);
+        CHECK(afterDiagonal.y < afterRight.y);
+
+        RuntimeInputSnapshot none;
+        coordinator.tickRuntime(none, 0.1f);
+        const Vec2 afterRelease =
+            findRenderable(*coordinator.playSession(), 1)->transform.position;
+        CHECK(std::fabs(afterRelease.x - afterDiagonal.x) < 0.001f);
+        CHECK(std::fabs(afterRelease.y - afterDiagonal.y) < 0.001f);
+        CHECK(coordinator.document().revision() == revision);
+        CHECK(coordinator.stopPlaying().ok);
+    }
+
+    {
+        EditorCoordinator coordinator = makeCoordinator(false);
+        CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+        CHECK(addMoveRule(coordinator, LogicKey::ArrowLeft, "Left"));
+        CHECK(addMoveRule(coordinator, LogicKey::ArrowRight, "Right"));
+        CHECK(coordinator.playCurrentScene().ok);
+        const Vec2 start = findRenderable(*coordinator.playSession(), 1)->transform.position;
+        RuntimeInputSnapshot opposing;
+        opposing.heldLogicKeys = {LogicKey::ArrowLeft, LogicKey::ArrowRight};
+        coordinator.tickRuntime(opposing, 0.1f);
+        const Vec2 after = findRenderable(*coordinator.playSession(), 1)->transform.position;
+        CHECK(std::fabs(after.x - start.x) < 0.001f);
+        CHECK(std::fabs(after.y - start.y) < 0.001f);
+        CHECK(coordinator.stopPlaying().ok);
+    }
+
+    {
+        EditorCoordinator coordinator = makeCoordinator(true);
+        CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+        CHECK(addMoveRule(coordinator, LogicKey::ArrowRight, "Right"));
+        CHECK(addMoveRule(coordinator, LogicKey::ArrowUp, "Up"));
+        CHECK(coordinator.playCurrentScene().ok);
+        const Vec2 start = findRenderable(*coordinator.playSession(), 1)->transform.position;
+        RuntimeInputSnapshot diagonal;
+        diagonal.heldLogicKeys = {LogicKey::ArrowRight, LogicKey::ArrowUp};
+        coordinator.tickRuntime(diagonal, 0.1f);
+        const Vec2 after = findRenderable(*coordinator.playSession(), 1)->transform.position;
+        CHECK(after.x > start.x);
+        CHECK(std::fabs(after.y - start.y) < 0.001f);
+        CHECK(coordinator.stopPlaying().ok);
+    }
+
+    ProjectDoc withoutController = makeProjectData();
+    const Logic::LogicBlockDescriptor* move = Logic::findDescriptor(Logic::kTopDownMove);
+    CHECK(move != nullptr);
+    CHECK(!Logic::blockAvailability(withoutController.objectTypes.at("Hero"), *move).compatible);
+    CHECK(move->properties.size() == 1);
+    CHECK(move->properties[0].valueKind == Logic::LogicValueKind::String);
+    CHECK(move->properties[0].semantic == Logic::LogicPropertySemantic::TopDownDirection);
+    const std::vector<std::string> directionOptions{"Left", "Right", "Up", "Down"};
+    CHECK(move->properties[0].options == directionOptions);
+
+    ProjectDoc invalidDirection = makeProjectData();
+    invalidDirection.objectTypes.at("Hero").topDownController = TopDownControllerComponent{};
+    LogicBoardDef invalidBoard;
+    invalidBoard.id = "logic:Hero";
+    LogicRuleDef invalidRule = Logic::makeDefaultRule("rule-1");
+    invalidRule.trigger = {Logic::kKeyHeld, {{"key", LogicKey::ArrowLeft}}};
+    invalidRule.actions[0] = {Logic::kTopDownMove,
+                              {{"direction", LogicStringValue{"Diagonal"}}}};
+    invalidBoard.rules.push_back(std::move(invalidRule));
+    invalidDirection.objectTypes.at("Hero").logicBoard = std::move(invalidBoard);
+    CHECK(!Logic::compileProjectLogic(invalidDirection).ok());
 }
 
 static void testPlayRuntimeIsolation() {
@@ -1366,6 +1564,7 @@ static void testKeyBindingEditorRoutes() {
 
 int main() {
     testCommandsAndPersistence();
+    testDuplicateLogicRule();
     testGlobalVariableCommands();
     testConditionCommands();
     testConditionControllerAndGenericProperties();
@@ -1374,6 +1573,7 @@ int main() {
     testIsGroundedEventRunsOnTick();
     testIsFallingEventTrueWhileDescendingFalseWhenGroundedOrRising();
     testIsVisibleEventAndMoveBy();
+    testTopDownMovementViaLogicInput();
     testPlayRuntimeIsolation();
     testCollisionEventOtherAndDeferredDestroy();
     testAnimationActions();

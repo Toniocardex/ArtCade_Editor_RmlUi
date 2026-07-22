@@ -175,9 +175,11 @@
 
         <div id="center-workspace">
             <div id="center-modebar">
+                <div id="center-mode-tabs">
                 <button id="center-tab-scene" class="center-mode-tab active" data-action="open-scene-workspace">Scene</button>
-                <button id="center-tab-logic" class="center-mode-tab" data-action="open-logic-workspace">Logic</button>
-                <button id="center-tab-script" class="center-mode-tab" data-action="open-script-workspace">Script</button>
+                <button id="center-tab-logic" class="center-mode-tab" data-action="open-logic-workspace">Logic Board</button>
+                <button id="center-tab-script" class="center-mode-tab" data-action="open-script-workspace">Script Editor</button>
+                </div>
             </div>
             <div id="center-content">
                 <div id="viewport">
@@ -194,7 +196,10 @@
                     <div class="tile-palette-dock-header">
                         <span class="icon">&#xf22f;</span>
                         <span id="tile-palette-dock-title" class="tile-palette-dock-title">TILE PALETTE</span>
-                        <button class="header-btn" data-action="toggle-tile-palette-dock" title="Hide Tile Palette">Hide</button>
+                        <button id="btn-tile-palette-collapse" class="tile-palette-dock-collapse-btn"
+                                data-action="toggle-tile-palette-dock" title="Collapse Tile Palette">
+                            <span class="icon">&#xeb5d;</span>
+                        </button>
                     </div>
                     <div id="tile-palette-dock-body" class="tile-palette-dock-body"></div>
                 </div>
@@ -261,7 +266,10 @@
             <span class="icon">&#xebdc;</span>CONSOLE
             <span id="console-counts" class="console-counts"></span>
             <button id="btn-console-copy" class="header-btn disabled" data-action="copy-console">Copy</button>
-            <button class="header-btn console-close-btn" data-action="toggle-console" title="Close Console">Close</button>
+            <button id="btn-console-collapse" class="console-collapse-btn"
+                    data-action="toggle-console" title="Toggle Console">
+                <span class="icon">&#xeb5d;</span>
+            </button>
         </div>
         <div class="console-toolbar">
             <button id="btn-console-info" class="console-toggle" data-action="toggle-console-info" title="Show log messages">Log</button>
@@ -273,7 +281,7 @@
         <div id="console-list" class="console"></div>
     </div>
 
-    <div id="status-bar">
+    <div id="status-bar" data-action="toggle-console" title="Toggle Console">
         <button id="status-health" class="status-health ready" data-action="open-console-issues"><span class="status-dot"></span>Ready</button>
         <span id="status-coords" class="status-coords"></span>
         <span id="status-context" class="status-context"></span>

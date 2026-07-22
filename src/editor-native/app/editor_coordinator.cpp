@@ -55,6 +55,20 @@ const LogicRuleDef* findLogicRule(const ProjectDocument& document,
         [&](const LogicRuleDef& candidate) { return candidate.id == ruleId; });
     return rule == objectType->logicBoard->rules.end() ? nullptr : &*rule;
 }
+
+std::string nextCopiedRuleName(const LogicBoardDef& board, const std::string& sourceName) {
+    const std::string base = sourceName.empty() ? "Rule" : sourceName;
+    const auto nameTaken = [&](const std::string& candidate) {
+        return std::any_of(board.rules.begin(), board.rules.end(),
+            [&](const LogicRuleDef& rule) { return rule.name == candidate; });
+    };
+    const std::string first = base + " Copy";
+    if (!nameTaken(first)) return first;
+    for (std::size_t ordinal = 2;; ++ordinal) {
+        const std::string candidate = first + " " + std::to_string(ordinal);
+        if (!nameTaken(candidate)) return candidate;
+    }
+}
 } // namespace
 
 EditorCoordinator::EditorCoordinator(ProjectDoc doc)
@@ -69,6 +83,23 @@ EditorOperationResult EditorCoordinator::apply(const ChangeLogicTriggerTypeInten
     return execute(ReplaceLogicTriggerCommand{
         intent.objectTypeId, intent.ruleId,
         Logic::makeDefaultEventBlock(intent.typeId)});
+}
+
+EditorOperationResult EditorCoordinator::apply(const DuplicateLogicRuleIntent& intent) {
+    const EntityDef* objectType = document_.findObjectType(intent.objectTypeId);
+    if (!objectType || !objectType->logicBoard)
+        return EditorOperationResult::failure("Object Type has no Logic Board");
+    const LogicBoardDef& board = *objectType->logicBoard;
+    const auto source = std::find_if(board.rules.begin(), board.rules.end(),
+        [&](const LogicRuleDef& rule) { return rule.id == intent.sourceRuleId; });
+    if (source == board.rules.end())
+        return EditorOperationResult::failure("Unknown Logic source rule");
+    LogicRuleDef clone = *source;
+    clone.id = nextLogicRuleId(board);
+    clone.name = nextCopiedRuleName(board, source->name);
+    const std::size_t insertionIndex = static_cast<std::size_t>(source - board.rules.begin()) + 1;
+    return execute(DuplicateLogicRuleCommand{
+        intent.objectTypeId, intent.sourceRuleId, std::move(clone), insertionIndex});
 }
 
 EditorOperationResult EditorCoordinator::apply(const AddLogicActionTypeIntent& intent) {

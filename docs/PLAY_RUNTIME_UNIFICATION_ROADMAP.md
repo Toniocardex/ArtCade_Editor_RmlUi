@@ -385,7 +385,7 @@ Il criterio di accettazione ufficiale dell'intera iniziativa, definito nell'audi
 **Attività**
 
 - [ ] Gate 1 — Platformer: più livelli, Tilemap collision, moving platform, collectibles, nemici, HUD, checkpoint, gamepad, save.
-- [ ] Gate 2 — Top-down action: camera follow, spawn nemici, health, collision layers, animation state, SFX/musica, pause menu, scene transition.
+- [ ] Gate 2 — Top-down action: camera follow, spawn nemici, per-entity variables, collision layers, animation state, SFX/musica, pause menu, scene transition.
 - [ ] Gate 3 — Puzzle/arcade: main menu, variabili globali, timer, punteggio, high score persistente, restart, game over.
 - [ ] Per ciascun gate: verificare parità Editor Play = build Windows = build Web sulla stessa semantica osservabile (non solo "non crasha").
 

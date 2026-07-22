@@ -44,7 +44,11 @@ struct EditorUiState {
     float consoleHeight   = 220.0f;
     // Session-only Tile Palette dock under the Scene View (not ProjectDocument).
     float tilePaletteDockHeight = 260.0f;
-    bool  tilePaletteDockVisible = true;
+    bool  tilePaletteDockVisible = false;
+    // Auto-reveal is armed for the first usable Tilemap selection. Closing the
+    // dock explicitly disarms it for this session; reopening it explicitly
+    // arms it again. This remains a UI preference, never project data.
+    bool  tilePaletteDockAutoRevealEnabled = true;
 
     std::string hierarchyFilter;
     std::string assetFilter;

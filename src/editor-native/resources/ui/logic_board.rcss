@@ -1,23 +1,5 @@
-.center-mode-tab {
-    height: 36dp;
-    line-height: 36dp;
-    min-width: 88dp;
-    margin-right: 4dp;
-    padding: 0 18dp;
-    background-color: transparent;
-    border-width: 0 0 2px 0;
-    border-color: transparent;
-    color: #8a8a93;
-    font-size: 13dp;
-    text-align: center;
-    transition: border-color 0.1s, background-color 0.1s, color 0.1s;
-}
-.center-mode-tab:hover { color: #d4d4d8; background-color: #1c1c1f; }
-.center-mode-tab.active { color: #f4f4f5; background-color: #1c1c1f; border-bottom-color: #3b82f6; }
 /* Focus lands as a border-color change, same token the active indicator
    already uses — never a competing color, only whether it shows at all. */
-.center-mode-tab:focus { border-color: #3b82f6; }
-
 .logic-board-panel {
     width: 100%;
     height: 100%;
@@ -87,7 +69,7 @@
 }
 .logic-variables-drawer {
     display: block;
-    padding: 10dp 14dp 12dp 14dp;
+    padding: 12dp 16dp 14dp 16dp;
     background-color: #151518;
     border-bottom: 1px #27272a;
 }
@@ -95,52 +77,174 @@
     display: flex;
     flex-direction: row;
     align-items: center;
-    margin-bottom: 8dp;
+    margin-bottom: 12dp;
 }
-.logic-variables-head > div { flex: 1; }
+.logic-variables-head > div { flex: 1; min-width: 0; }
+.logic-variables-head-actions {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex: 0 0 auto;
+}
+.logic-variables-head-actions .logic-btn { margin: 0 6dp 0 0; }
+/* Quiet chevron collapse — same language as .logic-rule-caret / section
+   carets (expanded = chevron-up). Not a second primary action next to
+   + Variable. */
+.logic-variables-collapse {
+    display: inline-block;
+    width: 28dp;
+    height: 28dp;
+    line-height: 28dp;
+    margin: 0;
+    padding: 0;
+    text-align: center;
+    background-color: transparent;
+    border: 0;
+    border-radius: 2dp;
+    color: #6b6b73;
+    font-family: tabler-icons;
+    font-weight: normal;
+    transition: background-color 0.1s, color 0.1s;
+}
+.logic-variables-collapse:hover {
+    background-color: #1c1c1f;
+    color: #d4d4d8;
+}
+.logic-variables-collapse .icon { margin: 0; }
 .logic-variables-title {
     display: block;
     color: #f4f4f5;
     font-size: 13dp;
     font-weight: 600;
 }
-.logic-variables-head .logic-muted { margin: 2dp 0 0 0; font-size: 10dp; }
+.logic-variables-head .logic-muted { margin: 3dp 0 0 0; font-size: 10dp; }
 .logic-variables-empty {
     display: block;
-    padding: 10dp;
+    padding: 12dp 14dp;
     color: #71717a;
     border: 1px #27272a;
     border-radius: 2dp;
 }
+/* Name / Type / Value stay equal cells; Description stretches as optional notes
+   (left-aligned) so it never reads as a fourth anonymous value. Column eyebrows
+   label the row — RmlUi does not render input placeholders reliably here. */
+.logic-variable-columns,
 .logic-variable-row {
     display: flex;
     flex-direction: row;
     align-items: center;
-    min-height: 34dp;
-    margin-top: 5dp;
 }
-.logic-variable-row input {
+.logic-variable-columns {
+    margin: 0;
+    padding: 0 0 6dp 0;
+}
+.logic-variable-col {
+    color: #71717a;
+    font-size: 9dp;
+    font-weight: 700;
+    letter-spacing: 0.8dp;
+    text-transform: uppercase;
+}
+.logic-variable-col-key,
+.logic-variable-col-type,
+.logic-variable-col-value {
+    width: 96dp;
+    margin-right: 10dp;
+    text-align: center;
+}
+.logic-variable-col-description {
+    flex: 1;
+    min-width: 140dp;
+    margin-right: 10dp;
+    text-align: left;
+    padding-left: 2dp;
+}
+.logic-variable-col-trail {
+    width: 84dp;
+    flex: 0 0 auto;
+}
+.logic-variable-row {
+    min-height: 36dp;
+    margin-top: 6dp;
+}
+.logic-variable-row input.logic-variable-key,
+.logic-variable-row input.logic-variable-value,
+.logic-variable-row button.logic-variable-value {
+    box-sizing: border-box;
+    width: 96dp;
     height: 28dp;
-    margin-right: 6dp;
-    padding: 0 7dp;
+    line-height: 26dp;
+    margin: 0 10dp 0 0;
+    padding: 0 8dp;
+    text-align: center;
     color: #d4d4d8;
     background-color: #111113;
     border: 1px #323236;
     border-radius: 2dp;
+    font-size: 11dp;
+    font-weight: 500;
 }
 .logic-variable-row input:focus { border-color: #3b82f6; }
-.logic-variable-key { width: 150dp; }
-.logic-variable-types { display: flex; flex-direction: row; margin-right: 3dp; }
-.logic-variable-types .mode-option { margin-right: 2dp; }
-.logic-variable-value { width: 100dp; }
-button.logic-variable-value { height: 28dp; }
-.logic-variable-description { flex: 1; min-width: 120dp; }
+.logic-variable-type {
+    position: relative;
+    flex: 0 0 auto;
+    width: 96dp;
+    margin-right: 10dp;
+}
+.logic-variable-type .drop-trigger {
+    flex: none;
+    box-sizing: border-box;
+    width: 100%;
+    height: 28dp;
+    line-height: 26dp;
+    padding: 0 20dp 0 8dp;
+    text-align: center;
+    font-size: 11dp;
+    font-weight: 500;
+    border-color: #323236;
+}
+.logic-variable-type .drop-list {
+    position: absolute;
+    left: 0;
+    top: 32dp;
+    z-index: 40;
+    width: 128dp;
+    margin: 0;
+}
+.logic-variable-row button.logic-variable-value.active {
+    background-color: #3b82f626;
+    border-color: #3b82f6;
+    color: #d4d4d8;
+}
+.logic-variable-description {
+    flex: 1;
+    min-width: 140dp;
+    box-sizing: border-box;
+    height: 28dp;
+    line-height: 26dp;
+    margin: 0 10dp 0 0;
+    padding: 0 10dp;
+    text-align: left;
+    color: #d4d4d8;
+    background-color: #111113;
+    border: 1px #323236;
+    border-radius: 2dp;
+    font-size: 11dp;
+    font-weight: 400;
+}
 .logic-variable-refs {
-    width: 48dp;
-    margin-right: 5dp;
+    width: 52dp;
+    margin: 0 6dp 0 0;
     text-align: right;
     color: #71717a;
     font-size: 10dp;
+}
+.logic-variable-row .comp-remove {
+    width: 28dp;
+    height: 28dp;
+    line-height: 28dp;
+    margin: 0;
+    padding: 0;
 }
 /* Same outline-button tokens as .panel-btn (not that class itself, so the
    widget-conversion pass can retire the ones it makes obsolete without
@@ -314,6 +418,12 @@ button.logic-variable-value { height: 28dp; }
 }
 .logic-block-label { color: #9ca3af; margin-right: 8dp; }
 .logic-inline { display: flex; flex-direction: row; align-items: center; margin-top: 7dp; }
+/* Keep a property picker and its list together. `.logic-inline` is a row, so
+   emitting the list directly beside the trigger would lay it out to the
+   right; this wrapper restores the normal vertical dropdown flow. */
+.logic-property-dropdown { flex: 1; min-width: 0; display: block; }
+.logic-property-dropdown .drop-trigger { box-sizing: border-box; width: 100%; }
+.logic-property-dropdown .drop-list { margin-bottom: 0; }
 .logic-inline input { width: 110dp; margin-right: 6dp; }
 .logic-action-row { display: flex; flex-direction: row; align-items: center; }
 .logic-action-main { flex: 1; }

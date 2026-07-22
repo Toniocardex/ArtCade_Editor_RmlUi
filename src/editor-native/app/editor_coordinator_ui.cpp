@@ -1,8 +1,26 @@
 #include "editor-native/app/editor_coordinator.h"
 
 #include "editor-native/model/numeric_validation.h"
+#include "editor-native/model/tile_palette_availability.h"
 
 namespace ArtCade::EditorNative {
+
+namespace {
+
+bool selectedTilemapHasPaintableTileset(const EditorCoordinator& coordinator) {
+    if (coordinator.isPlaying()
+        || coordinator.state().centerWorkspaceMode != CenterWorkspaceMode::Scene) {
+        return false;
+    }
+    const SceneInstanceDef* instance = coordinator.document().findInstanceInScene(
+        coordinator.state().activeSceneId, coordinator.selection().primaryEntity);
+    return instance && tilemapHasPaintableTileset(coordinator.document(), *instance);
+}
+
+constexpr EditorInvalidation kTilePaletteDockInvalidation =
+    EditorInvalidation::Layout | EditorInvalidation::Viewport | EditorInvalidation::Inspector;
+
+} // namespace
 
 EditorOperationResult EditorCoordinator::apply(const ToggleConsoleIntent&) {
     uiState_.consoleVisible = !uiState_.consoleVisible;
@@ -12,22 +30,29 @@ EditorOperationResult EditorCoordinator::apply(const ToggleConsoleIntent&) {
 }
 
 EditorOperationResult EditorCoordinator::apply(const ToggleTilePaletteDockIntent&) {
-    uiState_.tilePaletteDockVisible = !uiState_.tilePaletteDockVisible;
-    const EditorInvalidation inv = EditorInvalidation::Layout | EditorInvalidation::Viewport
-                                 | EditorInvalidation::Inspector;
-    accumulate(inv);
-    return EditorOperationResult::success(inv);
+    if (!selectedTilemapHasPaintableTileset(*this)) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+    const bool visible = !uiState_.tilePaletteDockVisible;
+    uiState_.tilePaletteDockVisible = visible;
+    uiState_.tilePaletteDockAutoRevealEnabled = visible;
+    accumulate(kTilePaletteDockInvalidation);
+    return EditorOperationResult::success(kTilePaletteDockInvalidation);
 }
 
 EditorOperationResult EditorCoordinator::apply(const SetTilePaletteDockVisibleIntent& intent) {
-    if (uiState_.tilePaletteDockVisible == intent.visible) {
+    if (intent.visible && !selectedTilemapHasPaintableTileset(*this)) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+    const bool autoRevealEnabled = intent.visible;
+    if (uiState_.tilePaletteDockVisible == intent.visible
+        && uiState_.tilePaletteDockAutoRevealEnabled == autoRevealEnabled) {
         return EditorOperationResult::success(EditorInvalidation::None);
     }
     uiState_.tilePaletteDockVisible = intent.visible;
-    const EditorInvalidation inv = EditorInvalidation::Layout | EditorInvalidation::Viewport
-                                 | EditorInvalidation::Inspector;
-    accumulate(inv);
-    return EditorOperationResult::success(inv);
+    uiState_.tilePaletteDockAutoRevealEnabled = autoRevealEnabled;
+    accumulate(kTilePaletteDockInvalidation);
+    return EditorOperationResult::success(kTilePaletteDockInvalidation);
 }
 
 EditorOperationResult EditorCoordinator::apply(const RevealInspectorPropertyIntent& intent) {

@@ -184,6 +184,8 @@ public:
     // ambiguity comes from the forward declaration existing at all, not from
     // how it is referenced. RenderableEntitySnapshot has no such collision.
     std::vector<RenderableEntitySnapshot> renderables() const;
+    /** Runtime camera state; presentation reads it but never writes it. */
+    Vec2 cameraCenter() const;
 
 private:
     PlaySession();

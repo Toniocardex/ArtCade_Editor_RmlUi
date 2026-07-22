@@ -22,6 +22,7 @@
 #include "editor-native/commands/sprite_animation_commands.h"
 #include "editor-native/commands/sprite_presentation_commands.h"
 #include "editor-native/model/sprite_render_view.h"
+#include "editor-native/model/tile_palette_availability.h"
 #include "editor-native/model/tile_palette_projection.h"
 #include "editor-native/model/tileset_slicing.h"
 #include "editor-native/app/scene_view_interaction.h"
@@ -606,7 +607,8 @@ void EditorUi::applyInvalidations(EditorInvalidation flags) {
         spriteAnimationEditor_.refresh();
         tilesetEditor_.refresh();
     }
-    if (has(flags, EditorInvalidation::Toolbar))
+    if (has(flags, EditorInvalidation::Toolbar) || has(flags, EditorInvalidation::Assets)
+        || has(flags, EditorInvalidation::Inspector))
         refreshToolbar();
     if (has(flags, EditorInvalidation::Toolbar) || has(flags, EditorInvalidation::Project)
         || has(flags, EditorInvalidation::LogicBoard)
@@ -1804,6 +1806,11 @@ void EditorUi::refreshToolbar() {
             && selectionSupportsTilemapEditing(
                    coordinator_.document(), coordinator_.state(),
                    coordinator_.state().activeSceneId);
+        const SceneInstanceDef* paletteInstance = coordinator_.document().findInstanceInScene(
+            coordinator_.state().activeSceneId, coordinator_.selection().primaryEntity);
+        const bool tilePaletteAvailable = toolActionable && paletteInstance
+            && tilemapHasPaintableTileset(coordinator_.document(), *paletteInstance);
+        setEnabled("menu-tile-palette", tilePaletteAvailable);
         if (Rml::Element* el = document_->GetElementById("tilemap-context-tools"))
             el->SetClass("hidden", !tilemapToolsVisible);
         if (Rml::Element* el = document_->GetElementById("tilemap-tool-sep"))
@@ -2097,7 +2104,9 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     if (action == "add-sprite-renderer" || action == "add-sprite-animator"
         || action == "add-box-collider"
         || action == "add-linear-mover" || action == "add-top-down"
-        || action == "add-platformer" || action == "add-tilemap-component") {
+        || action == "add-platformer" || action == "add-auto-destroy"
+        || action == "add-camera-target"
+        || action == "add-tilemap-component") {
         inspector_.closeAddMenu();   // then fall through to execute the add
     }
 
@@ -2184,6 +2193,10 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         addSpriteRenderer(coordinator_);
     } else if (action == "add-sprite-animator") {
         addSpriteAnimator(coordinator_);
+    } else if (action == "add-camera-target") {
+        addCameraTarget(coordinator_);
+    } else if (action == "remove-camera-target") {
+        removeCameraTarget(coordinator_);
     } else if (action == "remove-sprite-renderer") {
         removeSpriteRenderer(coordinator_);
     } else if (action == "toggle-instance-visible") {
@@ -2479,6 +2492,17 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
                 }
             }
         }
+    } else if (action == "add-auto-destroy") {
+        addAutoDestroy(coordinator_);
+    } else if (action == "remove-auto-destroy") {
+        removeAutoDestroy(coordinator_);
+    } else if (action == "commit-auto-destroy-lifespan") {
+        const std::optional<float> parsed = parseNumberField(value);
+        if (!parsed.has_value()) {
+            coordinator_.logError("Auto Destroy lifetime is not a number");
+        } else {
+            setAutoDestroyLifespan(coordinator_, *parsed);
+        }
     } else if (action == "add-top-down") {
         addTopDownController(coordinator_);
     } else if (action == "remove-top-down") {
@@ -2609,6 +2633,25 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
             else                                       cellSize.y = *parsed;
             coordinator_.execute(
                 SetTilemapCellSizeCommand{coordinator_.state().activeSceneId, selected, cellSize});
+        }
+    } else if (action == "commit-camera-target-offset-x"
+               || action == "commit-camera-target-offset-y"
+               || action == "commit-camera-target-follow-speed") {
+        const SceneInstanceDef* inst = selected != INVALID_ENTITY
+            ? coordinator_.document().findInstanceInScene(coordinator_.state().activeSceneId, selected)
+            : nullptr;
+        const std::optional<float> parsed = parseNumberField(value);
+        if (!inst || !inst->cameraTarget) {
+            coordinator_.logError("No selected Camera Target component");
+        } else if (!parsed.has_value()) {
+            coordinator_.logError("Camera Target value is not a number");
+        } else if (action == "commit-camera-target-follow-speed") {
+            setCameraTargetFollowSpeed(coordinator_, *parsed);
+        } else {
+            Vec2 offset{inst->cameraTarget->offsetX, inst->cameraTarget->offsetY};
+            if (action == "commit-camera-target-offset-x") offset.x = *parsed;
+            else offset.y = *parsed;
+            setCameraTargetOffset(coordinator_, offset);
         }
     } else if (action == "select-tool-select") {
         coordinator_.apply(SetActiveToolIntent{EditorTool::Select});
@@ -3003,7 +3046,7 @@ bool EditorUi::handleConsoleAction(const std::string& action, const std::string&
         if (coordinator_.isPlaying()) return true;
         const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
             coordinator_.state().activeSceneId, coordinator_.selection().primaryEntity);
-        if (!inst || !inst->tilemap.has_value()) return true;
+        if (!inst || !tilemapHasPaintableTileset(coordinator_.document(), *inst)) return true;
         const AssetId tilesetId = inst->tilemap->tilesetAssetId;
         if (action == "tile-palette-fit-content") {
             if (!coordinator_.uiState().tilePaletteDockVisible) {

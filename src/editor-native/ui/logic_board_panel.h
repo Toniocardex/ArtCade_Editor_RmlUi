@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <unordered_set>
+#include <utility>
 
 namespace Rml { class ElementDocument; }
 
@@ -71,6 +72,13 @@ public:
     void expandAllRules(Rml::ElementDocument* document,
                         const EditorCoordinator& coordinator);
 
+    // UI-only acknowledgement for a successful clone. The controller resolves
+    // the new stable id after the Command and the panel reveals it once after
+    // its next reconciliation; neither state is persisted or undoable.
+    void revealRuleAfterRefresh(LogicRuleId ruleId) const {
+        pendingRevealRuleId_ = std::move(ruleId);
+    }
+
     // True when at least one of the current board's rules is not collapsed
     // (so Collapse All would have an effect) / is collapsed (so Expand All
     // would). Positive semantics deliberately, not collapsedRuleIds_.empty()
@@ -117,6 +125,7 @@ private:
     mutable std::string keySearchQuery_;
     mutable bool variablesDrawerOpen_ = false;
     mutable std::optional<LogicBoardTab> lastTab_;
+    mutable LogicRuleId pendingRevealRuleId_;
     // Presentation-only per-rule collapse state, scoped to renderedObjectTypeId_.
     mutable std::unordered_set<LogicRuleId> collapsedRuleIds_;
 };

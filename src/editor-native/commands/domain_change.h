@@ -32,6 +32,8 @@ enum class ComponentKind {
     LinearMover,
     TopDownController,
     PlatformerController,
+    AutoDestroy,
+    CameraTarget,
     Tilemap,
     Scripts,
 };

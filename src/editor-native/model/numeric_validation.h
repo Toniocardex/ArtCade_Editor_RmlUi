@@ -53,6 +53,15 @@ inline bool isValid(const LinearMoverComponent& component) {
         && isNonNegative(component.speed);
 }
 
+inline bool isValid(const AutoDestroyComponent& component) {
+    return isNonNegative(component.lifespan);
+}
+
+inline bool isValid(const CameraTargetComponent& component) {
+    return isFinite(component.offsetX) && isFinite(component.offsetY)
+        && isNonNegative(component.followSpeed);
+}
+
 inline bool isValid(const TopDownControllerComponent& component) {
     return isNonNegative(component.maxSpeed)
         && isNonNegative(component.acceleration)

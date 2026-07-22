@@ -40,6 +40,8 @@ add_library(artcade-editor-core STATIC
     editor-native/view/scene_view_camera.cpp
     editor-native/commands/box_collider_commands.cpp
     editor-native/commands/linear_mover_commands.cpp
+    editor-native/commands/auto_destroy_commands.cpp
+    editor-native/commands/camera_target_commands.cpp
     editor-native/commands/top_down_controller_commands.cpp
     editor-native/commands/platformer_controller_commands.cpp
     editor-native/commands/project_commands.cpp

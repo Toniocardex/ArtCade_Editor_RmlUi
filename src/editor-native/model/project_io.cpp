@@ -481,6 +481,18 @@ bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
         }
         out.tilemap = std::move(component);
     }
+    if (const nlohmann::json* cameraValue = optionalObject(
+            value, "cameraTarget", "scenes[].instances[].cameraTarget")) {
+        CameraTargetComponent component;
+        component.offsetX = readFloat(*cameraValue, "offsetX", component.offsetX);
+        component.offsetY = readFloat(*cameraValue, "offsetY", component.offsetY);
+        component.followSpeed = readFloat(*cameraValue, "followSpeed", component.followSpeed);
+        if (!NumericValidation::isValid(component)) {
+            invalidField("scenes[].instances[].cameraTarget",
+                         "finite offsets and a finite non-negative followSpeed");
+        }
+        out.cameraTarget = component;
+    }
     return true;
 }
 
@@ -664,6 +676,13 @@ nlohmann::json instanceToJson(const SceneInstanceDef& instance) {
             {"chunks", std::move(chunks)},
         };
     }
+    if (instance.cameraTarget.has_value()) {
+        json["cameraTarget"] = nlohmann::json{
+            {"offsetX", instance.cameraTarget->offsetX},
+            {"offsetY", instance.cameraTarget->offsetY},
+            {"followSpeed", instance.cameraTarget->followSpeed},
+        };
+    }
     return json;
 }
 
@@ -740,6 +759,12 @@ nlohmann::json objectTypeToJson(const std::string& id, const EntityDef& def) {
             {"moveSpeed", def.platformerController->maxSpeed},
             {"jumpSpeed", def.platformerController->jumpForce},
             {"gravity", def.platformerController->customGravity},
+        };
+    }
+    if (def.autoDestroy.has_value()) {
+        // _timeAlive belongs exclusively to the materialized PlaySession.
+        json["autoDestroy"] = nlohmann::json{
+            {"lifespan", def.autoDestroy->lifespan},
         };
     }
     if (def.scripts.has_value()) {
@@ -1151,6 +1176,36 @@ DeserializeResult deserializeCanonical(const nlohmann::json& root) {
     ProjectJson::read_audio_assets(root, doc.audioAssets);
     ProjectJson::read_font_assets(root, doc.fontAssets);
 
+    // The runtime schema accepts the component shape, while the native editor
+    // also owns authoring-time numeric invariants. Apply them on the canonical
+    // path as well as on the legacy compatibility path below.
+    for (const auto& [objectTypeId, def] : doc.objectTypes) {
+        if (def.cameraTarget.has_value()) {
+            return DeserializeResult::failure(
+                "CameraTarget must be authored on a scene instance, not Object Type \""
+                + objectTypeId + "\"");
+        }
+        if (def.autoDestroy.has_value()
+            && !NumericValidation::isValid(*def.autoDestroy)) {
+            return DeserializeResult::failure(
+                "AutoDestroy lifetime must be finite and >= 0");
+        }
+    }
+    for (const auto& [sceneId, scene] : doc.scenes) {
+        EntityId cameraTargetId = INVALID_ENTITY;
+        for (const SceneInstanceDef& instance : scene.instances) {
+            if (!instance.cameraTarget) continue;
+            if (!NumericValidation::isValid(*instance.cameraTarget)) {
+                return DeserializeResult::failure("CameraTarget has invalid values");
+            }
+            if (cameraTargetId != INVALID_ENTITY) {
+                return DeserializeResult::failure(
+                    "Scene \"" + sceneId + "\" contains more than one CameraTarget");
+            }
+            cameraTargetId = instance.id;
+        }
+    }
+
     return DeserializeResult::success(ProjectDocument{std::move(doc)});
 }
 
@@ -1210,6 +1265,11 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
             }
             EntityDef def;
             def.className = id;
+            if (item.contains("cameraTarget")) {
+                return DeserializeResult::failure(
+                    "CameraTarget must be authored on a scene instance, not Object Type \""
+                    + id + "\"");
+            }
             def.name = readString(item, "name", nullptr, id);
             def.visible = readBool(item, "visible", true, "objectTypes[].visible");
             if (const nlohmann::json* spriteValue = optionalObject(
@@ -1326,6 +1386,17 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                 component.jumpForce = readFloat(p, "jumpSpeed", component.jumpForce);
                 component.customGravity = readFloat(p, "gravity", component.customGravity);
                 def.platformerController = component;
+            }
+            if (const nlohmann::json* autoDestroyValue = optionalObject(
+                    item, "autoDestroy", "objectTypes[].autoDestroy")) {
+                AutoDestroyComponent component;
+                component.lifespan = readFloat(
+                    *autoDestroyValue, "lifespan", component.lifespan);
+                if (!NumericValidation::isValid(component)) {
+                    return DeserializeResult::failure(
+                        "AutoDestroy lifetime must be finite and >= 0");
+                }
+                def.autoDestroy = component;
             }
             if (const nlohmann::json* scriptsValue = optionalObject(
                     item, "scripts", "objectTypes[].scripts")) {
@@ -1636,6 +1707,20 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
         }
     }
 
+    for (const auto& [sceneId, scene] : doc.scenes) {
+        EntityId cameraTargetId = INVALID_ENTITY;
+        for (const SceneInstanceDef& instance : scene.instances) {
+            if (!instance.cameraTarget) continue;
+            if (!NumericValidation::isValid(*instance.cameraTarget)) {
+                return DeserializeResult::failure("CameraTarget has invalid values");
+            }
+            if (cameraTargetId != INVALID_ENTITY) {
+                return DeserializeResult::failure(
+                    "Scene \"" + sceneId + "\" contains more than one CameraTarget");
+            }
+            cameraTargetId = instance.id;
+        }
+    }
     return DeserializeResult::success(ProjectDocument{std::move(doc)});
     } catch (const JsonReadError& error) {
         return DeserializeResult::failure(error.what());
@@ -2257,7 +2342,11 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
     // Legacy SpriteComponent contributes fillColor only; source ownership was
     // migrated to the v4 SpriteRenderer capability above.
     for (const auto& [typeId, def] : data.objectTypes) {
-        (void)typeId;
+        if (def.cameraTarget.has_value()) {
+            return DeserializeResult::failure(
+                "CameraTarget must be authored on a scene instance, not Object Type \""
+                + typeId + "\"");
+        }
         if (!NumericValidation::isFinite(def.sprite.fillColor)) {
             return DeserializeResult::failure("Object type sprite fillColor must be finite");
         }
@@ -2283,6 +2372,10 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
                 return DeserializeResult::failure("PlatformerController has invalid values");
             }
         }
+        if (def.autoDestroy.has_value()
+            && !NumericValidation::isValid(*def.autoDestroy)) {
+            return DeserializeResult::failure("AutoDestroy lifetime must be finite and >= 0");
+        }
         // One movement writer per object type is a project invariant, not just a
         // runtime convenience: reject a file that carries several rather than
         // silently letting materialize pick one by priority.
@@ -2298,6 +2391,21 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
             && def.boxCollider2D->mode == BoxColliderMode::OneWayPlatform) {
             return DeserializeResult::failure(
                 "OneWayPlatform does not support movement drivers");
+        }
+    }
+
+    for (const auto& [sceneId, scene] : data.scenes) {
+        EntityId cameraTargetId = INVALID_ENTITY;
+        for (const SceneInstanceDef& instance : scene.instances) {
+            if (!instance.cameraTarget) continue;
+            if (!NumericValidation::isValid(*instance.cameraTarget)) {
+                return DeserializeResult::failure("CameraTarget has invalid values");
+            }
+            if (cameraTargetId != INVALID_ENTITY) {
+                return DeserializeResult::failure(
+                    "Scene \"" + sceneId + "\" contains more than one CameraTarget");
+            }
+            cameraTargetId = instance.id;
         }
     }
 

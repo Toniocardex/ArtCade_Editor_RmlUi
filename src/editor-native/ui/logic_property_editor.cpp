@@ -49,9 +49,15 @@ std::string entry(const std::string& label, const std::string& value,
 
 std::string dropdown(const std::string& label, const std::string& dropdownId,
                      const std::string& entries, bool open, bool playing) {
-    std::string html = dropdownTriggerMarkup(
+    // A logic property row is horizontal (label + editor). Keep the trigger
+    // and its in-flow list in a vertical wrapper so every property dropdown
+    // expands beneath its own field rather than becoming a sibling on the
+    // right of the row.
+    std::string html = "<div class=\"logic-property-dropdown\">";
+    html += dropdownTriggerMarkup(
         label, "toggle-logic-dropdown", dropdownId, open, playing);
     if (open && !playing) html += "<div class=\"drop-list\">" + entries + "</div>";
+    html += "</div>";
     return html;
 }
 
@@ -170,7 +176,8 @@ std::string renderLogicProperties(
                 html += "</div></div>";
             }
             html += "</div>";
-        } else if (property.semantic == Logic::LogicPropertySemantic::CompareOperator) {
+        } else if (property.semantic == Logic::LogicPropertySemantic::CompareOperator
+                   || property.semantic == Logic::LogicPropertySemantic::TopDownDirection) {
             const std::string selected = stringValue(current);
             std::string entries;
             for (const std::string& option : property.options)

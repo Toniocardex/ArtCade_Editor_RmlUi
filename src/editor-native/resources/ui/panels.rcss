@@ -35,10 +35,34 @@
 }
 .header-btn:hover  { border-color: #3b82f6; color: #3b82f6; }
 .header-btn.disabled { border-color: #242427; color: #3f3f46; }
-/* Console has two header actions. Keep both exposed instead of stacking the
-   generic absolute-positioned buttons on the same right edge. */
-#btn-console-copy { right: 62dp; }
-.console-close-btn { right: 8dp; }
+/* Console header: Copy plus a compact chevron that toggles the dock. */
+#btn-console-copy { right: 38dp; }
+.console-collapse-btn {
+    position: absolute;
+    top: 5dp;
+    right: 8dp;
+    width: 24dp;
+    height: 22dp;
+    line-height: 20dp;
+    margin: 0;
+    padding: 0;
+    text-align: center;
+    background-color: transparent;
+    border: 1px transparent;
+    border-radius: 3dp;
+    color: #8a8a93;
+    transition: background-color 0.1s, border-color 0.1s, color 0.1s;
+}
+.console-collapse-btn:hover {
+    background-color: #27272a;
+    border-color: #3f3f46;
+    color: #e4e4e7;
+}
+.console-collapse-btn .icon {
+    margin: 0;
+    color: #8a8a93;
+}
+.console-collapse-btn:hover .icon { color: #e4e4e7; }
 
 .assets {
     display: block;
@@ -392,6 +416,29 @@
     letter-spacing: 0.6dp;
 }
 .comp-badge.override { color: #7aa2e8; border-color: #3b82f655; }
+.comp-help {
+    display: inline-block;
+    width: 16dp;
+    height: 16dp;
+    line-height: 14dp;
+    margin: 0 0 0 6dp;
+    padding: 0;
+    background-color: transparent;
+    border: 1px #3f3f46;
+    border-radius: 8dp;
+    color: #8a8a93;
+    font-size: 10dp;
+    font-weight: 700;
+    text-align: center;
+    vertical-align: middle;
+    transition: background-color 0.1s, border-color 0.1s, color 0.1s;
+}
+.comp-help:hover,
+.comp-help:focus {
+    background-color: #27272a;
+    border-color: #3b82f6;
+    color: #f4f4f5;
+}
 .comp-remove {
     display: inline-block;
     width: 22dp;

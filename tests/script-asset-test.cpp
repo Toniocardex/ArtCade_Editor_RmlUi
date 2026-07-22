@@ -536,6 +536,7 @@ return { on_start = function(ctx) ctx.self:set_position(9, 10) end }
         bool requestPlatformerMove(EntityId, float axis) override {
             moveAxis = axis; return true;
         }
+        bool requestTopDownMove(EntityId, Vec2) override { return true; }
         bool requestPlatformerJump(EntityId) override { jumpRequested = true; return true; }
         bool isObjectType(EntityId, const ObjectTypeId&) override { return false; }
         bool requestDestroy(EntityId) override { destroyRequested = true; return true; }

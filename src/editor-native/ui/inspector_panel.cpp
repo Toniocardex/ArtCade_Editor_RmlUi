@@ -113,7 +113,7 @@ std::string fieldWithUnit(const char* label, const char* action, const std::stri
 // structural section (Transform) has a badge but no remove.
 std::string header(const char* sectionId, bool collapsed, const char* iconCp,
                    const char* title, const char* badge, const char* badgeClass,
-                   const char* removeAction, bool playing) {
+                   const char* removeAction, bool playing, const char* helpTooltip = nullptr) {
     std::string h = "[[inspector-section:" + std::string(sectionId) + "]]";
     h += "<div class=\"comp-header\"><span id=\"inspector-section-";
     h += sectionId;
@@ -132,6 +132,15 @@ std::string header(const char* sectionId, bool collapsed, const char* iconCp,
         h += "\">";
         h += badge;
         h += "</span>";
+    }
+    if (helpTooltip && *helpTooltip) {
+        h += "<button id=\"inspector-section-";
+        h += sectionId;
+        h += "-help\" class=\"comp-help\" type=\"button\" title=\"";
+        h += helpTooltip;
+        h += "\" aria-label=\"";
+        h += helpTooltip;
+        h += "\">?</button>";
     }
     if (removeAction && *removeAction) {
         h += "<span class=\"comp-remove";
@@ -153,7 +162,7 @@ bool knownSection(std::string_view id) {
     static constexpr std::string_view ids[] = {
         "project", "general", "world-bounds", "layers", "diagnostics",
         "identity", "transform", "sprite-renderer", "sprite-animator",
-        "tilemap", "scripts", "box-collider", "linear-mover", "top-down-controller",
+        "tilemap", "camera-target", "scripts", "box-collider", "linear-mover", "top-down-controller",
         "platformer-controller",
     };
     for (std::string_view known : ids) if (known == id) return true;
@@ -534,9 +543,10 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         // Fit View lives in the toolbar's view group (audit 7.4): a camera action
         // belongs to the Scene View, not to scene properties.
 
-        // -- LAYERS (per-scene render order; top row = foreground) -------------
+        // -- LAYER MANAGER (per-scene render order; top row = foreground) ------
         html += header("layers", isSectionCollapsed("layers"),
-                       "&#xee9e;", "Layers", "", "", "", playing);
+                       "&#xee9e;", "Layer Manager", "", "", "", playing,
+                       "Rendering order: top to bottom.");
         const EditorSceneViewState& view = coordinator.sceneView(activeScene);
         const std::string activeLayer = coordinator.activeLayerId(activeScene);
         // Render rows reversed so the foreground layer (last in scene.layers) is on top.
@@ -1162,6 +1172,33 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         html += field("Gravity", "commit-platformer-gravity", num(platformer->customGravity), playing);
     }
 
+    // -- Camera Target (instance-owned, one per scene; ADR-0003) ------------
+    if (inst->cameraTarget.has_value()) {
+        const CameraTargetComponent& target = *inst->cameraTarget;
+        html += header("camera-target", isSectionCollapsed("camera-target"),
+                       "&#xeb5f;", "Camera Target", "INSTANCE", "",
+                       "remove-camera-target", instanceDisabled);
+        html += field("Offset X", "commit-camera-target-offset-x", num(target.offsetX),
+                      instanceDisabled);
+        html += field("Offset Y", "commit-camera-target-offset-y", num(target.offsetY),
+                      instanceDisabled);
+        html += field("Follow Speed", "commit-camera-target-follow-speed",
+                      num(target.followSpeed), instanceDisabled);
+        html += "<div class=\"type-owned-note\">0 snaps to the target.</div>";
+    }
+
+    // -- Auto Destroy (object-type owned) ------------------------------------
+    const AutoDestroyComponent* autoDestroy =
+        (type && type->autoDestroy) ? &*type->autoDestroy : nullptr;
+    if (autoDestroy) {
+        html += header("auto-destroy", isSectionCollapsed("auto-destroy"),
+                       "&#xeb41;", "Auto Destroy", "TYPE", "", "remove-auto-destroy", playing);
+        html += typeOwnedLockNote;
+        html += fieldWithUnit("Lifetime", "commit-auto-destroy-lifespan",
+                              num(autoDestroy->lifespan), "s", playing);
+        html += "<div class=\"type-owned-note\">0 disables automatic expiry.</div>";
+    }
+
     html += kSectionsEnd;
 
     // -- Add Component menu (only addable components; one movement driver) -----
@@ -1198,6 +1235,9 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         {"Top Down Controller", "add-top-down", type && !hasDriver, true, ""},
         {"Platformer Controller", "add-platformer", type && !hasDriver, true, ""},
         {"Linear Mover", "add-linear-mover", type && !hasDriver, true, ""},
+        {"Auto Destroy", "add-auto-destroy", type && !autoDestroy, true, ""},
+        {"Camera Target", "add-camera-target",
+            !instanceLocked && !inst->cameraTarget.has_value(), true, ""},
         // Instance-level like Sprite Renderer; needs at least one tileset to
         // reference (auto-assigns the first one - the tileset picker above
         // lets it be changed afterward).

@@ -44,6 +44,20 @@ private:
     std::optional<LogicBoardDef> before_;
 };
 
+// Inserts the Coordinator-resolved clone as one atomic Logic Board mutation.
+// Keeping the source id makes a stale intent fail rather than inserting a
+// detached payload at an accidental list position.
+class DuplicateLogicRuleCommand final : public EditorCommand {
+public:
+    DuplicateLogicRuleCommand(ObjectTypeId objectTypeId, LogicRuleId sourceRuleId,
+                              LogicRuleDef clone, std::size_t index);
+    ARTCADE_LOGIC_BOARD_COMMAND_COMMON(DuplicateLogicRule)
+private:
+    ObjectTypeId objectTypeId_; LogicRuleId sourceRuleId_; LogicRuleDef clone_;
+    std::size_t index_ = 0;
+    std::optional<LogicBoardDef> before_;
+};
+
 class RemoveLogicRuleCommand final : public EditorCommand {
 public:
     RemoveLogicRuleCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId);

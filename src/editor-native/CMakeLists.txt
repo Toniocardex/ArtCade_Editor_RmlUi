@@ -27,6 +27,8 @@ add_library(artcade-editor-core STATIC
     view/scene_view_camera.cpp
     commands/box_collider_commands.cpp
     commands/linear_mover_commands.cpp
+    commands/auto_destroy_commands.cpp
+    commands/camera_target_commands.cpp
     commands/top_down_controller_commands.cpp
     commands/platformer_controller_commands.cpp
     commands/project_commands.cpp

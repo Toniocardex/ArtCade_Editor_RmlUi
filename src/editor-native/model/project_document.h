@@ -104,6 +104,9 @@ class SetInstanceVisibleCommand;
 class SetTopDownControllerAccelerationCommand;
 class SetTopDownControllerFrictionCommand;
 class SetTopDownControllerFourDirectionsCommand;
+class AddAutoDestroyCommand;
+class RemoveAutoDestroyCommand;
+class SetAutoDestroyLifespanCommand;
 
 // =============================================================================
 // ProjectDocument — the single authoring authority of the native editor.
@@ -229,6 +232,13 @@ private:
     friend class SetTopDownControllerAccelerationCommand;
     friend class SetTopDownControllerFrictionCommand;
     friend class SetTopDownControllerFourDirectionsCommand;
+    friend class AddAutoDestroyCommand;
+    friend class RemoveAutoDestroyCommand;
+    friend class SetAutoDestroyLifespanCommand;
+    friend class AddCameraTargetCommand;
+    friend class RemoveCameraTargetCommand;
+    friend class SetCameraTargetOffsetCommand;
+    friend class SetCameraTargetFollowSpeedCommand;
     friend class AddSceneLayerCommand;
     friend class RenameSceneLayerCommand;
     friend class MoveSceneLayerCommand;
@@ -296,6 +306,7 @@ private:
     friend class SetGlobalVariableDescriptionCommand;
     friend class RemoveLogicBoardCommand;
     friend class AddLogicRuleCommand;
+    friend class DuplicateLogicRuleCommand;
     friend class RemoveLogicRuleCommand;
     friend class MoveLogicRuleCommand;
     friend class SetLogicRuleEnabledCommand;
@@ -368,6 +379,9 @@ private:
     // since it builds one complete validated next-state locally (patched
     // cells + created/removed chunks) rather than mutating cell-by-cell.
     bool setTilemapComponent(const SceneId& sceneId, EntityId id, TilemapComponent replacement);
+    bool addCameraTarget(const SceneId& sceneId, EntityId id, CameraTargetComponent component);
+    bool removeCameraTarget(const SceneId& sceneId, EntityId id);
+    bool setCameraTarget(const SceneId& sceneId, EntityId id, CameraTargetComponent component);
     // BoxCollider2D is authored on the object type only; instances never store it.
     bool addBoxCollider(const std::string& objectTypeId, BoxCollider2DComponent component);
     bool removeBoxCollider(const std::string& objectTypeId);
@@ -388,6 +402,11 @@ private:
     bool setTopDownControllerAcceleration(const std::string& objectTypeId, float acceleration);
     bool setTopDownControllerFriction(const std::string& objectTypeId, float friction);
     bool setTopDownControllerFourDirections(const std::string& objectTypeId, bool fourDirections);
+    // Object-type authored; a materialized runtime instance owns _timeAlive.
+    // lifespan == 0 deliberately disables automatic expiry.
+    bool addAutoDestroy(const std::string& objectTypeId, AutoDestroyComponent component);
+    bool removeAutoDestroy(const std::string& objectTypeId);
+    bool setAutoDestroyLifespan(const std::string& objectTypeId, float lifespan);
     // PlatformerController is authored on the object type only. `field` selects the
     // canonical scalar (0 = maxSpeed, 1 = jumpForce, 2 = customGravity), matching
     // commands/PlatformerField so this header stays free of the command enum.

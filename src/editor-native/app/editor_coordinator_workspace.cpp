@@ -1,6 +1,7 @@
 #include "editor-native/app/editor_coordinator.h"
 
 #include "editor-native/model/numeric_validation.h"
+#include "editor-native/model/tile_palette_availability.h"
 #include "editor-native/view/scene_grid.h"
 #include "sprite-animation-core.h"
 
@@ -48,10 +49,12 @@ EditorOperationResult EditorCoordinator::apply(const SelectEntityIntent& intent)
     // two tilemaps), the tool is deliberately left alone and only the tile
     // selection is reconciled against the new target's tileset.
     reconcileTilemapEditingContext();
-    // Slice 5: selecting a Tilemap always reveals the Tile Palette dock
-    // (session layout only — height/visibility stay in EditorUiState).
+    // Reveal only a paintable Tilemap source, until the user closes the dock
+    // explicitly for this session. Layout stays in EditorUiState.
     EditorInvalidation inv = kSelectionInvalidation;
-    if (inst->tilemap.has_value()) {
+    if (uiState_.tilePaletteDockAutoRevealEnabled
+        && !uiState_.tilePaletteDockVisible
+        && tilemapHasPaintableTileset(document_, *inst)) {
         uiState_.tilePaletteDockVisible = true;
         inv = inv | EditorInvalidation::Layout;
     }

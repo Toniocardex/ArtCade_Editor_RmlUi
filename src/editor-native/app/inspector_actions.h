@@ -50,6 +50,15 @@ EditorOperationResult removeLinearMover(EditorCoordinator& coordinator);
 EditorOperationResult setLinearMoverDirection(EditorCoordinator& coordinator, Vec2 direction);
 EditorOperationResult setLinearMoverSpeed(EditorCoordinator& coordinator, float speed);
 
+EditorOperationResult addAutoDestroy(EditorCoordinator& coordinator);
+EditorOperationResult removeAutoDestroy(EditorCoordinator& coordinator);
+EditorOperationResult setAutoDestroyLifespan(EditorCoordinator& coordinator, float lifespan);
+
+EditorOperationResult addCameraTarget(EditorCoordinator& coordinator);
+EditorOperationResult removeCameraTarget(EditorCoordinator& coordinator);
+EditorOperationResult setCameraTargetOffset(EditorCoordinator& coordinator, Vec2 offset);
+EditorOperationResult setCameraTargetFollowSpeed(EditorCoordinator& coordinator, float speed);
+
 EditorOperationResult addTopDownController(EditorCoordinator& coordinator);
 EditorOperationResult removeTopDownController(EditorCoordinator& coordinator);
 EditorOperationResult setTopDownControllerSpeed(EditorCoordinator& coordinator, float speed);

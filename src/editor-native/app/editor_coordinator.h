@@ -200,6 +200,7 @@ public:
     EditorOperationResult apply(const OpenLogicBoardIntent& intent);
     EditorOperationResult apply(const SetLogicBoardTabIntent& intent);
     EditorOperationResult apply(const SetLogicBoardSearchIntent& intent);
+    EditorOperationResult apply(const DuplicateLogicRuleIntent& intent);
     EditorOperationResult apply(const ChangeLogicTriggerTypeIntent& intent);
     EditorOperationResult apply(const AddLogicActionTypeIntent& intent);
     EditorOperationResult apply(const ChangeLogicActionTypeIntent& intent);

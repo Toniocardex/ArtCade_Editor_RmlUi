@@ -200,6 +200,28 @@ EditorOperationResult AddLogicRuleCommand::apply(ProjectDocument& document) {
 }
 EditorOperationResult AddLogicRuleCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
+DuplicateLogicRuleCommand::DuplicateLogicRuleCommand(ObjectTypeId id, LogicRuleId sourceRuleId,
+                                                     LogicRuleDef clone, std::size_t index)
+    : objectTypeId_(std::move(id)), sourceRuleId_(std::move(sourceRuleId)),
+      clone_(std::move(clone)), index_(index) {}
+EditorOperationResult DuplicateLogicRuleCommand::apply(ProjectDocument& document) {
+    const LogicBoardDef* current = boardOf(document, objectTypeId_);
+    if (!current || clone_.id.empty() || index_ > current->rules.size())
+        return EditorOperationResult::failure("Invalid Logic rule duplication");
+    const auto source = std::find_if(current->rules.begin(), current->rules.end(),
+        [&](const LogicRuleDef& rule) { return rule.id == sourceRuleId_; });
+    if (source == current->rules.end()
+        || static_cast<std::size_t>(source - current->rules.begin()) + 1 != index_)
+        return EditorOperationResult::failure("Unknown or moved Logic source rule");
+    const bool idTaken = std::any_of(current->rules.begin(), current->rules.end(),
+        [&](const LogicRuleDef& rule) { return rule.id == clone_.id; });
+    if (idTaken) return EditorOperationResult::failure("Duplicate Logic rule id");
+    LogicBoardDef next = *current;
+    next.rules.insert(next.rules.begin() + static_cast<std::ptrdiff_t>(index_), clone_);
+    COMMIT_NEXT_BOARD(next);
+}
+EditorOperationResult DuplicateLogicRuleCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
+
 RemoveLogicRuleCommand::RemoveLogicRuleCommand(ObjectTypeId id, LogicRuleId ruleId)
     : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)) {}
 EditorOperationResult RemoveLogicRuleCommand::apply(ProjectDocument& document) {

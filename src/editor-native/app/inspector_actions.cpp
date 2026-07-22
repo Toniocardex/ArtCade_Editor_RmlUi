@@ -4,6 +4,8 @@
 #include "editor-native/commands/box_collider_commands.h"
 #include "editor-native/commands/entity_commands.h"
 #include "editor-native/commands/linear_mover_commands.h"
+#include "editor-native/commands/auto_destroy_commands.h"
+#include "editor-native/commands/camera_target_commands.h"
 #include "editor-native/commands/platformer_controller_commands.h"
 #include "editor-native/commands/sprite_presentation_commands.h"
 #include "editor-native/commands/tilemap_commands.h"
@@ -251,6 +253,54 @@ EditorOperationResult setLinearMoverSpeed(EditorCoordinator& coordinator, float 
         return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(SetLinearMoverSpeedCommand{objectTypeId, speed});
+}
+
+EditorOperationResult addAutoDestroy(EditorCoordinator& coordinator) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
+        return fail(coordinator, "No selected object type");
+    }
+    return coordinator.execute(AddAutoDestroyCommand{objectTypeId});
+}
+
+EditorOperationResult removeAutoDestroy(EditorCoordinator& coordinator) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
+        return fail(coordinator, "No selected object type");
+    }
+    return coordinator.execute(RemoveAutoDestroyCommand{objectTypeId});
+}
+
+EditorOperationResult setAutoDestroyLifespan(EditorCoordinator& coordinator, float lifespan) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
+        return fail(coordinator, "No selected object type");
+    }
+    return coordinator.execute(SetAutoDestroyLifespanCommand{objectTypeId, lifespan});
+}
+
+EditorOperationResult addCameraTarget(EditorCoordinator& coordinator) {
+    SceneId sceneId; EntityId id;
+    if (!selectedTarget(coordinator, sceneId, id)) return fail(coordinator, "No selected entity");
+    return coordinator.execute(AddCameraTargetCommand{sceneId, id});
+}
+
+EditorOperationResult removeCameraTarget(EditorCoordinator& coordinator) {
+    SceneId sceneId; EntityId id;
+    if (!selectedTarget(coordinator, sceneId, id)) return fail(coordinator, "No selected entity");
+    return coordinator.execute(RemoveCameraTargetCommand{sceneId, id});
+}
+
+EditorOperationResult setCameraTargetOffset(EditorCoordinator& coordinator, Vec2 offset) {
+    SceneId sceneId; EntityId id;
+    if (!selectedTarget(coordinator, sceneId, id)) return fail(coordinator, "No selected entity");
+    return coordinator.execute(SetCameraTargetOffsetCommand{sceneId, id, offset});
+}
+
+EditorOperationResult setCameraTargetFollowSpeed(EditorCoordinator& coordinator, float speed) {
+    SceneId sceneId; EntityId id;
+    if (!selectedTarget(coordinator, sceneId, id)) return fail(coordinator, "No selected entity");
+    return coordinator.execute(SetCameraTargetFollowSpeedCommand{sceneId, id, speed});
 }
 
 EditorOperationResult addTopDownController(EditorCoordinator& coordinator) {

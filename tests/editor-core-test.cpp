@@ -22,6 +22,8 @@
 #include "editor-native/app/inspector_actions.h"
 #include "editor-native/commands/box_collider_commands.h"
 #include "editor-native/commands/linear_mover_commands.h"
+#include "editor-native/commands/auto_destroy_commands.h"
+#include "editor-native/commands/camera_target_commands.h"
 #include "editor-native/commands/top_down_controller_commands.h"
 #include "editor-native/commands/platformer_controller_commands.h"
 #include "editor-native/commands/project_commands.h"
@@ -3005,6 +3007,169 @@ int main() {
         CHECK(m->directionX == 3.f);
         CHECK(m->speed == 100.f);
         CHECK(m->_paused == false);
+    }
+
+    // == AutoDestroy editing, persistence, and isolated Play =================
+
+    // -- Add uses an editor-safe one-second default; all mutations are
+    // command-backed, exact under Undo/Redo, and never need viewport redraw. --
+    {
+        EditorCoordinator c{makeInheritedDoc()};
+        c.consumeInvalidations();
+        const EditorOperationResult added = c.execute(AddAutoDestroyCommand{"Hero"});
+        CHECK(added.ok);
+        CHECK(added.invalidation == EditorInvalidation::Inspector);
+        CHECK(c.document().data().objectTypes.at("Hero").autoDestroy.has_value());
+        CHECK(c.document().data().objectTypes.at("Hero").autoDestroy->lifespan == 1.f);
+
+        CHECK(c.execute(SetAutoDestroyLifespanCommand{"Hero", 2.5f}).ok);
+        CHECK(c.document().data().objectTypes.at("Hero").autoDestroy->lifespan == 2.5f);
+        CHECK(c.undo().ok);
+        CHECK(c.document().data().objectTypes.at("Hero").autoDestroy->lifespan == 1.f);
+        CHECK(c.redo().ok);
+        CHECK(c.document().data().objectTypes.at("Hero").autoDestroy->lifespan == 2.5f);
+
+        CHECK(c.execute(RemoveAutoDestroyCommand{"Hero"}).ok);
+        CHECK(!c.document().data().objectTypes.at("Hero").autoDestroy.has_value());
+        CHECK(c.undo().ok);
+        CHECK(c.document().data().objectTypes.at("Hero").autoDestroy.has_value());
+        CHECK(c.document().data().objectTypes.at("Hero").autoDestroy->lifespan == 2.5f);
+    }
+
+    // -- Zero explicitly disables expiry. Negative/non-finite lifetimes never
+    // mutate authoring state, and no-selection helpers fail visibly. ----------
+    {
+        EditorCoordinator c{makeInheritedDoc()};
+        CHECK(c.execute(AddAutoDestroyCommand{"Hero"}).ok);
+        CHECK(c.execute(SetAutoDestroyLifespanCommand{"Hero", 0.f}).ok);
+        const uint64_t revision = c.document().revision();
+        CHECK(!c.execute(SetAutoDestroyLifespanCommand{"Hero", -0.01f}).ok);
+        CHECK(!c.execute(SetAutoDestroyLifespanCommand{
+            "Hero", std::numeric_limits<float>::infinity()}).ok);
+        CHECK(c.document().revision() == revision);
+        CHECK(c.document().data().objectTypes.at("Hero").autoDestroy->lifespan == 0.f);
+
+        EditorCoordinator noSelection{makeInheritedDoc()};
+        CHECK(!addAutoDestroy(noSelection).ok);
+    }
+
+    // -- Serialization preserves authored lifetime only: the runtime elapsed
+    // counter is reset when a project is read back. ---------------------------
+    {
+        ProjectDoc doc = makeInheritedDoc();
+        AutoDestroyComponent component;
+        component.lifespan = 3.25f;
+        component._timeAlive = 99.f;
+        doc.objectTypes.at("Hero").autoDestroy = component;
+        const SerializeResult saved = ProjectSerializer::serialize(ProjectDocument{doc});
+        CHECK(saved.ok);
+        const DeserializeResult loaded = ProjectSerializer::deserialize(saved.value);
+        CHECK(loaded.ok);
+        const AutoDestroyComponent& restored =
+            *loaded.value.data().objectTypes.at("Hero").autoDestroy;
+        CHECK(restored.lifespan == 3.25f);
+        CHECK(restored._timeAlive == 0.f);
+        CHECK(!ProjectSerializer::deserialize(
+            R"({"activeSceneId":"s","scenes":[{"id":"s","instances":[{"id":1,"objectTypeId":"Hero","instanceName":"Hero"}]}],"objectTypes":[{"id":"Hero","autoDestroy":{"lifespan":-1}}]})").ok);
+    }
+
+    // -- The runtime timer expires only in the isolated PlaySession. Stopping
+    // Play leaves the Object Type and its authored lifetime unchanged. --------
+    {
+        EditorCoordinator c{makeInheritedDoc()};
+        CHECK(c.execute(AddAutoDestroyCommand{"Hero"}).ok);
+        CHECK(c.execute(SetAutoDestroyLifespanCommand{"Hero", 0.01f}).ok);
+        const uint64_t revision = c.document().revision();
+        std::optional<PlaySession> session = PlaySession::startProject(c.document());
+        CHECK(session.has_value());
+        CHECK(collectSceneFrameSnapshot(*session).entities.size() == 1);
+        session->tick(RuntimeInputSnapshot{}, 0.02f);
+        CHECK(collectSceneFrameSnapshot(*session).entities.empty());
+        CHECK(c.document().findObjectType("Hero")->autoDestroy.has_value());
+        CHECK(c.document().findObjectType("Hero")->autoDestroy->lifespan == 0.01f);
+        CHECK(c.document().revision() == revision);
+    }
+
+    // == CameraTarget: scene-instance authority, Undo, persistence, Play ====
+    {
+        // A fresh PlaySession has no editor pan/zoom to inherit. Without a
+        // CameraTarget its native runtime camera starts at the scene centre,
+        // never at the world origin.
+        EditorCoordinator noTarget{makeInheritedDoc()};
+        std::optional<PlaySession> centredSession = PlaySession::startProject(noTarget.document());
+        CHECK(centredSession.has_value());
+        const Vec2 centred = centredSession->cameraCenter();
+        const SceneDef* centredScene = noTarget.document().findScene(kSceneA);
+        CHECK(centredScene != nullptr);
+        CHECK(centred.x == centredScene->worldSize.x * 0.5f);
+        CHECK(centred.y == centredScene->worldSize.y * 0.5f);
+
+        EditorCoordinator c{makeInheritedDoc()};
+        c.apply(SelectEntityIntent{kHero});
+        c.consumeInvalidations();
+        const EditorOperationResult added = c.execute(AddCameraTargetCommand{kSceneA, kHero});
+        CHECK(added.ok);
+        CHECK(added.invalidation == EditorInvalidation::Inspector);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->cameraTarget.has_value());
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->cameraTarget->followSpeed == 8.f);
+
+        CHECK(c.execute(SetCameraTargetOffsetCommand{kSceneA, kHero, Vec2{3.f, -4.f}}).ok);
+        CHECK(c.execute(SetCameraTargetFollowSpeedCommand{kSceneA, kHero, 0.f}).ok);
+        const CameraTargetComponent& configured =
+            *c.document().findInstanceInScene(kSceneA, kHero)->cameraTarget;
+        CHECK(configured.offsetX == 3.f);
+        CHECK(configured.offsetY == -4.f);
+        CHECK(configured.followSpeed == 0.f);
+
+        CHECK(c.undo().ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->cameraTarget->followSpeed == 8.f);
+        CHECK(c.redo().ok);
+
+        const SerializeResult saved = ProjectSerializer::serialize(c.document());
+        CHECK(saved.ok);
+        const DeserializeResult loaded = ProjectSerializer::deserialize(saved.value);
+        CHECK(loaded.ok);
+        const CameraTargetComponent& restored =
+            *loaded.value.findInstanceInScene(kSceneA, kHero)->cameraTarget;
+        CHECK(restored.offsetX == 3.f && restored.offsetY == -4.f && restored.followSpeed == 0.f);
+
+        std::optional<PlaySession> session = PlaySession::startProject(c.document());
+        CHECK(session.has_value());
+        session->tick(RuntimeInputSnapshot{}, 0.016f);
+        const Vec2 camera = session->cameraCenter();
+        CHECK(camera.x == 13.f && camera.y == 16.f);  // transform + authored offset
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->cameraTarget->offsetX == 3.f);
+
+        CHECK(c.execute(RemoveCameraTargetCommand{kSceneA, kHero}).ok);
+        CHECK(c.undo().ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->cameraTarget.has_value());
+    }
+
+    // A target is not type-owned and there is never a second automatic target
+    // in one scene. Invalid authoring data is rejected at the load boundary.
+    {
+        ProjectDoc doc = makeInheritedDoc();
+        SceneInstanceDef second = doc.scenes.at(kSceneA).instances.front();
+        second.id = 99;
+        second.instanceName = "Second";
+        doc.scenes.at(kSceneA).instances.push_back(second);
+        EditorCoordinator c{std::move(doc)};
+        CHECK(c.execute(AddCameraTargetCommand{kSceneA, kHero}).ok);
+        CHECK(!c.execute(AddCameraTargetCommand{kSceneA, 99}).ok);
+        CHECK(!c.execute(SetCameraTargetFollowSpeedCommand{
+            kSceneA, kHero, std::numeric_limits<float>::infinity()}).ok);
+        CHECK(!ProjectSerializer::deserialize(
+            R"({"activeSceneId":"s","scenes":[{"id":"s","instances":[{"id":1,"objectTypeId":"Hero","instanceName":"Hero"}]}],"objectTypes":[{"id":"Hero","cameraTarget":{"followSpeed":1}}]})").ok);
+
+        ProjectDoc duplicate = makeInheritedDoc();
+        SceneInstanceDef duplicateInstance = duplicate.scenes.at(kSceneA).instances.front();
+        duplicateInstance.id = 100;
+        duplicateInstance.cameraTarget = CameraTargetComponent{};
+        duplicate.scenes.at(kSceneA).instances.front().cameraTarget = CameraTargetComponent{};
+        duplicate.scenes.at(kSceneA).instances.push_back(std::move(duplicateInstance));
+        const SerializeResult duplicateSaved = ProjectSerializer::serialize(ProjectDocument{duplicate});
+        CHECK(duplicateSaved.ok);
+        CHECK(!ProjectSerializer::deserialize(duplicateSaved.value).ok);
     }
 
     // ===== PlatformerController authoring ====================================

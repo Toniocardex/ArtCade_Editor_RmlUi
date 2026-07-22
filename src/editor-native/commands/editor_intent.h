@@ -72,6 +72,13 @@ struct SetLogicBoardSearchIntent {
     std::string search;
 };
 
+// Rule duplication is semantic authoring: the UI identifies only the source;
+// the Coordinator resolves a unique clone payload and emits one Command.
+struct DuplicateLogicRuleIntent {
+    ObjectTypeId objectTypeId;
+    LogicRuleId  sourceRuleId;
+};
+
 // Picker confirmations are semantic authoring requests: the controller carries
 // stable IDs only, while the Coordinator resolves append position/defaults and
 // dispatches exactly one undoable Command.

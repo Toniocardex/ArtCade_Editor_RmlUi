@@ -633,6 +633,65 @@ bool ProjectDocument::setTopDownControllerFourDirections(
     return true;
 }
 
+bool ProjectDocument::addCameraTarget(const SceneId& sceneId, EntityId id,
+                                      CameraTargetComponent component) {
+    if (!NumericValidation::isValid(component)) return false;
+    SceneDef* scene = mutableScene(sceneId);
+    SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
+    if (!scene || !instance || instance->cameraTarget) return false;
+    for (const SceneInstanceDef& candidate : scene->instances)
+        if (candidate.id != id && candidate.cameraTarget) return false;
+    instance->cameraTarget = component;
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::removeCameraTarget(const SceneId& sceneId, EntityId id) {
+    SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
+    if (!instance || !instance->cameraTarget) return false;
+    instance->cameraTarget.reset();
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::setCameraTarget(const SceneId& sceneId, EntityId id,
+                                      CameraTargetComponent component) {
+    if (!NumericValidation::isValid(component)) return false;
+    SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
+    if (!instance || !instance->cameraTarget) return false;
+    instance->cameraTarget = component;
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::addAutoDestroy(const std::string& objectTypeId,
+                                     AutoDestroyComponent component) {
+    if (!NumericValidation::isValid(component)) return false;
+    auto it = doc_.objectTypes.find(objectTypeId);
+    if (it == doc_.objectTypes.end() || it->second.autoDestroy.has_value()) return false;
+    component._timeAlive = 0.f;
+    it->second.autoDestroy = component;
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::removeAutoDestroy(const std::string& objectTypeId) {
+    auto it = doc_.objectTypes.find(objectTypeId);
+    if (it == doc_.objectTypes.end() || !it->second.autoDestroy.has_value()) return false;
+    it->second.autoDestroy.reset();
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::setAutoDestroyLifespan(const std::string& objectTypeId, float lifespan) {
+    if (!NumericValidation::isNonNegative(lifespan)) return false;
+    auto it = doc_.objectTypes.find(objectTypeId);
+    if (it == doc_.objectTypes.end() || !it->second.autoDestroy.has_value()) return false;
+    it->second.autoDestroy->lifespan = lifespan;
+    markDirty();
+    return true;
+}
+
 bool ProjectDocument::addPlatformerController(const std::string& objectTypeId,
                                              PlatformerControllerComponent component) {
     if (!NumericValidation::isValid(component)) return false;
