@@ -63,6 +63,10 @@ public:
     void bind();           // attach the listener + do the initial full refresh
     void detach();         // remove listeners and invalidate observed documents; idempotent
     void processFrame();   // consume invalidations and refresh affected panels
+    // Called after the host's one RmlUi Context::Update() for the frame. Some
+    // presentation-only state (currently Logic Board scroll) needs final
+    // layout metrics and must not trigger a second update.
+    void restoreAfterRmlLayout();
     bool isBound() const { return listener_ != nullptr; }
 
     // Commit the focused data-action="commit-*" field through its normal blur

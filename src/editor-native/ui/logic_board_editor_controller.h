@@ -23,6 +23,7 @@ public:
 
     void detach();
     void refresh();
+    void restoreAfterLayout();
     void toggleDropdown(const std::string& dropdownId);
     void closeDropdown();
     bool hasKeyCapture() const;

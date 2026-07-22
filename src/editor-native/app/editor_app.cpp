@@ -1454,6 +1454,11 @@ int EditorApp::run(int argc, char** argv) {
             }
         }
         host.update();
+        // RmlUi has now established the final scroll ranges for any panels
+        // rebuilt by ui.processFrame(). Apply presentation-only restoration
+        // here rather than during markup replacement, where it can be clamped
+        // to zero by the old layout metrics.
+        ui.restoreAfterRmlLayout();
         const ViewportRect animationRenderRect = animationEditorOpen
             ? resolveSpriteAnimationCanvasContentRect(animationDocument)
             : ViewportRect{};

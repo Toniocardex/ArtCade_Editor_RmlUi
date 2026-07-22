@@ -73,6 +73,10 @@ void LogicBoardEditorController::refresh() {
     panel_.refresh(document_, coordinator_);
 }
 
+void LogicBoardEditorController::restoreAfterLayout() {
+    panel_.restoreAfterLayout(document_, coordinator_);
+}
+
 void LogicBoardEditorController::toggleDropdown(const std::string& dropdownId) {
     panel_.toggleDropdown(document_, coordinator_, dropdownId);
 }

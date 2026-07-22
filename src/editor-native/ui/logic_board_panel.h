@@ -21,6 +21,13 @@ public:
     void refresh(Rml::ElementDocument* document,
                  const EditorCoordinator& coordinator) const;
 
+    // Applies scroll/reveal presentation state after RmlUi has completed the
+    // layout caused by refresh(). This is deliberately separate from refresh:
+    // a newly rebuilt scroll container has no final scroll range until
+    // Context::Update(), so restoring sooner can be clamped back to the top.
+    void restoreAfterLayout(Rml::ElementDocument* document,
+                            const EditorCoordinator& coordinator) const;
+
     // Toggle an in-flow value dropdown named `dropdownId`; at most one is
     // open at a time. Mirrors InspectorPanel's
     // toggleDropdown/closeDropdowns pattern exactly. The Object Type picker
@@ -111,6 +118,10 @@ private:
     // A different rendered Object Type starts at the top, uncollapsed.
     mutable ObjectTypeId renderedObjectTypeId_;
     mutable float scrollTop_ = 0.f;
+    // A rebuild replaces #logic-scroll. Keep the last measured offset intact
+    // until the replacement has a final layout; otherwise a second refresh in
+    // the same frame would read its transient zero and lose the user's place.
+    mutable bool scrollRestorePending_ = false;
     // Open value dropdown ("" = none). Cleared whenever the rendered context
     // it belonged to changes from under it: Object Type switch, Rules <->
     // Generated Lua tab switch, or Play starting (kPlayToggleInvalidation

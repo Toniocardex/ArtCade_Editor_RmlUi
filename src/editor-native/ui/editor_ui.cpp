@@ -533,6 +533,11 @@ void EditorUi::processFrame() {
     spriteAnimationEditor_.updatePlayhead();
 }
 
+void EditorUi::restoreAfterRmlLayout() {
+    if (!listener_ || !document_) return;
+    logicBoardEditor_.restoreAfterLayout();
+}
+
 PendingEditResult EditorUi::resolvePendingEdits() {
     Rml::Context* visited[3] = {nullptr, nullptr, nullptr};
     std::size_t visitedCount = 0;

@@ -343,6 +343,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         openDropdownId_.clear();
         clearKeyBindingEditor();
         pendingRevealRuleId_.clear();
+        scrollRestorePending_ = false;
     }
     if (!document) return;
     Rml::Element* root = document->GetElementById("logic-board-panel");
@@ -368,11 +369,15 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         ? *view.objectTypeId : (typeIds.empty() ? ObjectTypeId{} : typeIds.front());
 
     if (renderedObjectTypeId_ == selectedId) {
+        // Do not sample a replacement scroll container before its deferred
+        // layout has run: RmlUi reports zero there, which would overwrite the
+        // offset captured from the previous completed frame.
         if (Rml::Element* scroll = document->GetElementById("logic-scroll"))
-            scrollTop_ = scroll->GetScrollTop();
+            if (!scrollRestorePending_) scrollTop_ = scroll->GetScrollTop();
     } else {
         renderedObjectTypeId_ = selectedId;
         scrollTop_ = 0.f;
+        scrollRestorePending_ = false;
         openDropdownId_.clear();
         clearKeyBindingEditor();
         pendingRevealRuleId_.clear();
@@ -444,24 +449,9 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     if (variablesDrawerOpen_) html += variablesDrawer(coordinator, playing, openDropdownId_);
     const auto render = [&]() {
         root->SetInnerRML(html);
-        if (Rml::Element* scroll = document->GetElementById("logic-scroll"))
-            scroll->SetScrollTop(scrollTop_);
-        if (!pendingRevealRuleId_.empty()) {
-            if (const LogicBoardDef* board = currentBoard(coordinator)) {
-                const auto it = std::find_if(board->rules.begin(), board->rules.end(),
-                    [&](const LogicRuleDef& rule) { return rule.id == pendingRevealRuleId_; });
-                if (it != board->rules.end()) {
-                    const std::string cardId = "logic-rule-" + std::to_string(
-                        static_cast<std::size_t>(it - board->rules.begin()));
-                    if (Rml::Element* card = document->GetElementById(cardId)) {
-                        card->ScrollIntoView(Rml::ScrollIntoViewOptions{
-                            Rml::ScrollAlignment::Nearest, Rml::ScrollAlignment::Nearest,
-                            Rml::ScrollBehavior::Smooth});
-                    }
-                }
-            }
-            pendingRevealRuleId_.clear();
-        }
+        // See restoreAfterLayout(): the new scroll container only has a valid
+        // range after the application's single Context::Update() this frame.
+        scrollRestorePending_ = true;
         if (!keySearchAddress_.empty()) {
             if (Rml::Element* input = document->GetElementById("logic-key-search-input"))
                 input->Focus(true);
@@ -920,6 +910,33 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     html += "\" data-action=\"add-logic-rule\">+ Add Logic</button>";
     html += "</div>";
     render();
+}
+
+void LogicBoardPanel::restoreAfterLayout(Rml::ElementDocument* document,
+                                         const EditorCoordinator& coordinator) const {
+    if (!document) return;
+
+    if (scrollRestorePending_) {
+        if (Rml::Element* scroll = document->GetElementById("logic-scroll"))
+            scroll->SetScrollTop(scrollTop_);
+        scrollRestorePending_ = false;
+    }
+
+    if (pendingRevealRuleId_.empty()) return;
+    if (const LogicBoardDef* board = currentBoard(coordinator)) {
+        const auto it = std::find_if(board->rules.begin(), board->rules.end(),
+            [&](const LogicRuleDef& rule) { return rule.id == pendingRevealRuleId_; });
+        if (it != board->rules.end()) {
+            const std::string cardId = "logic-rule-" + std::to_string(
+                static_cast<std::size_t>(it - board->rules.begin()));
+            if (Rml::Element* card = document->GetElementById(cardId)) {
+                card->ScrollIntoView(Rml::ScrollIntoViewOptions{
+                    Rml::ScrollAlignment::Nearest, Rml::ScrollAlignment::Nearest,
+                    Rml::ScrollBehavior::Smooth});
+            }
+        }
+    }
+    pendingRevealRuleId_.clear();
 }
 
 void LogicBoardPanel::toggleDropdown(Rml::ElementDocument* document,
