@@ -20,8 +20,8 @@ public:
     void refresh(Rml::ElementDocument* document,
                  const EditorCoordinator& coordinator) const;
 
-    // Toggle the in-flow value dropdown named `dropdownId` (per-rule Key
-    // picker); at most one is open at a time. Mirrors InspectorPanel's
+    // Toggle an in-flow value dropdown named `dropdownId`; at most one is
+    // open at a time. Mirrors InspectorPanel's
     // toggleDropdown/closeDropdowns pattern exactly. The Object Type picker
     // itself is NOT one of these dropdownIds — it lives in the header's
     // always-visible .logic-head, not inside the scrollable rules list, so
@@ -32,6 +32,25 @@ public:
                         const EditorCoordinator& coordinator,
                         const std::string& dropdownId);
     void closeDropdown() { openDropdownId_.clear(); }
+    void beginKeyCapture(Rml::ElementDocument* document,
+                         const EditorCoordinator& coordinator,
+                         const std::string& propertyAddress);
+    void toggleKeySearch(Rml::ElementDocument* document,
+                         const EditorCoordinator& coordinator,
+                         const std::string& propertyAddress);
+    void setKeySearchQuery(Rml::ElementDocument* document,
+                           const EditorCoordinator& coordinator,
+                           const std::string& propertyAddress,
+                           std::string query);
+    void cancelKeyCapture(Rml::ElementDocument* document,
+                          const EditorCoordinator& coordinator);
+    bool hasKeyCapture() const { return !keyCaptureAddress_.empty(); }
+    const std::string& keyCaptureAddress() const { return keyCaptureAddress_; }
+    void clearKeyBindingEditor() const {
+        keyCaptureAddress_.clear();
+        keySearchAddress_.clear();
+        keySearchQuery_.clear();
+    }
     void toggleVariablesDrawer(
         Rml::ElementDocument* document, const EditorCoordinator& coordinator);
 
@@ -91,6 +110,11 @@ private:
     // hook). A stale rule-scoped id (e.g. "key|<removed-rule>") is inert by
     // construction: it simply never matches a dropdown id rendered again.
     mutable std::string openDropdownId_;
+    // ADR-0004 transient key-binding interaction state. Never serialised and
+    // cleared with the rendered Logic Board context or Play.
+    mutable std::string keyCaptureAddress_;
+    mutable std::string keySearchAddress_;
+    mutable std::string keySearchQuery_;
     mutable bool variablesDrawerOpen_ = false;
     mutable std::optional<LogicBoardTab> lastTab_;
     // Presentation-only per-rule collapse state, scoped to renderedObjectTypeId_.

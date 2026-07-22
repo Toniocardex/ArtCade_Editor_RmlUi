@@ -33,6 +33,7 @@
 #include "editor-native/model/play_session.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/model/sprite_animation_slicing.h"
+#include "editor-native/model/tile_palette_availability.h"
 #include "editor-native/model/tilemap_stroke_preview.h"
 #include "editor-native/model/tilemap_validation.h"
 #include "editor-native/model/tileset_slicing.h"
@@ -97,8 +98,7 @@ namespace {
 // below) - both must render the identical "fit", so the number lives once.
 constexpr float kSceneFitPadding = 28.f;
 
-void collectLogicKeyPresses(RuntimeInputSnapshot& input) {
-    static constexpr std::pair<LogicKey, int> kKeys[] = {
+constexpr std::pair<LogicKey, int> kNativeLogicKeys[] = {
         {LogicKey::A, KEY_A}, {LogicKey::B, KEY_B}, {LogicKey::C, KEY_C},
         {LogicKey::D, KEY_D}, {LogicKey::E, KEY_E}, {LogicKey::F, KEY_F},
         {LogicKey::G, KEY_G}, {LogicKey::H, KEY_H}, {LogicKey::I, KEY_I},
@@ -116,8 +116,17 @@ void collectLogicKeyPresses(RuntimeInputSnapshot& input) {
         {LogicKey::ArrowLeft, KEY_LEFT}, {LogicKey::ArrowRight, KEY_RIGHT},
         {LogicKey::ArrowUp, KEY_UP}, {LogicKey::ArrowDown, KEY_DOWN},
         {LogicKey::Space, KEY_SPACE}, {LogicKey::Enter, KEY_ENTER},
-    };
-    for (const auto& [logicKey, raylibKey] : kKeys) {
+};
+
+std::optional<LogicKey> pressedNativeLogicKey() {
+    for (const auto& [logicKey, raylibKey] : kNativeLogicKeys) {
+        if (IsKeyPressed(raylibKey)) return logicKey;
+    }
+    return std::nullopt;
+}
+
+void collectLogicKeyPresses(RuntimeInputSnapshot& input) {
+    for (const auto& [logicKey, raylibKey] : kNativeLogicKeys) {
         if (IsKeyPressed(raylibKey)) input.pressedLogicKeys.push_back(logicKey);
         if (IsKeyReleased(raylibKey)) input.releasedLogicKeys.push_back(logicKey);
         if (IsKeyDown(raylibKey)) input.heldLogicKeys.push_back(logicKey);
@@ -1060,13 +1069,23 @@ int EditorApp::run(int argc, char** argv) {
         } else {
             ++sizeStableFrames;
         }
-        if (IsKeyPressed(KEY_F8)) host.toggleDebugger();
-
         RmlInputSuppression inputSuppression;
         inputSuppression.mouseWheel =
             prevPaletteClipRect.valid()
             && prevPaletteClipRect.contains(GetMouseX(), GetMouseY());
         const RmlInputResult rml = pumpRmlInput(host.context(), inputSuppression);
+        // ADR-0004: capture owns this frame's keyboard before any editor
+        // shortcut/viewport route. Escape is deliberately cancellation, not a
+        // game key; unsupported keys keep the field armed and are swallowed.
+        const bool logicKeyCaptureFrame = ui.hasLogicKeyCapture();
+        if (logicKeyCaptureFrame) {
+            if (IsKeyPressed(KEY_ESCAPE)) {
+                ui.cancelLogicKeyCapture();
+            } else if (const auto key = pressedNativeLogicKey()) {
+                ui.captureLogicKey(*key);
+            }
+        }
+        if (!logicKeyCaptureFrame && IsKeyPressed(KEY_F8)) host.toggleDebugger();
         const bool nonSceneWorkspace = coordinator.state().centerWorkspaceMode
             != CenterWorkspaceMode::Scene;
         if (coordinator.state().centerWorkspaceMode != previousWorkspaceMode) {
@@ -1088,7 +1107,7 @@ int EditorApp::run(int argc, char** argv) {
         // Hierarchy context menu already calls, so there is one entry point per
         // operation regardless of trigger. Play-mode rejection also comes from
         // the coordinator (execute()), same as every other shortcut here.
-        if (!rml.textFocus
+        if (!logicKeyCaptureFrame && !rml.textFocus
             && (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL))) {
             const bool shift = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
             if (IsKeyPressed(KEY_Y) || (shift && IsKeyPressed(KEY_Z))) {
@@ -1106,13 +1125,14 @@ int EditorApp::run(int argc, char** argv) {
                 cloneSelectedEntity(coordinator);
             }
         }
-        if (!nonSceneWorkspace && !rml.textFocus && !coordinator.isPlaying() && IsKeyPressed(KEY_F2)) {
+        if (!logicKeyCaptureFrame && !nonSceneWorkspace && !rml.textFocus
+            && !coordinator.isPlaying() && IsKeyPressed(KEY_F2)) {
             ui.beginActiveSceneLayerRename();
         }
         // Tilemap tool shortcuts only switch tools between strokes/rectangles -
         // mid-operation, only Escape (handled inside routeViewportTilemapPaint,
         // which needs the operation's context) may interrupt.
-        if (!nonSceneWorkspace && !rml.textFocus && !coordinator.isPlaying()
+        if (!logicKeyCaptureFrame && !nonSceneWorkspace && !rml.textFocus && !coordinator.isPlaying()
             && !coordinator.state().tilemapEditor.pendingStroke
             && !coordinator.state().tilemapEditor.pendingRectangle) {
             if (IsKeyPressed(KEY_B)) coordinator.apply(SetActiveToolIntent{EditorTool::Brush});
@@ -1124,13 +1144,13 @@ int EditorApp::run(int argc, char** argv) {
         // Tile Palette Fit shortcuts (Slice 5). Home = Fit Content; Shift+Home
         // = Fit Selection — never bare F, which stays Fill above. Reveal the
         // dock first so consumePendingFit can run on the next frame.
-        if (!nonSceneWorkspace && !rml.textFocus && !coordinator.isPlaying()
+        if (!logicKeyCaptureFrame && !nonSceneWorkspace && !rml.textFocus && !coordinator.isPlaying()
             && selectionSupportsTilemapEditing(coordinator.document(), coordinator.state(),
                                                coordinator.state().activeSceneId)
             && IsKeyPressed(KEY_HOME)) {
             const SceneInstanceDef* tmInst = coordinator.document().findInstanceInScene(
                 coordinator.state().activeSceneId, coordinator.selection().primaryEntity);
-            if (tmInst && tmInst->tilemap.has_value()) {
+            if (tmInst && tilemapHasPaintableTileset(coordinator.document(), *tmInst)) {
                 const AssetId tilesetId = tmInst->tilemap->tilesetAssetId;
                 const bool shift = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
                 if (!coordinator.uiState().tilePaletteDockVisible) {
@@ -1145,7 +1165,7 @@ int EditorApp::run(int argc, char** argv) {
         // (editor_input.cpp), but only takes effect there while a field has
         // focus; textFocus is false in exactly the complementary case, so the
         // two never fire on the same keypress.
-        if (!nonSceneWorkspace && !rml.textFocus && IsKeyPressed(KEY_DELETE)) {
+        if (!logicKeyCaptureFrame && !nonSceneWorkspace && !rml.textFocus && IsKeyPressed(KEY_DELETE)) {
             deleteSelectedEntity(coordinator);
         }
         const ViewportRect visibleRect = viewportRectFromDocument(host.document());
@@ -1200,7 +1220,7 @@ int EditorApp::run(int argc, char** argv) {
         const ViewportRect tilesetInputRect = tilesetEditorOpen
             ? resolveTilesetEditorCanvasContentRect(tilesetDocument)
             : ViewportRect{};
-        if (!animationEditorOpen && !tilesetEditorOpen && !nonSceneWorkspace) {
+        if (!logicKeyCaptureFrame && !animationEditorOpen && !tilesetEditorOpen && !nonSceneWorkspace) {
             routeViewportInput(coordinator, sceneViewportProjectionFor(visibleRect, cameraAnchorRect),
                                rml, contextMenuHit);
         }
@@ -1235,7 +1255,9 @@ int EditorApp::run(int argc, char** argv) {
             if (!editScene.empty() && !coordinator.sceneView(editScene).initialized) {
                 if (fitActiveScene()) coordinator.markSceneViewInitialized(editScene);
             }
-            if (!rml.textFocus && IsKeyPressed(KEY_ESCAPE)) routeGlobalEscape(coordinator);
+            if (!logicKeyCaptureFrame && !rml.textFocus && IsKeyPressed(KEY_ESCAPE)) {
+                routeGlobalEscape(coordinator);
+            }
             routeViewportPickDrag(coordinator, projection, rml, drag, contextMenuHit);
             routeViewportContextMenu(coordinator, ui, projection, rml, contextClick,
                                      pendingContextSpawn, contextMenuHit);

@@ -1282,6 +1282,88 @@ static void testExecutionModeCommand() {
     (void)dirtyBefore;
 }
 
+// ADR-0004: capture and Search Key are presentation routes only. Both must
+// converge on the existing typed property Command, so Undo, JSON and Lua keep
+// the same authority as every other Logic key edit.
+static void testKeyBindingEditorRoutes() {
+    EditorCoordinator coordinator{makeProjectData()};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& empty = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
+    CHECK(coordinator.apply(OpenLogicBoardIntent{"Hero"}).ok);
+    LogicBoardEditorController controller{coordinator, nullptr};
+    CHECK(controller.handleAction("change-logic-trigger", rule.id, Logic::kKeyPressed, {}));
+
+    const std::string address = rule.id + "|t|0|key";
+    const auto selectedKey = [&]() {
+        const LogicBlockDef& trigger = coordinator.document().data().objectTypes.at("Hero")
+                                           .logicBoard->rules[0].trigger;
+        const LogicPropertyDef* property = Logic::findProperty(trigger, "key");
+        return property ? std::get<LogicKey>(property->value) : LogicKey::Space;
+    };
+    CHECK(selectedKey() == LogicKey::Space);
+
+    // Arming/cancelling is UI-only: no revision and no Undo history mutation.
+    const uint64_t beforeCapture = coordinator.document().revision();
+    const std::size_t undoBeforeCapture = coordinator.undoSize();
+    CHECK(controller.handleAction("begin-logic-key-capture", address, {}, {}));
+    CHECK(controller.hasKeyCapture());
+    CHECK(coordinator.document().revision() == beforeCapture);
+    CHECK(coordinator.undoSize() == undoBeforeCapture);
+    CHECK(controller.cancelKeyCapture());
+    CHECK(!controller.hasKeyCapture());
+    CHECK(selectedKey() == LogicKey::Space);
+    CHECK(coordinator.document().revision() == beforeCapture);
+
+    // A supported physical key maps to the canonical LogicKey and has normal
+    // command Undo semantics.
+    CHECK(controller.handleAction("begin-logic-key-capture", address, {}, {}));
+    CHECK(controller.captureKey(LogicKey::A));
+    CHECK(!controller.hasKeyCapture());
+    CHECK(selectedKey() == LogicKey::A);
+    CHECK(coordinator.undo().ok);
+    CHECK(selectedKey() == LogicKey::Space);
+
+    // Re-selecting the existing key is a command no-op.
+    const uint64_t beforeNoOp = coordinator.document().revision();
+    const std::size_t undoBeforeNoOp = coordinator.undoSize();
+    CHECK(controller.handleAction("begin-logic-key-capture", address, {}, {}));
+    CHECK(controller.captureKey(LogicKey::Space));
+    CHECK(coordinator.document().revision() == beforeNoOp);
+    CHECK(coordinator.undoSize() == undoBeforeNoOp);
+
+    // Search uses the exact same typed controller path, including the
+    // canonical token persisted to JSON and generated Lua.
+    CHECK(controller.handleAction("toggle-logic-key-search", address, {}, {}));
+    CHECK(controller.handleAction("filter-logic-key-search", address, "ent", {}));
+    CHECK(controller.handleAction("pick-logic-key-binding", address, "Enter", {}));
+    CHECK(selectedKey() == LogicKey::Enter);
+    const auto serialized = ProjectSerializer::serialize(coordinator.document());
+    CHECK(serialized.ok);
+    CHECK(serialized.value.find("\"value\": \"Enter\"") != std::string::npos);
+    const auto loaded = ProjectSerializer::deserialize(serialized.value);
+    CHECK(loaded.ok);
+    CHECK(std::get<LogicKey>(Logic::findProperty(
+              loaded.value.data().objectTypes.at("Hero").logicBoard->rules[0].trigger, "key")->value)
+          == LogicKey::Enter);
+    const auto compiled = Logic::compileProjectLogic(coordinator.document().data());
+    CHECK(compiled.ok());
+    CHECK(compiled.programs.front().source.find("\"Enter\"") != std::string::npos);
+
+    // Play rejects a new capture and clears an existing transient target on
+    // the next projection refresh without changing authored data.
+    CHECK(controller.handleAction("begin-logic-key-capture", address, {}, {}));
+    CHECK(controller.hasKeyCapture());
+    CHECK(coordinator.playCurrentScene().ok);
+    controller.refresh();
+    CHECK(!controller.hasKeyCapture());
+    CHECK(controller.handleAction("begin-logic-key-capture", address, {}, {}));
+    CHECK(!controller.hasKeyCapture());
+    CHECK(selectedKey() == LogicKey::Enter);
+    CHECK(coordinator.stopPlaying().ok);
+}
+
 int main() {
     testCommandsAndPersistence();
     testGlobalVariableCommands();
@@ -1304,6 +1386,7 @@ int main() {
     testWorkspaceTargetAndSwitchPolicy();
     testPlayNavigationFromLogicBoard();
     testExecutionModeCommand();
+    testKeyBindingEditorRoutes();
     std::cout << "logic-board-editor-test: " << passed << " passed, "
               << failed << " failed\n";
     return failed == 0 ? 0 : 1;

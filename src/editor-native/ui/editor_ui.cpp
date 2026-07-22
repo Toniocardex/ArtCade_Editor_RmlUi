@@ -235,6 +235,25 @@ public:
             return;
         }
 
+        // ADR-0004: Search Key is live UI state. Escape closes the search;
+        // RmlUi's `change` event carries typed and pasted text after its
+        // input buffer has updated, then the Logic panel redraws filtered
+        // supported-key results.
+        if (action == "filter-logic-key-search") {
+            if (type == "keydown") {
+                const int key = event.GetParameter<int>("key_identifier", 0);
+                if (key == Rml::Input::KI_ESCAPE) {
+                    ui_.handleAction("toggle-logic-key-search", arg, {});
+                    event.StopPropagation();
+                }
+                return;
+            }
+            if (type == "change") {
+                ui_.handleAction(action, arg, formValue(actionElement, event));
+            }
+            return;
+        }
+
         // Hierarchy context menu triggers carry the click position; the show is
         // deferred to processFrame (see requestHierarchyContextMenu).
         if (type == "click"
@@ -1993,6 +2012,18 @@ bool EditorUi::copySelectedConsoleMessage() {
     if (!message) return false;
     SetClipboardText(formatConsoleMessageForClipboard(*message).c_str());
     return true;
+}
+
+bool EditorUi::hasLogicKeyCapture() const {
+    return logicBoardEditor_.hasKeyCapture();
+}
+
+bool EditorUi::captureLogicKey(LogicKey key) {
+    return logicBoardEditor_.captureKey(key);
+}
+
+bool EditorUi::cancelLogicKeyCapture() {
+    return logicBoardEditor_.cancelKeyCapture();
 }
 
 void EditorUi::beginActiveSceneLayerRename() {

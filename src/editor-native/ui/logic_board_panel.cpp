@@ -9,6 +9,7 @@
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/Context.h>
 
 #include <algorithm>
 #include <cctype>
@@ -312,13 +313,18 @@ std::string variablesDrawer(
 
 void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                               const EditorCoordinator& coordinator) const {
+    // Play may begin while this projection is hidden. Tear down transient
+    // authoring interaction even when there is no Rml document to repaint.
+    if (coordinator.isPlaying()) {
+        openDropdownId_.clear();
+        clearKeyBindingEditor();
+    }
     if (!document) return;
     Rml::Element* root = document->GetElementById("logic-board-panel");
     if (!root) return;
 
     const LogicBoardEditorState& view = coordinator.state().logicBoardEditor;
     const bool playing = coordinator.isPlaying();
-    if (playing) openDropdownId_.clear();
 
     std::vector<ObjectTypeId> typeIds;
     typeIds.reserve(coordinator.document().data().objectTypes.size());
@@ -343,11 +349,13 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         renderedObjectTypeId_ = selectedId;
         scrollTop_ = 0.f;
         openDropdownId_.clear();
+        clearKeyBindingEditor();
         collapsedRuleIds_.clear();
     }
     if (lastTab_ != view.tab) {
         lastTab_ = view.tab;
         openDropdownId_.clear();
+        clearKeyBindingEditor();
     }
 
     const auto instanceCountFor = [&](const ObjectTypeId& objectTypeId) {
@@ -434,6 +442,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     const LogicBoardDef& board = *objectType.logicBoard;
     const Logic::LogicCompileResult compiled = Logic::compileBoard(
         selectedId, board, selectedType, &coordinator.document().data());
+    const LogicKeyBindingEditorState keyBinding{
+        keyCaptureAddress_, keySearchAddress_, keySearchQuery_};
 
     if (view.tab == LogicBoardTab::GeneratedLua) {
         html += "<div id=\"logic-scroll\" class=\"logic-scroll\">";
@@ -530,7 +540,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         html += renderLogicProperties(
             coordinator.document(), rule.trigger,
             LogicPropertyAddress{rule.id, LogicPropertyTarget::Trigger, 0},
-            openDropdownId_, playing);
+            openDropdownId_, keyBinding, playing);
         html += "</div>"; // .logic-block (WHEN trigger)
         if (rule.executionMode == LogicExecutionMode::OncePerActivation) {
             // Projected into WHEN; never stored in rule.conditions[].
@@ -615,7 +625,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 coordinator.document(), clause.block,
                 LogicPropertyAddress{
                     rule.id, LogicPropertyTarget::Condition, conditionIndex},
-                openDropdownId_, playing);
+                openDropdownId_, keyBinding, playing);
             html += "</div>";
         }
         html += "</div>";
@@ -813,7 +823,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                     coordinator.document(), action,
                     LogicPropertyAddress{
                         rule.id, LogicPropertyTarget::Action, actionIndex},
-                    openDropdownId_, playing);
+                    openDropdownId_, keyBinding, playing);
             }
             html += "</div>";
         }
@@ -865,6 +875,56 @@ void LogicBoardPanel::toggleDropdown(Rml::ElementDocument* document,
     refresh(document, coordinator);
 }
 
+void LogicBoardPanel::beginKeyCapture(Rml::ElementDocument* document,
+                                      const EditorCoordinator& coordinator,
+                                      const std::string& propertyAddress) {
+    if (coordinator.isPlaying() || propertyAddress.empty()) return;
+    keyCaptureAddress_ = propertyAddress;
+    keySearchAddress_.clear();
+    keySearchQuery_.clear();
+    openDropdownId_.clear();
+    refresh(document, coordinator);
+    // The clicked button must not retain RmlUi focus: otherwise Space/Enter
+    // can activate that old button before the native capture router sees the
+    // key. Capture has no text caret, so it intentionally owns focus-free
+    // keyboard input for its short lifetime.
+    if (document && document->GetContext()) {
+        if (Rml::Element* focus = document->GetContext()->GetFocusElement()) focus->Blur();
+    }
+}
+
+void LogicBoardPanel::toggleKeySearch(Rml::ElementDocument* document,
+                                      const EditorCoordinator& coordinator,
+                                      const std::string& propertyAddress) {
+    if (coordinator.isPlaying() || propertyAddress.empty()) return;
+    keyCaptureAddress_.clear();
+    openDropdownId_.clear();
+    if (keySearchAddress_ == propertyAddress) {
+        keySearchAddress_.clear();
+        keySearchQuery_.clear();
+    } else {
+        keySearchAddress_ = propertyAddress;
+        keySearchQuery_.clear();
+    }
+    refresh(document, coordinator);
+}
+
+void LogicBoardPanel::setKeySearchQuery(Rml::ElementDocument* document,
+                                        const EditorCoordinator& coordinator,
+                                        const std::string& propertyAddress,
+                                        std::string query) {
+    if (keySearchAddress_ != propertyAddress) return;
+    keySearchQuery_ = std::move(query);
+    refresh(document, coordinator);
+}
+
+void LogicBoardPanel::cancelKeyCapture(Rml::ElementDocument* document,
+                                       const EditorCoordinator& coordinator) {
+    if (keyCaptureAddress_.empty()) return;
+    keyCaptureAddress_.clear();
+    refresh(document, coordinator);
+}
+
 void LogicBoardPanel::toggleVariablesDrawer(
     Rml::ElementDocument* document, const EditorCoordinator& coordinator) {
     variablesDrawerOpen_ = !variablesDrawerOpen_;
@@ -890,6 +950,7 @@ void LogicBoardPanel::toggleRuleCollapsed(Rml::ElementDocument* document,
     // A dropdown open inside a rule about to collapse must not silently
     // reappear open when the rule is later re-expanded.
     openDropdownId_.clear();
+    clearKeyBindingEditor();
     if (collapsedRuleIds_.erase(ruleId) == 0) collapsedRuleIds_.insert(ruleId);
     refresh(document, coordinator);
 }
@@ -898,6 +959,7 @@ void LogicBoardPanel::collapseAllRules(Rml::ElementDocument* document,
                                        const EditorCoordinator& coordinator) {
     if (const LogicBoardDef* board = currentBoard(coordinator)) {
         openDropdownId_.clear();
+        clearKeyBindingEditor();
         for (const LogicRuleDef& rule : board->rules) collapsedRuleIds_.insert(rule.id);
     }
     refresh(document, coordinator);

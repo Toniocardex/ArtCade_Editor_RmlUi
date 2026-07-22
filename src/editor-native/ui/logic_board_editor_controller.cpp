@@ -65,6 +65,7 @@ LogicBoardEditorController::LogicBoardEditorController(
 
 void LogicBoardEditorController::detach() {
     panel_.closeDropdown();
+    panel_.clearKeyBindingEditor();
     document_ = nullptr;
 }
 
@@ -78,6 +79,23 @@ void LogicBoardEditorController::toggleDropdown(const std::string& dropdownId) {
 
 void LogicBoardEditorController::closeDropdown() {
     panel_.closeDropdown();
+}
+
+bool LogicBoardEditorController::hasKeyCapture() const {
+    return panel_.hasKeyCapture();
+}
+
+bool LogicBoardEditorController::captureKey(LogicKey key) {
+    if (!panel_.hasKeyCapture() || coordinator_.isPlaying()) return false;
+    const std::string address = panel_.keyCaptureAddress();
+    panel_.clearKeyBindingEditor();
+    return handleAction("pick-logic-key-binding", address, Logic::logicKeyName(key), {});
+}
+
+bool LogicBoardEditorController::cancelKeyCapture() {
+    if (!panel_.hasKeyCapture()) return false;
+    panel_.cancelKeyCapture(document_, coordinator_);
+    return true;
 }
 
 void LogicBoardEditorController::toggleVariablesDrawer() {
@@ -139,6 +157,18 @@ bool LogicBoardEditorController::handleAction(
     }
     if (action == "commit-logic-search") {
         coordinator_.apply(SetLogicBoardSearchIntent{value});
+        return true;
+    }
+    if (action == "begin-logic-key-capture") {
+        panel_.beginKeyCapture(document_, coordinator_, arg);
+        return true;
+    }
+    if (action == "toggle-logic-key-search") {
+        panel_.toggleKeySearch(document_, coordinator_, arg);
+        return true;
+    }
+    if (action == "filter-logic-key-search") {
+        panel_.setKeySearchQuery(document_, coordinator_, arg, value);
         return true;
     }
     if (action == "toggle-global-variables") {
@@ -209,13 +239,14 @@ bool LogicBoardEditorController::handleAction(
         || action == "set-logic-event-collision-object-type"
         || action == "set-logic-animation-asset" || action == "set-logic-animation-clip"
         || action == "set-logic-execution-mode"
-        || action == "pick-logic-property") {
+        || action == "pick-logic-property" || action == "pick-logic-key-binding") {
         panel_.closeDropdown();
     }
+    if (action == "pick-logic-key-binding") panel_.clearKeyBindingEditor();
 
     const auto& view = coordinator_.state().logicBoardEditor;
     if (!view.objectTypeId || !coordinator_.document().hasObjectType(*view.objectTypeId))
-        return action.rfind("logic-", 0) != std::string::npos;
+        return action.rfind("logic-", 0) == 0 || action == "pick-logic-key-binding";
     const ObjectTypeId objectTypeId = *view.objectTypeId;
     const EntityDef& objectType = coordinator_.document().data().objectTypes.at(objectTypeId);
 
@@ -264,7 +295,8 @@ bool LogicBoardEditorController::handleAction(
         || action == "move-logic-condition-down"
         || action == "set-logic-condition-join"
         || action == "toggle-logic-condition-negated"
-        || action == "pick-logic-property" || action == "commit-logic-property"
+        || action == "pick-logic-property" || action == "pick-logic-key-binding"
+        || action == "commit-logic-property"
         || action == "toggle-logic-property"
         || action == "commit-logic-property-component";
     if (coordinator_.isPlaying() && authoringAction) return true;
@@ -364,7 +396,8 @@ bool LogicBoardEditorController::handleAction(
         return true;
     }
 
-    if (action == "pick-logic-property" || action == "commit-logic-property"
+    if (action == "pick-logic-property" || action == "pick-logic-key-binding"
+        || action == "commit-logic-property"
         || action == "toggle-logic-property"
         || action == "commit-logic-property-component") {
         const std::optional<PropertyAddress> address = parsePropertyAddress(arg);

@@ -17,6 +17,15 @@ struct LogicPropertyAddress {
     std::size_t blockIndex = 0;
 };
 
+// Pure presentation state for every Key-valued Logic property. The encoded
+// address remains the controller's stable target; no UI key code is stored in
+// ProjectDocument.
+struct LogicKeyBindingEditorState {
+    std::string captureAddress;
+    std::string searchAddress;
+    std::string searchQuery;
+};
+
 /** Stable controller address: rule|t/a/c|index|property. */
 std::string encodeLogicPropertyAddress(
     const LogicPropertyAddress& address, const std::string& propertyKey);
@@ -31,6 +40,7 @@ std::string renderLogicProperties(
     const LogicBlockDef& block,
     const LogicPropertyAddress& address,
     const std::string& openDropdownId,
+    const LogicKeyBindingEditorState& keyBinding,
     bool playing);
 
 } // namespace ArtCade::EditorNative

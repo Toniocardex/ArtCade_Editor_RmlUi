@@ -156,6 +156,74 @@ button.logic-variable-value { height: 28dp; }
 .logic-btn:hover, .logic-icon-btn:hover {
     border-color: #3b82f6; color: #3b82f6;
 }
+
+/* ADR-0004 — compact key binding control shared by triggers and conditions.
+   The searchable fallback stays local to the property instead of expanding a
+   full alphabet-long dropdown across the Logic Board. */
+.logic-key-binding {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5dp;
+    min-width: 0;
+}
+.logic-key-capture, .logic-key-search-toggle, .logic-key-search-cancel,
+.logic-key-result {
+    box-sizing: border-box;
+    min-height: 26dp;
+    padding: 4dp 8dp;
+    color: #d4d4d8;
+    background-color: #111113;
+    border: 1px #323236;
+    border-radius: 2dp;
+    font-size: 11dp;
+}
+.logic-key-capture { min-width: 88dp; text-align: left; }
+.logic-key-capture.capturing {
+    color: #93c5fd;
+    border-color: #3b82f6;
+    background-color: #3b82f61c;
+}
+.logic-key-search-toggle, .logic-key-search-cancel { color: #a1a1aa; }
+.logic-key-capture:hover, .logic-key-search-toggle:hover,
+.logic-key-search-cancel:hover, .logic-key-result:hover {
+    border-color: #3b82f6;
+    color: #bfdbfe;
+}
+.logic-key-search {
+    flex: 1 0 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5dp;
+    padding: 6dp;
+    background-color: #161618;
+    border: 1px #323236;
+    border-radius: 2dp;
+}
+.logic-key-search input {
+    flex: 1 1 120dp;
+    min-width: 100dp;
+    height: 26dp;
+    box-sizing: border-box;
+    padding: 0 7dp;
+    color: #e4e4e7;
+    background-color: #0d0d0f;
+    border: 1px #3f3f46;
+    border-radius: 2dp;
+    font-size: 11dp;
+}
+.logic-key-search input:focus { border-color: #3b82f6; }
+.logic-key-results {
+    flex: 1 0 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4dp;
+    max-height: 112dp;
+    overflow-y: auto;
+}
+.logic-key-result { min-width: 34dp; }
+.logic-key-result.selected { border-color: #3b82f6; color: #93c5fd; }
+.logic-key-empty { color: #71717a; font-size: 11dp; padding: 4dp; }
 .logic-btn.primary { background-color: #3b82f6; border-color: #3b82f6; color: #ffffff; }
 .logic-btn.primary:hover { background-color: #2f74e6; border-color: #2f74e6; color: #ffffff; }
 .logic-btn.danger { color: #e5706b; }

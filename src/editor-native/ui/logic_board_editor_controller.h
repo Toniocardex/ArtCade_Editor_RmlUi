@@ -25,6 +25,9 @@ public:
     void refresh();
     void toggleDropdown(const std::string& dropdownId);
     void closeDropdown();
+    bool hasKeyCapture() const;
+    bool captureKey(LogicKey key);
+    bool cancelKeyCapture();
     void toggleVariablesDrawer();
     void toggleRuleCollapsed(const std::string& ruleId);
     void collapseAllRules();

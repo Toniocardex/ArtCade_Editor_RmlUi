@@ -63,6 +63,17 @@ std::string stringValue(const LogicPropertyDef* property) {
     return {};
 }
 
+bool keyMatchesSearch(const std::string& name, const std::string& query) {
+    if (query.empty()) return true;
+    std::string normalized = name;
+    std::string needle = query;
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::transform(needle.begin(), needle.end(), needle.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return normalized.find(needle) != std::string::npos;
+}
+
 } // namespace
 
 std::string encodeLogicPropertyAddress(
@@ -76,6 +87,7 @@ std::string renderLogicProperties(
     const LogicBlockDef& block,
     const LogicPropertyAddress& address,
     const std::string& openDropdownId,
+    const LogicKeyBindingEditorState& keyBinding,
     bool playing) {
     const Logic::LogicBlockDescriptor* descriptor = Logic::findDescriptor(block.typeId);
     if (!descriptor) return {};
@@ -123,12 +135,41 @@ std::string renderLogicProperties(
         } else if (property.valueKind == Logic::LogicValueKind::Key) {
             LogicKey selected = LogicKey::Space;
             if (current) if (const auto* key = std::get_if<LogicKey>(&current->value)) selected = *key;
-            std::string entries;
-            for (LogicKey key : Logic::supportedLogicKeys()) {
-                const std::string name = Logic::logicKeyName(key);
-                entries += entry(name, name, key == selected, dropdownId, encoded);
+            const bool capturing = keyBinding.captureAddress == encoded;
+            const bool searching = keyBinding.searchAddress == encoded;
+            html += "<div class=\"logic-key-binding\"><button class=\"logic-key-capture";
+            if (capturing) html += " capturing";
+            if (playing) html += " disabled";
+            html += "\" data-action=\"begin-logic-key-capture\" data-arg=\""
+                  + escapeRml(encoded) + "\">"
+                  + (capturing ? std::string("Press a supported key…")
+                               : escapeRml(Logic::logicKeyName(selected)))
+                  + "</button><button class=\"logic-key-search-toggle";
+            if (playing) html += " disabled";
+            html += "\" data-action=\"toggle-logic-key-search\" data-arg=\""
+                  + escapeRml(encoded) + "\">Search key…</button>";
+            if (searching && !playing) {
+                html += "<div class=\"logic-key-search\"><input id=\"logic-key-search-input\""
+                        " type=\"text\" placeholder=\"Search key…\" data-action=\"filter-logic-key-search\""
+                        " data-arg=\"" + escapeRml(encoded) + "\" value=\""
+                      + escapeRml(keyBinding.searchQuery) + "\"/><button class=\"logic-key-search-cancel\""
+                        " data-action=\"toggle-logic-key-search\" data-arg=\""
+                      + escapeRml(encoded) + "\">Cancel</button><div class=\"logic-key-results\">";
+                bool hasResult = false;
+                for (LogicKey key : Logic::supportedLogicKeys()) {
+                    const std::string name = Logic::logicKeyName(key);
+                    if (!keyMatchesSearch(name, keyBinding.searchQuery)) continue;
+                    hasResult = true;
+                    html += "<button class=\"logic-key-result";
+                    if (key == selected) html += " selected";
+                    html += "\" data-action=\"pick-logic-key-binding\" data-arg=\""
+                          + escapeRml(encoded) + "\" data-value=\"" + escapeRml(name)
+                          + "\">" + escapeRml(name) + "</button>";
+                }
+                if (!hasResult) html += "<span class=\"logic-key-empty\">No supported key</span>";
+                html += "</div></div>";
             }
-            html += dropdown(Logic::logicKeyName(selected), dropdownId, entries, open, playing);
+            html += "</div>";
         } else if (property.semantic == Logic::LogicPropertySemantic::CompareOperator) {
             const std::string selected = stringValue(current);
             std::string entries;

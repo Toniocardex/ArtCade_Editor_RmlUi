@@ -71,6 +71,11 @@ public:
     PendingEditResult resolvePendingEdits();
 
     bool isPlaying() const;
+    // ADR-0004: native input router calls these before global shortcuts while
+    // a Logic Board key field is armed. They never store platform key codes.
+    bool hasLogicKeyCapture() const;
+    bool captureLogicKey(LogicKey key);
+    bool cancelLogicKeyCapture();
 
     // Project file operations live in the application layer (it owns the texture
     // cache it must clear on replace, and the platform file pickers). The UI
