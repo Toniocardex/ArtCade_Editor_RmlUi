@@ -49,7 +49,12 @@ EditorOperationResult addSpriteRenderer(EditorCoordinator& coordinator) {
     if (!selectedObjectType(coordinator, objectTypeId)) {
         return fail(coordinator, "No selected entity");
     }
-    return coordinator.execute(AddSpriteRendererToObjectTypeCommand{objectTypeId});
+    const EntityDef* type = coordinator.document().findObjectType(objectTypeId);
+    if (type && type->spritePresentation) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+    return coordinator.execute(SetObjectTypeSpritePresentationCommand{
+        objectTypeId, SpritePresentationComponent{}});
 }
 
 EditorOperationResult addSpriteAnimator(EditorCoordinator& coordinator) {
@@ -96,6 +101,10 @@ EditorOperationResult removeSpriteRenderer(EditorCoordinator& coordinator) {
     if (!selectedObjectType(coordinator, objectTypeId)) {
         return fail(coordinator, "No selected entity");
     }
+    const EntityDef* type = coordinator.document().findObjectType(objectTypeId);
+    if (type && type->spritePresentation) {
+        return coordinator.execute(SetObjectTypeSpritePresentationCommand{objectTypeId, std::nullopt});
+    }
     return coordinator.execute(RemoveSpriteRendererFromObjectTypeCommand{objectTypeId});
 }
 
@@ -108,9 +117,22 @@ EditorOperationResult setSpriteRendererVisible(EditorCoordinator& coordinator, b
         coordinator.document().findInstanceInScene(sceneId, id);
     const EntityDef* type = instance
         ? coordinator.document().findObjectType(instance->objectTypeId) : nullptr;
-    if (!instance || !type || !type->spriteRenderer) {
+    if (!instance || !type) {
         return fail(coordinator, "Object Type has no SpriteRenderer");
     }
+    if (type->spritePresentation) {
+        SpritePresentationOverride delta = instance->spritePresentationOverride.value_or(
+            SpritePresentationOverride{});
+        if (visible == type->spritePresentation->visible) delta.visible.reset();
+        else delta.visible = visible;
+        if (!delta.visible && !delta.source) {
+            return coordinator.execute(SetInstanceSpritePresentationOverrideCommand{
+                sceneId, id, std::nullopt});
+        }
+        return coordinator.execute(SetInstanceSpritePresentationOverrideCommand{
+            sceneId, id, std::move(delta)});
+    }
+    if (!type->spriteRenderer) return fail(coordinator, "Object Type has no SpriteRenderer");
     SpriteRendererOverride delta = instance->spriteRendererOverride.value_or(
         SpriteRendererOverride{});
     delta.capabilityEnabled.reset();
@@ -127,6 +149,14 @@ EditorOperationResult setSpriteRendererAsset(EditorCoordinator& coordinator, con
     if (!selectedObjectType(coordinator, objectTypeId)) {
         return fail(coordinator, "No selected entity");
     }
+    const EntityDef* type = coordinator.document().findObjectType(objectTypeId);
+    if (type && type->spritePresentation) {
+        SpritePresentationComponent next = *type->spritePresentation;
+        next.source = assetId.empty() ? SpritePresentationSource{SpritePresentationNone{}}
+            : SpritePresentationSource{SpritePresentationImage{assetId}};
+        return coordinator.execute(SetObjectTypeSpritePresentationCommand{
+            objectTypeId, std::move(next)});
+    }
     const ObjectTypeSpriteSourceKind kind = assetId.empty()
         ? ObjectTypeSpriteSourceKind::None : ObjectTypeSpriteSourceKind::Image;
     return coordinator.execute(SetObjectTypeSpriteSourceCommand{objectTypeId, kind, assetId});
@@ -138,9 +168,70 @@ EditorOperationResult setSpriteRendererAnimation(EditorCoordinator& coordinator,
     if (!selectedObjectType(coordinator, objectTypeId)) {
         return fail(coordinator, "No selected entity");
     }
+    const EntityDef* type = coordinator.document().findObjectType(objectTypeId);
+    if (type && type->spritePresentation) {
+        SpritePresentationComponent next = *type->spritePresentation;
+        if (assetId.empty()) {
+            next.source = SpritePresentationNone{};
+        } else {
+            const SpriteAnimationAssetDef* asset =
+                coordinator.document().findSpriteAnimationAsset(assetId);
+            if (!asset || asset->clips.empty()) {
+                return fail(coordinator, "Sprite requires an animation asset with a clip");
+            }
+            next.source = SpritePresentationAnimation{
+                asset->id, asset->clips.front().id, true, 1.f};
+        }
+        return coordinator.execute(SetObjectTypeSpritePresentationCommand{
+            objectTypeId, std::move(next)});
+    }
     const ObjectTypeSpriteSourceKind kind = assetId.empty()
         ? ObjectTypeSpriteSourceKind::None : ObjectTypeSpriteSourceKind::Animation;
     return coordinator.execute(SetObjectTypeSpriteSourceCommand{objectTypeId, kind, assetId});
+}
+
+EditorOperationResult setSpriteDefaultClip(EditorCoordinator& coordinator,
+                                           const AnimationClipId& clipId) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) return fail(coordinator, "No selected entity");
+    const EntityDef* type = coordinator.document().findObjectType(objectTypeId);
+    if (!type || !type->spritePresentation) return fail(coordinator, "Object Type has no Sprite");
+    const auto* animation = std::get_if<SpritePresentationAnimation>(
+        &type->spritePresentation->source);
+    if (!animation) return fail(coordinator, "Sprite source is not an animation");
+    SpritePresentationComponent next = *type->spritePresentation;
+    auto& source = std::get<SpritePresentationAnimation>(next.source);
+    source.defaultClipId = clipId;
+    return coordinator.execute(SetObjectTypeSpritePresentationCommand{
+        objectTypeId, std::move(next)});
+}
+
+EditorOperationResult setSpriteAutoPlay(EditorCoordinator& coordinator, bool autoPlay) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) return fail(coordinator, "No selected entity");
+    const EntityDef* type = coordinator.document().findObjectType(objectTypeId);
+    if (!type || !type->spritePresentation) return fail(coordinator, "Object Type has no Sprite");
+    if (!std::holds_alternative<SpritePresentationAnimation>(type->spritePresentation->source)) {
+        return fail(coordinator, "Sprite source is not an animation");
+    }
+    SpritePresentationComponent next = *type->spritePresentation;
+    std::get<SpritePresentationAnimation>(next.source).autoPlay = autoPlay;
+    return coordinator.execute(SetObjectTypeSpritePresentationCommand{
+        objectTypeId, std::move(next)});
+}
+
+EditorOperationResult setSpritePlaybackSpeed(EditorCoordinator& coordinator, float speed) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) return fail(coordinator, "No selected entity");
+    const EntityDef* type = coordinator.document().findObjectType(objectTypeId);
+    if (!type || !type->spritePresentation) return fail(coordinator, "Object Type has no Sprite");
+    if (!std::holds_alternative<SpritePresentationAnimation>(type->spritePresentation->source)) {
+        return fail(coordinator, "Sprite source is not an animation");
+    }
+    SpritePresentationComponent next = *type->spritePresentation;
+    std::get<SpritePresentationAnimation>(next.source).playbackSpeed = speed;
+    return coordinator.execute(SetObjectTypeSpritePresentationCommand{
+        objectTypeId, std::move(next)});
 }
 
 EditorOperationResult bringSelectedEntityIntoScene(EditorCoordinator& coordinator) {

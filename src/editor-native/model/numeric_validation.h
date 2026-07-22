@@ -44,6 +44,10 @@ inline bool isValid(const SpriteAnimatorComponent& component) {
     return isPositive(component.playbackSpeed);
 }
 
+inline bool isValid(const SpritePresentationAnimation& source) {
+    return isPositive(source.playbackSpeed);
+}
+
 inline bool isValid(const BoxCollider2DComponent& component) {
     return isFinite(component.offset) && isPositive(component.size);
 }

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <system_error>
+#include <vector>
 
 namespace ArtCade::EditorNative {
 
@@ -29,6 +30,50 @@ bool componentContained(const std::filesystem::path& root,
         if (candidateIt == candidate.end() || *rootIt != *candidateIt) return false;
     }
     return true;
+}
+
+// std::filesystem::weakly_canonical() is permitted to resolve a non-existent
+// tail, but the Windows implementation can instead fail with access denied
+// for a not-yet-created destination. Project writes need that exact case to
+// work. Canonicalize the deepest existing ancestor (thereby still resolving
+// every reparse point that could escape the root) and append only the missing
+// lexical tail beneath it.
+std::filesystem::path canonicalizeCandidate(const std::filesystem::path& candidate,
+                                            std::error_code& ec) {
+    ec.clear();
+    std::filesystem::path resolved = std::filesystem::weakly_canonical(candidate, ec);
+    if (!ec) return resolved;
+
+    // A failed canonicalization of an existing candidate is a real access
+    // failure, not the portable "destination does not exist yet" case.
+    std::error_code existsEc;
+    const bool candidateExists = std::filesystem::exists(candidate, existsEc);
+    if (candidateExists || existsEc) return {};
+
+    std::vector<std::filesystem::path> missing;
+    std::filesystem::path ancestor = candidate;
+    for (;;) {
+        std::error_code statusEc;
+        const std::filesystem::file_status status =
+            std::filesystem::symlink_status(ancestor, statusEc);
+        // MSVC reports ERROR_FILE_NOT_FOUND together with file_type::not_found
+        // for a missing leaf. That is the expected write destination case, not
+        // a filesystem failure. Other status errors remain fail-closed.
+        if (statusEc && status.type() != std::filesystem::file_type::not_found) {
+            ec = statusEc;
+            return {};
+        }
+        if (status.type() != std::filesystem::file_type::not_found) break;
+        const std::filesystem::path parent = ancestor.parent_path();
+        if (parent == ancestor || parent.empty()) return {};
+        missing.push_back(ancestor.filename());
+        ancestor = parent;
+    }
+
+    resolved = std::filesystem::weakly_canonical(ancestor, ec);
+    if (ec) return {};
+    for (auto it = missing.rbegin(); it != missing.rend(); ++it) resolved /= *it;
+    return resolved;
 }
 
 PathConfinementResult fail(std::string message) {
@@ -87,7 +132,7 @@ PathConfinementResult resolvePathInsideRoot(const std::filesystem::path& root,
 
     const std::filesystem::path portable = portablePath(relativePath).lexically_normal();
     const std::filesystem::path candidate =
-        std::filesystem::weakly_canonical(canonicalRoot / portable, ec);
+        canonicalizeCandidate(canonicalRoot / portable, ec);
     if (ec) return fail("Could not canonicalize the project path: " + ec.message());
     if (!componentContained(canonicalRoot, candidate)) {
         return fail("Project path resolves outside the project root");

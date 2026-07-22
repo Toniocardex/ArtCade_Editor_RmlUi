@@ -197,6 +197,8 @@ private:
     friend class AddBoxColliderCommand;
     friend class AddLinearMoverCommand;
     friend class AddSpriteRendererToObjectTypeCommand;
+    friend class SetObjectTypeSpritePresentationCommand;
+    friend class SetInstanceSpritePresentationOverrideCommand;
     friend class RemoveSpriteRendererFromObjectTypeCommand;
     friend class SetObjectTypeSpriteSourceCommand;
     friend class AddSpriteAnimatorToObjectTypeCommand;

@@ -26,6 +26,7 @@ enum class DomainChangeKind {
 
 enum class ComponentKind {
     None,
+    SpritePresentation,
     SpriteRenderer,
     SpriteAnimator,
     BoxCollider2D,

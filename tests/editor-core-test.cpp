@@ -523,7 +523,7 @@ int main() {
 
         const SerializeResult serialized = ProjectSerializer::serialize(ProjectDocument{doc});
         CHECK(serialized.ok);
-        CHECK(serialized.value.find("\"formatVersion\": 9") != std::string::npos);
+        CHECK(serialized.value.find("\"formatVersion\": 10") != std::string::npos);
 
         const DeserializeResult deserialized = ProjectSerializer::deserialize(serialized.value);
         CHECK(deserialized.ok);
@@ -545,7 +545,7 @@ int main() {
         CHECK(roundTripped.scenes.count("ru01-scene") == 1);
     }
 
-    // -- Schema v4 promotes sprite defaults and persists sparse deltas only ---
+    // -- v3 migration promotes the two legacy sprite records to v10 Sprite ---
     {
         const std::string v3 = R"json({
           "formatVersion": 3,
@@ -570,35 +570,36 @@ int main() {
         CHECK(decoded.ok);
         DeserializeResult migrated = ProjectMigration::migrate(std::move(decoded.value));
         CHECK(migrated.ok);
-        CHECK(migrated.value.data().formatVersion == 9);
+        CHECK(migrated.value.data().formatVersion == 10);
 
         const EntityDef& type = migrated.value.data().objectTypes.at("Hero");
-        CHECK(type.spriteRenderer && type.spriteRenderer->imageAssetId == "blue");
-        CHECK(type.spriteAnimator && type.spriteAnimator->defaultClipId == "idle");
+        CHECK(type.spritePresentation.has_value());
+        CHECK(type.spritePresentation
+              && std::holds_alternative<SpritePresentationImage>(type.spritePresentation->source));
+        CHECK(type.spritePresentation
+              && std::get<SpritePresentationImage>(type.spritePresentation->source).imageAssetId == "blue");
 
         const SceneInstanceDef* inherited = migrated.value.findInstanceInScene("a", 2);
         const SceneInstanceDef* delta = migrated.value.findInstanceInScene("a", 3);
         const SceneInstanceDef* absent = migrated.value.findInstanceInScene("z", 1);
         CHECK(inherited && !inherited->legacySpriteRendererV3
-              && !inherited->spriteRendererOverride);
+              && !inherited->spritePresentationOverride);
         CHECK(inherited && !inherited->legacySpriteAnimatorV3
-              && !inherited->spriteAnimatorOverride);
-        CHECK(delta && delta->spriteRendererOverride);
-        CHECK(delta && delta->spriteRendererOverride->imageAssetId
-              && *delta->spriteRendererOverride->imageAssetId == "green");
-        CHECK(delta && delta->spriteRendererOverride->visible
-              && !*delta->spriteRendererOverride->visible);
-        CHECK(delta && delta->spriteAnimatorOverride);
-        CHECK(delta && delta->spriteAnimatorOverride->defaultClipId
-              && *delta->spriteAnimatorOverride->defaultClipId == "run");
-        CHECK(delta && delta->spriteAnimatorOverride->playbackSpeed
-              && *delta->spriteAnimatorOverride->playbackSpeed == 2.f);
-        CHECK(absent && absent->spriteRendererOverride
-              && absent->spriteRendererOverride->capabilityEnabled
-              && !*absent->spriteRendererOverride->capabilityEnabled);
-        CHECK(absent && absent->spriteAnimatorOverride
-              && absent->spriteAnimatorOverride->capabilityEnabled
-              && !*absent->spriteAnimatorOverride->capabilityEnabled);
+              && !inherited->spritePresentationOverride);
+        CHECK(delta && delta->spritePresentationOverride);
+        CHECK(delta && delta->spritePresentationOverride->visible
+              && !*delta->spritePresentationOverride->visible);
+        CHECK(delta && delta->spritePresentationOverride->source
+              && std::holds_alternative<SpritePresentationAnimation>(
+                  *delta->spritePresentationOverride->source));
+        CHECK(delta && std::get<SpritePresentationAnimation>(
+                  *delta->spritePresentationOverride->source).defaultClipId == "run");
+        CHECK(delta && std::get<SpritePresentationAnimation>(
+                  *delta->spritePresentationOverride->source).playbackSpeed == 2.f);
+        CHECK(absent && absent->spritePresentationOverride
+              && absent->spritePresentationOverride->source
+              && std::holds_alternative<SpritePresentationNone>(
+                  *absent->spritePresentationOverride->source));
 
         const SerializeResult once = ProjectSerializer::serialize(migrated.value);
         CHECK(once.ok);
@@ -614,8 +615,68 @@ int main() {
             roundTrip.value.findInstanceInScene("a", 3);
         CHECK(roundTripDelta && !roundTripDelta->legacySpriteRendererV3);
         CHECK(roundTripDelta && !roundTripDelta->legacySpriteAnimatorV3);
-        CHECK(roundTripDelta && roundTripDelta->spriteRendererOverride);
-        CHECK(roundTripDelta && roundTripDelta->spriteAnimatorOverride);
+        CHECK(roundTripDelta && roundTripDelta->spritePresentationOverride);
+    }
+
+    // -- v10 Sprite is one authoring component with exact command history -----
+    {
+        ProjectDoc doc = makeAnimationDoc();
+        EntityDef& hero = doc.objectTypes.at("Hero");
+        hero.spritePresentation = SpritePresentationComponent{
+            true, SpritePresentationAnimation{"hero.anim", "idle", true, 1.f}};
+        hero.spriteRenderer.reset();
+        hero.spriteAnimator.reset();
+        EditorCoordinator c{std::move(doc)};
+
+        CHECK(c.execute(SetObjectTypeSpritePresentationCommand{
+            "Hero", SpritePresentationComponent{
+                true, SpritePresentationImage{"img-hero"}}}).ok);
+        const EntityDef& imageType = c.document().data().objectTypes.at("Hero");
+        CHECK(imageType.spritePresentation
+              && std::holds_alternative<SpritePresentationImage>(
+                  imageType.spritePresentation->source));
+        CHECK(!imageType.spriteRenderer && !imageType.spriteAnimator);
+        CHECK(c.undo().ok);
+        const EntityDef& restored = c.document().data().objectTypes.at("Hero");
+        CHECK(restored.spritePresentation
+              && std::holds_alternative<SpritePresentationAnimation>(
+                  restored.spritePresentation->source));
+
+        SpritePresentationOverride overrideValue;
+        overrideValue.visible = false;
+        CHECK(c.execute(SetInstanceSpritePresentationOverrideCommand{
+            kSceneA, kHero, overrideValue}).ok);
+        const SceneInstanceDef* instance =
+            c.document().findInstanceInScene(kSceneA, kHero);
+        CHECK(instance && instance->spritePresentationOverride
+              && instance->spritePresentationOverride->visible
+              && !*instance->spritePresentationOverride->visible);
+        CHECK(c.undo().ok);
+        CHECK(!c.document().findInstanceInScene(kSceneA, kHero)
+                   ->spritePresentationOverride);
+
+        ProjectDoc guardedDoc = makeAnimationDoc();
+        EntityDef& guardedHero = guardedDoc.objectTypes.at("Hero");
+        guardedHero.spritePresentation = SpritePresentationComponent{
+            true, SpritePresentationAnimation{"hero.anim", "idle", true, 1.f}};
+        guardedHero.spriteRenderer.reset();
+        guardedHero.spriteAnimator.reset();
+        LogicRuleDef animationRule;
+        animationRule.actions.push_back(LogicBlockDef{"animation.stop", {}});
+        LogicBoardDef guardedBoard;
+        guardedBoard.rules.push_back(std::move(animationRule));
+        guardedHero.logicBoard = std::move(guardedBoard);
+        EditorCoordinator guarded{std::move(guardedDoc)};
+        const uint64_t revisionBefore = guarded.document().revision();
+        const std::size_t undoBefore = guarded.undoSize();
+        const EditorOperationResult rejected = guarded.execute(
+            SetObjectTypeSpritePresentationCommand{"Hero", SpritePresentationComponent{
+                true, SpritePresentationImage{"img-hero"}}});
+        CHECK(!rejected.ok);
+        CHECK(guarded.document().revision() == revisionBefore);
+        CHECK(guarded.undoSize() == undoBefore);
+        CHECK(std::holds_alternative<SpritePresentationAnimation>(
+            guarded.document().data().objectTypes.at("Hero").spritePresentation->source));
     }
 
     // -- 2D.0C: type-owned capability + sparse override have exact history ---
@@ -687,6 +748,29 @@ int main() {
         CHECK(!rejected.ok);
         CHECK(rejected.error.find("contains 2 actions") != std::string::npos);
         CHECK(guarded.document().data().objectTypes.at("Hero").spriteAnimator);
+
+        // Changing the source to Image/None removes that same capability, so
+        // it must honour the identical Logic dependency guard and leave the
+        // document/history untouched on failure.
+        const uint64_t guardedRevision = guarded.document().revision();
+        const std::size_t guardedUndoSize = guarded.undoSize();
+        const EditorOperationResult sourceRejected = guarded.execute(
+            SetObjectTypeSpriteSourceCommand{
+                "Hero", ObjectTypeSpriteSourceKind::Image, "img-hero"});
+        CHECK(!sourceRejected.ok);
+        CHECK(sourceRejected.error.find("contains 2 actions") != std::string::npos);
+        CHECK(guarded.document().revision() == guardedRevision);
+        CHECK(guarded.undoSize() == guardedUndoSize);
+        CHECK(guarded.document().data().objectTypes.at("Hero").spriteAnimator);
+        CHECK(guarded.document().data().objectTypes.at("Hero").spriteRenderer
+              ->imageAssetId.empty());
+
+        const EditorOperationResult clearRejected = guarded.execute(
+            SetObjectTypeSpriteSourceCommand{
+                "Hero", ObjectTypeSpriteSourceKind::None, {}});
+        CHECK(!clearRejected.ok);
+        CHECK(guarded.document().revision() == guardedRevision);
+        CHECK(guarded.undoSize() == guardedUndoSize);
     }
 
     // -- Sprite Animator exposure: preflight chooses a valid default ----------
@@ -3471,6 +3555,14 @@ int main() {
         CHECK(inside.ok);
         CHECK(inside.value.parent_path().filename() == "images");
 
+        // A write destination can have an as-yet absent tail. Its deepest
+        // existing ancestor is still canonicalized, so the result remains
+        // confined without requiring callers to pre-create folders.
+        const PathConfinementResult newNested =
+            resolvePathInsideRoot(root, "scripts/generated/player.lua");
+        CHECK(newNested.ok);
+        CHECK(newNested.value.filename() == "player.lua");
+
         const PathConfinementResult mixed =
             resolvePathInsideRoot(root, std::filesystem::u8path("assets\\images/hero.png"));
         CHECK(mixed.ok);
@@ -4329,14 +4421,17 @@ int main() {
         CHECK(viewportDisplayGrid(c.document(), c.state(), kSceneA).kind == SceneGridKind::World);
     }
 
-    // -- selectionSupportsTilemapEditing: legacy layers, layer scope, locks ---
+    // -- selectionSupportsTilemapEditing: default layer, layer scope, locks ---
     {
-        // Legacy scene (makeDoc): no SceneDef::layers ÔÇö empty layer id is valid.
+        // Every current scene has a default layer and a selected instance is
+        // scoped to it. Empty-layer fixtures belonged to the retired format.
         {
             EditorCoordinator c{makeSpriteDoc()};
             const SceneDef* scene = c.document().findScene(kSceneA);
             CHECK(scene != nullptr);
-            CHECK(scene->layers.empty());
+            CHECK(!scene->layers.empty());
+            CHECK(!scene->defaultLayerId.empty());
+            CHECK(scene->instances.front().layerId == scene->defaultLayerId);
             CHECK(c.state().activeSceneId == kSceneA);
             setUpTilemapForPainting(c);
             CHECK(selectionSupportsTilemapEditing(c.document(), c.state(), kSceneA));

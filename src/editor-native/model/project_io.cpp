@@ -46,7 +46,7 @@ namespace {
 // carry no mirrored display name; provenance is derived and validated.
 // v7: Object-Type-owned ordered Script attachments. Project JSON still stores
 // metadata only; source text remains in project-relative .lua files.
-constexpr int kCurrentSchemaVersion = 9;
+constexpr int kCurrentSchemaVersion = 10;
 
 class JsonReadError final : public std::runtime_error {
 public:
@@ -337,6 +337,9 @@ Transform readTransform(const nlohmann::json& value) {
     return transform;
 }
 
+SpritePresentationSource readSpritePresentationSource(const nlohmann::json& value,
+                                                       const std::string& field);
+
 bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
     requireObject(value, "scenes[].instances[]");
     out = SceneInstanceDef{};
@@ -346,6 +349,22 @@ bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
     if (value.contains("transform")) out.transform = readTransform(value["transform"]);
     out.visible = readBool(value, "visible", out.visible, "scenes[].instances[].visible");
     out.layerId = readString(value, "layerId", "layer_id");
+    if (const nlohmann::json* spriteValue = optionalObject(
+            value, "spritePresentationOverride",
+            "scenes[].instances[].spritePresentationOverride")) {
+        SpritePresentationOverride delta;
+        if (findMember(*spriteValue, "visible")) {
+            delta.visible = readBool(*spriteValue, "visible", true,
+                                     "scenes[].instances[].spritePresentationOverride.visible");
+        }
+        if (const nlohmann::json* source = optionalObject(
+                *spriteValue, "source",
+                "scenes[].instances[].spritePresentationOverride.source")) {
+            delta.source = readSpritePresentationSource(
+                *source, "scenes[].instances[].spritePresentationOverride.source");
+        }
+        out.spritePresentationOverride = std::move(delta);
+    }
     AssetId foldedRendererAnimationAssetId;
     if (const nlohmann::json* srValue = optionalObject(
             value, "spriteRenderer", "scenes[].instances[].spriteRenderer")) {
@@ -616,6 +635,40 @@ nlohmann::json transformToJson(const Transform& t) {
     };
 }
 
+nlohmann::json spritePresentationSourceToJson(const SpritePresentationSource& source) {
+    if (std::holds_alternative<SpritePresentationNone>(source)) {
+        return nlohmann::json{{"kind", "none"}};
+    }
+    if (const auto* image = std::get_if<SpritePresentationImage>(&source)) {
+        return nlohmann::json{{"kind", "image"}, {"assetId", image->imageAssetId}};
+    }
+    const auto& animation = std::get<SpritePresentationAnimation>(source);
+    return nlohmann::json{
+        {"kind", "animation"}, {"assetId", animation.animationAssetId},
+        {"defaultClipId", animation.defaultClipId}, {"autoPlay", animation.autoPlay},
+        {"playbackSpeed", animation.playbackSpeed},
+    };
+}
+
+SpritePresentationSource readSpritePresentationSource(const nlohmann::json& value,
+                                                       const std::string& field) {
+    const auto& source = requireObject(value, field);
+    const std::string kind = readString(source, "kind");
+    if (kind == "none") return SpritePresentationNone{};
+    if (kind == "image") {
+        return SpritePresentationImage{readString(source, "assetId", "imageAssetId")};
+    }
+    if (kind == "animation") {
+        SpritePresentationAnimation animation;
+        animation.animationAssetId = readString(source, "assetId", "animationAssetId");
+        animation.defaultClipId = readString(source, "defaultClipId", "initialClipId");
+        animation.autoPlay = readBool(source, "autoPlay", true, field + ".autoPlay");
+        animation.playbackSpeed = readFloat(source, "playbackSpeed", 1.f);
+        return animation;
+    }
+    throw JsonReadError("Invalid project field '" + field + ".kind': unknown Sprite source");
+}
+
 nlohmann::json instanceToJson(const SceneInstanceDef& instance) {
     nlohmann::json json{
         {"id", instance.id},
@@ -625,7 +678,14 @@ nlohmann::json instanceToJson(const SceneInstanceDef& instance) {
         {"visible", instance.visible},
         {"layerId", instance.layerId},
     };
-    if (instance.spriteRendererOverride.has_value()) {
+    if (instance.spritePresentationOverride.has_value()) {
+        const SpritePresentationOverride& deltaValue = *instance.spritePresentationOverride;
+        nlohmann::json delta = nlohmann::json::object();
+        if (deltaValue.visible) delta["visible"] = *deltaValue.visible;
+        if (deltaValue.source) delta["source"] = spritePresentationSourceToJson(*deltaValue.source);
+        if (!delta.empty()) json["spritePresentationOverride"] = std::move(delta);
+    }
+    if (!instance.spritePresentationOverride && instance.spriteRendererOverride.has_value()) {
         const SpriteRendererOverride& deltaValue = *instance.spriteRendererOverride;
         nlohmann::json delta = nlohmann::json::object();
         if (deltaValue.imageAssetId) delta["imageAssetId"] = *deltaValue.imageAssetId;
@@ -635,7 +695,7 @@ nlohmann::json instanceToJson(const SceneInstanceDef& instance) {
         }
         if (!delta.empty()) json["spriteRendererOverride"] = std::move(delta);
     }
-    if (instance.spriteAnimatorOverride.has_value()) {
+    if (!instance.spritePresentationOverride && instance.spriteAnimatorOverride.has_value()) {
         const SpriteAnimatorOverride& deltaValue = *instance.spriteAnimatorOverride;
         nlohmann::json delta = nlohmann::json::object();
         if (deltaValue.animationAssetId) {
@@ -714,18 +774,23 @@ nlohmann::json objectTypeToJson(const std::string& id, const EntityDef& def) {
         {"name", def.name},
         {"visible", def.visible},
     };
-    if (def.spriteRenderer.has_value()) {
-        json["spriteRenderer"] = nlohmann::json{
-            {"imageAssetId", def.spriteRenderer->imageAssetId},
-            {"visible", def.spriteRenderer->visible},
-        };
+    std::optional<SpritePresentationComponent> presentation = def.spritePresentation;
+    if (!presentation && (def.spriteRenderer || def.spriteAnimator)) {
+        SpritePresentationComponent migrated;
+        if (def.spriteAnimator && !def.spriteAnimator->animationAssetId.empty()) {
+            migrated.source = SpritePresentationAnimation{
+                def.spriteAnimator->animationAssetId, def.spriteAnimator->defaultClipId,
+                def.spriteAnimator->autoPlay, def.spriteAnimator->playbackSpeed};
+        } else if (def.spriteRenderer && !def.spriteRenderer->imageAssetId.empty()) {
+            migrated.source = SpritePresentationImage{def.spriteRenderer->imageAssetId};
+        }
+        if (def.spriteRenderer) migrated.visible = def.spriteRenderer->visible;
+        presentation = std::move(migrated);
     }
-    if (def.spriteAnimator.has_value()) {
-        json["spriteAnimator"] = nlohmann::json{
-            {"animationAssetId", def.spriteAnimator->animationAssetId},
-            {"defaultClipId", def.spriteAnimator->defaultClipId},
-            {"autoPlay", def.spriteAnimator->autoPlay},
-            {"playbackSpeed", def.spriteAnimator->playbackSpeed},
+    if (presentation) {
+        json["spritePresentation"] = nlohmann::json{
+            {"visible", presentation->visible},
+            {"source", spritePresentationSourceToJson(presentation->source)},
         };
     }
     if (def.boxCollider2D.has_value()) {
@@ -753,12 +818,13 @@ nlohmann::json objectTypeToJson(const std::string& id, const EntityDef& def) {
         };
     }
     if (def.platformerController.has_value()) {
-        // Native editor persists the authored subset: Move Speed / Jump Speed /
-        // Gravity (the other canonical fields stay at their defaults on load).
+        // Use the canonical runtime field names. The exported game and the
+        // editor's current-format reader share this JSON contract directly.
+        // The other canonical fields stay at their defaults on load.
         json["platformerController"] = nlohmann::json{
-            {"moveSpeed", def.platformerController->maxSpeed},
-            {"jumpSpeed", def.platformerController->jumpForce},
-            {"gravity", def.platformerController->customGravity},
+            {"maxSpeed", def.platformerController->maxSpeed},
+            {"jumpForce", def.platformerController->jumpForce},
+            {"customGravity", def.platformerController->customGravity},
         };
     }
     if (def.autoDestroy.has_value()) {
@@ -1145,6 +1211,76 @@ void migrateSpriteAnimationOwnershipV9(ProjectDoc& document) {
 // directly and has never populated doc.entities on load (root.json has no
 // "entities" key at all - confirmed, `serialize()` never emits one). Calling
 // it here would be a new, unrequested behavior change, not parity.
+void migrateSpritePresentationV10(ProjectDoc& document) {
+    for (auto& [objectTypeId, type] : document.objectTypes) {
+        (void)objectTypeId;
+        if (!type.spritePresentation && (type.spriteRenderer || type.spriteAnimator)) {
+            SpritePresentationComponent presentation;
+            if (type.spriteAnimator && !type.spriteAnimator->animationAssetId.empty()) {
+                presentation.source = SpritePresentationAnimation{
+                    type.spriteAnimator->animationAssetId,
+                    type.spriteAnimator->defaultClipId,
+                    type.spriteAnimator->autoPlay,
+                    type.spriteAnimator->playbackSpeed};
+            } else if (type.spriteRenderer && !type.spriteRenderer->imageAssetId.empty()) {
+                presentation.source = SpritePresentationImage{type.spriteRenderer->imageAssetId};
+            }
+            if (type.spriteRenderer) presentation.visible = type.spriteRenderer->visible;
+            type.spritePresentation = std::move(presentation);
+        }
+    }
+
+    for (auto& [_, scene] : document.scenes) {
+        for (SceneInstanceDef& instance : scene.instances) {
+            if (!instance.spritePresentationOverride) {
+                SpritePresentationOverride delta;
+                if (instance.spriteRendererOverride && instance.spriteRendererOverride->visible) {
+                    delta.visible = *instance.spriteRendererOverride->visible;
+                }
+                if (instance.spriteRendererOverride
+                    && instance.spriteRendererOverride->capabilityEnabled
+                    && !*instance.spriteRendererOverride->capabilityEnabled) {
+                    delta.source = SpritePresentationNone{};
+                } else if (instance.spriteAnimatorOverride) {
+                    const EntityDef* type = nullptr;
+                    const auto typeIt = document.objectTypes.find(instance.objectTypeId);
+                    if (typeIt != document.objectTypes.end()) type = &typeIt->second;
+                    SpritePresentationAnimation animation;
+                    if (type && type->spritePresentation) {
+                        if (const auto* inherited = std::get_if<SpritePresentationAnimation>(
+                                &type->spritePresentation->source)) {
+                            animation = *inherited;
+                        }
+                    }
+                    const SpriteAnimatorOverride& old = *instance.spriteAnimatorOverride;
+                    if (old.animationAssetId) animation.animationAssetId = *old.animationAssetId;
+                    if (old.defaultClipId) animation.defaultClipId = *old.defaultClipId;
+                    if (old.autoPlay) animation.autoPlay = *old.autoPlay;
+                    if (old.playbackSpeed) animation.playbackSpeed = *old.playbackSpeed;
+                    delta.source = old.capabilityEnabled && !*old.capabilityEnabled
+                        ? SpritePresentationSource{SpritePresentationNone{}}
+                        : SpritePresentationSource{std::move(animation)};
+                } else if (instance.spriteRendererOverride
+                           && instance.spriteRendererOverride->imageAssetId) {
+                    delta.source = SpritePresentationImage{
+                        *instance.spriteRendererOverride->imageAssetId};
+                }
+                if (delta.visible || delta.source) {
+                    instance.spritePresentationOverride = std::move(delta);
+                }
+            }
+            instance.spriteRendererOverride.reset();
+            instance.spriteAnimatorOverride.reset();
+            instance.legacySpriteRendererV3.reset();
+            instance.legacySpriteAnimatorV3.reset();
+        }
+    }
+    for (auto& [_, type] : document.objectTypes) {
+        type.spriteRenderer.reset();
+        type.spriteAnimator.reset();
+    }
+}
+
 DeserializeResult deserializeCanonical(const nlohmann::json& root) {
     std::string error;
     if (!ProjectJson::validate_current_project_json(root, error)) {
@@ -1272,6 +1408,21 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
             }
             def.name = readString(item, "name", nullptr, id);
             def.visible = readBool(item, "visible", true, "objectTypes[].visible");
+            if (const nlohmann::json* presentationValue = optionalObject(
+                    item, "spritePresentation", "objectTypes[].spritePresentation")) {
+                SpritePresentationComponent presentation;
+                presentation.visible = readBool(
+                    *presentationValue, "visible", true,
+                    "objectTypes[].spritePresentation.visible");
+                const nlohmann::json* source = optionalObject(
+                    *presentationValue, "source", "objectTypes[].spritePresentation.source");
+                if (!source) {
+                    return DeserializeResult::failure("SpritePresentation requires a source");
+                }
+                presentation.source = readSpritePresentationSource(
+                    *source, "objectTypes[].spritePresentation.source");
+                def.spritePresentation = std::move(presentation);
+            }
             if (const nlohmann::json* spriteValue = optionalObject(
                     item, "sprite", "objectTypes[].sprite")) {
                 const auto& sprite = *spriteValue;
@@ -1382,9 +1533,17 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                     item, "platformerController", "objectTypes[].platformerController")) {
                 const auto& p = *platformerValue;
                 PlatformerControllerComponent component;   // others keep defaults
-                component.maxSpeed = readFloat(p, "moveSpeed", component.maxSpeed);
-                component.jumpForce = readFloat(p, "jumpSpeed", component.jumpForce);
-                component.customGravity = readFloat(p, "gravity", component.customGravity);
+                // Accept former editor-only names when opening a legacy
+                // in-progress project, but always write the runtime contract.
+                component.maxSpeed = p.contains("maxSpeed")
+                    ? readFloat(p, "maxSpeed", component.maxSpeed)
+                    : readFloat(p, "moveSpeed", component.maxSpeed);
+                component.jumpForce = p.contains("jumpForce")
+                    ? readFloat(p, "jumpForce", component.jumpForce)
+                    : readFloat(p, "jumpSpeed", component.jumpForce);
+                component.customGravity = p.contains("customGravity")
+                    ? readFloat(p, "customGravity", component.customGravity)
+                    : readFloat(p, "gravity", component.customGravity);
                 def.platformerController = component;
             }
             if (const nlohmann::json* autoDestroyValue = optionalObject(
@@ -1741,6 +1900,8 @@ SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
     // is pure: saving never mutates the live ProjectDocument.
     ProjectDoc normalized = document.data();
     migrateSpriteOwnershipToObjectTypes(normalized);
+    migrateSpriteAnimationOwnershipV9(normalized);
+    migrateSpritePresentationV10(normalized);
     normalized.formatVersion = kCurrentSchemaVersion;
     const ProjectDoc& doc = normalized;
     nlohmann::json scenes = nlohmann::json::object();
@@ -1897,6 +2058,7 @@ DeserializeResult ProjectMigration::migrate(ProjectDocument document) {
         if (version < 4) migrateSpriteOwnershipToObjectTypes(migrated);
         if (version < 8) migrateGeneratedSfxAuthority(migrated);
         if (version < 9) migrateSpriteAnimationOwnershipV9(migrated);
+        if (version < 10) migrateSpritePresentationV10(migrated);
         migrated.formatVersion = kCurrentSchemaVersion;
         return DeserializeResult::success(ProjectDocument{std::move(migrated)});
     }
@@ -1927,7 +2089,33 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
                     error->code + ": " + error->message);
             }
         }
-        if (type.spriteRenderer) {
+        if (type.spritePresentation) {
+            const SpritePresentationSource& source = type.spritePresentation->source;
+            if (const auto* image = std::get_if<SpritePresentationImage>(&source)) {
+                if (!image->imageAssetId.empty() && !document.hasImageAsset(image->imageAssetId)) {
+                    return DeserializeResult::failure(
+                        "Object Type Sprite references a missing image asset");
+                }
+            } else if (const auto* animation =
+                           std::get_if<SpritePresentationAnimation>(&source)) {
+                if (animation->animationAssetId.empty()
+                    || !document.hasSpriteAnimationAsset(animation->animationAssetId)) {
+                    return DeserializeResult::failure(
+                        "Object Type Sprite references a missing animation asset");
+                }
+                const SpriteAnimationAssetDef* asset =
+                    document.findSpriteAnimationAsset(animation->animationAssetId);
+                if (!animation->defaultClipId.empty()
+                    && !(asset && assetOwnsClip(*asset, animation->defaultClipId))) {
+                    return DeserializeResult::failure(
+                        "Object Type Sprite defaultClipId must belong to its animation asset");
+                }
+                if (!NumericValidation::isValid(*animation)) {
+                    return DeserializeResult::failure(
+                        "Object Type Sprite playbackSpeed must be positive");
+                }
+            }
+        } else if (type.spriteRenderer) {
             const AssetId& imageId = type.spriteRenderer->imageAssetId;
             if (!imageId.empty() && !document.hasImageAsset(imageId)) {
                 return DeserializeResult::failure(
@@ -2226,7 +2414,24 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
             ResolvedSpritePresentation presentation;
             const auto typeIt = data.objectTypes.find(instance.objectTypeId);
             if (typeIt != data.objectTypes.end()) {
-                if (instance.spriteRendererOverride && !typeIt->second.spriteRenderer) {
+                if (instance.spritePresentationOverride && !typeIt->second.spritePresentation) {
+                    return DeserializeResult::failure(
+                        "Sprite override requires the Object Type Sprite capability");
+                }
+                if (instance.spritePresentationOverride
+                    && instance.spritePresentationOverride->source) {
+                    const SpritePresentationSource& source =
+                        *instance.spritePresentationOverride->source;
+                    if (const auto* animation =
+                            std::get_if<SpritePresentationAnimation>(&source)) {
+                        if (!NumericValidation::isValid(*animation)) {
+                            return DeserializeResult::failure(
+                                "Sprite override playbackSpeed must be positive");
+                        }
+                    }
+                }
+                if (!typeIt->second.spritePresentation
+                    && instance.spriteRendererOverride && !typeIt->second.spriteRenderer) {
                     return DeserializeResult::failure(
                         "SpriteRenderer override requires the Object Type capability");
                 }

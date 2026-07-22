@@ -41,6 +41,34 @@ ResolvedSpriteOwnership resolveSpriteOwnership(
     const EntityDef& objectType, const SceneInstanceDef& instance) {
     ResolvedSpriteOwnership resolved;
 
+    // v10 has one persistent source. The renderer/animator pair returned here
+    // is a derived projection used by existing Edit and runtime draw paths.
+    if (objectType.spritePresentation) {
+        SpritePresentationComponent presentation = *objectType.spritePresentation;
+        ComponentOrigin origin = ComponentOrigin::EntityDefinition;
+        if (instance.spritePresentationOverride) {
+            const SpritePresentationOverride& delta = *instance.spritePresentationOverride;
+            if (delta.visible) presentation.visible = *delta.visible;
+            if (delta.source) presentation.source = *delta.source;
+            if (delta.visible || delta.source) origin = ComponentOrigin::InstanceOverride;
+        }
+
+        SpriteRendererComponent renderer;
+        renderer.visible = presentation.visible;
+        if (const auto* image = std::get_if<SpritePresentationImage>(&presentation.source)) {
+            renderer.imageAssetId = image->imageAssetId;
+        } else if (const auto* animation =
+                       std::get_if<SpritePresentationAnimation>(&presentation.source)) {
+            resolved.animator = SpriteAnimatorComponent{
+                animation->animationAssetId, animation->defaultClipId,
+                animation->autoPlay, animation->playbackSpeed};
+            resolved.animatorOrigin = origin;
+        }
+        resolved.renderer = std::move(renderer);
+        resolved.rendererOrigin = origin;
+        return resolved;
+    }
+
     if (objectType.spriteRenderer) {
         const SpriteRendererOverride* delta = instance.spriteRendererOverride
             ? &*instance.spriteRendererOverride : nullptr;
@@ -109,6 +137,17 @@ ResolvedSpriteAnimator resolveSpriteAnimator(
         resolved.explicitAutoPlay = delta.autoPlay.has_value();
         resolved.explicitPlaybackSpeed = delta.playbackSpeed.has_value();
     }
+    if (objectType.spritePresentation && instance.spritePresentationOverride
+        && instance.spritePresentationOverride->source) {
+        if (const auto* animation = std::get_if<SpritePresentationAnimation>(
+                &*instance.spritePresentationOverride->source)) {
+            resolved.explicitAnimationAsset = true;
+            resolved.explicitDefaultClip = true;
+            resolved.explicitAutoPlay = true;
+            resolved.explicitPlaybackSpeed = true;
+            (void)animation;
+        }
+    }
     return resolved;
 }
 
@@ -144,7 +183,6 @@ ResolvedSpriteDraw resolveSpriteDraw(
         draw.diagnosticCode = "ANIMATION_MISSING_ASSET";
         draw.diagnosticMessage =
             "SpriteAnimator references missing animation asset " + animator->animationAssetId;
-        // Edit fallback: keep static renderer image when present.
         return draw;
     }
 
@@ -209,6 +247,35 @@ std::vector<AnimationAuthoringDiagnostic> collectAnimationAuthoringDiagnostics(
     std::vector<AnimationAuthoringDiagnostic> out;
 
     for (const auto& [objectTypeId, type] : document.data().objectTypes) {
+        if (type.spritePresentation) {
+            const SpritePresentationSource& source = type.spritePresentation->source;
+            const auto* animation = std::get_if<SpritePresentationAnimation>(&source);
+            if (!animation) continue;
+            if (animation->animationAssetId.empty()) {
+                out.push_back(AnimationAuthoringDiagnostic{
+                    "ANIMATION_EMPTY_ASSET", "Sprite has no animation asset",
+                    objectTypeId, {}, {}, INVALID_ENTITY});
+                continue;
+            }
+            const SpriteAnimationAssetDef* asset =
+                document.findSpriteAnimationAsset(animation->animationAssetId);
+            if (!asset) {
+                out.push_back(AnimationAuthoringDiagnostic{
+                    "ANIMATION_MISSING_ASSET",
+                    "Sprite references missing animation asset " + animation->animationAssetId,
+                    objectTypeId, animation->animationAssetId, {}, INVALID_ENTITY});
+                continue;
+            }
+            if (!animation->defaultClipId.empty()
+                && !assetOwnsClip(*asset, animation->defaultClipId)) {
+                out.push_back(AnimationAuthoringDiagnostic{
+                    "ANIMATION_MISSING_CLIP",
+                    "Sprite defaultClipId is missing from animation asset "
+                        + animation->animationAssetId,
+                    objectTypeId, animation->animationAssetId, {}, INVALID_ENTITY});
+            }
+            continue;
+        }
         if (!type.spriteAnimator) continue;
         const SpriteAnimatorComponent& animator = *type.spriteAnimator;
         if (animator.animationAssetId.empty()) {

@@ -18,8 +18,8 @@ enum class ComponentOrigin {
     InstanceOverride,   // one or more values come from the sparse instance delta
 };
 
-// Ownership merge for renderer + animator (OT defaults + explicit instance deltas).
-// Edit and Play both consume this so authority cannot drift between projections.
+// Derived runtime presentation for the unified authoring Sprite. Edit and Play
+// both consume this projection so source precedence cannot drift.
 struct ResolvedSpriteOwnership {
     std::optional<SpriteRendererComponent> renderer;
     std::optional<SpriteAnimatorComponent> animator;
@@ -46,14 +46,15 @@ struct ResolvedSpriteDraw {
     AssetId imageAssetId;
     AnimationFrameRect sourceRect{};
     bool hasSourceRect = false;
-    // True when an animator was present but could not resolve (Edit falls back
-    // to the static renderer image when available).
+    // True when an animation source was present but could not resolve. Invalid
+    // animation sources do not silently fall back to a different static image.
     bool animatorInvalid = false;
     std::string diagnosticCode;    // e.g. ANIMATION_MISSING_ASSET
     std::string diagnosticMessage;
 };
 
-// Legacy name kept for call sites: ownership merge of renderer + animator.
+// Compatibility name while the runtime projection still uses a renderer/
+// animator pair internally.
 using ResolvedSpritePresentation = ResolvedSpriteOwnership;
 
 ResolvedSpriteOwnership resolveSpriteOwnership(

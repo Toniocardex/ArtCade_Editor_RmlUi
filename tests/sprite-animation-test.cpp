@@ -484,6 +484,27 @@ int main() {
         CHECK(c.document().revision() == revision);
     }
 
+    // -- Animation-backed Sprite presentation resolves its source in Play ---
+    {
+        ProjectDoc doc = makeAnimationDoc();
+        doc.objectTypes.at("Hero").spriteAnimator->autoPlay = false;
+        ProjectDocument document{std::move(doc)};
+        std::string playError;
+        auto session = PlaySession::startActiveScene(document, kSceneA, &playError);
+        CHECK(session.has_value());
+        const SceneFrameSnapshot snapshot = collectSceneFrameSnapshot(*session);
+        const auto hero = std::find_if(
+            snapshot.sprites.begin(), snapshot.sprites.end(), [](const SceneFrameSprite& entry) {
+                return entry.entityId == kHero;
+            });
+        CHECK(hero != snapshot.sprites.end());
+        if (hero != snapshot.sprites.end()) {
+            CHECK(hero->assetId == "img-hero");
+            CHECK(hero->source.width == 32.f);
+            CHECK(hero->source.height == 32.f);
+        }
+    }
+
     // -- Edit falls back to static image when animator asset is missing --------
     {
         ProjectDoc doc = makeAnimationDoc();

@@ -173,16 +173,18 @@
 
         <div id="split-left" class="vsplit" data-action="resize-left"></div>
 
-        <div id="center-workspace">
+        <div id="workspace-main">
             <div id="center-modebar">
                 <div id="center-mode-tabs">
-                <button id="center-tab-scene" class="center-mode-tab active" data-action="open-scene-workspace">Scene</button>
-                <button id="center-tab-logic" class="center-mode-tab" data-action="open-logic-workspace">Logic Board</button>
-                <button id="center-tab-script" class="center-mode-tab" data-action="open-script-workspace">Script Editor</button>
+                    <button id="center-tab-scene" class="center-mode-tab active" data-action="open-scene-workspace">Scene</button>
+                    <button id="center-tab-logic" class="center-mode-tab" data-action="open-logic-workspace">Logic Board</button>
+                    <button id="center-tab-script" class="center-mode-tab" data-action="open-script-workspace">Script Editor</button>
                 </div>
             </div>
-            <div id="center-content">
-                <div id="viewport">
+            <div id="workspace-content">
+                <div id="center-workspace">
+                    <div id="center-content">
+                        <div id="viewport">
                     <div id="viewport-empty" class="viewport-empty hidden">
                         <div class="viewport-empty-box">
                             <div class="viewport-empty-title">No scene open</div>
@@ -191,8 +193,8 @@
                         </div>
                     </div>
                 </div>
-                <div id="split-tile-palette" class="hsplit hidden" data-action="resize-tile-palette"></div>
-                <div id="tile-palette-dock" class="hidden">
+                        <div id="split-tile-palette" class="hsplit hidden" data-action="resize-tile-palette"></div>
+                        <div id="tile-palette-dock" class="hidden">
                     <div class="tile-palette-dock-header">
                         <span class="icon">&#xf22f;</span>
                         <span id="tile-palette-dock-title" class="tile-palette-dock-title">TILE PALETTE</span>
@@ -203,8 +205,8 @@
                     </div>
                     <div id="tile-palette-dock-body" class="tile-palette-dock-body"></div>
                 </div>
-                <div id="logic-board-panel" class="logic-board-panel hidden"></div>
-                <div id="script-editor-panel" class="script-editor-panel hidden">
+                        <div id="logic-board-panel" class="logic-board-panel hidden"></div>
+                        <div id="script-editor-panel" class="script-editor-panel hidden">
                     <div id="script-editor-tabs" class="script-editor-tabs"></div>
                     <div id="script-restart-banner" class="script-restart-banner hidden">
                         <span>Saved script changes are not running.</span>
@@ -247,15 +249,17 @@
                         <span id="script-api-hint" class="script-api-hint"></span>
                         <span id="script-cursor-status">Lua  &#xb7;  Ln 1, Col 1  &#xb7;  Spaces: 4</span>
                     </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="split-right" class="vsplit" data-action="resize-right"></div>
+
+                <div id="right-col" class="panel">
+                    <div class="panel-header"><span class="icon">&#xea03;</span>INSPECTOR</div>
+                    <div id="inspector-body" class="inspector"></div>
                 </div>
             </div>
-        </div>
-
-        <div id="split-right" class="vsplit" data-action="resize-right"></div>
-
-        <div id="right-col" class="panel">
-            <div class="panel-header"><span class="icon">&#xea03;</span>INSPECTOR</div>
-            <div id="inspector-body" class="inspector"></div>
         </div>
     </div>
 

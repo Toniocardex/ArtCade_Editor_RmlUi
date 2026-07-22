@@ -161,7 +161,7 @@ constexpr std::string_view kSectionsEnd = "[[inspector-sections-end]]";
 bool knownSection(std::string_view id) {
     static constexpr std::string_view ids[] = {
         "project", "general", "world-bounds", "layers", "diagnostics",
-        "identity", "transform", "sprite-renderer", "sprite-animator",
+        "identity", "transform", "sprite", "sprite-renderer", "sprite-animator",
         "tilemap", "camera-target", "scripts", "box-collider", "linear-mover", "top-down-controller",
         "platformer-controller",
     };
@@ -797,17 +797,22 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     // -- Sprite presentation: Object Type capability/defaults + instance delta.
     const ResolvedSpritePresentation presentation = type
         ? resolveSpritePresentation(*type, *inst) : ResolvedSpritePresentation{};
-    if (type && type->spriteRenderer && presentation.renderer) {
+    if (type && (type->spritePresentation || type->spriteRenderer) && presentation.renderer) {
         const SpriteRendererComponent& sr = *presentation.renderer;
-        html += header("sprite-renderer", isSectionCollapsed("sprite-renderer"),
-                       "&#xeb0a;", "Sprite Renderer", "OBJECT TYPE", "",
+        const bool unifiedSprite = type->spritePresentation.has_value();
+        html += header(unifiedSprite ? "sprite" : "sprite-renderer",
+                       isSectionCollapsed(unifiedSprite ? "sprite" : "sprite-renderer"),
+                       "&#xeb0a;", unifiedSprite ? "Sprite" : "Sprite Renderer", "OBJECT TYPE", "",
                        "remove-sprite-renderer", playing);
         html += typeOwnedLockNote;
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Visible</span>"
                 "<button class=\"" + instanceBtn + "\" data-action=\"toggle-sprite-visible\">";
         html += sr.visible ? "On" : "Off";
         html += "</button>";
-        if (inst->spriteRendererOverride && inst->spriteRendererOverride->visible) {
+        if ((unifiedSprite && inst->spritePresentationOverride
+             && inst->spritePresentationOverride->visible)
+            || (!unifiedSprite && inst->spriteRendererOverride
+                && inst->spriteRendererOverride->visible)) {
             html += "<span class=\"comp-badge override\">INSTANCE OVERRIDE</span>";
         }
         html += "</div>";
@@ -879,11 +884,44 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                   + escapeRml(animationAssetId)
                   + "\"><span class=\"icon\">&#xeb0a;</span>Open Animation Editor</button>";
         }
-        if (inst->spriteRendererOverride) {
+        if (unifiedSprite && presentation.animator) {
+            const SpriteAnimatorComponent& animator = *presentation.animator;
+            const SpriteAnimationAssetDef* animatorAsset =
+                coordinator.document().findSpriteAnimationAsset(animator.animationAssetId);
+            if (animatorAsset && !animatorAsset->clips.empty()) {
+                const bool clipOpen = openDropdownId_ == "sprite-default-clip" && !playing;
+                html += dropdownTrigger("Default Clip", "sprite-default-clip",
+                                        animationClipDisplayName(coordinator,
+                                            animator.animationAssetId, animator.defaultClipId),
+                                        clipOpen, playing);
+                if (clipOpen) {
+                    html += "<div class=\"drop-list\">";
+                    for (const SpriteAnimationClipDef& clip : animatorAsset->clips) {
+                        const bool current = clip.id == animator.defaultClipId;
+                        html += "<div class=\"drop-entry";
+                        if (current) html += " selected";
+                        html += current
+                            ? "\" data-action=\"toggle-inspector-dropdown\" data-arg=\"sprite-default-clip\">"
+                            : "\" data-action=\"set-sprite-default-clip\" data-arg=\""
+                                + escapeRml(clip.id) + "\">";
+                        if (current) html += "<span class=\"drop-mark\">&#x25cf;</span> ";
+                        html += escapeRml(clip.name.empty() ? clip.id : clip.name) + "</div>";
+                    }
+                    html += "</div>";
+                }
+            }
+            html += field("Speed", "commit-sprite-speed", num(animator.playbackSpeed), playing);
+            html += "<div class=\"prop-row\"><span class=\"prop-label\">Auto Play</span>"
+                    "<button class=\"" + btn + "\" data-action=\"toggle-sprite-autoplay\">"
+                    + (animator.autoPlay ? std::string("On") : std::string("Off"))
+                    + "</button></div>";
+        }
+        if ((unifiedSprite && inst->spritePresentationOverride)
+            || (!unifiedSprite && inst->spriteRendererOverride)) {
             html += "<button class=\"" + instanceBtn
                   + "\" data-action=\"reset-sprite-override\">Reset to Object Type</button>";
         }
-        if (type->spriteAnimator && presentation.animator) {
+        if (!unifiedSprite && type->spriteAnimator && presentation.animator) {
             const SpriteAnimatorComponent& animator = *presentation.animator;
             const ResolvedSpriteAnimator resolvedAnimator =
                 resolveSpriteAnimator(*type, *inst);
@@ -1204,17 +1242,6 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     // -- Add Component menu (only addable components; one movement driver) -----
     const bool hasDriver = type
         && (type->linearMover || type->topDownController || type->platformerController);
-    bool hasAnimationWithClip = false;
-    for (const SpriteAnimationAssetDef& asset :
-         coordinator.document().data().spriteAnimationAssets) {
-        if (!asset.clips.empty()) {
-            hasAnimationWithClip = true;
-            break;
-        }
-    }
-    const char* animatorPreflight = type && !type->spriteRenderer
-        ? "Add Sprite Renderer first"
-        : "Create a Sprite Animation asset with at least one clip first";
     struct Addable {
         const char* label;
         const char* action;
@@ -1224,12 +1251,8 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     };
     const Addable addable[] = {
         // Sprite capability is Object-Type-owned, like the gameplay components.
-        {"Sprite Renderer", "add-sprite-renderer",
-            type && !type->spriteRenderer, true, ""},
-        {"Sprite Animator", "add-sprite-animator",
-            type && !type->spriteAnimator,
-            type && type->spriteRenderer && hasAnimationWithClip,
-            animatorPreflight},
+        {"Sprite", "add-sprite-renderer",
+            type && !type->spritePresentation && !type->spriteRenderer, true, ""},
         {"Box Collider 2D", "add-box-collider", type && !collider, true, ""},
         // The three movement drivers are mutually exclusive: offer none once one exists.
         {"Top Down Controller", "add-top-down", type && !hasDriver, true, ""},

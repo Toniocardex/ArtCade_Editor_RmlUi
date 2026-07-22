@@ -34,6 +34,10 @@ EditorOperationResult setSpriteRendererAsset(EditorCoordinator& coordinator, con
 /** Set the selected sprite renderer's animation asset. */
 EditorOperationResult setSpriteRendererAnimation(EditorCoordinator& coordinator,
                                                  const AssetId& assetId);
+EditorOperationResult setSpriteDefaultClip(EditorCoordinator& coordinator,
+                                           const AnimationClipId& clipId);
+EditorOperationResult setSpriteAutoPlay(EditorCoordinator& coordinator, bool autoPlay);
+EditorOperationResult setSpritePlaybackSpeed(EditorCoordinator& coordinator, float speed);
 
 /** Move the selected entity's editor bounds inside the active scene. */
 EditorOperationResult bringSelectedEntityIntoScene(EditorCoordinator& coordinator);

@@ -82,14 +82,186 @@ std::size_t animationActionCount(const EntityDef& type) {
     return count;
 }
 
-std::string requiredByBoardMessage(const ObjectTypeId& objectTypeId, std::size_t count) {
-    return "Cannot remove Sprite Animator from \"" + objectTypeId
+std::string requiredByBoardMessage(const ObjectTypeId& objectTypeId, std::size_t count,
+                                   const char* operation) {
+    return "Cannot " + std::string{operation} + " \"" + objectTypeId
         + "\". Its Logic Board contains " + std::to_string(count)
         + (count == 1 ? std::string{" action that requires"}
                       : std::string{" actions that require"})
         + " animation playback.";
 }
+
+bool isAnimationSource(const SpritePresentationSource& source) {
+    return std::holds_alternative<SpritePresentationAnimation>(source);
+}
+
+bool equal(const SpritePresentationSource& lhs, const SpritePresentationSource& rhs) {
+    if (lhs.index() != rhs.index()) return false;
+    if (const auto* image = std::get_if<SpritePresentationImage>(&lhs)) {
+        return image->imageAssetId
+            == std::get<SpritePresentationImage>(rhs).imageAssetId;
+    }
+    if (const auto* animation = std::get_if<SpritePresentationAnimation>(&lhs)) {
+        const auto& other = std::get<SpritePresentationAnimation>(rhs);
+        return animation->animationAssetId == other.animationAssetId
+            && animation->defaultClipId == other.defaultClipId
+            && animation->autoPlay == other.autoPlay
+            && animation->playbackSpeed == other.playbackSpeed;
+    }
+    return true;
+}
+
+bool equal(const SpritePresentationComponent& lhs, const SpritePresentationComponent& rhs) {
+    return lhs.visible == rhs.visible && equal(lhs.source, rhs.source);
+}
+
+bool equal(const SpritePresentationOverride& lhs, const SpritePresentationOverride& rhs) {
+    return lhs.visible == rhs.visible
+        && lhs.source.has_value() == rhs.source.has_value()
+        && (!lhs.source || equal(*lhs.source, *rhs.source));
+}
+
+EditorOperationResult validateSpriteSource(const ProjectDocument& document,
+                                           const SpritePresentationSource& source) {
+    if (const auto* image = std::get_if<SpritePresentationImage>(&source)) {
+        if (!image->imageAssetId.empty() && !document.hasImageAsset(image->imageAssetId)) {
+            return EditorOperationResult::failure("Sprite references a missing image asset");
+        }
+    } else if (const auto* animation = std::get_if<SpritePresentationAnimation>(&source)) {
+        if (!NumericValidation::isValid(*animation)) {
+            return EditorOperationResult::failure("Sprite playback speed must be positive");
+        }
+        const SpriteAnimationAssetDef* asset =
+            document.findSpriteAnimationAsset(animation->animationAssetId);
+        if (!asset) return EditorOperationResult::failure("Sprite references a missing animation asset");
+        if (!clipBelongsTo(*asset, animation->defaultClipId)) {
+            return EditorOperationResult::failure(
+                "Sprite default clip must belong to the animation asset");
+        }
+    }
+    return EditorOperationResult::success(EditorInvalidation::None);
+}
 } // namespace
+
+SetObjectTypeSpritePresentationCommand::SetObjectTypeSpritePresentationCommand(
+    ObjectTypeId objectTypeId, std::optional<SpritePresentationComponent> value)
+    : objectTypeId_(std::move(objectTypeId)), next_(std::move(value)) {}
+
+EditorOperationResult SetObjectTypeSpritePresentationCommand::apply(ProjectDocument& document) {
+    const EntityDef* type = document.findObjectType(objectTypeId_);
+    if (!type) return EditorOperationResult::failure("Unknown object type: " + objectTypeId_);
+    if (next_) {
+        const EditorOperationResult valid = validateSpriteSource(document, next_->source);
+        if (!valid.ok) return valid;
+    }
+    if (type->spritePresentation.has_value() == next_.has_value()
+        && (!next_ || equal(*type->spritePresentation, *next_))) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+    const bool removesAnimation = type->spritePresentation
+        && isAnimationSource(type->spritePresentation->source)
+        && (!next_ || !isAnimationSource(next_->source));
+    const std::size_t requiredActions = animationActionCount(*type);
+    if (removesAnimation && requiredActions > 0) {
+        return EditorOperationResult::failure(requiredByBoardMessage(
+            objectTypeId_, requiredActions, "change the Sprite source for"));
+    }
+    if (!captured_) {
+        previous_ = type->spritePresentation;
+        for (const auto& [sceneId, scene] : document.data().scenes) {
+            for (const SceneInstanceDef& instance : scene.instances) {
+                if (instance.objectTypeId == objectTypeId_) {
+                    previousOverrides_.push_back(
+                        InstanceState{sceneId, instance.id, instance.spritePresentationOverride});
+                }
+            }
+        }
+        captured_ = true;
+    }
+    ProjectDoc staged = document.data();
+    EntityDef& stagedType = staged.objectTypes.at(objectTypeId_);
+    stagedType.spritePresentation = next_;
+    if (removesAnimation) {
+        for (auto& [_, scene] : staged.scenes) {
+            for (SceneInstanceDef& instance : scene.instances) {
+                if (instance.objectTypeId != objectTypeId_ || !instance.spritePresentationOverride
+                    || !instance.spritePresentationOverride->source) continue;
+                if (isAnimationSource(*instance.spritePresentationOverride->source)) {
+                    instance.spritePresentationOverride->source.reset();
+                    if (!instance.spritePresentationOverride->visible) {
+                        instance.spritePresentationOverride.reset();
+                    }
+                }
+            }
+        }
+    }
+    document.commitStagedCommand(std::move(staged));
+    return EditorOperationResult::success(
+        kPresentationInvalidation,
+        next_ ? changed(objectTypeId_, ComponentKind::SpritePresentation)
+              : removed(objectTypeId_, ComponentKind::SpritePresentation));
+}
+
+EditorOperationResult SetObjectTypeSpritePresentationCommand::undo(ProjectDocument& document) {
+    if (!captured_) return EditorOperationResult::failure("Nothing to restore");
+    ProjectDoc staged = document.data();
+    const auto type = staged.objectTypes.find(objectTypeId_);
+    if (type == staged.objectTypes.end()) return EditorOperationResult::failure("Object Type is missing");
+    type->second.spritePresentation = previous_;
+    for (const InstanceState& state : previousOverrides_) {
+        SceneInstanceDef* instance = findInstance(staged, state.sceneId, state.entityId);
+        if (!instance || instance->objectTypeId != objectTypeId_) {
+            return EditorOperationResult::failure("Cannot restore Sprite override");
+        }
+        instance->spritePresentationOverride = state.overrideValue;
+    }
+    document.commitStagedCommand(std::move(staged));
+    return EditorOperationResult::success(
+        kPresentationInvalidation, changed(objectTypeId_, ComponentKind::SpritePresentation));
+}
+
+SetInstanceSpritePresentationOverrideCommand::SetInstanceSpritePresentationOverrideCommand(
+    SceneId sceneId, EntityId entityId, std::optional<SpritePresentationOverride> value)
+    : sceneId_(std::move(sceneId)), entityId_(entityId), next_(std::move(value)) {}
+
+EditorOperationResult SetInstanceSpritePresentationOverrideCommand::apply(ProjectDocument& document) {
+    const SceneInstanceDef* instance = selectedInstance(document, sceneId_, entityId_);
+    if (!instance) return EditorOperationResult::failure("Selected instance is missing");
+    const EntityDef* type = document.findObjectType(instance->objectTypeId);
+    if (!type || !type->spritePresentation) {
+        return EditorOperationResult::failure("Object Type has no Sprite");
+    }
+    if (next_ && next_->source) {
+        const EditorOperationResult valid = validateSpriteSource(document, *next_->source);
+        if (!valid.ok) return valid;
+    }
+    if (instance->spritePresentationOverride.has_value() == next_.has_value()
+        && (!next_ || equal(*instance->spritePresentationOverride, *next_))) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+    if (document.isInstanceLayerLocked(sceneId_, *instance)) {
+        return EditorOperationResult::failure("Cannot override Sprite: layer is locked");
+    }
+    if (!captured_) { previous_ = instance->spritePresentationOverride; captured_ = true; }
+    ProjectDoc staged = document.data();
+    findInstance(staged, sceneId_, entityId_)->spritePresentationOverride = next_;
+    document.commitStagedCommand(std::move(staged));
+    return EditorOperationResult::success(
+        kPresentationInvalidation,
+        DomainChange::componentChanged(sceneId_, entityId_, ComponentKind::SpritePresentation));
+}
+
+EditorOperationResult SetInstanceSpritePresentationOverrideCommand::undo(ProjectDocument& document) {
+    if (!captured_) return EditorOperationResult::failure("Nothing to restore");
+    ProjectDoc staged = document.data();
+    SceneInstanceDef* instance = findInstance(staged, sceneId_, entityId_);
+    if (!instance) return EditorOperationResult::failure("Cannot restore Sprite override");
+    instance->spritePresentationOverride = previous_;
+    document.commitStagedCommand(std::move(staged));
+    return EditorOperationResult::success(
+        kPresentationInvalidation,
+        DomainChange::componentChanged(sceneId_, entityId_, ComponentKind::SpritePresentation));
+}
 
 AddSpriteRendererToObjectTypeCommand::AddSpriteRendererToObjectTypeCommand(
     ObjectTypeId objectTypeId)
@@ -132,7 +304,8 @@ EditorOperationResult RemoveSpriteRendererFromObjectTypeCommand::apply(
     const std::size_t requiredActions = animationActionCount(*type);
     if (type->spriteAnimator && requiredActions > 0) {
         return EditorOperationResult::failure(
-            requiredByBoardMessage(objectTypeId_, requiredActions));
+            requiredByBoardMessage(objectTypeId_, requiredActions,
+                                   "remove Sprite Animator from"));
     }
     if (!captured_) {
         renderer_ = *type->spriteRenderer;
@@ -218,6 +391,17 @@ EditorOperationResult SetObjectTypeSpriteSourceCommand::apply(ProjectDocument& d
     const bool sameSource = next.imageAssetId == type->spriteRenderer->imageAssetId
         && nextAnimationId == previousAnimationId;
     if (sameSource) return EditorOperationResult::success(EditorInvalidation::None);
+
+    // Switching to Image or None removes the Animator just as explicitly as
+    // RemoveSpriteAnimator does. The Logic Board may rely on that capability,
+    // so both paths must enforce the same atomic dependency policy.
+    const std::size_t requiredActions = animationActionCount(*type);
+    if (kind_ != ObjectTypeSpriteSourceKind::Animation && type->spriteAnimator
+        && requiredActions > 0) {
+        return EditorOperationResult::failure(
+            requiredByBoardMessage(objectTypeId_, requiredActions,
+                                   "change the Sprite source for"));
+    }
 
     if (!captured_) {
         previousRenderer_ = *type->spriteRenderer;
@@ -350,7 +534,8 @@ EditorOperationResult RemoveSpriteAnimatorFromObjectTypeCommand::apply(ProjectDo
     const std::size_t requiredActions = animationActionCount(*type);
     if (requiredActions > 0) {
         return EditorOperationResult::failure(
-            requiredByBoardMessage(objectTypeId_, requiredActions));
+            requiredByBoardMessage(objectTypeId_, requiredActions,
+                                   "remove Sprite Animator from"));
     }
     if (!captured_) {
         removed_ = *type->spriteAnimator;

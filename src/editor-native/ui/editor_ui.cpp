@@ -2224,6 +2224,23 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         // dedicated action (open-sprite-animation, the Edit button), so this
         // no longer pops the editor open as a side effect of picking a clip.
         if (!coordinator_.isPlaying()) setSpriteRendererAnimation(coordinator_, arg);
+    } else if (action == "set-sprite-default-clip") {
+        setSpriteDefaultClip(coordinator_, arg);
+    } else if (action == "commit-sprite-speed") {
+        const std::optional<float> parsed = parseNumberField(value);
+        if (!parsed) coordinator_.logError("Sprite speed is not a number");
+        else setSpritePlaybackSpeed(coordinator_, *parsed);
+    } else if (action == "toggle-sprite-autoplay") {
+        const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
+            coordinator_.state().activeSceneId, selected);
+        const EntityDef* type = inst
+            ? coordinator_.document().findObjectType(inst->objectTypeId) : nullptr;
+        if (type && type->spritePresentation) {
+            if (const auto* animation = std::get_if<SpritePresentationAnimation>(
+                    &type->spritePresentation->source)) {
+                setSpriteAutoPlay(coordinator_, !animation->autoPlay);
+            }
+        }
     } else if (action == "set-animator-default-clip") {
         const SceneId& sceneId = coordinator_.state().activeSceneId;
         const SceneInstanceDef* inst =
@@ -2355,8 +2372,17 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
             }
         }
     } else if (action == "reset-sprite-override") {
-        coordinator_.execute(ClearInstanceSpriteOverrideCommand{
-            coordinator_.state().activeSceneId, selected});
+        const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
+            coordinator_.state().activeSceneId, selected);
+        const EntityDef* type = inst
+            ? coordinator_.document().findObjectType(inst->objectTypeId) : nullptr;
+        if (type && type->spritePresentation) {
+            coordinator_.execute(SetInstanceSpritePresentationOverrideCommand{
+                coordinator_.state().activeSceneId, selected, std::nullopt});
+        } else {
+            coordinator_.execute(ClearInstanceSpriteOverrideCommand{
+                coordinator_.state().activeSceneId, selected});
+        }
     } else if (action == "reset-animator-override") {
         coordinator_.execute(ClearInstanceAnimatorOverrideCommand{
             coordinator_.state().activeSceneId, selected});

@@ -11,6 +11,44 @@ namespace ArtCade::EditorNative {
 
 enum class ObjectTypeSpriteSourceKind { None, Image, Animation };
 
+// v10 Sprite authoring commands. Renderer/Animator commands below remain only
+// to service untouched v9 fixtures during the migration window.
+class SetObjectTypeSpritePresentationCommand final : public EditorCommand {
+public:
+    SetObjectTypeSpritePresentationCommand(ObjectTypeId objectTypeId,
+                                           std::optional<SpritePresentationComponent> value);
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "SetObjectTypeSpritePresentation"; }
+private:
+    struct InstanceState {
+        SceneId sceneId;
+        EntityId entityId = INVALID_ENTITY;
+        std::optional<SpritePresentationOverride> overrideValue;
+    };
+    ObjectTypeId objectTypeId_;
+    std::optional<SpritePresentationComponent> next_;
+    std::optional<SpritePresentationComponent> previous_;
+    std::vector<InstanceState> previousOverrides_;
+    bool captured_ = false;
+};
+
+class SetInstanceSpritePresentationOverrideCommand final : public EditorCommand {
+public:
+    SetInstanceSpritePresentationOverrideCommand(
+        SceneId sceneId, EntityId entityId,
+        std::optional<SpritePresentationOverride> value);
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "SetInstanceSpritePresentationOverride"; }
+private:
+    SceneId sceneId_;
+    EntityId entityId_ = INVALID_ENTITY;
+    std::optional<SpritePresentationOverride> next_;
+    std::optional<SpritePresentationOverride> previous_;
+    bool captured_ = false;
+};
+
 class AddSpriteRendererToObjectTypeCommand final : public EditorCommand {
 public:
     explicit AddSpriteRendererToObjectTypeCommand(ObjectTypeId objectTypeId);

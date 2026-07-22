@@ -3,6 +3,7 @@
 #include "editor-native/model/path_confinement.h"
 #include "editor-native/model/project_document.h"
 #include "editor-native/model/project_io.h"
+#include "editor-native/model/sprite_render_view.h"
 #include "editor-native/model/tilemap_render_view.h"
 
 #include "app/src/gameplay_session.h"
@@ -13,6 +14,7 @@
 #include "modules/asset-system/include/asset-loader.h"
 #include "modules/audio/include/audio.h"
 #include "modules/input/include/input.h"
+#include "modules/sprite-animator/include/animation-clips-registry.h"
 #include "script-core.h"
 #include "script-runtime.h"
 
@@ -65,6 +67,32 @@ struct ScratchDirGuard {
         std::filesystem::remove_all(dir, ec);
     }
 };
+
+std::optional<std::string> validatePlaySpriteReferences(const ProjectDocument& document) {
+    for (const auto& [typeId, type] : document.data().objectTypes) {
+        if (type.spriteRenderer && !type.spriteRenderer->imageAssetId.empty()
+            && !document.hasImageAsset(type.spriteRenderer->imageAssetId)) {
+            return "Object Type \"" + typeId
+                 + "\" SpriteRenderer references a missing image asset";
+        }
+    }
+    for (const auto& [sceneId, scene] : document.data().scenes) {
+        for (const SceneInstanceDef& instance : scene.instances) {
+            const auto type = document.data().objectTypes.find(instance.objectTypeId);
+            // The runtime deliberately skips instances whose Object Type is
+            // absent. Preserve that established Play policy; only validate a
+            // presentation when there is an owner to resolve it against.
+            if (type == document.data().objectTypes.end()) continue;
+            const ResolvedSpritePresentation presentation =
+                resolveSpritePresentation(type->second, instance);
+            if (presentation.renderer && !presentation.renderer->imageAssetId.empty()
+                && !document.hasImageAsset(presentation.renderer->imageAssetId)) {
+                return "Scene \"" + sceneId + "\" sprite renderer references a missing image asset";
+            }
+        }
+    }
+    return std::nullopt;
+}
 
 } // namespace
 
@@ -140,6 +168,14 @@ std::optional<PlaySession> PlaySession::materialize(
     const SceneId& sceneId,
     const std::vector<Scripts::ScriptProgram>& scripts,
     std::string* error) {
+    // A dangling image reference must reject Play atomically: the runtime
+    // loader cannot turn it into a valid sprite. Keep the documented leniency
+    // for instances with a missing Object Type, which the runtime skips.
+    if (const std::optional<std::string> spriteError = validatePlaySpriteReferences(document)) {
+        if (error) *error = "Cannot start Play: " + *spriteError;
+        return std::nullopt;
+    }
+
     // Compile every Logic Board before touching the runtime. A blocking
     // diagnostic rejects Play atomically and leaves authoring untouched -
     // same contract the old hand-written materialize() had.
@@ -347,6 +383,15 @@ std::optional<PlaySession> PlaySession::materialize(
         return std::nullopt;
     }
     session.runtime_->setScriptCatalog(std::move(scriptPrograms), std::move(scriptAttachments));
+
+    // Animation clips are runtime definitions, not entity state.  They must
+    // exist before World::init() materialises the active entities, because
+    // that path starts a Sprite presentation's default clip when Auto Play is
+    // enabled.  Registering them afterwards leaves the renderer with no
+    // current frame for animation-backed sprites.
+    registerAnimationClipsFromAssets(session.runtime_->spriteAnimator(), doc.imageAssets);
+    appendAnimationClipsFromAssets(
+        session.runtime_->spriteAnimator(), doc.spriteAnimationAssets);
     session.runtime_->loadWorldProject(doc);
     if (!session.runtime_->installLogicScopesForActiveScene()) {
         if (error) *error = "Cannot start Play: failed to install Logic Board scopes";
