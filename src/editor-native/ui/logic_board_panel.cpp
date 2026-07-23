@@ -125,6 +125,7 @@ std::string catalogEntries(const EntityDef& owner, const Logic::LogicBlockDescri
     std::map<Logic::LogicCategoryId, std::vector<const Logic::LogicBlockDescriptor*>> byCategory;
     std::vector<Logic::LogicCategoryId> firstSeenOrder;
     for (const Logic::LogicBlockDescriptor& descriptor : Logic::registry()) {
+        if (descriptor.catalogHidden) continue;
         const bool include = eventCatalog
             ? Logic::isEventEligible(descriptor)
             : descriptor.kind == kind;
@@ -206,11 +207,13 @@ std::string logicRuleSummary(const LogicRuleDef& rule) {
         if (const LogicPropertyDef* p = property(rule.trigger, "key"))
             if (const auto* key = std::get_if<LogicKey>(&p->value)) head = Logic::logicKeyName(*key);
     } else if (rule.trigger.typeId == Logic::kPlatformerMotionState) {
-        head = "Platformer Motion";
+        head = "Platformer State";
         if (const LogicPropertyDef* p = property(rule.trigger, "state")) {
             if (const auto* state = std::get_if<LogicStringValue>(&p->value)) {
                 if (state->value == "Moving") head = "Platformer Moving";
                 else if (state->value == "Stopped") head = "Platformer Stopped";
+                else if (state->value == "Jumping") head = "Platformer Jumping";
+                else if (state->value == "Falling") head = "Platformer Falling";
             }
         }
     } else {

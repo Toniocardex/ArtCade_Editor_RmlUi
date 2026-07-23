@@ -1,6 +1,6 @@
 # ADR-0015 — Platformer Motion (Moving / Stopped)
 
-**Status:** Accepted  
+**Status:** Superseded by [ADR-0016](ADR-0016-platformer-state.md)  
 **Date:** 2026-07-23  
 **Scope:** Logic Board condition `platformer.motion_state`, shared runtime query
 `World::isPlatformerMovingHorizontally`, `IGameplayRuntimeHost` /
@@ -10,6 +10,10 @@
 [ADR-0012](ADR-0012-platformer-move-direction.md) (Move Horizontal Left/Right),
 [ADR-0005](ADR-0005-top-down-logic-input.md), Constitution (single authority;
 no runtime→authoring sync)
+
+> **Superseded:** ADR-0016 evolves the same typeId into **Platformer State**
+> (Stopped / Moving / Jumping / Falling). Moving/Stopped ground semantics and
+> the typeId are unchanged; prefer ADR-0016 for new work.
 
 ## Context
 

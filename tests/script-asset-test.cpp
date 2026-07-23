@@ -535,6 +535,11 @@ return { on_start = function(ctx) ctx.self:set_position(9, 10) end }
         bool setScale(EntityId, Vec2) override { return true; }
         bool isGrounded(EntityId) override { return grounded; }
         bool isFalling(EntityId) override { return falling; }
+        PlatformerState platformerState(EntityId) override {
+            if (moving) return PlatformerState::Moving;
+            if (falling) return PlatformerState::Falling;
+            return PlatformerState::Stopped;
+        }
         bool isPlatformerMoving(EntityId) override { return moving; }
         bool requestPlatformerMove(EntityId, float axis) override {
             moveAxis = axis; return true;

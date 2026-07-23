@@ -9,7 +9,7 @@
 | 0. Baseline e contract | Completata | Limiti e validazione core coperti dalla suite nativa. |
 | 2A. Catalog foundation e picker | Completata | Registry descriptor-driven, compatibilitÃ  e picker RmlUi. |
 | 2B. Personaggio controllabile | Completata | Input edge/held e intent riusati dai controller esistenti. |
-| 2B.1 Platformer motion events | In corso | `platformer.is_falling` + `platformer.motion_state` (Moving/Stopped, ADR-0015) shipped; Rising/Airborne/edges restano pianificati. |
+| 2B.1 Platformer motion events | In corso | `platformer.motion_state` = Platformer State (Stopped/Moving/Jumping/Falling, ADR-0016); `is_falling` catalog-hidden + load-migrate; Rising/Airborne/edges restano pianificati. |
 | 2B.2 Run Once per Activation | Completata | `LogicExecutionMode` su regola, gate rising-edge per Trigger Level, Command/UI/persistenza e test core+editor. |
 | 2C. Collisioni e `EventOther` | Completata | Enter/exit deterministici, filtro per Object Type e `Destroy Self` differito. |
 | 2D. Animazione e audio | Completata | Action animazione/audio complete in Editor Play e runtime esportato; parità host verificata nativa e WASM. |
@@ -227,8 +227,10 @@ esattamente l'assenza tramite il solo flag migration-only `capabilityEnabled`.
 verticali/orizzontali ben definiti e poche transizioni edge, senza introdurre
 un generico `Is Moving` che si confonde con la caduta.
 
-**Stato:** in corso. Shipped: `platformer.is_falling` (While) e
-`platformer.motion_state` (Moving/Stopped, ADR-0015). Edge e Rising/Airborne
+**Stato:** in corso. Shipped: `platformer.motion_state` as **Platformer State**
+(Stopped / Moving / Jumping / Falling, ADR-0016). `platformer.is_falling` is
+catalog-hidden and migrates on load to State=Falling when `expected` is true.
+`platformer.is_grounded` remains. Edge Landed/Left Ground e Rising/Airborne
 restano pianificati.
 
 #### Contratti già veri oggi (non rompere)
@@ -261,8 +263,8 @@ nella stessa famiglia; `—` = già shipped.
 | Priorità | typeId stabile | Label UI | While / Edge | Semantics (invariante) | Segnale runtime | Note |
 |---|---|---|---|---|---|---|
 | — | `platformer.is_grounded` | Is Grounded | **While** | `grounded == true` | `RuntimePlatformerController::grounded` (host `isGrounded`) | Già shipped. Non rinominare il typeId. |
-| — | `platformer.is_falling` | Is Falling | **While** | `!grounded && verticalVelocity > +ε` (+Y giù); export: anche `!climbing` | host `isFalling` / `World::isPlatformerFalling` | **Shipped.** ε = `0.001`. Predicato continuo (`on_update`); non confondere con Airborne. |
-| — | `platformer.motion_state` | Platformer Motion | **While** | `Moving` ⇔ `|vx| > ε`; `Stopped` ⇔ negazione | host `isPlatformerMoving` / `World::isPlatformerMovingHorizontally` | **Shipped (ADR-0015).** ε = `0.01`. Un typeId, property `state` Moving\|Stopped. Walk/Idle = Motion + Is Grounded; OncePerActivation per edge clip. Non è intent input. |
+| — | `platformer.is_falling` | Is Falling | **While** | `platformerState == Falling` | host `isFalling` → `World::platformerState` | **Deprecated (ADR-0016).** Catalog-hidden; load migrates `expected==true` → `motion_state` Falling. Prefer Platformer State. |
+| — | `platformer.motion_state` | Platformer State | **While** | Stopped/Moving (grounded\|climbing) · Jumping/Falling (air) · apex → `lastAirState` | host `platformerState` / `World::platformerState` | **Shipped (ADR-0016).** typeId retained from ADR-0015. ε = `0.01`. Prefer OncePerActivation for Play Clip. Non è intent input. |
 | P0 | `platformer.landed` | Landed | **Edge** | transizione `!grounded → grounded` | latch per-entity: `wasGrounded` vs `grounded` post-fisica | One-shot SFX/clip atterraggio. Non duplicare con While Grounded. |
 | P0 | `platformer.left_ground` | Left Ground | **Edge** | transizione `grounded → !grounded` | stesso latch | Copre salto e caduta da bordo; non è “Started Falling”. |
 | P1 | `platformer.is_rising` | Is Rising | **While** | `!grounded && verticalVelocity < -ε` | idem | Clip di salita. All’apice (`|vy| ≤ ε`) nessuno dei due while è vero. |
@@ -299,8 +301,8 @@ controller. Nessun reverse-sync verso `ProjectDocument`.
 - Test DoD minimi: (1) Landed spara una volta all’atterraggio; (2) Is Falling
   falso durante Rising; (3) Left Ground su jump; (4) nessun typeId `is_moving`;
   (5) board senza PlatformerController rifiutata in authoring;
-  (6) Platformer Motion OncePerActivation: Walk una volta su Stopped→Moving,
-  Idle una volta su Moving→Stopped (ADR-0015).
+  (6) Platformer State OncePerActivation: Walk/Idle/Jump/Fall una volta sulle
+  transizioni di stato (ADR-0016); nessun frame Stopped all'apice.
 
 #### Fuori scope di 2B.1
 
