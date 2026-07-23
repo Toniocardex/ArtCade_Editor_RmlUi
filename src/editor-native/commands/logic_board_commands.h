@@ -231,6 +231,23 @@ private:
     std::optional<LogicBoardDef> before_;
 };
 
+/** ADR-0013 Slice 3 — one Undo restores the full prior board. */
+enum class IncompatibleLogicRepair {
+    DisableAffectedRules,
+    RemoveAffectedActions,
+    RemoveAffectedRules,
+};
+
+class RepairIncompatibleLogicCommand final : public EditorCommand {
+public:
+    RepairIncompatibleLogicCommand(ObjectTypeId objectTypeId, IncompatibleLogicRepair repair);
+    ARTCADE_LOGIC_BOARD_COMMAND_COMMON(RepairIncompatibleLogic)
+private:
+    ObjectTypeId objectTypeId_;
+    IncompatibleLogicRepair repair_ = IncompatibleLogicRepair::DisableAffectedRules;
+    std::optional<LogicBoardDef> before_;
+};
+
 #undef ARTCADE_LOGIC_BOARD_COMMAND_COMMON
 
 LogicRuleId nextLogicRuleId(const LogicBoardDef& board);

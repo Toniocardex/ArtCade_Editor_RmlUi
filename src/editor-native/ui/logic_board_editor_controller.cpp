@@ -287,6 +287,10 @@ bool LogicBoardEditorController::handleAction(
         || action == "remove-logic-action" || action == "move-logic-action-up"
         || action == "move-logic-action-down" || action == "change-logic-action"
         || action == "toggle-logic-visible" || action == "commit-logic-position-x"
+        || action == "repair-logic-disable-rules"
+        || action == "repair-logic-remove-actions"
+        || action == "repair-logic-remove-rules"
+        || action == "focus-logic-diagnostic"
         || action == "commit-logic-position-y" || action == "commit-logic-offset-x"
         || action == "commit-logic-offset-y" || action == "set-logic-animation-asset"
         || action == "set-logic-animation-clip" || action == "commit-logic-animation-speed"
@@ -313,6 +317,33 @@ bool LogicBoardEditorController::handleAction(
     }
     if (action == "remove-logic-board") {
         coordinator_.execute(RemoveLogicBoardCommand{objectTypeId});
+        return true;
+    }
+    if (action == "repair-logic-disable-rules") {
+        coordinator_.execute(RepairIncompatibleLogicCommand{
+            objectTypeId, IncompatibleLogicRepair::DisableAffectedRules});
+        return true;
+    }
+    if (action == "repair-logic-remove-actions") {
+        coordinator_.execute(RepairIncompatibleLogicCommand{
+            objectTypeId, IncompatibleLogicRepair::RemoveAffectedActions});
+        return true;
+    }
+    if (action == "repair-logic-remove-rules") {
+        coordinator_.execute(RepairIncompatibleLogicCommand{
+            objectTypeId, IncompatibleLogicRepair::RemoveAffectedRules});
+        return true;
+    }
+    if (action == "focus-logic-diagnostic") {
+        const std::vector<std::string> parts = splitPipe(arg);
+        if (parts.size() >= 2) {
+            FocusLogicDiagnosticIntent intent;
+            intent.objectTypeId = parts[0].empty() ? objectTypeId : parts[0];
+            intent.ruleId = parts[1];
+            if (parts.size() > 2) intent.blockTypeId = parts[2];
+            if (parts.size() > 3) intent.propertyKey = parts[3];
+            coordinator_.apply(intent);
+        }
         return true;
     }
     if (!objectType.logicBoard) return authoringAction;

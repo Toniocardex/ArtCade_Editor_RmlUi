@@ -106,6 +106,10 @@ struct LogicBoardEditorState {
     std::optional<ObjectTypeId> objectTypeId;
     LogicBoardTab tab = LogicBoardTab::Rules;
     std::string search;
+    /** Slice 4 — expanded + highlighted after diagnostic navigation. */
+    std::optional<LogicRuleId> focusRuleId;
+    std::string highlightBlockTypeId;
+    std::string highlightPropertyKey;
 };
 
 // The clip the Sprite Animation Editor focuses: the selected clip when it

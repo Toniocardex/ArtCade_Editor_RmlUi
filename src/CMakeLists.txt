@@ -23,6 +23,7 @@ add_library(artcade-editor-core STATIC
     editor-native/model/scene_frame_snapshot.cpp
     editor-native/model/sprite_render_view.cpp
     editor-native/model/sprite_animation_references.cpp
+    editor-native/model/logic_component_references.cpp
     editor-native/model/sprite_animation_slicing.cpp
     editor-native/model/tileset_slicing.cpp
     editor-native/model/tileset_grid_geometry.cpp

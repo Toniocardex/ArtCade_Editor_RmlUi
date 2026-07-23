@@ -152,6 +152,26 @@ EditorOperationResult EditorCoordinator::apply(const SetLogicBoardSearchIntent& 
     return EditorOperationResult::success(EditorInvalidation::LogicBoard);
 }
 
+EditorOperationResult EditorCoordinator::apply(const FocusLogicDiagnosticIntent& intent) {
+    if (!document_.hasObjectType(intent.objectTypeId))
+        return finishIntent(EditorOperationResult::failure("Unknown Object Type"));
+    LogicBoardEditorState& logicState = state_.logicBoardEditor;
+    const bool enteringLogic = state_.centerWorkspaceMode != CenterWorkspaceMode::Logic;
+    cancelPendingTilemapGesture();
+    logicState.objectTypeId = intent.objectTypeId;
+    logicState.tab = LogicBoardTab::Rules;
+    logicState.search.clear();
+    logicState.focusRuleId = intent.ruleId;
+    logicState.highlightBlockTypeId = intent.blockTypeId;
+    logicState.highlightPropertyKey = intent.propertyKey;
+    // Ensure the focused rule is expanded when the panel next refreshes.
+    state_.centerWorkspaceMode = CenterWorkspaceMode::Logic;
+    EditorInvalidation inv = EditorInvalidation::LogicBoard | EditorInvalidation::Toolbar;
+    if (enteringLogic) inv |= EditorInvalidation::Viewport | EditorInvalidation::Layout;
+    accumulate(inv);
+    return EditorOperationResult::success(inv);
+}
+
 EditorOperationResult EditorCoordinator::apply(const OpenScriptBufferIntent& intent) {
     if (!document_.hasScriptAsset(intent.scriptAssetId)) {
         return finishIntent(EditorOperationResult::failure("Unknown script asset"));

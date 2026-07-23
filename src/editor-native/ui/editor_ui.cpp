@@ -1,5 +1,6 @@
 #include "editor-native/ui/editor_ui.h"
 
+#include "editor-native/app/confirm_dialog.h"
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/app/hierarchy_actions.h"
 #include "editor-native/app/inspector_actions.h"
@@ -21,7 +22,9 @@
 #include "editor-native/commands/project_commands.h"
 #include "editor-native/commands/sprite_animation_commands.h"
 #include "editor-native/commands/sprite_presentation_commands.h"
+#include "editor-native/model/logic_component_references.h"
 #include "editor-native/model/sprite_render_view.h"
+#include "logic-core.h"
 #include "editor-native/model/tile_palette_availability.h"
 #include "editor-native/model/tile_palette_projection.h"
 #include "editor-native/model/tileset_slicing.h"
@@ -2537,7 +2540,38 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
     } else if (action == "add-top-down") {
         addTopDownController(coordinator_);
     } else if (action == "remove-top-down") {
-        removeTopDownController(coordinator_);
+        const SceneId sceneId = coordinator_.state().activeSceneId;
+        const EntityId id = coordinator_.selection().primaryEntity;
+        const SceneInstanceDef* instance =
+            coordinator_.document().findInstanceInScene(sceneId, id);
+        if (instance && !instance->objectTypeId.empty()) {
+            const auto refs = collectComponentLogicReferences(
+                coordinator_.document(), instance->objectTypeId,
+                ComponentKind::TopDownController);
+            if (!refs.empty()) {
+                const auto* meta = Logic::requiredComponentDescriptor(
+                    Logic::LogicRequiredComponent::TopDownController);
+                switch (confirmRemoveComponentWithLogicRefs(
+                    meta ? meta->displayName : "Top Down Controller",
+                    refs.actionCount(), refs.conditionCount(), refs.triggerCount())) {
+                case ComponentLogicRemoveChoice::Cancel:
+                    break;
+                case ComponentLogicRemoveChoice::ReviewReferences: {
+                    const LogicComponentReference& first = refs.references.front();
+                    coordinator_.apply(FocusLogicDiagnosticIntent{
+                        instance->objectTypeId, first.ruleId, first.typeId, {}});
+                    break;
+                }
+                case ComponentLogicRemoveChoice::RemoveAndKeepLogic:
+                    removeTopDownController(coordinator_);
+                    break;
+                }
+            } else {
+                removeTopDownController(coordinator_);
+            }
+        } else {
+            removeTopDownController(coordinator_);
+        }
     } else if (action == "commit-topdown-speed"
                || action == "commit-topdown-acceleration"
                || action == "commit-topdown-friction") {
@@ -2563,7 +2597,38 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
     } else if (action == "add-platformer") {
         addPlatformerController(coordinator_);
     } else if (action == "remove-platformer") {
-        removePlatformerController(coordinator_);
+        const SceneId sceneId = coordinator_.state().activeSceneId;
+        const EntityId id = coordinator_.selection().primaryEntity;
+        const SceneInstanceDef* instance =
+            coordinator_.document().findInstanceInScene(sceneId, id);
+        if (instance && !instance->objectTypeId.empty()) {
+            const auto refs = collectComponentLogicReferences(
+                coordinator_.document(), instance->objectTypeId,
+                ComponentKind::PlatformerController);
+            if (!refs.empty()) {
+                const auto* meta = Logic::requiredComponentDescriptor(
+                    Logic::LogicRequiredComponent::PlatformerController);
+                switch (confirmRemoveComponentWithLogicRefs(
+                    meta ? meta->displayName : "Platformer Controller",
+                    refs.actionCount(), refs.conditionCount(), refs.triggerCount())) {
+                case ComponentLogicRemoveChoice::Cancel:
+                    break;
+                case ComponentLogicRemoveChoice::ReviewReferences: {
+                    const LogicComponentReference& first = refs.references.front();
+                    coordinator_.apply(FocusLogicDiagnosticIntent{
+                        instance->objectTypeId, first.ruleId, first.typeId, {}});
+                    break;
+                }
+                case ComponentLogicRemoveChoice::RemoveAndKeepLogic:
+                    removePlatformerController(coordinator_);
+                    break;
+                }
+            } else {
+                removePlatformerController(coordinator_);
+            }
+        } else {
+            removePlatformerController(coordinator_);
+        }
     } else if (action == "commit-platformer-move") {
         const std::optional<float> parsed = parseNumberField(value);
         if (!parsed.has_value()) coordinator_.logError("Platformer move speed is not a number");

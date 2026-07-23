@@ -2,6 +2,7 @@
 
 #include "editor-native/app/unsaved_guard.h"
 
+#include <cstddef>
 #include <string>
 
 namespace ArtCade::EditorNative {
@@ -29,5 +30,18 @@ bool confirmDeleteScriptAsset(const std::string& name,
 // abort; abort is the default and the only non-Windows answer.
 bool confirmTilesetResliceImpact(int removedReferencedTiles, int orphanedCells,
                                  int affectedTilemaps);
+
+/** ADR-0013 Slice 3 — remove gameplay component that Logic still references. */
+enum class ComponentLogicRemoveChoice {
+    Cancel,
+    RemoveAndKeepLogic,
+    ReviewReferences,
+};
+
+ComponentLogicRemoveChoice confirmRemoveComponentWithLogicRefs(
+    const std::string& componentDisplayName,
+    std::size_t actionCount,
+    std::size_t conditionCount,
+    std::size_t triggerCount);
 
 } // namespace ArtCade::EditorNative

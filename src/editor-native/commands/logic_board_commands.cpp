@@ -1,5 +1,6 @@
 #include "editor-native/commands/logic_board_commands.h"
 
+#include "editor-native/model/logic_component_references.h"
 #include "editor-native/model/project_document.h"
 #include "logic-core.h"
 
@@ -536,6 +537,68 @@ EditorOperationResult SetLogicAnimationClipCommand::apply(ProjectDocument& docum
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult SetLogicAnimationClipCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
+
+RepairIncompatibleLogicCommand::RepairIncompatibleLogicCommand(ObjectTypeId id,
+                                                               IncompatibleLogicRepair repair)
+    : objectTypeId_(std::move(id)), repair_(repair) {}
+
+EditorOperationResult RepairIncompatibleLogicCommand::apply(ProjectDocument& document) {
+    const LogicBoardDef* current = boardOf(document, objectTypeId_);
+    if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
+    const EntityDef* owner = document.findObjectType(objectTypeId_);
+    if (!owner) return EditorOperationResult::failure("Unknown Object Type: " + objectTypeId_);
+
+    const LogicComponentReferenceReport hits =
+        collectIncompatibleLogicReferences(document, objectTypeId_);
+    if (hits.empty()) return EditorOperationResult::success(EditorInvalidation::None);
+
+    LogicBoardDef next = *current;
+    auto ruleIncompatible = [&](const LogicRuleDef& rule) {
+        for (const LogicComponentReference& ref : hits.references) {
+            if (ref.ruleId == rule.id) return true;
+        }
+        return false;
+    };
+    auto actionIncompatible = [&](const LogicRuleId& ruleId, std::size_t index) {
+        for (const LogicComponentReference& ref : hits.references) {
+            if (ref.ruleId == ruleId && ref.slot == LogicReferenceSlot::Action
+                && ref.blockIndex == index) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    switch (repair_) {
+    case IncompatibleLogicRepair::DisableAffectedRules:
+        for (LogicRuleDef& rule : next.rules) {
+            if (ruleIncompatible(rule)) rule.enabled = false;
+        }
+        break;
+    case IncompatibleLogicRepair::RemoveAffectedActions:
+        for (LogicRuleDef& rule : next.rules) {
+            for (std::size_t i = rule.actions.size(); i > 0; --i) {
+                const std::size_t index = i - 1;
+                if (actionIncompatible(rule.id, index)) {
+                    rule.actions.erase(rule.actions.begin()
+                                      + static_cast<std::ptrdiff_t>(index));
+                }
+            }
+        }
+        break;
+    case IncompatibleLogicRepair::RemoveAffectedRules:
+        next.rules.erase(std::remove_if(next.rules.begin(), next.rules.end(),
+                                        [&](const LogicRuleDef& rule) {
+                                            return ruleIncompatible(rule);
+                                        }),
+                         next.rules.end());
+        break;
+    }
+    COMMIT_NEXT_BOARD(next);
+}
+EditorOperationResult RepairIncompatibleLogicCommand::undo(ProjectDocument& document) {
+    UNDO_BOARD();
+}
 
 LogicRuleId nextLogicRuleId(const LogicBoardDef& board) {
     int maxOrdinal = 0;

@@ -72,6 +72,14 @@ struct SetLogicBoardSearchIntent {
     std::string search;
 };
 
+/** ADR-0013 Slice 4 — open Logic Board and focus a diagnostic address. */
+struct FocusLogicDiagnosticIntent {
+    ObjectTypeId objectTypeId;
+    LogicRuleId ruleId;
+    std::string blockTypeId;
+    std::string propertyKey;
+};
+
 // Rule duplication is semantic authoring: the UI identifies only the source;
 // the Coordinator resolves a unique clone payload and emits one Command.
 struct DuplicateLogicRuleIntent {

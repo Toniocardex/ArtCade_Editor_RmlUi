@@ -504,11 +504,39 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     const auto authoringDiagnostics = Logic::validateBoard(
         selectedId, board, selectedType, &coordinator.document().data(),
         Logic::LogicValidationPurpose::AuthoringDiagnostics);
+    if (view.focusRuleId) {
+        collapsedRuleIds_.erase(*view.focusRuleId);
+        pendingRevealRuleId_ = *view.focusRuleId;
+    }
+
+    const std::size_t incompatibleCount = static_cast<std::size_t>(std::count_if(
+        authoringDiagnostics.begin(), authoringDiagnostics.end(),
+        [](const Logic::LogicDiagnostic& d) {
+            return d.code == "LB_INCOMPATIBLE_BLOCK"
+                && d.severity == Logic::DiagnosticSeverity::Error;
+        }));
 
     // Collapse All/Expand All/Remove Board now live in the static toolbar and
     // the "..." menu (see EditorUi::refreshToolbar/toggleLogicMoreMenu) — this
     // panel no longer generates a separate tools row for them.
     html += "<div id=\"logic-scroll\" class=\"logic-scroll\">";
+    if (incompatibleCount > 0 && !playing) {
+        html += "<div class=\"logic-repair-banner\">"
+                "<div class=\"logic-repair-title\">"
+              + std::to_string(incompatibleCount)
+              + (incompatibleCount == 1 ? " incompatible block" : " incompatible blocks")
+              + "</div>"
+                "<div class=\"logic-muted\">Blocks stay editable. Repair does not restore "
+                "removed components.</div>"
+                "<div class=\"logic-repair-actions\">"
+                "<button class=\"panel-btn\" data-action=\"repair-logic-disable-rules\">"
+                "Disable Affected Rules</button>"
+                "<button class=\"panel-btn\" data-action=\"repair-logic-remove-actions\">"
+                "Remove Affected Actions</button>"
+                "<button class=\"panel-btn\" data-action=\"repair-logic-remove-rules\">"
+                "Remove Affected Rules</button>"
+                "</div></div>";
+    }
 
     const std::string query = lower(view.search);
     std::size_t renderedRules = 0;
@@ -531,7 +559,10 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             }));
 
         html += "<div id=\"logic-rule-" + std::to_string(ruleIndex) + "\" class=\"logic-rule"
-                + std::string(rule.enabled ? "" : " off") + "\">"
+                + std::string(rule.enabled ? "" : " off")
+                + std::string(view.focusRuleId && *view.focusRuleId == rule.id
+                                  ? " logic-rule-focus" : "")
+                + "\">"
                 "<div class=\"logic-rule-head\""
                 " data-action=\"toggle-logic-rule-collapsed\""
                 " data-arg=\"" + escapeRml(rule.id) + "\">";
@@ -902,10 +933,21 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         for (const Logic::LogicDiagnostic& diagnostic : authoringDiagnostics) {
             if (diagnostic.ruleId != rule.id) continue;
             const bool warning = diagnostic.severity == Logic::DiagnosticSeverity::Warning;
-            html += "<div class=\"logic-diagnostic"
-                 + std::string(warning ? " warning" : "") + "\">"
+            const bool focused = view.focusRuleId && *view.focusRuleId == rule.id
+                && (view.highlightBlockTypeId.empty()
+                    || view.highlightBlockTypeId == diagnostic.blockTypeId)
+                && (view.highlightPropertyKey.empty()
+                    || view.highlightPropertyKey == diagnostic.propertyKey);
+            const std::string navArg = selectedId + "|" + diagnostic.ruleId + "|"
+                + diagnostic.blockTypeId + "|" + diagnostic.propertyKey;
+            html += "<button class=\"logic-diagnostic"
+                 + std::string(warning ? " warning" : "")
+                 + std::string(focused ? " logic-diagnostic-focus" : "")
+                 + "\" data-action=\"focus-logic-diagnostic\" data-arg=\""
+                 + escapeRml(navArg) + "\">"
                  + escapeRml(diagnostic.code) + " · "
-                 + escapeRml(diagnostic.propertyKey) + " — " + escapeRml(diagnostic.message) + "</div>";
+                 + escapeRml(diagnostic.propertyKey) + " — " + escapeRml(diagnostic.message)
+                 + "</button>";
         }
         html += "</div>"; // .logic-rule-diagnostics
         html += "</div>"; // .logic-rule

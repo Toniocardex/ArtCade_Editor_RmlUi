@@ -104,6 +104,32 @@ bool confirmDeleteScriptAsset(const std::string& name,
     return result == IDYES;
 }
 
+ComponentLogicRemoveChoice confirmRemoveComponentWithLogicRefs(
+    const std::string& componentDisplayName,
+    std::size_t actionCount,
+    std::size_t conditionCount,
+    std::size_t triggerCount) {
+    const std::wstring name = widenAsciiUtf8(componentDisplayName);
+    const std::wstring message =
+        L"Remove " + name + L"?\n\n"
+        + std::to_wstring(actionCount) + L" Logic action(s), "
+        + std::to_wstring(conditionCount) + L" condition(s), and "
+        + std::to_wstring(triggerCount) + L" trigger(s) require this component.\n\n"
+        L"The blocks will remain in the Logic Board but will not run until they "
+        L"are replaced or the component is restored.\n\n"
+        L"Yes = Remove and Keep Logic\n"
+        L"No = Review References\n"
+        L"Cancel = abort";
+    const int result = MessageBoxW(
+        GetActiveWindow(), message.c_str(), L"ArtCade Studio",
+        MB_YESNOCANCEL | MB_ICONWARNING | MB_DEFBUTTON3);
+    switch (result) {
+    case IDYES: return ComponentLogicRemoveChoice::RemoveAndKeepLogic;
+    case IDNO:  return ComponentLogicRemoveChoice::ReviewReferences;
+    default:    return ComponentLogicRemoveChoice::Cancel;
+    }
+}
+
 #else  // non-Windows: abort is the safe default (never silently lose changes).
 
 UnsavedChoice confirmUnsavedChanges() { return UnsavedChoice::Cancel; }
@@ -114,6 +140,11 @@ UnsavedChoice confirmTilesetUnappliedChanges() { return UnsavedChoice::Cancel; }
 bool confirmTilesetResliceImpact(int, int, int) { return false; }
 
 bool confirmDeleteScriptAsset(const std::string&, const std::string&) { return false; }
+
+ComponentLogicRemoveChoice confirmRemoveComponentWithLogicRefs(
+    const std::string&, std::size_t, std::size_t, std::size_t) {
+    return ComponentLogicRemoveChoice::Cancel;
+}
 
 #endif
 

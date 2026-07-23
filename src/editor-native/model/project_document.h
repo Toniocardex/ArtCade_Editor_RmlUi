@@ -80,6 +80,7 @@ class SetStartSceneCommand;
 class RenameProjectCommand;
 class ChangeLogicConditionTypeCommand;
 class SetLogicAnimationClipCommand;
+class RepairIncompatibleLogicCommand;
 class AddSpriteRendererToObjectTypeCommand;
 class RemoveSpriteRendererFromObjectTypeCommand;
 class SetObjectTypeSpriteSourceCommand;
@@ -326,6 +327,7 @@ private:
     friend class SetLogicConditionNegatedCommand;
     friend class SetLogicPropertyCommand;
     friend class SetLogicAnimationClipCommand;
+    friend class RepairIncompatibleLogicCommand;
 
     // ---- Patch (authoring mutations; called by commands) --------------------
     bool setProjectName(std::string name);
