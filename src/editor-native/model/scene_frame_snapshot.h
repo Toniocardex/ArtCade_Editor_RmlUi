@@ -42,6 +42,10 @@ struct SceneFrameSprite {
     SceneFrameRect source;
     bool hasSource = false;
     float rotationRadians = 0.f;
+    /** Runtime/authored horizontal mirror (raylib: negative source width). */
+    bool flipX = false;
+    /** Runtime/authored vertical mirror (raylib: negative source height). */
+    bool flipY = false;
 };
 
 struct SceneFrameTilemapCell {

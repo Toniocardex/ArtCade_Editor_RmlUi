@@ -214,7 +214,7 @@ int main() {
 
     const auto serialized = ProjectSerializer::serialize(coordinator.document());
     CHECK(serialized.ok);
-    CHECK(serialized.value.find("\"formatVersion\": 9") != std::string::npos);
+    CHECK(serialized.value.find("\"formatVersion\": 10") != std::string::npos);
     CHECK(serialized.value.find("\"scriptAssets\"") != std::string::npos);
     const auto decoded = ProjectSerializer::deserialize(serialized.value);
     CHECK(decoded.ok);
@@ -524,6 +524,7 @@ return { on_start = function(ctx) ctx.self:set_position(9, 10) end }
 
         bool setVisible(EntityId, bool value) override { visible = value; return true; }
         bool isVisible(EntityId) override { return visible; }
+        bool setSpriteFlipX(EntityId, bool) override { return true; }
         bool setPosition(EntityId, Vec2 value) override { position = value; return true; }
         bool translate(EntityId, Vec2 delta) override {
             position.x += delta.x; position.y += delta.y; return true;

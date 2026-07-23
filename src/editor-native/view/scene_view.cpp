@@ -296,11 +296,14 @@ void SceneView::render(const SceneFrameSnapshot& frame,
                 if (!resource || !resource->loaded) {
                     drawMissingSprite(sprite, cam.zoom);
                 } else {
-                    const Rectangle source = sprite.hasSource
+                    Rectangle source = sprite.hasSource
                         ? toRectangle(sprite.source)
                         : Rectangle{0.f, 0.f,
                                     static_cast<float>(resource->texture.width),
                                     static_cast<float>(resource->texture.height)};
+                    // Match runtime renderer_draw: negative source size flips.
+                    if (sprite.flipX) source.width = -source.width;
+                    if (sprite.flipY) source.height = -source.height;
                     const Vector2 origin{sprite.origin.x, sprite.origin.y};
                     DrawTexturePro(resource->texture, source,
                                   pivotDestination(sprite.destination, origin), origin,

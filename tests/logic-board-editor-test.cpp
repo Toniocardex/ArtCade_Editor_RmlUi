@@ -4,6 +4,7 @@
 #include "editor-native/commands/global_variable_commands.h"
 #include "editor-native/commands/logic_board_commands.h"
 #include "editor-native/model/project_io.h"
+#include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/ui/logic_board_editor_controller.h"
 #include "app/render/scene_frame_snapshot.h"
 #include "logic-core.h"
@@ -94,7 +95,7 @@ static void testCommandsAndPersistence() {
 
     const auto serialized = ProjectSerializer::serialize(coordinator.document());
     CHECK(serialized.ok);
-    CHECK(serialized.value.find("\"formatVersion\": 9") != std::string::npos);
+    CHECK(serialized.value.find("\"formatVersion\": 10") != std::string::npos);
     const auto loaded = ProjectSerializer::deserialize(serialized.value);
     CHECK(loaded.ok);
     CHECK(loaded.value.data().objectTypes.at("Hero").logicBoard.has_value());
@@ -114,7 +115,7 @@ static void testCommandsAndPersistence() {
         while (end < v2.size() && (v2[end] == '\r' || v2[end] == '\n')) ++end;
         v2.erase(boardAt, end - boardAt);
     }
-    const std::string currentVersion = "\"formatVersion\": 9";
+    const std::string currentVersion = "\"formatVersion\": 10";
     const std::size_t version = v2.find(currentVersion);
     if (version != std::string::npos) {
         v2.replace(version, currentVersion.size(), "\"formatVersion\": 2");
@@ -123,7 +124,7 @@ static void testCommandsAndPersistence() {
     CHECK(migratedRaw.ok);
     auto migrated = ProjectMigration::migrate(std::move(migratedRaw.value));
     CHECK(migrated.ok);
-    CHECK(migrated.value.data().formatVersion == 9);
+    CHECK(migrated.value.data().formatVersion == 10);
     CHECK(!migrated.value.data().objectTypes.at("Hero").logicBoard.has_value());
 
     std::string malformed = serialized.value;
@@ -894,6 +895,14 @@ static void testTopDownMovementViaLogicInput() {
     const std::vector<std::string> directionOptions{"Left", "Right", "Up", "Down"};
     CHECK(move->properties[0].options == directionOptions);
 
+    const Logic::LogicBlockDescriptor* facing = Logic::findDescriptor(Logic::kSpriteSetFacing);
+    CHECK(facing != nullptr);
+    CHECK(facing->displayName == std::string("Flip Horizontal"));
+    CHECK(facing->properties.size() == 1);
+    CHECK(facing->properties[0].semantic == Logic::LogicPropertySemantic::SpriteFacing);
+    const std::vector<std::string> facingOptions{"Left", "Right"};
+    CHECK(facing->properties[0].options == facingOptions);
+
     ProjectDoc invalidDirection = makeProjectData();
     invalidDirection.objectTypes.at("Hero").topDownController = TopDownControllerComponent{};
     LogicBoardDef invalidBoard;
@@ -905,6 +914,63 @@ static void testTopDownMovementViaLogicInput() {
     invalidBoard.rules.push_back(std::move(invalidRule));
     invalidDirection.objectTypes.at("Hero").logicBoard = std::move(invalidBoard);
     CHECK(!Logic::compileProjectLogic(invalidDirection).ok());
+
+    ProjectDoc invalidFacing = makeProjectData();
+    LogicBoardDef facingBoard;
+    facingBoard.id = "logic:Hero";
+    LogicRuleDef facingRule = Logic::makeDefaultRule("rule-1");
+    facingRule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::ArrowLeft}}};
+    facingRule.actions[0] = {Logic::kSpriteSetFacing,
+                             {{"facing", LogicStringValue{"Up"}}}};
+    facingBoard.rules.push_back(std::move(facingRule));
+    invalidFacing.objectTypes.at("Hero").logicBoard = std::move(facingBoard);
+    CHECK(!Logic::compileProjectLogic(invalidFacing).ok());
+
+    ProjectDoc leftFacing = makeProjectData();
+    LogicBoardDef leftBoard;
+    leftBoard.id = "logic:Hero";
+    LogicRuleDef leftRule = Logic::makeDefaultRule("rule-1");
+    leftRule.trigger = {Logic::kOnStart, {}};
+    leftRule.actions[0] = {Logic::kSpriteSetFacing,
+                           {{"facing", LogicStringValue{"Left"}}}};
+    leftBoard.rules.push_back(std::move(leftRule));
+    leftFacing.objectTypes.at("Hero").logicBoard = std::move(leftBoard);
+    const auto leftCompiled = Logic::compileProjectLogic(leftFacing);
+    CHECK(leftCompiled.ok());
+    CHECK(leftCompiled.programs.front().source.find("set_flip_x(true)")
+          != std::string::npos);
+}
+
+static void testFlipHorizontalProjectsToSceneView() {
+    EditorCoordinator coordinator{makeProjectData()};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& board =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(board));
+    rule.trigger = {Logic::kOnStart, {}};
+    rule.actions[0] = {Logic::kSpriteSetFacing,
+                       {{"facing", LogicStringValue{"Left"}}}};
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", std::move(rule), 0}).ok);
+
+    CHECK(coordinator.playCurrentScene().ok);
+    const auto* hero = findRenderable(*coordinator.playSession(), 1);
+    CHECK(hero != nullptr);
+    CHECK(hero->sprite.flipX);
+    CHECK(!hero->sprite.flipY);
+
+    const EditorNative::SceneFrameSnapshot snap =
+        collectSceneFrameSnapshot(*coordinator.playSession());
+    const EditorNative::SceneFrameSprite* projected = nullptr;
+    for (const EditorNative::SceneFrameSprite& sprite : snap.sprites) {
+        if (sprite.entityId == 1) {
+            projected = &sprite;
+            break;
+        }
+    }
+    CHECK(projected != nullptr);
+    CHECK(projected->flipX);
+    CHECK(!projected->flipY);
+    CHECK(coordinator.stopPlaying().ok);
 }
 
 static void testPlayRuntimeIsolation() {
@@ -1574,6 +1640,7 @@ int main() {
     testIsFallingEventTrueWhileDescendingFalseWhenGroundedOrRising();
     testIsVisibleEventAndMoveBy();
     testTopDownMovementViaLogicInput();
+    testFlipHorizontalProjectsToSceneView();
     testPlayRuntimeIsolation();
     testCollisionEventOtherAndDeferredDestroy();
     testAnimationActions();

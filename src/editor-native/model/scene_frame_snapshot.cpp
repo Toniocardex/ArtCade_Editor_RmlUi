@@ -210,6 +210,8 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const PlaySession& session) {
                 : SceneFrameRect{},
             hasSource,
             rotationRadians,
+            entity.sprite.flipX,
+            entity.sprite.flipY,
         });
     };
 

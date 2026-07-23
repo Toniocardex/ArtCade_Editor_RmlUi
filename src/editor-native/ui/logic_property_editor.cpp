@@ -177,7 +177,8 @@ std::string renderLogicProperties(
             }
             html += "</div>";
         } else if (property.semantic == Logic::LogicPropertySemantic::CompareOperator
-                   || property.semantic == Logic::LogicPropertySemantic::TopDownDirection) {
+                   || property.semantic == Logic::LogicPropertySemantic::TopDownDirection
+                   || property.semantic == Logic::LogicPropertySemantic::SpriteFacing) {
             const std::string selected = stringValue(current);
             std::string entries;
             for (const std::string& option : property.options)
