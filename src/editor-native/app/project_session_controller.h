@@ -36,14 +36,15 @@ public:
     }
 
     bool saveTo(const std::filesystem::path& path);
-    bool resolveUnsavedChanges();
+    void resolveUnsavedChanges(std::function<void(bool proceed)> done);
     std::optional<AssetId> importAssetOfKind(AssetKind kind);
     std::optional<AssetId> createScript();
-    bool removeScript(const AssetId& assetId);
+    void removeScript(const AssetId& assetId);
     bool openScript(const AssetId& assetId);
     bool saveScript(const AssetId& assetId);
     bool saveAllScripts();
-    bool closeScript(const AssetId& assetId);
+    void closeScript(const AssetId& assetId,
+                     std::function<void(bool closed)> done = {});
     bool requestPlayProject();
     bool requestPlayCurrentScene();
     bool restartAndApplyScripts();

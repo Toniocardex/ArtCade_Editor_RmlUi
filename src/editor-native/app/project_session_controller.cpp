@@ -1,6 +1,5 @@
 #include "editor-native/app/project_session_controller.h"
 
-#include "editor-native/app/confirm_dialog.h"
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/app/file_dialog.h"
 #include "editor-native/app/new_project_transaction.h"
@@ -143,7 +142,7 @@ void ProjectSessionController::bindUi() {
         [this](const AssetId& id) { openScript(id); },
         [this](const AssetId& id) { saveScript(id); },
         [this]() { saveAllScripts(); },
-        [this](const AssetId& id) { return closeScript(id); },
+        [this](const AssetId& id) { closeScript(id); },
         [this]() { restartAndApplyScripts(); });
     ui_.setImportImageForAnimationHandler(
         [this]() { return importAssetOfKind(AssetKind::Image); });
@@ -231,11 +230,18 @@ bool ProjectSessionController::saveCurrent() {
     return saveTo(currentProjectPath_);
 }
 
-bool ProjectSessionController::resolveUnsavedChanges() {
-    if (!ui_.resolvePendingEdits().resolved()) return false;
+void ProjectSessionController::resolveUnsavedChanges(std::function<void(bool proceed)> done) {
+    if (!done) return;
+    if (!ui_.resolvePendingEdits().resolved()) {
+        done(false);
+        return;
+    }
     const bool projectDirty = coordinator_.document().isDirty();
     const bool scriptsDirty = coordinator_.state().scriptEditor.anyDirty();
-    if (!projectDirty && !scriptsDirty) return true;
+    if (!projectDirty && !scriptsDirty) {
+        done(true);
+        return;
+    }
     std::string detail;
     if (projectDirty) detail = "Project";
     for (const ScriptEditorBuffer& buffer : coordinator_.state().scriptEditor.buffers) {
@@ -244,9 +250,16 @@ bool ProjectSessionController::resolveUnsavedChanges() {
         const ScriptAssetDef* asset = coordinator_.document().findScriptAsset(buffer.scriptAssetId);
         detail += asset && !asset->name.empty() ? asset->name : buffer.scriptAssetId;
     }
-    const UnsavedChoice choice = confirmUnsavedChanges(detail);
-    const bool saveOk = choice == UnsavedChoice::Save ? saveCurrent() : false;
-    return resolveUnsavedGuard(true, choice, saveOk) == GuardOutcome::Proceed;
+    if (!ui_.promptSaveDiscardCancel(
+            "Unsaved changes",
+            "There are unsaved changes:\n\n" + detail,
+            "Save them before continuing?",
+            [this, done = std::move(done)](UnsavedChoice choice) {
+                const bool saveOk = choice == UnsavedChoice::Save ? saveCurrent() : false;
+                done(resolveUnsavedGuard(true, choice, saveOk) == GuardOutcome::Proceed);
+            })) {
+        done(false);
+    }
 }
 
 void ProjectSessionController::requestNewProject() {
@@ -254,24 +267,26 @@ void ProjectSessionController::requestNewProject() {
         coordinator_.logWarning("Stop Play before creating a new project");
         return;
     }
-    if (!resolveUnsavedChanges()) return;
-    const auto picked = saveProjectFileDialog(
-        suggestedProjectSavePath(coordinator_.document().data()));
-    const std::optional<std::filesystem::path> destination = picked
-        ? std::optional<std::filesystem::path>{normalizeProjectSavePath(*picked)}
-        : std::nullopt;
-    ProjectDoc fresh;
-    if (destination) fresh.projectName = destination->stem().string();
-    const NewProjectResult created = createNewProjectTransaction(
-        coordinator_, ProjectDocument{std::move(fresh)}, destination);
-    if (created.cancelled) return;
-    if (!created.ok) {
-        coordinator_.logError("New project failed: " + created.error.message);
-        return;
-    }
-    textureCache_.clear();
-    setCurrentProjectPath(created.destination);
-    coordinator_.logInfo("New project");
+    resolveUnsavedChanges([this](bool proceed) {
+        if (!proceed) return;
+        const auto picked = saveProjectFileDialog(
+            suggestedProjectSavePath(coordinator_.document().data()));
+        const std::optional<std::filesystem::path> destination = picked
+            ? std::optional<std::filesystem::path>{normalizeProjectSavePath(*picked)}
+            : std::nullopt;
+        ProjectDoc fresh;
+        if (destination) fresh.projectName = destination->stem().string();
+        const NewProjectResult created = createNewProjectTransaction(
+            coordinator_, ProjectDocument{std::move(fresh)}, destination);
+        if (created.cancelled) return;
+        if (!created.ok) {
+            coordinator_.logError("New project failed: " + created.error.message);
+            return;
+        }
+        textureCache_.clear();
+        setCurrentProjectPath(created.destination);
+        coordinator_.logInfo("New project");
+    });
 }
 
 void ProjectSessionController::requestOpenProject() {
@@ -279,17 +294,19 @@ void ProjectSessionController::requestOpenProject() {
         coordinator_.logWarning("Stop Play before opening another project");
         return;
     }
-    if (!resolveUnsavedChanges()) return;
-    const std::optional<std::filesystem::path> picked = openProjectFileDialog();
-    if (!picked) return;
-    const ProjectLoadResult result = loadProjectFromFile(coordinator_, *picked);
-    if (!result.ok) {
-        coordinator_.logError("Open failed: " + result.error.message);
-        return;
-    }
-    textureCache_.clear();
-    setCurrentProjectPath(*picked);
-    coordinator_.logInfo("Opened " + picked->filename().string());
+    resolveUnsavedChanges([this](bool proceed) {
+        if (!proceed) return;
+        const std::optional<std::filesystem::path> picked = openProjectFileDialog();
+        if (!picked) return;
+        const ProjectLoadResult result = loadProjectFromFile(coordinator_, *picked);
+        if (!result.ok) {
+            coordinator_.logError("Open failed: " + result.error.message);
+            return;
+        }
+        textureCache_.clear();
+        setCurrentProjectPath(*picked);
+        coordinator_.logInfo("Opened " + picked->filename().string());
+    });
 }
 
 void ProjectSessionController::requestSaveAs() {
@@ -359,63 +376,111 @@ std::optional<AssetId> ProjectSessionController::createScript() {
     return result.assetId;
 }
 
-bool ProjectSessionController::removeScript(const AssetId& assetId) {
+void ProjectSessionController::removeScript(const AssetId& assetId) {
     if (coordinator_.isPlaying()) {
         coordinator_.logWarning("Stop Play before deleting scripts");
-        return false;
+        return;
     }
     if (currentProjectPath_.empty()) {
         coordinator_.logError("Delete script failed: save the project first");
-        return false;
+        return;
     }
     const ScriptAssetDef* asset = coordinator_.document().findScriptAsset(assetId);
     if (!asset) {
         coordinator_.logError("Delete script failed: unknown script asset");
-        return false;
+        return;
     }
     const std::vector<AssetId> referenced =
         coordinator_.document().referencedScriptAssetIds(false);
     if (std::find(referenced.begin(), referenced.end(), assetId) != referenced.end()) {
         coordinator_.logError(
             "Cannot remove Script Asset while it is attached to an Object Type");
-        return false;
+        return;
     }
     const std::string name = !asset->name.empty() ? asset->name : assetId;
     const std::string sourcePath = asset->sourcePath;
-    if (!confirmDeleteScriptAsset(name, sourcePath)) return false;
-
-    if (!closeScript(assetId)) return false;
-
-    // Revalidate after dialogs: attachments or identity may have changed.
-    asset = coordinator_.document().findScriptAsset(assetId);
-    if (!asset) {
-        coordinator_.logError("Delete script failed: script was removed while confirming");
-        return false;
+    if (!ui_.promptDangerConfirm(
+            "Delete Script?",
+            "Delete Script \"" + name + "\" and permanently remove:\n\n" + sourcePath,
+            "Undo can restore the file contents recorded at deletion, but this "
+            "cannot recover unsaved editor drafts discarded first.",
+            "Delete Script and file",
+            [this, assetId, name](bool confirmed) {
+                if (!confirmed) return;
+                closeScript(assetId, [this, assetId, name](bool closed) {
+                    if (!closed) return;
+                    const ScriptAssetDef* asset =
+                        coordinator_.document().findScriptAsset(assetId);
+                    if (!asset) {
+                        coordinator_.logError(
+                            "Delete script failed: script was removed while confirming");
+                        return;
+                    }
+                    const std::vector<AssetId> referencedAgain =
+                        coordinator_.document().referencedScriptAssetIds(false);
+                    if (std::find(referencedAgain.begin(), referencedAgain.end(), assetId)
+                        != referencedAgain.end()) {
+                        coordinator_.logError(
+                            "Cannot remove Script Asset while it is attached to an Object Type");
+                        return;
+                    }
+                    const ScriptDirtyBufferQuery dirtyQuery =
+                        [this](const AssetId& id) {
+                            const ScriptEditorBuffer* buffer =
+                                coordinator_.state().scriptEditor.find(id);
+                            return buffer && buffer->dirty();
+                        };
+                    const ScriptAssetWorkflowResult result = removeScriptAsset(
+                        coordinator_, currentProjectPath_.parent_path(), assetId, dirtyQuery);
+                    if (!result.ok) {
+                        coordinator_.logError(result.error);
+                        return;
+                    }
+                    coordinator_.logInfo("Deleted Script " + name);
+                    refreshWindowTitleIfNeeded();
+                });
+            })) {
+        return;
     }
-    const std::vector<AssetId> referencedAgain =
-        coordinator_.document().referencedScriptAssetIds(false);
-    if (std::find(referencedAgain.begin(), referencedAgain.end(), assetId)
-        != referencedAgain.end()) {
-        coordinator_.logError(
-            "Cannot remove Script Asset while it is attached to an Object Type");
-        return false;
-    }
+}
 
-    const ScriptDirtyBufferQuery dirtyQuery =
-        [this](const AssetId& id) {
-            const ScriptEditorBuffer* buffer =
-                coordinator_.state().scriptEditor.find(id);
-            return buffer && buffer->dirty();
-        };
-    const ScriptAssetWorkflowResult result = removeScriptAsset(
-        coordinator_, currentProjectPath_.parent_path(), assetId, dirtyQuery);
-    if (!result.ok) {
-        coordinator_.logError(result.error);
-        return false;
+void ProjectSessionController::closeScript(const AssetId& assetId,
+                                           std::function<void(bool closed)> done) {
+    const auto finish = [done = std::move(done)](bool closed) {
+        if (done) done(closed);
+    };
+    const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.find(assetId);
+    if (!buffer) {
+        finish(true);
+        return;
     }
-    coordinator_.logInfo("Deleted Script " + name);
-    refreshWindowTitleIfNeeded();
-    return true;
+    if (!buffer->dirty()) {
+        const bool ok = coordinator_.apply(CloseScriptBufferIntent{assetId}).ok;
+        refreshWindowTitleIfNeeded();
+        finish(ok);
+        return;
+    }
+    const ScriptAssetDef* asset = coordinator_.document().findScriptAsset(assetId);
+    const std::string name = asset && !asset->name.empty() ? asset->name : assetId;
+    if (!ui_.promptSaveDiscardCancel(
+            "Unsaved script",
+            "\"" + name + "\" has unsaved changes.",
+            "Save them before closing?",
+            [this, assetId, finish = std::move(finish)](UnsavedChoice choice) {
+                if (choice == UnsavedChoice::Cancel) {
+                    finish(false);
+                    return;
+                }
+                if (choice == UnsavedChoice::Save && !saveScript(assetId)) {
+                    finish(false);
+                    return;
+                }
+                const bool ok = coordinator_.apply(CloseScriptBufferIntent{assetId}).ok;
+                refreshWindowTitleIfNeeded();
+                finish(ok);
+            })) {
+        finish(false);
+    }
 }
 
 bool ProjectSessionController::openScript(const AssetId& assetId) {
@@ -479,21 +544,6 @@ bool ProjectSessionController::saveAllScripts() {
         if (buffer.dirty()) dirty.push_back(buffer.scriptAssetId);
     for (const AssetId& id : dirty) if (!saveScript(id)) return false;
     return true;
-}
-
-bool ProjectSessionController::closeScript(const AssetId& assetId) {
-    const ScriptEditorBuffer* buffer = coordinator_.state().scriptEditor.find(assetId);
-    if (!buffer) return true;
-    if (buffer->dirty()) {
-        const ScriptAssetDef* asset = coordinator_.document().findScriptAsset(assetId);
-        const std::string name = asset && !asset->name.empty() ? asset->name : assetId;
-        const UnsavedChoice choice = confirmUnsavedChanges(name);
-        if (choice == UnsavedChoice::Cancel) return false;
-        if (choice == UnsavedChoice::Save && !saveScript(assetId)) return false;
-    }
-    const bool ok = coordinator_.apply(CloseScriptBufferIntent{assetId}).ok;
-    refreshWindowTitleIfNeeded();
-    return ok;
 }
 
 std::optional<std::vector<Scripts::ScriptProgram>>

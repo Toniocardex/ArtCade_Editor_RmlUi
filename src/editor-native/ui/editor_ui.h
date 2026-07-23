@@ -1,8 +1,10 @@
 #pragma once
 
 #include "core/types.h"
+#include "editor-native/commands/domain_change.h"
 #include "editor-native/commands/editor_invalidation.h"
 #include "editor-native/app/pending_edit.h"
+#include "editor-native/app/unsaved_guard.h"
 #include "editor-native/app/sfx_batch.h"
 #include "editor-native/ui/assets_panel.h"
 #include "editor-native/ui/console_panel.h"
@@ -99,7 +101,7 @@ public:
     void setImportHandler(ImportAssetRequest importAsset);
     void setCreateScriptHandler(ProjectFileRequest createScript);
     using ScriptAssetRequest = std::function<void(const AssetId&)>;
-    using ScriptCloseRequest = std::function<bool(const AssetId&)>;
+    using ScriptCloseRequest = std::function<void(const AssetId&)>;
     void setRemoveScriptHandler(ScriptAssetRequest removeScript);
     void setScriptEditorHandlers(ScriptAssetRequest openScript,
                                  ScriptAssetRequest saveScript,
@@ -122,7 +124,7 @@ public:
     // tilesForSlicing + reconcileTiles and executes ChangeTilesetSlicingCommand.
     void setTilesetApplySlicingHandler(WorkspaceRequest applyTilesetSlicing);
     // Close the Tileset Editor. The application owns the guard (pending
-    // slicing dirty -> native Apply/Discard/Cancel prompt) because only it
+    // slicing dirty -> themed Apply/Discard/Cancel confirm) because only it
     // can run the apply flow; unset falls back to closing unconditionally.
     void setTilesetCloseHandler(WorkspaceRequest closeTileset);
     // Create a tileset from an image asset. The application slices the
@@ -198,6 +200,26 @@ public:
     void hideContextMenus();
     bool isContextMenuHit(int physicalX, int physicalY) const;
     bool hasOpenContextMenu() const;
+
+    // Shared themed confirm modal (UI-local; Escape → Cancel).
+    enum class ConfirmChoice { Cancel, Secondary, Primary };
+    using ConfirmResultHandler = std::function<void(ConfirmChoice)>;
+    using UnsavedResultHandler = std::function<void(UnsavedChoice)>;
+    using BoolResultHandler = std::function<void(bool confirmed)>;
+    bool hasOpenConfirm() const;
+    void cancelConfirm();   // Escape / dismiss → Cancel continuation
+    // Returns false if a confirm is already open (caller should not proceed).
+    bool openConfirm(std::string title, std::string copy, std::string hint,
+                     std::string secondaryLabel, std::string primaryLabel,
+                     std::string primaryClass, ConfirmResultHandler onResult);
+    bool promptSaveDiscardCancel(std::string title, std::string copy, std::string hint,
+                                 UnsavedResultHandler onResult,
+                                 std::string discardLabel = "Don't Save",
+                                 std::string saveLabel = "Save");
+    bool promptDangerConfirm(std::string title, std::string copy, std::string hint,
+                             std::string primaryLabel, BoolResultHandler onResult);
+    bool promptWarningConfirm(std::string title, std::string copy, std::string hint,
+                              std::string primaryLabel, BoolResultHandler onResult);
 
     // Copies the selected Console message (full model text) to the clipboard via
     // raylib's SetClipboardText. The single entry point shared by the Copy button
@@ -358,6 +380,24 @@ private:
     std::optional<PendingAssetMenu>     pendingAssetMenu_;
     bool                                logicTypeMenuVisible_ = false;
     bool                                logicMoreMenuVisible_ = false;
+    struct PendingEditorConfirm {
+        std::string title;
+        std::string copy;
+        std::string hint;
+        std::string secondaryLabel;   // empty → two-button layout
+        std::string primaryLabel;
+        std::string primaryClass;     // "primary" | "danger"
+        ConfirmResultHandler onResult;
+    };
+    std::optional<PendingEditorConfirm> pendingConfirm_;
+    void refreshConfirmModal();
+    bool handleConfirmAction(const std::string& action);
+    // ADR-0013 — remove controller still referenced by Logic (three-button confirm).
+    void openComponentLogicRemovePrompt(ComponentKind kind, ObjectTypeId objectTypeId,
+                                        std::string displayName,
+                                        std::size_t actionCount, std::size_t conditionCount,
+                                        std::size_t triggerCount, LogicRuleId focusRuleId,
+                                        std::string focusBlockTypeId);
     std::string                         pointerReadout_;   // last coords text shown
     // Modal RML rebuild is deferred until the active event dispatch ends.
     bool                                generatedSfxRefreshPending_ = false;

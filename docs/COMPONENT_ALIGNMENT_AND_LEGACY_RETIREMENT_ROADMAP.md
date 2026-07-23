@@ -67,7 +67,7 @@ contract:
 
 | Capability | Initial disposition | Dependency / decision needed |
 |---|---|---|
-| `CollisionBody` / `Physics` | **Architectural decision first** | Must not coexist as a second collision authority beside `BoxCollider2D`. |
+| `CollisionBody` / `Physics` | **Derived runtime only** (ADR-0014) | Not a second authoring authority beside `BoxCollider2D`. |
 | `CameraTarget` | **Authorable** | Instance-owned, one target per scene; see `ADR-0003-camera-target-authority.md`. |
 | `AutoDestroy` | **Authorable** | Object Type-owned lifetime; finite, non-negative seconds; `0` disables expiry; runtime elapsed time is never persisted. |
 | `Text` | Candidate after rendering audit | Font asset reference, render contract, binding/value formatting. |
@@ -119,23 +119,27 @@ not be silently accepted then discarded on save.
 - **Proof:** core tests cover commands, uniqueness, invalid values, Undo/Redo,
   round-trip and Play camera position; the RmlUi executable compiles.
 
-### 3.3 Collision is a deliberate fork in the roadmap
+### 3.3 Collision authority — closed by ADR-0014
 
-`BoxCollider2D` is the current simple authoring component. `CollisionBody` is a
-richer runtime representation with shapes, layers/profiles and response rules.
-Adding both independently would create competing collision definitions.
+`BoxCollider2D` is the **sole persistent collision authoring component**.
+`CollisionBody` is a richer **session-local** runtime representation
+(shapes, layers/profiles, response rules). They must not coexist as two
+editable authorities.
 
-Before implementation, an ADR must choose one model:
+**Decision (Accepted):**
+[`ADR-0014-boxcollider2d-collision-authority.md`](ADR-0014-boxcollider2d-collision-authority.md)
+chooses option 2 — retain `BoxCollider2D` as the limited authoring profile
+that materialises deterministically into a derived `CollisionBody` on the
+shared runtime spawn/load path (Editor Play, `game.exe`, WASM, tests).
+Authoring `EntityDef.collisionBody` is retired from the current project form
+(JSON key ignored on load; writers never emit it). Session-local
+`CollisionBody` remains the derived runtime projection from `boxCollider2D`.
+Legacy multi-shape / circle / layer profiles are technical debt — no silent
+crush into BoxCollider2D.
 
-1. replace `BoxCollider2D` with `CollisionBody` through an explicit migration;
-   or
-2. retain `BoxCollider2D` as a deliberately limited authoring profile that
-   materialises into `CollisionBody`, with exactly one documented source of
-   truth.
-
-The ADR must cover ownership, project schema, migration, shape/profile policy,
-Play materialisation, Editor viewport overlay, Undo, and a removal plan for the
-obsolete representation.
+A future ADR may still choose full `CollisionBody` authoring (former
+option 1), but only via an explicit migration **from** `BoxCollider2D`,
+never by dual-write or dual Inspector surfaces.
 
 ## 4. Required design record for each component
 

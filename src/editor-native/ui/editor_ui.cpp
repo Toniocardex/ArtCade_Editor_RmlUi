@@ -1,11 +1,11 @@
 #include "editor-native/ui/editor_ui.h"
 
-#include "editor-native/app/confirm_dialog.h"
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/app/hierarchy_actions.h"
 #include "editor-native/app/inspector_actions.h"
 #include "editor-native/app/asset_import.h"
 #include "editor-native/app/inspector_commit.h"
+#include "editor-native/commands/domain_change.h"
 #include "editor-native/commands/entity_commands.h"
 #include "editor-native/commands/scene_commands.h"
 #include "editor-native/commands/scene_layer_commands.h"
@@ -1073,6 +1073,8 @@ void EditorUi::hideContextMenus() {
 
 bool EditorUi::isContextMenuHit(int physicalX, int physicalY) const {
     if (!document_) return false;
+    // Full-window confirm modal owns the pointer while open (blocks Scene View).
+    if (pendingConfirm_) return true;
     const auto hits = [&](const char* id, bool visible) {
         if (!visible) return false;
         Rml::Element* menu = document_->GetElementById(id);
@@ -1365,9 +1367,9 @@ void EditorUi::refreshGeneratedSfxEditor() {
             const std::string createError = !sfxView.createFromCurrentError.empty()
                 ? sfxView.createFromCurrentError : createAvailability.reason;
             std::string dialogHtml =
-                "<div class=\"sfx-modal\">"
-                "<span class=\"sfx-modal-title\">Create New Sound</span>"
-                "<span class=\"sfx-modal-copy\">Creates an independent sound using the current recipe.<br/>"
+                "<div class=\"editor-modal\">"
+                "<span class=\"editor-modal-title\">Create New Sound</span>"
+                "<span class=\"editor-modal-copy\">Creates an independent sound using the current recipe.\n"
                 "The original sound will not be changed.</span>"
                 "<span class=\"sfx-modal-label\">Name</span>"
                 "<input id=\"sfx-create-from-current-name\" class=\"sfx-modal-input\" type=\"text\" "
@@ -1376,7 +1378,7 @@ void EditorUi::refreshGeneratedSfxEditor() {
             if (!projectSaved) {
                 dialogHtml +=
                     "<span class=\"sfx-modal-error\">Save the project before creating an audio asset</span>"
-                    "<div class=\"sfx-modal-actions\">"
+                    "<div class=\"editor-modal-actions\">"
                     "<button class=\"panel-btn\" data-action=\"cancel-sfx-create-from-current\">Cancel</button>"
                     "<button class=\"panel-btn\" data-action=\"save-project\">Save Project&#8230;</button>"
                     "<button id=\"btn-sfx-create-from-current-confirm\" class=\"panel-btn primary disabled\">Create and Generate</button>"
@@ -1384,7 +1386,7 @@ void EditorUi::refreshGeneratedSfxEditor() {
             } else {
                 dialogHtml +=
                     "<span class=\"sfx-modal-error\">" + escapeRml(createError) + "</span>"
-                    "<div class=\"sfx-modal-actions\">"
+                    "<div class=\"editor-modal-actions\">"
                     "<button class=\"panel-btn\" data-action=\"cancel-sfx-create-from-current\">Cancel</button>"
                     "<button class=\"panel-btn primary"
                     + std::string(canCreate ? "" : " disabled")
@@ -1687,7 +1689,155 @@ std::string sfxMacroRow(const SfxMacro& macro, const artcade::sfx::SfxRecipe& re
 
 bool EditorUi::hasOpenContextMenu() const {
     return viewportContextMenuVisible_ || hierarchyContextMenuVisible_
-        || assetsContextMenuVisible_ || logicTypeMenuVisible_ || logicMoreMenuVisible_;
+        || assetsContextMenuVisible_ || logicTypeMenuVisible_ || logicMoreMenuVisible_
+        || pendingConfirm_.has_value();
+}
+
+bool EditorUi::hasOpenConfirm() const {
+    return pendingConfirm_.has_value();
+}
+
+void EditorUi::cancelConfirm() {
+    if (!pendingConfirm_) return;
+    ConfirmResultHandler onResult = std::move(pendingConfirm_->onResult);
+    pendingConfirm_.reset();
+    refreshConfirmModal();
+    if (onResult) onResult(ConfirmChoice::Cancel);
+}
+
+bool EditorUi::openConfirm(std::string title, std::string copy, std::string hint,
+                           std::string secondaryLabel, std::string primaryLabel,
+                           std::string primaryClass, ConfirmResultHandler onResult) {
+    if (pendingConfirm_) return false;
+    PendingEditorConfirm pending;
+    pending.title = std::move(title);
+    pending.copy = std::move(copy);
+    pending.hint = std::move(hint);
+    pending.secondaryLabel = std::move(secondaryLabel);
+    pending.primaryLabel = std::move(primaryLabel);
+    pending.primaryClass = primaryClass.empty() ? "primary" : std::move(primaryClass);
+    pending.onResult = std::move(onResult);
+    pendingConfirm_ = std::move(pending);
+    hideContextMenus();
+    refreshConfirmModal();
+    return true;
+}
+
+bool EditorUi::promptSaveDiscardCancel(std::string title, std::string copy, std::string hint,
+                                       UnsavedResultHandler onResult,
+                                       std::string discardLabel, std::string saveLabel) {
+    return openConfirm(std::move(title), std::move(copy), std::move(hint),
+                       std::move(discardLabel), std::move(saveLabel), "primary",
+                       [handler = std::move(onResult)](ConfirmChoice choice) {
+                           if (!handler) return;
+                           switch (choice) {
+                               case ConfirmChoice::Primary:   handler(UnsavedChoice::Save); break;
+                               case ConfirmChoice::Secondary: handler(UnsavedChoice::Discard); break;
+                               case ConfirmChoice::Cancel:    handler(UnsavedChoice::Cancel); break;
+                           }
+                       });
+}
+
+bool EditorUi::promptDangerConfirm(std::string title, std::string copy, std::string hint,
+                                   std::string primaryLabel, BoolResultHandler onResult) {
+    return openConfirm(std::move(title), std::move(copy), std::move(hint),
+                       {}, std::move(primaryLabel), "danger",
+                       [handler = std::move(onResult)](ConfirmChoice choice) {
+                           if (handler) handler(choice == ConfirmChoice::Primary);
+                       });
+}
+
+bool EditorUi::promptWarningConfirm(std::string title, std::string copy, std::string hint,
+                                    std::string primaryLabel, BoolResultHandler onResult) {
+    return openConfirm(std::move(title), std::move(copy), std::move(hint),
+                       {}, std::move(primaryLabel), "danger",
+                       [handler = std::move(onResult)](ConfirmChoice choice) {
+                           if (handler) handler(choice == ConfirmChoice::Primary);
+                       });
+}
+
+void EditorUi::refreshConfirmModal() {
+    if (!document_) return;
+    Rml::Element* host = document_->GetElementById("editor-confirm-modal");
+    if (!host) return;
+    if (!pendingConfirm_) {
+        host->SetInnerRML("");
+        host->SetClass("hidden", true);
+        return;
+    }
+    const PendingEditorConfirm& p = *pendingConfirm_;
+    std::string html =
+        "<div class=\"editor-modal\">"
+        "<span class=\"editor-modal-title\">" + escapeRml(p.title) + "</span>"
+        "<span class=\"editor-modal-copy\">" + escapeRml(p.copy) + "</span>";
+    if (!p.hint.empty()) {
+        html += "<span class=\"editor-modal-hint\">" + escapeRml(p.hint) + "</span>";
+    }
+    html += "<div class=\"editor-modal-actions\">"
+            "<button class=\"panel-btn\" data-action=\"confirm-cancel\">Cancel</button>";
+    if (!p.secondaryLabel.empty()) {
+        html += "<button class=\"panel-btn\" data-action=\"confirm-secondary\">"
+            + escapeRml(p.secondaryLabel) + "</button>";
+    }
+    html += "<button class=\"panel-btn " + escapeRml(p.primaryClass)
+        + "\" data-action=\"confirm-primary\">"
+        + escapeRml(p.primaryLabel) + "</button>"
+        "</div></div>";
+    host->SetInnerRML(html);
+    host->SetClass("hidden", false);
+}
+
+bool EditorUi::handleConfirmAction(const std::string& action) {
+    if (!pendingConfirm_) return false;
+    ConfirmChoice choice = ConfirmChoice::Cancel;
+    if (action == "confirm-cancel") {
+        choice = ConfirmChoice::Cancel;
+    } else if (action == "confirm-secondary") {
+        if (pendingConfirm_->secondaryLabel.empty()) return false;
+        choice = ConfirmChoice::Secondary;
+    } else if (action == "confirm-primary") {
+        choice = ConfirmChoice::Primary;
+    } else {
+        return false;
+    }
+    ConfirmResultHandler onResult = std::move(pendingConfirm_->onResult);
+    pendingConfirm_.reset();
+    refreshConfirmModal();
+    if (onResult) onResult(choice);
+    return true;
+}
+
+void EditorUi::openComponentLogicRemovePrompt(
+    ComponentKind kind, ObjectTypeId objectTypeId, std::string displayName,
+    std::size_t actionCount, std::size_t conditionCount, std::size_t triggerCount,
+    LogicRuleId focusRuleId, std::string focusBlockTypeId) {
+    const std::string copy = std::to_string(actionCount) + " Logic action(s), "
+        + std::to_string(conditionCount) + " condition(s), and "
+        + std::to_string(triggerCount)
+        + " trigger(s) require this component.";
+    openConfirm(
+        "Remove " + displayName + "?",
+        copy,
+        "The blocks will remain in the Logic Board but will not run until they "
+        "are replaced or the component is restored.",
+        "Review References",
+        "Remove and Keep Logic",
+        "danger",
+        [this, kind, objectTypeId = std::move(objectTypeId),
+         focusRuleId = std::move(focusRuleId),
+         focusBlockTypeId = std::move(focusBlockTypeId)](ConfirmChoice choice) {
+            if (choice == ConfirmChoice::Cancel) return;
+            if (choice == ConfirmChoice::Secondary) {
+                coordinator_.apply(FocusLogicDiagnosticIntent{
+                    objectTypeId, focusRuleId, focusBlockTypeId, {}});
+                return;
+            }
+            if (kind == ComponentKind::TopDownController) {
+                removeTopDownController(coordinator_);
+            } else if (kind == ComponentKind::PlatformerController) {
+                removePlatformerController(coordinator_);
+            }
+        });
 }
 
 void EditorUi::toggleLogicTypeMenu() {
@@ -2081,6 +2231,8 @@ void EditorUi::commitGridCellSize(const std::string& text) {
 void EditorUi::handleAction(const std::string& action, const std::string& arg,
                             const std::string& value) {
     if (actionRequiresPendingEditGate(action) && !resolvePendingEdits().resolved()) return;
+
+    if (handleConfirmAction(action)) return;
 
     const EntityId selected = coordinator_.selection().primaryEntity;
 
@@ -2551,21 +2703,12 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
             if (!refs.empty()) {
                 const auto* meta = Logic::requiredComponentDescriptor(
                     Logic::LogicRequiredComponent::TopDownController);
-                switch (confirmRemoveComponentWithLogicRefs(
+                const LogicComponentReference& first = refs.references.front();
+                openComponentLogicRemovePrompt(
+                    ComponentKind::TopDownController, instance->objectTypeId,
                     meta ? meta->displayName : "Top Down Controller",
-                    refs.actionCount(), refs.conditionCount(), refs.triggerCount())) {
-                case ComponentLogicRemoveChoice::Cancel:
-                    break;
-                case ComponentLogicRemoveChoice::ReviewReferences: {
-                    const LogicComponentReference& first = refs.references.front();
-                    coordinator_.apply(FocusLogicDiagnosticIntent{
-                        instance->objectTypeId, first.ruleId, first.typeId, {}});
-                    break;
-                }
-                case ComponentLogicRemoveChoice::RemoveAndKeepLogic:
-                    removeTopDownController(coordinator_);
-                    break;
-                }
+                    refs.actionCount(), refs.conditionCount(), refs.triggerCount(),
+                    first.ruleId, first.typeId);
             } else {
                 removeTopDownController(coordinator_);
             }
@@ -2608,21 +2751,12 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
             if (!refs.empty()) {
                 const auto* meta = Logic::requiredComponentDescriptor(
                     Logic::LogicRequiredComponent::PlatformerController);
-                switch (confirmRemoveComponentWithLogicRefs(
+                const LogicComponentReference& first = refs.references.front();
+                openComponentLogicRemovePrompt(
+                    ComponentKind::PlatformerController, instance->objectTypeId,
                     meta ? meta->displayName : "Platformer Controller",
-                    refs.actionCount(), refs.conditionCount(), refs.triggerCount())) {
-                case ComponentLogicRemoveChoice::Cancel:
-                    break;
-                case ComponentLogicRemoveChoice::ReviewReferences: {
-                    const LogicComponentReference& first = refs.references.front();
-                    coordinator_.apply(FocusLogicDiagnosticIntent{
-                        instance->objectTypeId, first.ruleId, first.typeId, {}});
-                    break;
-                }
-                case ComponentLogicRemoveChoice::RemoveAndKeepLogic:
-                    removePlatformerController(coordinator_);
-                    break;
-                }
+                    refs.actionCount(), refs.conditionCount(), refs.triggerCount(),
+                    first.ruleId, first.typeId);
             } else {
                 removePlatformerController(coordinator_);
             }

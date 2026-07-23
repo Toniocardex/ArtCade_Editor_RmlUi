@@ -428,8 +428,8 @@
 .logic-diagnostic { display: block; margin: 5dp 10dp; padding: 7dp; color: #e5706b; background-color: #2a1f20; border-width: 0dp; text-align: left; font-size: 12dp; width: 100%; }
 .logic-diagnostic.warning { color: #a1a1aa; background-color: #1f1f23; }
 .logic-diagnostic:hover { background-color: #3a2829; }
-.logic-diagnostic.logic-diagnostic-focus { outline: 1dp solid #e5706b; }
-.logic-rule.logic-rule-focus { outline: 1dp solid #5b8def; }
+.logic-diagnostic.logic-diagnostic-focus { border: 1dp #e5706b; }
+.logic-rule.logic-rule-focus { border-color: #5b8def; }
 .logic-repair-banner { margin: 8dp 10dp 4dp 10dp; padding: 10dp; background-color: #2a1f20; }
 .logic-repair-title { color: #e5706b; font-weight: bold; margin-bottom: 4dp; }
 .logic-repair-actions { margin-top: 8dp; }

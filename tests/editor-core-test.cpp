@@ -5894,6 +5894,26 @@ int main() {
         CHECK(bounds[1].worldBounds.y == 193.f);
         CHECK(!bounds[1].selected);
 
+        // Instance scale must enlarge/shrink the overlay the same way Play
+        // scales CollisionWorld::shapeInstance (ADR-0014 local size × |scale|).
+        {
+            CHECK(c.execute(SetEntityTransformCommand{
+                kSceneA, kHero,
+                AuthoredTransformPatch{std::nullopt, std::nullopt, Vec2{2.f, 0.5f}}}).ok);
+            const std::vector<SceneFrameCollider> scaled =
+                collectBoxColliderBounds(c.document(), kSceneA, kHero);
+            CHECK(scaled.size() == 2);
+            const SceneFrameCollider* heroBounds = nullptr;
+            for (const SceneFrameCollider& b : scaled) {
+                if (b.selected) { heroBounds = &b; break; }
+            }
+            CHECK(heroBounds != nullptr);
+            if (heroBounds) {
+                CHECK(heroBounds->worldBounds.width == 20.f);
+                CHECK(heroBounds->worldBounds.height == 10.f);
+            }
+        }
+
         CHECK(c.execute(SetBoxColliderModeCommand{"Hero", BoxColliderMode::Trigger}).ok);
         const std::vector<SceneFrameCollider> triggerBounds =
             collectBoxColliderBounds(c.document(), kSceneA, INVALID_ENTITY);

@@ -1,7 +1,6 @@
 #include "editor-native/app/editor_app.h"
 
 #include "editor-native/app/asset_import.h"
-#include "editor-native/app/confirm_dialog.h"
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/app/editor_input.h"
 #include "editor-native/app/file_dialog.h"
@@ -18,6 +17,7 @@
 #include "editor-native/app/scene_view_interaction.h"
 #include "editor-native/app/sprite_animation_canvas_input.h"
 #include "editor-native/app/sprite_animation_preview_renderer.h"
+#include "editor-native/app/unsaved_guard.h"
 #include "editor-native/app/tile_palette_renderer.h"
 #include "editor-native/app/tilemap_paint_input.h"
 #include "editor-native/app/tileset_editor_canvas_input.h"
@@ -602,99 +602,143 @@ int EditorApp::run(int argc, char** argv) {
         const TextureResource* resource = textureCache.find(imageAssetId);
         return (resource && resource->loaded) ? resource : nullptr;
     };
-    // The one apply flow for the pending slicing, shared by the Apply button
-    // and the close guard's "Apply" answer. Returns whether the pending
-    // config is now committed (true also when there was nothing to change);
-    // false covers every abort: no editor, missing image, unfittable tile
-    // size, impact dialog cancelled, command failure.
-    const std::function<bool()> tryApplyPendingTilesetSlicing = [&]() -> bool {
+    // Shared apply flow for pending tileset slicing. When painted cells would
+    // be cleared, opens a themed confirm first; `done` receives whether the
+    // pending config is now committed (true also when nothing changed).
+    const std::function<void(std::function<void(bool)>)> tryApplyPendingTilesetSlicing =
+        [&](std::function<void(bool)> done) {
+        const auto finish = [done = std::move(done)](bool ok) {
+            if (done) done(ok);
+        };
         const TilesetEditorState& state = coordinator.state().tilesetEditor;
         if (!state.openAssetId) {
             coordinator.logWarning("Open a tileset before applying slicing");
-            return false;
+            finish(false);
+            return;
         }
         const TilesetAsset* asset = coordinator.document().findTilesetAsset(*state.openAssetId);
         if (!asset) {
             coordinator.logError("Cannot slice: tileset asset is missing");
-            return false;
+            finish(false);
+            return;
         }
         const TextureResource* resource = loadedTilesetSource(asset->imageAssetId);
         if (!resource) {
             coordinator.logError("Cannot slice: source image is not loaded");
-            return false;
+            finish(false);
+            return;
         }
 
-        // Pixel-size-first: the tiles come straight from the pending config and
-        // the sheet's real dimensions - no frame-count derivation needed.
         const std::vector<TileDefinition> freshTiles = tilesForSlicing(
             resource->texture.width, resource->texture.height, state.pendingSlicing);
         if (freshTiles.empty()) {
             coordinator.logError("Cannot slice: tile size does not fit the sheet");
-            return false;
+            finish(false);
+            return;
         }
-        // Reconcile against the asset's current tiles so a tile whose rect didn't
-        // move keeps its stable id (metadata a later slice attaches survives).
         const std::vector<TileDefinition> reconciled = reconcileTiles(asset->tiles, freshTiles);
         if (sameTilesetSlicing(asset->slicing, state.pendingSlicing)
             && sameTileDefinitions(asset->tiles, reconciled)) {
-            return true;   // already committed - nothing to apply
+            finish(true);
+            return;
         }
 
-        // Painted cells whose tile id disappears are cleared by the command's
-        // cascade; that is destructive enough to warrant an explicit decision
-        // first. The command re-derives the orphans itself - these counts only
-        // feed the dialog and the log line.
+        const AssetId tilesetId = *state.openAssetId;
+        const TilesetSlicing pendingSlicing = state.pendingSlicing;
         const TilesetResliceImpact impact = computeTilesetResliceImpact(
-            coordinator.document(), *state.openAssetId, reconciled);
-        if (impact.orphanedCells > 0
-            && !confirmTilesetResliceImpact(impact.removedReferencedTiles,
-                                            impact.orphanedCells, impact.affectedTilemaps)) {
-            coordinator.logInfo("Slicing cancelled: " + asset->name + " keeps its "
-                                + std::to_string(impact.orphanedCells) + " painted cell(s)");
-            return false;
-        }
+            coordinator.document(), tilesetId, reconciled);
+        const std::string assetName = asset->name;
+        const auto commitApply = [&, tilesetId, pendingSlicing, reconciled, impact,
+                                  assetName]() -> bool {
+            const TilesetAsset* live = coordinator.document().findTilesetAsset(tilesetId);
+            if (!live) return false;
+            std::unordered_set<std::string> oldIds;
+            for (const TileDefinition& tile : live->tiles) oldIds.insert(tile.id);
+            int kept = 0;
+            for (const TileDefinition& tile : reconciled) {
+                if (oldIds.count(tile.id) != 0) ++kept;
+            }
+            const int added   = static_cast<int>(reconciled.size()) - kept;
+            const int removed = static_cast<int>(oldIds.size()) - kept;
 
-        std::unordered_set<std::string> oldIds;
-        for (const TileDefinition& tile : asset->tiles) oldIds.insert(tile.id);
-        int kept = 0;
-        for (const TileDefinition& tile : reconciled) {
-            if (oldIds.count(tile.id) != 0) ++kept;
-        }
-        const int added   = static_cast<int>(reconciled.size()) - kept;
-        const int removed = static_cast<int>(oldIds.size()) - kept;
+            const EditorOperationResult result = coordinator.execute(
+                ChangeTilesetSlicingCommand{tilesetId, pendingSlicing, reconciled});
+            if (!result.ok) return false;
+            std::string summary = "Sliced " + assetName + " into "
+                + std::to_string(reconciled.size()) + " tiles (" + std::to_string(kept)
+                + " kept, " + std::to_string(added) + " new, " + std::to_string(removed)
+                + " removed";
+            if (impact.orphanedCells > 0) {
+                summary += "; cleared " + std::to_string(impact.orphanedCells)
+                    + " painted cell(s) in " + std::to_string(impact.affectedTilemaps)
+                    + " tilemap(s)";
+            }
+            coordinator.logInfo(summary + ")");
+            return true;
+        };
 
-        const EditorOperationResult result = coordinator.execute(
-            ChangeTilesetSlicingCommand{*state.openAssetId, state.pendingSlicing, reconciled});
-        if (!result.ok) return false;
-        std::string summary = "Sliced " + asset->name + " into "
-            + std::to_string(reconciled.size()) + " tiles (" + std::to_string(kept)
-            + " kept, " + std::to_string(added) + " new, " + std::to_string(removed)
-            + " removed";
-        if (impact.orphanedCells > 0) {
-            summary += "; cleared " + std::to_string(impact.orphanedCells)
-                + " painted cell(s) in " + std::to_string(impact.affectedTilemaps)
-                + " tilemap(s)";
+        if (impact.orphanedCells <= 0) {
+            finish(commitApply());
+            return;
         }
-        coordinator.logInfo(summary + ")");
-        return true;
+        if (!ui.promptWarningConfirm(
+                "Clear painted tiles?",
+                "This slicing removes " + std::to_string(impact.removedReferencedTiles)
+                    + " tile(s) still painted in "
+                    + std::to_string(impact.affectedTilemaps) + " tilemap(s).\n\n"
+                    + std::to_string(impact.orphanedCells)
+                    + " painted cell(s) will be cleared. This can be undone.",
+                "Apply anyway?",
+                "Apply and clear cells",
+                [finish, commitApply, impact, assetName, &coordinator](bool confirmed) {
+                    if (!confirmed) {
+                        coordinator.logInfo(
+                            "Slicing cancelled: " + assetName + " keeps its "
+                            + std::to_string(impact.orphanedCells) + " painted cell(s)");
+                        finish(false);
+                        return;
+                    }
+                    finish(commitApply());
+                })) {
+            finish(false);
+        }
     };
-    ui.setTilesetApplySlicingHandler([&]() { tryApplyPendingTilesetSlicing(); });
+    ui.setTilesetApplySlicingHandler([&]() {
+        tryApplyPendingTilesetSlicing([](bool) {});
+    });
     // Close guard: an unapplied pending slicing is a pending edit - it must
     // be resolved (Apply / Discard / Cancel), never dropped silently. Same
     // pure decision as the project-level unsaved guard. Named so the Close
     // button and the Esc key run the identical flow.
     const std::function<void()> closeTilesetEditorGuarded = [&]() {
+        if (ui.hasOpenConfirm()) return;
         const TilesetEditorState& state = coordinator.state().tilesetEditor;
         if (!state.openAssetId) return;
         const TilesetAsset* asset = coordinator.document().findTilesetAsset(*state.openAssetId);
         const bool dirty = asset && !sameTilesetSlicing(asset->slicing, state.pendingSlicing);
-        const UnsavedChoice choice =
-            dirty ? confirmTilesetUnappliedChanges() : UnsavedChoice::Discard;
-        const bool applied =
-            (dirty && choice == UnsavedChoice::Save) ? tryApplyPendingTilesetSlicing() : false;
-        if (resolveUnsavedGuard(dirty, choice, applied) == GuardOutcome::Proceed) {
+        if (!dirty) {
             coordinator.apply(CloseTilesetEditorIntent{});
+            return;
         }
+        ui.promptSaveDiscardCancel(
+            "Unapplied tiling changes",
+            "This tileset has unapplied slicing changes.",
+            "Apply them before closing?",
+            [&](UnsavedChoice choice) {
+                if (choice == UnsavedChoice::Cancel) return;
+                if (choice == UnsavedChoice::Discard) {
+                    coordinator.apply(CloseTilesetEditorIntent{});
+                    return;
+                }
+                tryApplyPendingTilesetSlicing([&](bool applied) {
+                    if (resolveUnsavedGuard(true, UnsavedChoice::Save, applied)
+                        == GuardOutcome::Proceed) {
+                        coordinator.apply(CloseTilesetEditorIntent{});
+                    }
+                });
+            },
+            "Don't Apply",
+            "Apply");
     };
     ui.setTilesetCloseHandler(closeTilesetEditorGuarded);
     // Arrow-key selection on the pending grid: same positional tile ids the
@@ -1040,17 +1084,25 @@ int EditorApp::run(int argc, char** argv) {
     // Inspector never loses plain scrolling to a stale box.
     TilePaletteInputState paletteInput;
     ViewportRect prevPaletteClipRect;
+    bool quitRequested = false;
+    bool quitConfirmPending = false;
     while (true) {
         // Exit guard: a requested close (window X) is held until the unsaved
-        // guard passes. On Cancel we clear GLFW's close flag and keep running.
-        // Screenshot mode skips the guard (no window interaction).
+        // themed confirm resolves. On Cancel we keep running. Screenshot mode
+        // skips the guard (no window interaction).
+        if (quitRequested) break;
         if (WindowShouldClose()) {
-            if (shotPath.empty() && !projectSession.resolveUnsavedChanges()) {
-                glfwSetWindowShouldClose(glfwGetCurrentContext(), 0);
-            } else {
-                break;
+            glfwSetWindowShouldClose(glfwGetCurrentContext(), 0);
+            if (!shotPath.empty()) break;
+            if (!quitConfirmPending && !ui.hasOpenConfirm()) {
+                quitConfirmPending = true;
+                projectSession.resolveUnsavedChanges([&](bool proceed) {
+                    quitConfirmPending = false;
+                    if (proceed) quitRequested = true;
+                });
             }
         }
+        if (quitRequested) break;
 
         // Re-sync RmlUi on a resize *or* a DPI change (e.g. the window dragged
         // onto a monitor with different scaling): both alter the physical
@@ -1085,7 +1137,12 @@ int EditorApp::run(int argc, char** argv) {
                 ui.captureLogicKey(*key);
             }
         }
-        if (!logicKeyCaptureFrame && IsKeyPressed(KEY_F8)) host.toggleDebugger();
+        if (!logicKeyCaptureFrame && ui.hasOpenConfirm()
+            && IsKeyPressed(KEY_ESCAPE)) {
+            ui.cancelConfirm();
+        }
+        if (!logicKeyCaptureFrame && !ui.hasOpenConfirm()
+            && IsKeyPressed(KEY_F8)) host.toggleDebugger();
         const bool nonSceneWorkspace = coordinator.state().centerWorkspaceMode
             != CenterWorkspaceMode::Scene;
         if (coordinator.state().centerWorkspaceMode != previousWorkspaceMode) {
@@ -1255,7 +1312,8 @@ int EditorApp::run(int argc, char** argv) {
             if (!editScene.empty() && !coordinator.sceneView(editScene).initialized) {
                 if (fitActiveScene()) coordinator.markSceneViewInitialized(editScene);
             }
-            if (!logicKeyCaptureFrame && !rml.textFocus && IsKeyPressed(KEY_ESCAPE)) {
+            if (!logicKeyCaptureFrame && !ui.hasOpenConfirm()
+                && !rml.textFocus && IsKeyPressed(KEY_ESCAPE)) {
                 routeGlobalEscape(coordinator);
             }
             routeViewportPickDrag(coordinator, projection, rml, drag, contextMenuHit);
@@ -1304,11 +1362,11 @@ int EditorApp::run(int argc, char** argv) {
             // pending-grid selection. prevTextFocus covers the commit frame -
             // the Enter that just committed a field must not double as Apply,
             // and the Esc that dismissed a field must not close the editor.
-            if (!rml.textFocus && !prevTextFocus) {
+            if (!rml.textFocus && !prevTextFocus && !ui.hasOpenConfirm()) {
                 if (IsKeyPressed(KEY_ESCAPE)) {
                     closeTilesetEditorGuarded();
                 } else if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) {
-                    tryApplyPendingTilesetSlicing();
+                    tryApplyPendingTilesetSlicing([](bool) {});
                 } else {
                     int dx = 0;
                     int dy = 0;

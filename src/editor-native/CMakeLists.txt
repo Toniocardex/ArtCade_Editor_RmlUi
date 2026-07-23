@@ -131,7 +131,6 @@ if(ARTCADE_BUILD_NATIVE_EDITOR)
         app/sprite_animation_canvas_input.cpp
         app/sprite_animation_preview_renderer.cpp
         app/file_dialog.cpp
-        app/confirm_dialog.cpp
         view/texture_cache.cpp
         view/texture_request_catalog.cpp
         view/scene_view.cpp

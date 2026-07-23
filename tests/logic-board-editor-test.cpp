@@ -548,14 +548,6 @@ static ProjectDoc makePlatformerProjectData() {
     pc.maxSpeed = 180.f; pc.jumpForce = 420.f; pc.customGravity = 1200.f;
     hero.platformerController = pc;
     hero.boxCollider2D = BoxCollider2DComponent{{0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Solid};
-    hero.physics.collider.size = {32.f, 32.f};
-    {
-        CollisionShape shape;
-        shape.size = {32.f, 32.f};
-        shape.response = CollisionResponse::Solid;
-        shape.role = CollisionShapeRole::Body;
-        hero.collisionBody = CollisionBodyComponent{BodyType::Kinematic, true, {}, {shape}};
-    }
     hero.spriteRenderer = SpriteRendererComponent{{}, true};
     doc.objectTypes.emplace("Hero", hero);
 
@@ -563,15 +555,6 @@ static ProjectDoc makePlatformerProjectData() {
     floor.name = "Floor";
     floor.className = "Floor";
     floor.boxCollider2D = BoxCollider2DComponent{{0.f, 0.f}, {200.f, 32.f}, true, BoxColliderMode::Solid};
-    floor.physics.bodyType = BodyType::Static;
-    floor.physics.collider.size = {200.f, 32.f};
-    {
-        CollisionShape shape;
-        shape.size = {200.f, 32.f};
-        shape.response = CollisionResponse::Solid;
-        shape.role = CollisionShapeRole::Body;
-        floor.collisionBody = CollisionBodyComponent{BodyType::Static, true, {}, {shape}};
-    }
     doc.objectTypes.emplace("Floor", floor);
 
     SceneDef scene;
@@ -1001,6 +984,36 @@ static void testTopDownMovementViaLogicInput() {
     CHECK(moveCompiled.ok());
     CHECK(moveCompiled.programs.front().source.find("platformer_move(-1)")
           != std::string::npos);
+
+    // While Key Held + Move Horizontal must stop when the key is released
+    // (frame-local intent, same contract as Top Down Move).
+    {
+        EditorCoordinator coordinator{makePlatformerProjectData()};
+        CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+        const LogicBoardDef& board =
+            *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+        LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(board));
+        rule.trigger = {Logic::kKeyHeld, {{"key", LogicKey::D}}};
+        rule.actions[0] = {Logic::kMoveHorizontal,
+                           {{"direction", LogicStringValue{"Right"}}}};
+        CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", std::move(rule), 0}).ok);
+        CHECK(coordinator.playCurrentScene().ok);
+
+        RuntimeInputSnapshot held;
+        held.heldLogicKeys.push_back(LogicKey::D);
+        const float startX = findRenderable(*coordinator.playSession(), 1)->transform.position.x;
+        coordinator.tickRuntime(held, 0.1f);
+        const float afterHeld =
+            findRenderable(*coordinator.playSession(), 1)->transform.position.x;
+        CHECK(afterHeld > startX);
+
+        RuntimeInputSnapshot none;
+        coordinator.tickRuntime(none, 0.1f);
+        const float afterRelease =
+            findRenderable(*coordinator.playSession(), 1)->transform.position.x;
+        CHECK(std::fabs(afterRelease - afterHeld) < 0.001f);
+        CHECK(coordinator.stopPlaying().ok);
+    }
 }
 
 static void testFlipHorizontalProjectsToSceneView() {
@@ -1082,28 +1095,11 @@ static void testCollisionEventOtherAndDeferredDestroy() {
     ProjectDoc data = makeProjectData();
     data.objectTypes.at("Hero").boxCollider2D =
         BoxCollider2DComponent{{0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Trigger};
-    data.objectTypes.at("Hero").physics.collider.size = {32.f, 32.f};
-    {
-        CollisionShape shape;
-        shape.size = {32.f, 32.f};
-        shape.response = CollisionResponse::Sensor;
-        shape.role = CollisionShapeRole::Body;
-        data.objectTypes.at("Hero").collisionBody =
-            CollisionBodyComponent{BodyType::Kinematic, true, {}, {shape}};
-    }
     EntityDef pickup;
     pickup.name = "Pickup";
     pickup.className = "Pickup";
     pickup.boxCollider2D = BoxCollider2DComponent{
         {0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Trigger};
-    pickup.physics.collider.size = {32.f, 32.f};
-    {
-        CollisionShape shape;
-        shape.size = {32.f, 32.f};
-        shape.response = CollisionResponse::Sensor;
-        shape.role = CollisionShapeRole::Body;
-        pickup.collisionBody = CollisionBodyComponent{BodyType::Kinematic, true, {}, {shape}};
-    }
     // RU-03: a SpriteRendererComponent makes destruction observable through
     // findRenderable() below - otherwise "absent from renderables()" would be
     // trivially true even without correct destroy behavior (no sprite -> no
@@ -1115,14 +1111,6 @@ static void testCollisionEventOtherAndDeferredDestroy() {
     sensor.className = "Sensor";
     sensor.boxCollider2D = BoxCollider2DComponent{
         {0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Trigger};
-    sensor.physics.collider.size = {32.f, 32.f};
-    {
-        CollisionShape shape;
-        shape.size = {32.f, 32.f};
-        shape.response = CollisionResponse::Sensor;
-        shape.role = CollisionShapeRole::Body;
-        sensor.collisionBody = CollisionBodyComponent{BodyType::Kinematic, true, {}, {shape}};
-    }
     // RU-03: LinearMover moves every tick without needing Logic Board/Script
     // authoring for input (unlike TopDownController, which has no Logic
     // Board action - movement.setIntent is Script-only) - simplest way to
@@ -1180,8 +1168,23 @@ static void testCollisionEventOtherAndDeferredDestroy() {
                            {{"target", LogicEntityReference{}}, {"visible", false}}};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", exitRule, 1}).ok);
 
-    // Play collision enter/exit observations skipped: same boxCollider→collisionBody
-    // Play gap as the platformer suite (separate from ADR-0013).
+    // ADR-0014: BoxCollider2D materialises into CollisionBody on the shared
+    // spawn path — enter destroys Pickup; exit hides Hero once Sensor separates.
+    CHECK(coordinator.playCurrentScene().ok);
+    RuntimeInputSnapshot none;
+    coordinator.tickRuntime(none, 1.f / 60.f);
+    // Destroy Self queues removal after collision dispatch; the next fixed-step
+    // flush applies it (same deferred contract as game.exe).
+    coordinator.tickRuntime(none, 1.f / 60.f);
+    CHECK(!findRenderable(*coordinator.playSession(), 2).has_value());
+    CHECK(coordinator.document().findInstanceInScene("scene-1", 2) != nullptr);
+    // The exit subscription fires once for the pair transition and is not
+    // emitted while the pair remains absent on later frames. Sensor's
+    // LinearMover separates the pair without needing input.
+    coordinator.tickRuntime(none, 0.2f);
+    CHECK(!findRenderable(*coordinator.playSession(), 1)->visibleInGame);
+    CHECK(!findRenderable(*coordinator.playSession(), 2).has_value());
+    CHECK(coordinator.stopPlaying().ok);
 }
 
 static void testAnimationActions() {
@@ -1876,10 +1879,9 @@ int main() {
     testConditionCommands();
     testConditionControllerAndGenericProperties();
     testConditionCompatibility();
-    // Skipped: Play platformer floor collision needs boxCollider→collisionBody bridge (separate from ADR-0013).
-    // testConditionGatesRuntimeDispatch();
-    // testIsGroundedEventRunsOnTick();
-    // testIsFallingEventTrueWhileDescendingFalseWhenGroundedOrRising();
+    testConditionGatesRuntimeDispatch();
+    testIsGroundedEventRunsOnTick();
+    testIsFallingEventTrueWhileDescendingFalseWhenGroundedOrRising();
     testIsVisibleEventAndMoveBy();
     testTopDownMovementViaLogicInput();
     testFlipHorizontalProjectsToSceneView();

@@ -72,29 +72,6 @@
 .sfx-more-entry:hover { background: #243041; }
 .sfx-more-entry:hover .icon { color: #dfe5ee; }
 
-.sfx-modal-backdrop {
-    position: absolute;
-    left: 0px;
-    right: 0px;
-    top: 0px;
-    bottom: 0px;
-    z-index: 50;
-    background: #0b0d10cc;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-}
-.sfx-modal-backdrop.hidden { display: none; }
-.sfx-modal {
-    width: 360px;
-    padding: 16px 18px;
-    background: #181c23;
-    border: 1px #303743;
-    color: #dfe5ee;
-}
-.sfx-modal-title { display: block; font-size: 16px; font-weight: 600; margin-bottom: 6px; }
-.sfx-modal-copy { display: block; font-size: 11px; color: #9aa8bc; margin-bottom: 14px; line-height: 1.4; }
 .sfx-modal-label { display: block; font-size: 11px; color: #758399; margin-bottom: 4px; }
 .sfx-modal-input {
     display: block;
@@ -109,9 +86,7 @@
 }
 .sfx-modal-input:focus { border-color: #3b82f6; }
 .sfx-modal-error { display: block; font-size: 11px; color: #f07178; min-height: 14px; margin-bottom: 10px; }
-.sfx-modal-actions { display: flex; flex-direction: row; justify-content: flex-end; gap: 8px; }
-.sfx-modal-actions .primary { background: #3b82f6; color: white; }
-.sfx-modal-actions .primary.disabled { opacity: 0.45; }
+.editor-modal-actions .panel-btn.primary.disabled { opacity: 0.45; }
 
 .sfx-editor-main {
     position: absolute;

@@ -616,3 +616,67 @@
     font-size: 11dp;
 }
 .tile-palette-selected .value { color: #d4d4d8; font-weight: 600; }
+
+/* Shared in-editor modal (ADR-0013 component-remove confirm, etc.). */
+.editor-modal-backdrop {
+    position: absolute;
+    left: 0px;
+    right: 0px;
+    top: 0px;
+    bottom: 0px;
+    z-index: 80;
+    background: #0b0d10cc;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+.editor-modal-backdrop.hidden { display: none; }
+.editor-modal {
+    width: 420px;
+    max-width: 90%;
+    padding: 18px 20px;
+    background: #181c23;
+    border: 1px #303743;
+    color: #dfe5ee;
+}
+.editor-modal-title {
+    display: block;
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+.editor-modal-copy {
+    display: block;
+    font-size: 12px;
+    color: #9aa8bc;
+    margin-bottom: 10px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+}
+.editor-modal-hint {
+    display: block;
+    font-size: 11px;
+    color: #758399;
+    margin-bottom: 16px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+}
+.editor-modal-actions {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.editor-modal-actions .panel-btn.primary { background: #3b82f6; color: white; }
+.editor-modal-actions .panel-btn.danger {
+    background: #3a2224;
+    color: #e5706b;
+    border-color: #5a3438;
+}
+.editor-modal-actions .panel-btn.danger:hover {
+    background: #4a2a2d;
+    border-color: #e5706b;
+}
+
