@@ -128,6 +128,26 @@
     font-weight: 600;
     letter-spacing: 0.5dp;
 }
+/* Assets accordion: keep display:block (shared with Inspector drop-lists).
+   Never use flex here — RmlUi turns bare text glyphs into flex items. */
+.assets .asset-group-title {
+    padding: 2dp 2dp;
+    border-radius: 2dp;
+}
+.assets .asset-group-title:hover { background-color: #1c1c1f; color: #a1a1aa; }
+.asset-group-caret {
+    display: inline-block;
+    width: 14dp;
+    margin-right: 2dp;
+    text-align: center;
+    font-family: tabler-icons;
+    font-size: 11dp;
+    font-weight: normal;
+    color: #8a8a93;
+}
+.asset-group-label {
+    display: inline;
+}
 /* Item count beside a category title. */
 .asset-count {
     margin-left: 6dp;

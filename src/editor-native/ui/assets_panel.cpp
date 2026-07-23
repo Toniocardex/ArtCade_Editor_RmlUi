@@ -17,6 +17,12 @@ namespace ArtCade::EditorNative {
 
 namespace {
 
+bool knownAssetSection(const std::string& sectionId) {
+    return sectionId == "images" || sectionId == "animations" || sectionId == "tilesets"
+        || sectionId == "generated-sfx" || sectionId == "audio" || sectionId == "fonts"
+        || sectionId == "scripts";
+}
+
 // While Play runs, every asset operation mutates the authoring document, so the
 // Import trigger renders disabled (the coordinator/import pipeline reject them
 // anyway). Row menus need no equivalent: showPendingAssetMenu suppresses the
@@ -47,9 +53,17 @@ std::string importMenu(bool disabled) {
          + "</div></div>";
 }
 
-std::string groupTitle(const char* label, std::size_t count) {
-    return std::string("<div class=\"asset-group-title\">") + label
-         + "<span class=\"asset-count\">" + std::to_string(count) + "</span></div>";
+// Category header: caret + label + catalog count. Click toggles local collapse
+// (same caret glyphs as Inspector / Logic Board).
+std::string groupHeader(const char* sectionId, const char* label, std::size_t count,
+                        bool collapsed) {
+    return std::string("<div class=\"asset-group-title\" data-action=\"toggle-asset-section\""
+                       " data-arg=\"")
+         + sectionId + "\"><span class=\"asset-group-caret\">"
+         + (collapsed ? "&#xeb5f;" : "&#xeb5d;")
+         + "</span><span class=\"asset-group-label\">" + label
+         + "</span><span class=\"asset-count\">" + std::to_string(count)
+         + "</span></div>";
 }
 
 // The row's single action affordance: "⌄" opening the Assets context menu
@@ -106,6 +120,20 @@ bool matchesAssetFilter(const std::string& filter,
 
 } // namespace
 
+bool AssetsPanel::isSectionCollapsed(const std::string& sectionId) const {
+    return collapsedSections_.count(sectionId) != 0;
+}
+
+void AssetsPanel::toggleSection(Rml::ElementDocument* document,
+                                const EditorCoordinator& coordinator,
+                                const GeneratedSfxStatusQuery& generatedSfxStatus,
+                                const std::string& sectionId) {
+    if (!knownAssetSection(sectionId)) return;
+    if (isSectionCollapsed(sectionId)) collapsedSections_.erase(sectionId);
+    else collapsedSections_.insert(sectionId);
+    refresh(document, coordinator, generatedSfxStatus);
+}
+
 void AssetsPanel::refresh(Rml::ElementDocument* document,
                           const EditorCoordinator& coordinator,
                           const GeneratedSfxStatusQuery& generatedSfxStatus) const {
@@ -116,6 +144,8 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
     const ProjectDoc& doc = coordinator.document().data();
     const bool playing = coordinator.isPlaying();
     const std::string& filter = coordinator.uiState().assetFilter;
+    // Search must surface matches even if the user collapsed that category.
+    const bool forceExpandForFilter = !filter.empty();
 
     // Keep the live input outside assets-list: list refreshes may replace every
     // row, but never the focused form control or its editing buffer.
@@ -137,115 +167,135 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
     }
 
     std::string html;
-
     html += importMenu(playing);
 
-    // Category counts are totals from the catalog, independent of filtering.
     std::size_t shown = 0;
     std::string groups;
-    groups += groupTitle("Images", doc.imageAssets.size());
-    for (const ImageAssetDef& asset : doc.imageAssets) {
-        if (matchesAssetFilter(filter, {asset.name, asset.assetId, "Images",
-                                        asset.sourcePath})) {
-            groups += assetRow("&#xeb0a;", assetDisplayName(asset.name, asset.assetId),
-                               asset.assetId, nullptr, asset.assetId, "",
-                               menuAffordance("image", asset.assetId));
-            ++shown;
+
+    const auto appendGroup = [&](const char* sectionId, const char* label,
+                                 std::size_t catalogCount, const std::string& body) {
+        const bool collapsed = !forceExpandForFilter && isSectionCollapsed(sectionId);
+        groups += groupHeader(sectionId, label, catalogCount, collapsed);
+        if (!collapsed) groups += body;
+    };
+
+    {
+        std::string body;
+        for (const ImageAssetDef& asset : doc.imageAssets) {
+            if (matchesAssetFilter(filter, {asset.name, asset.assetId, "Images",
+                                            asset.sourcePath})) {
+                body += assetRow("&#xeb0a;", assetDisplayName(asset.name, asset.assetId),
+                                   asset.assetId, nullptr, asset.assetId, "",
+                                   menuAffordance("image", asset.assetId));
+                ++shown;
+            }
         }
+        appendGroup("images", "Images", doc.imageAssets.size(), body);
     }
 
-    // -- Animations: clip containers created from an image ---------------------
-    groups += groupTitle("Animations", doc.spriteAnimationAssets.size());
-    for (const SpriteAnimationAssetDef& asset : doc.spriteAnimationAssets) {
-        const std::string source = asset.sourceImageAssetId;
-        if (matchesAssetFilter(filter, {asset.name, asset.id, "Animations", source})) {
-            groups += assetRow("&#xed46;", assetDisplayName(asset.name, asset.id),
-                               asset.id, "open-sprite-animation", asset.id, "",
-                               menuAffordance("anim", asset.id));
-            if (!source.empty()) groups += sourceSubtitle(source);
-            ++shown;
+    {
+        std::string body;
+        for (const SpriteAnimationAssetDef& asset : doc.spriteAnimationAssets) {
+            const std::string source = asset.sourceImageAssetId;
+            if (matchesAssetFilter(filter, {asset.name, asset.id, "Animations", source})) {
+                body += assetRow("&#xed46;", assetDisplayName(asset.name, asset.id),
+                                   asset.id, "open-sprite-animation", asset.id, "",
+                                   menuAffordance("anim", asset.id));
+                if (!source.empty()) body += sourceSubtitle(source);
+                ++shown;
+            }
         }
+        appendGroup("animations", "Animations", doc.spriteAnimationAssets.size(), body);
     }
 
-    // -- Tilesets: sliced spritesheets created from an image --------------------
-    groups += groupTitle("Tilesets", doc.tilesets.size());
-    for (const TilesetAsset& asset : doc.tilesets) {
-        if (matchesAssetFilter(filter, {asset.name, asset.assetId, "Tilesets",
-                                        asset.imageAssetId})) {
-            groups += assetRow("&#xea3b;", assetDisplayName(asset.name, asset.assetId),
-                               asset.assetId, "open-tileset-editor", asset.assetId, "",
-                               menuAffordance("tileset", asset.assetId));
-            groups += sourceSubtitle(asset.imageAssetId);
-            ++shown;
+    {
+        std::string body;
+        for (const TilesetAsset& asset : doc.tilesets) {
+            if (matchesAssetFilter(filter, {asset.name, asset.assetId, "Tilesets",
+                                            asset.imageAssetId})) {
+                body += assetRow("&#xea3b;", assetDisplayName(asset.name, asset.assetId),
+                                   asset.assetId, "open-tileset-editor", asset.assetId, "",
+                                   menuAffordance("tileset", asset.assetId));
+                body += sourceSubtitle(asset.imageAssetId);
+                ++shown;
+            }
         }
+        appendGroup("tilesets", "Tilesets", doc.tilesets.size(), body);
     }
 
-    // -- Audio: name + load mode ------------------------------------------------
-    groups += groupTitle("Generated SFX", doc.generatedSfx.size());
-    for (const artcade::sfx::GeneratedSfxDef& definition : doc.generatedSfx) {
-        if (matchesAssetFilter(filter, {definition.name, definition.id,
-                                        "Generated SFX", definition.outputPath})) {
-            const GeneratedSfxStatusProjection status = generatedSfxStatus
-                ? generatedSfxStatus(definition.id)
-                : GeneratedSfxStatusProjection{};
-            groups += assetRow("&#xed46;", definition.name, definition.id,
-                               "open-generated-sfx", definition.id,
-                               "<span class=\"asset-meta\">"
-                                   + std::string(generatedSfxObservedStatusLabel(status.status))
-                                   + "</span>",
-                               menuAffordance("sfx", definition.id));
-            ++shown;
+    {
+        std::string body;
+        for (const artcade::sfx::GeneratedSfxDef& definition : doc.generatedSfx) {
+            if (matchesAssetFilter(filter, {definition.name, definition.id,
+                                            "Generated SFX", definition.outputPath})) {
+                const GeneratedSfxStatusProjection status = generatedSfxStatus
+                    ? generatedSfxStatus(definition.id)
+                    : GeneratedSfxStatusProjection{};
+                body += assetRow("&#xed46;", definition.name, definition.id,
+                                   "open-generated-sfx", definition.id,
+                                   "<span class=\"asset-meta\">"
+                                       + std::string(generatedSfxObservedStatusLabel(status.status))
+                                       + "</span>",
+                                   menuAffordance("sfx", definition.id));
+                ++shown;
+            }
         }
+        appendGroup("generated-sfx", "Generated SFX", doc.generatedSfx.size(), body);
     }
 
-    // -- Audio: independent/imported assets only (linked SFX outputs stay
-    // under Generated SFX so one logical asset does not appear twice). --------
-    std::size_t independentAudioCount = 0;
-    for (const AudioAssetDef& asset : doc.audioAssets) {
-        if (!coordinator.document().findGeneratedSfxByOutputAssetId(asset.assetId))
-            ++independentAudioCount;
-    }
-    groups += groupTitle("Audio", independentAudioCount);
-    for (const AudioAssetDef& asset : doc.audioAssets) {
-        if (coordinator.document().findGeneratedSfxByOutputAssetId(asset.assetId))
-            continue;
-        const std::string displayName =
-            resolveAudioAssetDisplayName(coordinator.document(), asset);
-        if (matchesAssetFilter(filter, {displayName, asset.assetId, "Audio",
-                                        asset.sourcePath})) {
-            const char* mode = asset.loadMode == AudioLoadMode::Stream ? "Stream" : "Sound";
-            groups += assetRow(nullptr, displayName,
-                               asset.assetId, nullptr, asset.assetId,
-                               "<span class=\"asset-meta\">" + std::string(mode) + "</span>",
-                               menuAffordance("audio", asset.assetId));
-            ++shown;
+    {
+        std::size_t independentAudioCount = 0;
+        for (const AudioAssetDef& asset : doc.audioAssets) {
+            if (!coordinator.document().findGeneratedSfxByOutputAssetId(asset.assetId))
+                ++independentAudioCount;
         }
-    }
-
-    // -- Fonts: name + size ------------------------------------------------------
-    groups += groupTitle("Fonts", doc.fontAssets.size());
-    for (const FontAssetDef& asset : doc.fontAssets) {
-        if (matchesAssetFilter(filter, {asset.name, asset.assetId, "Fonts",
-                                        asset.sourcePath})) {
-            groups += assetRow(nullptr, assetDisplayName(asset.name, asset.assetId),
-                               asset.assetId, nullptr, asset.assetId,
-                               "<span class=\"asset-meta\">"
-                                   + std::to_string(asset.defaultPixelSize) + "px</span>",
-                               menuAffordance("font", asset.assetId));
-            ++shown;
+        std::string body;
+        for (const AudioAssetDef& asset : doc.audioAssets) {
+            if (coordinator.document().findGeneratedSfxByOutputAssetId(asset.assetId))
+                continue;
+            const std::string displayName =
+                resolveAudioAssetDisplayName(coordinator.document(), asset);
+            if (matchesAssetFilter(filter, {displayName, asset.assetId, "Audio",
+                                            asset.sourcePath})) {
+                const char* mode = asset.loadMode == AudioLoadMode::Stream ? "Stream" : "Sound";
+                body += assetRow(nullptr, displayName,
+                                   asset.assetId, nullptr, asset.assetId,
+                                   "<span class=\"asset-meta\">" + std::string(mode) + "</span>",
+                                   menuAffordance("audio", asset.assetId));
+                ++shown;
+            }
         }
+        appendGroup("audio", "Audio", independentAudioCount, body);
     }
 
-    // -- Scripts: external authoring source metadata ---------------------------
-    groups += groupTitle("Scripts", doc.scriptAssets.size());
-    for (const ScriptAssetDef& asset : doc.scriptAssets) {
-        if (matchesAssetFilter(filter, {asset.name, asset.assetId, "Scripts",
-                                        asset.sourcePath})) {
-            groups += assetRow("&#xf2d2;", assetDisplayName(asset.name, asset.assetId),
-                               asset.sourcePath, "open-script", asset.assetId, "",
-                               menuAffordance("script", asset.assetId));
-            ++shown;
+    {
+        std::string body;
+        for (const FontAssetDef& asset : doc.fontAssets) {
+            if (matchesAssetFilter(filter, {asset.name, asset.assetId, "Fonts",
+                                            asset.sourcePath})) {
+                body += assetRow(nullptr, assetDisplayName(asset.name, asset.assetId),
+                                   asset.assetId, nullptr, asset.assetId,
+                                   "<span class=\"asset-meta\">"
+                                       + std::to_string(asset.defaultPixelSize) + "px</span>",
+                                   menuAffordance("font", asset.assetId));
+                ++shown;
+            }
         }
+        appendGroup("fonts", "Fonts", doc.fontAssets.size(), body);
+    }
+
+    {
+        std::string body;
+        for (const ScriptAssetDef& asset : doc.scriptAssets) {
+            if (matchesAssetFilter(filter, {asset.name, asset.assetId, "Scripts",
+                                            asset.sourcePath})) {
+                body += assetRow("&#xf2d2;", assetDisplayName(asset.name, asset.assetId),
+                                   asset.sourcePath, "open-script", asset.assetId, "",
+                                   menuAffordance("script", asset.assetId));
+                ++shown;
+            }
+        }
+        appendGroup("scripts", "Scripts", doc.scriptAssets.size(), body);
     }
 
     if (!filter.empty() && shown == 0) {

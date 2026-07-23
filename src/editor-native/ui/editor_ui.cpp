@@ -142,6 +142,7 @@ bool actionRequiresPendingEditGate(const std::string& action) {
         "open-scene-workspace", "open-logic-workspace", "open-script-workspace",
         "open-script", "activate-script", "close-script",
         "toggle-inspector-section",
+        "toggle-asset-section",
         "toggle-logic-rule-collapsed", "collapse-all-logic-rules", "expand-all-logic-rules",
     };
     return std::find(std::begin(actions), std::end(actions), action) != std::end(actions);
@@ -3131,6 +3132,12 @@ bool EditorUi::handleHierarchyAction(const std::string& action, const std::strin
 
 bool EditorUi::handleAssetsAction(const std::string& action, const std::string& arg,
                                   const std::string& value) {
+    if (action == "toggle-asset-section") {
+        assets_.toggleSection(document_, coordinator_,
+            [&](const std::string& id) { return generatedSfxEditor_.status(id); },
+            arg);
+        return true;
+    }
     if (action == "set-asset-filter") {
         coordinator_.apply(SetAssetFilterIntent{value});
     } else if (action == "open-script") {
