@@ -1282,11 +1282,11 @@ int EditorApp::run(int argc, char** argv) {
                                rml, contextMenuHit);
         }
         // Rebuilt after routeViewportInput, which is the only router that can
-        // change pan/zoom (mouse wheel / middle-drag) - everything below this
-        // point in the frame (pick/drag, tilemap paint, context menu, pointer
-        // readout, drag preview, and this frame's render) shares this single
-        // resolved projection, so a wheel-zoom is never one frame stale for
-        // some consumers and current for others.
+        // change pan/zoom (mouse wheel / middle-drag / Pan-tool left-drag) -
+        // everything below this point in the frame (pick/drag, tilemap paint,
+        // context menu, pointer readout, drag preview, and this frame's render)
+        // shares this single resolved projection, so a wheel-zoom is never one
+        // frame stale for some consumers and current for others.
         const SceneViewportProjection projection =
             sceneViewportProjectionFor(visibleRect, cameraAnchorRect);
         if (playing) {

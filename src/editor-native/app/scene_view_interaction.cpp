@@ -118,10 +118,15 @@ void routeViewportInput(EditorCoordinator& coordinator, const SceneViewportProje
             active, {worldBefore.x - worldAfter.x, worldBefore.y - worldAfter.y}});
     }
 
-    // Pan: middle-mouse, or Space + left-mouse. The right button is left free for
-    // the context menu / Create Here.
+    // Pan: middle-mouse, Space + left-mouse, or left-drag while the Pan tool is
+    // active (toolbar). Right button stays free for the context menu / Create Here
+    // (Select tool only — routeViewportContextMenu). Tool-pan is Edit-only so a
+    // leftover Pan tool cannot steal Play left-clicks from gameplay focus.
     const bool spacePan = IsKeyDown(KEY_SPACE) && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
-    if (IsMouseButtonDown(MOUSE_BUTTON_MIDDLE) || spacePan) {
+    const bool toolPan = !coordinator.isPlaying()
+        && coordinator.state().activeTool == EditorTool::Pan
+        && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+    if (IsMouseButtonDown(MOUSE_BUTTON_MIDDLE) || spacePan || toolPan) {
         const float zoom = coordinator.sceneView(active).zoom;
         const Vector2 d = GetMouseDelta();
         coordinator.apply(PanViewportIntent{active, {-d.x / zoom, -d.y / zoom}});

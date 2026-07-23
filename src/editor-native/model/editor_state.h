@@ -131,9 +131,9 @@ inline AssetId editorSheetImageId(const SpriteAnimationAssetDef& asset,
 }
 
 // Extends the existing "what does interacting with the Scene View currently
-// mean" mode (previously Select/Pan only - Pan itself was already declared
-// but unwired to any input routing or UI) rather than a second, parallel
-// enum for tilemap painting.
+// mean" mode (Select / Pan / tilemap paint tools). Pan left-drags the viewport
+// via routeViewportInput; middle-mouse and Space+left remain available in any
+// tool. Not a second, parallel enum for tilemap painting.
 enum class EditorTool {
     Select,
     Pan,
