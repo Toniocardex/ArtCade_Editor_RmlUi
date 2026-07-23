@@ -179,7 +179,8 @@ std::string renderLogicProperties(
         } else if (property.semantic == Logic::LogicPropertySemantic::CompareOperator
                    || property.semantic == Logic::LogicPropertySemantic::TopDownDirection
                    || property.semantic == Logic::LogicPropertySemantic::SpriteFacing
-                   || property.semantic == Logic::LogicPropertySemantic::PlatformerDirection) {
+                   || property.semantic == Logic::LogicPropertySemantic::PlatformerDirection
+                   || property.semantic == Logic::LogicPropertySemantic::PlatformerMotionState) {
             const std::string selected = stringValue(current);
             std::string entries;
             for (const std::string& option : property.options)

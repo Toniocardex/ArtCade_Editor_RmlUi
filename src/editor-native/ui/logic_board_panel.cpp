@@ -205,6 +205,14 @@ std::string logicRuleSummary(const LogicRuleDef& rule) {
         head = "Key";
         if (const LogicPropertyDef* p = property(rule.trigger, "key"))
             if (const auto* key = std::get_if<LogicKey>(&p->value)) head = Logic::logicKeyName(*key);
+    } else if (rule.trigger.typeId == Logic::kPlatformerMotionState) {
+        head = "Platformer Motion";
+        if (const LogicPropertyDef* p = property(rule.trigger, "state")) {
+            if (const auto* state = std::get_if<LogicStringValue>(&p->value)) {
+                if (state->value == "Moving") head = "Platformer Moving";
+                else if (state->value == "Stopped") head = "Platformer Stopped";
+            }
+        }
     } else {
         head = descriptorLabel(rule.trigger.typeId);
     }

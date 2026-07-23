@@ -9,7 +9,7 @@
 | 0. Baseline e contract | Completata | Limiti e validazione core coperti dalla suite nativa. |
 | 2A. Catalog foundation e picker | Completata | Registry descriptor-driven, compatibilitÃ  e picker RmlUi. |
 | 2B. Personaggio controllabile | Completata | Input edge/held e intent riusati dai controller esistenti. |
-| 2B.1 Platformer motion events | In corso | Solo `platformer.is_falling` (While) shipped; resto della tabella ancora pianificato. |
+| 2B.1 Platformer motion events | In corso | `platformer.is_falling` + `platformer.motion_state` (Moving/Stopped, ADR-0015) shipped; Rising/Airborne/edges restano pianificati. |
 | 2B.2 Run Once per Activation | Completata | `LogicExecutionMode` su regola, gate rising-edge per Trigger Level, Command/UI/persistenza e test core+editor. |
 | 2C. Collisioni e `EventOther` | Completata | Enter/exit deterministici, filtro per Object Type e `Destroy Self` differito. |
 | 2D. Animazione e audio | Completata | Action animazione/audio complete in Editor Play e runtime esportato; parità host verificata nativa e WASM. |
@@ -227,8 +227,9 @@ esattamente l'assenza tramite il solo flag migration-only `capabilityEnabled`.
 verticali/orizzontali ben definiti e poche transizioni edge, senza introdurre
 un generico `Is Moving` che si confonde con la caduta.
 
-**Stato:** in corso. Shipped in questa passata soltanto `platformer.is_falling`
-(While). Edge e gli altri stati della tabella restano pianificati.
+**Stato:** in corso. Shipped: `platformer.is_falling` (While) e
+`platformer.motion_state` (Moving/Stopped, ADR-0015). Edge e Rising/Airborne
+restano pianificati.
 
 #### Contratti già veri oggi (non rompere)
 
@@ -261,12 +262,13 @@ nella stessa famiglia; `—` = già shipped.
 |---|---|---|---|---|---|---|
 | — | `platformer.is_grounded` | Is Grounded | **While** | `grounded == true` | `RuntimePlatformerController::grounded` (host `isGrounded`) | Già shipped. Non rinominare il typeId. |
 | — | `platformer.is_falling` | Is Falling | **While** | `!grounded && verticalVelocity > +ε` (+Y giù); export: anche `!climbing` | host `isFalling` / `World::isPlatformerFalling` | **Shipped.** ε = `0.001`. Predicato continuo (`on_update`); non confondere con Airborne. |
+| — | `platformer.motion_state` | Platformer Motion | **While** | `Moving` ⇔ `|vx| > ε`; `Stopped` ⇔ negazione | host `isPlatformerMoving` / `World::isPlatformerMovingHorizontally` | **Shipped (ADR-0015).** ε = `0.01`. Un typeId, property `state` Moving\|Stopped. Walk/Idle = Motion + Is Grounded; OncePerActivation per edge clip. Non è intent input. |
 | P0 | `platformer.landed` | Landed | **Edge** | transizione `!grounded → grounded` | latch per-entity: `wasGrounded` vs `grounded` post-fisica | One-shot SFX/clip atterraggio. Non duplicare con While Grounded. |
 | P0 | `platformer.left_ground` | Left Ground | **Edge** | transizione `grounded → !grounded` | stesso latch | Copre salto e caduta da bordo; non è “Started Falling”. |
 | P1 | `platformer.is_rising` | Is Rising | **While** | `!grounded && verticalVelocity < -ε` | idem | Clip di salita. All’apice (`|vy| ≤ ε`) nessuno dei due while è vero. |
 | P1 | `platformer.is_airborne` | Is Airborne | **While** | `!grounded` | `grounded` | Umbrella. Preferire Falling/Rising quando la clip è diversa. |
 | P1 | `platformer.started_falling` | Started Falling | **Edge** | entra in Falling da non-Falling | latch su predicato Falling | SFX “inizio caduta”; non sparare ogni frame di While Falling. |
-| P2 | `platformer.is_moving_horizontally` | Is Moving Horizontally | **While** | `|hSignal| > deadzone` | **Decisione pre-codice:** (A) asse intent post-Logic (`platformerMoveIntents_` / input) **oppure** (B) `appliedDelta.x` del kinematic step | Mai label “Is Moving”. Preferire (A) per idle↔run guidato dall’input; (B) se si vuole moto reale dopo collisioni. Opzionale property `requireGrounded` (default true) per non confondersi con Falling. |
+| P2 | *(superseded)* | Is Moving Horizontally (intent) | — | — | — | Sostituito da `platformer.motion_state` (velocity). Un futuro blocco **Has Horizontal Input** resta distinto se serve la volontà del controller. |
 | P2 | *(non in v1)* | Is Moving | — | — | — | **Esplicitamente fuori.** Troppo ambiguo vs Falling / Airborne. |
 
 `ε` e deadzone orizzontale sono costanti di policy del modulo platformer/logic
@@ -290,13 +292,15 @@ controller. Nessun reverse-sync verso `ProjectDocument`.
 
 - Registry `logic-core` = unica autorità descriptor; UI solo proiezione.
 - Capability: tutti richiedono `Self` + `PlatformerController` (come `is_grounded`).
-- Host: eventuali `isFalling` / `isRising` / `isAirborne` / `isMovingHorizontally`
+- Host: eventuali `isFalling` / `isRising` / `isAirborne` / `isPlatformerMoving`
   restano query pure su stato materializzato; gli edge possono vivere come
   eventi emessi dal tick platformer, non come polling UI.
 - Validator/compiler/PlaySession/export parity come le altre famiglie.
 - Test DoD minimi: (1) Landed spara una volta all’atterraggio; (2) Is Falling
   falso durante Rising; (3) Left Ground su jump; (4) nessun typeId `is_moving`;
-  (5) board senza PlatformerController rifiutata in authoring.
+  (5) board senza PlatformerController rifiutata in authoring;
+  (6) Platformer Motion OncePerActivation: Walk una volta su Stopped→Moving,
+  Idle una volta su Moving→Stopped (ADR-0015).
 
 #### Fuori scope di 2B.1
 
