@@ -478,20 +478,21 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     }
 
     const LogicBoardDef& board = *objectType.logicBoard;
-    const Logic::LogicCompileResult compiled = Logic::compileBoard(
-        selectedId, board, selectedType, &coordinator.document().data());
     const LogicKeyBindingEditorState keyBinding{
         keyCaptureAddress_, keySearchAddress_, keySearchQuery_};
 
     if (view.tab == LogicBoardTab::GeneratedLua) {
+        const Logic::LogicCompileResult compiled = Logic::compileBoard(
+            selectedId, board, selectedType, &coordinator.document().data());
         html += "<div id=\"logic-scroll\" class=\"logic-scroll\">";
         for (const Logic::LogicDiagnostic& diagnostic : compiled.diagnostics) {
+            if (diagnostic.severity != Logic::DiagnosticSeverity::Error) continue;
             html += "<div class=\"logic-diagnostic\">" + escapeRml(diagnostic.code)
                  + " · " + escapeRml(diagnostic.ruleId) + " · "
                  + escapeRml(diagnostic.propertyKey) + " — "
                  + escapeRml(diagnostic.message) + "</div>";
         }
-        if (!compiled.programs.empty())
+        if (compiled.ok() && !compiled.programs.empty())
             html += "<div class=\"logic-code\">" + escapeRml(compiled.programs.front().source) + "</div>";
         else
             html += "<div class=\"logic-empty\"><div class=\"logic-muted\">No source is generated while blocking diagnostics exist.</div></div>";
@@ -499,6 +500,10 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         render();
         return;
     }
+
+    const auto authoringDiagnostics = Logic::validateBoard(
+        selectedId, board, selectedType, &coordinator.document().data(),
+        Logic::LogicValidationPurpose::AuthoringDiagnostics);
 
     // Collapse All/Expand All/Remove Board now live in the static toolbar and
     // the "..." menu (see EditorUi::refreshToolbar/toggleLogicMoreMenu) — this
@@ -519,7 +524,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
 
         const bool collapsed = collapsedRuleIds_.count(rule.id) != 0;
         const std::size_t diagnosticCount = static_cast<std::size_t>(std::count_if(
-            compiled.diagnostics.begin(), compiled.diagnostics.end(),
+            authoringDiagnostics.begin(), authoringDiagnostics.end(),
             [&](const Logic::LogicDiagnostic& d) {
                 return d.ruleId == rule.id
                     && d.severity == Logic::DiagnosticSeverity::Error;
@@ -692,10 +697,13 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         }
         html += "</div>"; // conditions-col
 
-        // THEN — always at least one action (enforced by RemoveLogicActionCommand).
+        // THEN — empty actions are authoring-valid (ADR-0013 Slice 2).
         html += "<div class=\"logic-rule-col actions-col\">"
                 "<div class=\"logic-col-head\">THEN</div>"
                 "<div class=\"logic-col-content\">";
+        if (rule.actions.empty()) {
+            html += "<div class=\"logic-muted\">No actions yet.</div>";
+        }
         for (std::size_t actionIndex = 0; actionIndex < rule.actions.size(); ++actionIndex) {
             const LogicBlockDef& action = rule.actions[actionIndex];
             const std::string arg = actionArg(rule.id, actionIndex);
@@ -711,7 +719,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             if (playing || actionIndex + 1 == rule.actions.size()) html += " disabled";
             html += "\" data-action=\"move-logic-action-down\" data-arg=\"" + escapeRml(arg) + "\">↓</button>"
                     "<button class=\"comp-remove";
-            if (playing || rule.actions.size() == 1) html += " disabled";
+            if (playing) html += " disabled";
             html += "\" data-action=\"remove-logic-action\" data-arg=\"" + escapeRml(arg)
                  + "\" title=\"Delete action\">" + iconMarkup("&#xeb41;") + "</button></div>";
             if (dropdownOpen) {
@@ -891,7 +899,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
 
         html += "</div>"; // .logic-rule-body
         html += "<div class=\"logic-rule-diagnostics\">";
-        for (const Logic::LogicDiagnostic& diagnostic : compiled.diagnostics) {
+        for (const Logic::LogicDiagnostic& diagnostic : authoringDiagnostics) {
             if (diagnostic.ruleId != rule.id) continue;
             const bool warning = diagnostic.severity == Logic::DiagnosticSeverity::Warning;
             html += "<div class=\"logic-diagnostic"

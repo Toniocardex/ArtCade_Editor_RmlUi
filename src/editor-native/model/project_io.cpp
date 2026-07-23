@@ -1590,15 +1590,11 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                 // Object Types are decoded in file order; cross-type references
                 // are checked only after the complete catalog exists below.
                 const auto diagnostics = Logic::validateBoard(
-                    id, board, &def, nullptr, Logic::ValidationMode::Authoring);
-                const auto error = std::find_if(
-                    diagnostics.begin(), diagnostics.end(),
-                    [](const Logic::LogicDiagnostic& diagnostic) {
-                        return diagnostic.severity == Logic::DiagnosticSeverity::Error;
-                    });
-                if (error != diagnostics.end()) {
+                    id, board, &def, nullptr,
+                    Logic::LogicValidationPurpose::StructuralCommit);
+                if (Logic::hasLogicErrors(diagnostics)) {
                     return DeserializeResult::failure(
-                        error->code + ": " + error->message);
+                        Logic::firstLogicErrorMessage(diagnostics));
                 }
                 def.logicBoard = std::move(board);
             }
@@ -2083,15 +2079,10 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
         if (type.logicBoard) {
             const auto diagnostics =
                 Logic::validateBoard(objectTypeId, *type.logicBoard, &type, &data,
-                                     Logic::ValidationMode::Authoring);
-            const auto error = std::find_if(
-                diagnostics.begin(), diagnostics.end(),
-                [](const Logic::LogicDiagnostic& diagnostic) {
-                    return diagnostic.severity == Logic::DiagnosticSeverity::Error;
-                });
-            if (error != diagnostics.end()) {
+                                     Logic::LogicValidationPurpose::StructuralCommit);
+            if (Logic::hasLogicErrors(diagnostics)) {
                 return DeserializeResult::failure(
-                    error->code + ": " + error->message);
+                    Logic::firstLogicErrorMessage(diagnostics));
             }
         }
         if (type.spritePresentation) {

@@ -29,14 +29,9 @@ bool sameBoard(const LogicBoardDef& a, const LogicBoardDef& b) {
 
 std::string validationError(const ProjectDocument& document, const ObjectTypeId& objectTypeId,
                             const LogicBoardDef& board) {
-    const auto diagnostics = Logic::validateBoard(objectTypeId, board,
-        document.findObjectType(objectTypeId), &document.data(),
-        Logic::ValidationMode::Authoring);
-    for (const Logic::LogicDiagnostic& diagnostic : diagnostics) {
-        if (diagnostic.severity != Logic::DiagnosticSeverity::Error) continue;
-        return diagnostic.code + ": " + diagnostic.message;
-    }
-    return {};
+    return Logic::firstLogicErrorMessage(Logic::validateBoard(
+        objectTypeId, board, document.findObjectType(objectTypeId), &document.data(),
+        Logic::LogicValidationPurpose::StructuralCommit));
 }
 
 EditorOperationResult changed(const ObjectTypeId& id) {
@@ -328,8 +323,6 @@ EditorOperationResult RemoveLogicActionCommand::apply(ProjectDocument& document)
     LogicRuleDef* rule = ruleOf(next, ruleId_);
     if (!rule || index_ >= rule->actions.size())
         return EditorOperationResult::failure("Unknown Logic action");
-    if (rule->actions.size() == 1)
-        return EditorOperationResult::failure("A Logic rule needs at least one action");
     rule->actions.erase(rule->actions.begin() + static_cast<std::ptrdiff_t>(index_));
     COMMIT_NEXT_BOARD(next);
 }

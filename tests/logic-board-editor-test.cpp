@@ -3,6 +3,7 @@
 #include "editor-native/commands/audio_asset_commands.h"
 #include "editor-native/commands/global_variable_commands.h"
 #include "editor-native/commands/logic_board_commands.h"
+#include "editor-native/commands/top_down_controller_commands.h"
 #include "editor-native/model/project_io.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/ui/logic_board_editor_controller.h"
@@ -10,6 +11,7 @@
 #include "logic-core.h"
 
 #include <cmath>
+#include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -83,7 +85,13 @@ static void testCommandsAndPersistence() {
     const LogicBoardDef& empty = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     const LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
-    CHECK(!coordinator.execute(RemoveLogicActionCommand{"Hero", rule.id, 0}).ok);
+    CHECK(coordinator.execute(RemoveLogicActionCommand{"Hero", rule.id, 0}).ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
+              .actions.empty());
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
+              .actions.size()
+          == 1);
 
     const auto beforeUndo = Logic::logicBoardToJson(
         *coordinator.document().data().objectTypes.at("Hero").logicBoard);
@@ -130,7 +138,13 @@ static void testCommandsAndPersistence() {
     std::string malformed = serialized.value;
     const std::size_t trigger = malformed.find("event.on_start");
     if (trigger != std::string::npos) malformed.replace(trigger, 14, "unknown.event!");
-    CHECK(!ProjectSerializer::deserialize(malformed).ok);
+    // ADR-0013: unknown block types are structurally loadable (repairable).
+    const auto loadedUnknown = ProjectSerializer::deserialize(malformed);
+    CHECK(loadedUnknown.ok);
+    CHECK(loadedUnknown.value.data().objectTypes.at("Hero").logicBoard.has_value());
+    CHECK(loadedUnknown.value.data().objectTypes.at("Hero").logicBoard->rules[0]
+              .trigger.typeId
+          == "unknown.event!");
 }
 
 static void testDuplicateLogicRule() {
@@ -1651,8 +1665,76 @@ static void testKeyBindingEditorRoutes() {
     CHECK(coordinator.stopPlaying().ok);
 }
 
+static void testIncompatibleBoardRecovery() {
+    ProjectDoc project = makeProjectData();
+    project.objectTypes.at("Hero").topDownController = TopDownControllerComponent{};
+    LogicBoardDef board;
+    board.id = "logic:Hero";
+    for (int i = 0; i < 8; ++i) {
+        LogicRuleDef rule = Logic::makeDefaultRule("rule-" + std::to_string(i + 1));
+        rule.actions = {
+            Logic::makeDefaultBlock(Logic::kTopDownMove, Logic::BlockKind::Action)};
+        board.rules.push_back(std::move(rule));
+    }
+    project.objectTypes.at("Hero").logicBoard = std::move(board);
+    EditorCoordinator coordinator{std::move(project)};
+
+    CHECK(coordinator.execute(RemoveTopDownControllerCommand{"Hero"}).ok);
+    CHECK(!coordinator.document().data().objectTypes.at("Hero").topDownController.has_value());
+
+    const auto authoringBefore = Logic::validateBoard(
+        "Hero", *coordinator.document().data().objectTypes.at("Hero").logicBoard,
+        coordinator.document().findObjectType("Hero"), &coordinator.document().data(),
+        Logic::LogicValidationPurpose::AuthoringDiagnostics);
+    CHECK(std::count_if(authoringBefore.begin(), authoringBefore.end(),
+                        [](const Logic::LogicDiagnostic& d) {
+                            return d.code == "LB_INCOMPATIBLE_BLOCK";
+                        })
+          == 8);
+
+    const uint64_t revision = coordinator.document().revision();
+    CHECK(coordinator.execute(RemoveLogicRuleCommand{"Hero", "rule-1"}).ok);
+    CHECK(coordinator.document().revision() == revision + 1);
+    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules.size() == 7);
+
+    CHECK(coordinator
+              .execute(ChangeLogicActionTypeCommand{
+                  "Hero", "rule-2", 0, Logic::kSetVisible})
+              .ok);
+    const auto authoringAfter = Logic::validateBoard(
+        "Hero", *coordinator.document().data().objectTypes.at("Hero").logicBoard,
+        coordinator.document().findObjectType("Hero"), &coordinator.document().data(),
+        Logic::LogicValidationPurpose::AuthoringDiagnostics);
+    CHECK(std::count_if(authoringAfter.begin(), authoringAfter.end(),
+                        [](const Logic::LogicDiagnostic& d) {
+                            return d.code == "LB_INCOMPATIBLE_BLOCK";
+                        })
+          == 6);
+
+    const auto serialized = ProjectSerializer::serialize(coordinator.document());
+    CHECK(serialized.ok);
+    const auto loaded = ProjectSerializer::deserialize(serialized.value);
+    CHECK(loaded.ok);
+    CHECK(loaded.value.data().objectTypes.at("Hero").logicBoard->rules.size() == 7);
+    const auto loadedDiags = Logic::validateBoard(
+        "Hero", *loaded.value.data().objectTypes.at("Hero").logicBoard,
+        loaded.value.findObjectType("Hero"), &loaded.value.data(),
+        Logic::LogicValidationPurpose::AuthoringDiagnostics);
+    CHECK(std::count_if(loadedDiags.begin(), loadedDiags.end(),
+                        [](const Logic::LogicDiagnostic& d) {
+                            return d.code == "LB_INCOMPATIBLE_BLOCK";
+                        })
+          == 6);
+
+    const uint64_t beforePlay = coordinator.document().revision();
+    CHECK(!coordinator.playCurrentScene().ok);
+    CHECK(coordinator.document().revision() == beforePlay);
+    CHECK(!coordinator.document().data().objectTypes.at("Hero").topDownController.has_value());
+}
+
 int main() {
     testCommandsAndPersistence();
+    testIncompatibleBoardRecovery();
     testDuplicateLogicRule();
     testGlobalVariableCommands();
     testConditionCommands();
