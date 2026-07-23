@@ -527,10 +527,14 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
 
         html += "<div id=\"logic-rule-" + std::to_string(ruleIndex) + "\" class=\"logic-rule"
                 + std::string(rule.enabled ? "" : " off") + "\">"
-                "<div class=\"logic-rule-head\">";
-        html += "<button class=\"logic-rule-caret\" data-action=\"toggle-logic-rule-collapsed\""
-                " data-arg=\"" + escapeRml(rule.id) + "\">"
-             + iconMarkup(collapsed ? "&#xeb5f;" : "&#xeb5d;") + "</button>";
+                "<div class=\"logic-rule-head\""
+                " data-action=\"toggle-logic-rule-collapsed\""
+                " data-arg=\"" + escapeRml(rule.id) + "\">";
+        // Caret is visual only — the whole .logic-rule-head carries the
+        // toggle action (right-side On/clone/move/delete buttons keep their
+        // own data-action and win the click walk-up first).
+        html += "<span class=\"logic-rule-caret\">"
+             + iconMarkup(collapsed ? "&#xeb5f;" : "&#xeb5d;") + "</span>";
         html += "<span class=\"logic-rule-index\">" + std::to_string(ruleIndex + 1) + "</span>";
         html += "<span class=\"logic-rule-title\">" + escapeRml(summary) + "</span>";
         if (diagnosticCount > 0) {

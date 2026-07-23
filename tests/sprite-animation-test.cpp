@@ -505,6 +505,55 @@ int main() {
         }
     }
 
+    // ADR-0010: spritePresentation Animation + empty defaultClipId still
+    // materialises the animation source sheet in Play (no spawn-clip fallback).
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        SpriteAnimationAssetDef anim;
+        anim.id = "hero.anim";
+        anim.name = "hero.anim";
+        anim.sourceImageAssetId = "img-hero";
+        anim.frames.push_back(SpriteFrameDef{"f0", 0, 0, 32, 32});
+        anim.frames.push_back(SpriteFrameDef{"f1", 32, 0, 32, 32});
+        SpriteAnimationClipDef idle;
+        idle.id = "idle";
+        idle.name = "Idle";
+        idle.framesPerSecond = 8.f;
+        idle.playbackMode = AnimationPlaybackMode::Loop;
+        idle.frameIds = {"f0", "f1"};
+        anim.clips.push_back(idle);
+        doc.spriteAnimationAssets.push_back(std::move(anim));
+
+        EntityDef hero;
+        hero.className = "Hero";
+        hero.name = "Hero";
+        SpritePresentationComponent presentation;
+        presentation.visible = true;
+        presentation.source = SpritePresentationAnimation{
+            "hero.anim", /*defaultClipId=*/{}, /*autoPlay=*/false, /*playbackSpeed=*/1.f};
+        hero.spritePresentation = std::move(presentation);
+        doc.objectTypes.emplace("Hero", std::move(hero));
+
+        ProjectDocument document{std::move(doc)};
+        std::string playError;
+        auto session = PlaySession::startActiveScene(document, kSceneA, &playError);
+        CHECK(session.has_value());
+        if (!session) {
+            std::cerr << "Play start failed: " << playError << "\n";
+        } else {
+            const SceneFrameSnapshot snapshot = collectSceneFrameSnapshot(*session);
+            const auto heroSprite = std::find_if(
+                snapshot.sprites.begin(), snapshot.sprites.end(),
+                [](const SceneFrameSprite& entry) { return entry.entityId == kHero; });
+            CHECK(heroSprite != snapshot.sprites.end());
+            if (heroSprite != snapshot.sprites.end()) {
+                // Sheet id must come from materialisation (ADR-0010), not from
+                // maybePlaySpawnClip (which requires a non-empty defaultClipId).
+                CHECK(heroSprite->assetId == "img-hero");
+            }
+        }
+    }
+
     // -- Edit falls back to static image when animator asset is missing --------
     {
         ProjectDoc doc = makeAnimationDoc();
@@ -632,11 +681,17 @@ int main() {
         doc.objectTypes.at("Hero").spriteAnimator->defaultClipId = "stolen";
         auto migrated = ProjectMigration::migrate(ProjectDocument{std::move(doc)});
         CHECK(migrated.ok);
-        const auto& animator =
-            *migrated.value.data().objectTypes.at("Hero").spriteAnimator;
+        const EntityDef& hero = migrated.value.data().objectTypes.at("Hero");
+        // v10 folds animator into spritePresentation and clears legacy fields.
+        CHECK(hero.spritePresentation.has_value());
+        const auto* animation = hero.spritePresentation
+            ? std::get_if<SpritePresentationAnimation>(&hero.spritePresentation->source)
+            : nullptr;
+        CHECK(animation != nullptr);
         // Must NOT remap to other.anim just because it owns clip "stolen".
-        CHECK(animator.animationAssetId == "hero.anim");
-        CHECK(animator.defaultClipId == "stolen");
+        CHECK(animation && animation->animationAssetId == "hero.anim");
+        CHECK(animation && animation->defaultClipId == "stolen");
+        CHECK(!hero.spriteAnimator.has_value());
     }
 
     // -- Confirm source-image Intent is workspace-only (no document mutate) ---

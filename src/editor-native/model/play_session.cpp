@@ -75,6 +75,64 @@ std::optional<std::string> validatePlaySpriteReferences(const ProjectDocument& d
             return "Object Type \"" + typeId
                  + "\" SpriteRenderer references a missing image asset";
         }
+        if (type.spritePresentation) {
+            const SpritePresentationSource& source = type.spritePresentation->source;
+            if (const auto* image = std::get_if<SpritePresentationImage>(&source)) {
+                if (!image->imageAssetId.empty()
+                    && !document.hasImageAsset(image->imageAssetId)) {
+                    return "Object Type \"" + typeId
+                         + "\" Sprite references a missing image asset";
+                }
+            } else if (const auto* animation =
+                           std::get_if<SpritePresentationAnimation>(&source)) {
+                if (animation->animationAssetId.empty()
+                    || !document.hasSpriteAnimationAsset(animation->animationAssetId)) {
+                    return "Object Type \"" + typeId
+                         + "\" Sprite references a missing animation asset";
+                }
+                const SpriteAnimationAssetDef* asset =
+                    document.findSpriteAnimationAsset(animation->animationAssetId);
+                if (!animation->defaultClipId.empty() && asset) {
+                    bool ownsClip = false;
+                    for (const SpriteAnimationClipDef& clip : asset->clips) {
+                        if (clip.id == animation->defaultClipId) {
+                            ownsClip = true;
+                            break;
+                        }
+                    }
+                    if (!ownsClip) {
+                        return "Object Type \"" + typeId
+                             + "\" Sprite defaultClipId must belong to its animation asset";
+                    }
+                }
+            }
+        }
+        if (type.spriteAnimator) {
+            const AssetId& animationId = type.spriteAnimator->animationAssetId;
+            if (animationId.empty()) {
+                return "Object Type \"" + typeId
+                     + "\" SpriteAnimator requires an animation asset";
+            }
+            if (!document.hasSpriteAnimationAsset(animationId)) {
+                return "Object Type \"" + typeId
+                     + "\" SpriteAnimator references a missing animation asset";
+            }
+            const SpriteAnimationAssetDef* asset =
+                document.findSpriteAnimationAsset(animationId);
+            if (!type.spriteAnimator->defaultClipId.empty() && asset) {
+                bool ownsClip = false;
+                for (const SpriteAnimationClipDef& clip : asset->clips) {
+                    if (clip.id == type.spriteAnimator->defaultClipId) {
+                        ownsClip = true;
+                        break;
+                    }
+                }
+                if (!ownsClip) {
+                    return "Object Type \"" + typeId
+                         + "\" SpriteAnimator defaultClipId must belong to its animation asset";
+                }
+            }
+        }
     }
     for (const auto& [sceneId, scene] : document.data().scenes) {
         for (const SceneInstanceDef& instance : scene.instances) {
@@ -88,6 +146,29 @@ std::optional<std::string> validatePlaySpriteReferences(const ProjectDocument& d
             if (presentation.renderer && !presentation.renderer->imageAssetId.empty()
                 && !document.hasImageAsset(presentation.renderer->imageAssetId)) {
                 return "Scene \"" + sceneId + "\" sprite renderer references a missing image asset";
+            }
+            if (presentation.animator) {
+                const AssetId& animationId = presentation.animator->animationAssetId;
+                if (animationId.empty()
+                    || !document.hasSpriteAnimationAsset(animationId)) {
+                    return "Scene \"" + sceneId
+                         + "\" sprite animator references a missing animation asset";
+                }
+                const SpriteAnimationAssetDef* asset =
+                    document.findSpriteAnimationAsset(animationId);
+                if (!presentation.animator->defaultClipId.empty() && asset) {
+                    bool ownsClip = false;
+                    for (const SpriteAnimationClipDef& clip : asset->clips) {
+                        if (clip.id == presentation.animator->defaultClipId) {
+                            ownsClip = true;
+                            break;
+                        }
+                    }
+                    if (!ownsClip) {
+                        return "Scene \"" + sceneId
+                             + "\" sprite defaultClipId must belong to its animation asset";
+                    }
+                }
             }
         }
     }

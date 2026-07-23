@@ -363,10 +363,10 @@
     padding: 10dp 12dp;
     background-color: #1c1c1f;
     border-bottom: 1px #27272a;
+    cursor: pointer;
 }
-/* Reuses .comp-caret's tabler-icons glyph styling (panels.rcss), as a
-   clickable button instead of a static span, sized to a real ~28dp hit
-   area rather than just the glyph's own visual size. */
+/* Reuses .comp-caret's tabler-icons glyph styling (panels.rcss). Hit target
+   is the whole .logic-rule-head; this is the visual caret only. */
 .logic-rule-caret {
     display: inline-block;
     width: 28dp;
@@ -374,13 +374,11 @@
     line-height: 28dp;
     text-align: center;
     margin-right: 2dp;
-    background-color: transparent;
-    border: 0;
     color: #6b6b73;
     font-family: tabler-icons;
     font-weight: normal;
 }
-.logic-rule-caret:hover { color: #c4c4c8; }
+.logic-rule-head:hover .logic-rule-caret { color: #c4c4c8; }
 /* Scoped to cards, not the shared .comp-remove definition itself (other
    panels use that class at its own, smaller size) — the move/delete buttons
    throughout a Logic Board card get the same real hit area as the caret. */
