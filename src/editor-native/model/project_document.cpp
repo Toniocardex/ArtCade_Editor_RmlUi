@@ -194,6 +194,15 @@ bool ProjectDocument::setSceneSize(const SceneId& sceneId, Vec2 size) {
     return true;
 }
 
+bool ProjectDocument::setSceneViewportSize(const SceneId& sceneId, Vec2 size) {
+    if (!NumericValidation::isPositive(size)) return false;
+    SceneDef* scene = mutableScene(sceneId);
+    if (!scene) return false;
+    scene->viewportSize = size;
+    markDirty();
+    return true;
+}
+
 bool ProjectDocument::setSceneBackground(const SceneId& sceneId, Vec4 color) {
     if (!NumericValidation::isFinite(color)) return false;
     SceneDef* scene = mutableScene(sceneId);

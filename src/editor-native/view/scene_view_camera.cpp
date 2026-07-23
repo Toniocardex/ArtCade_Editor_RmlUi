@@ -14,11 +14,22 @@ SceneViewCamera makeSceneViewCamera(const ViewportRect& rect,
     return camera;
 }
 
-float computeFitZoom(Vec2 worldSize, const ViewportRect& rect, float padding) {
-    if (worldSize.x <= 0.f || worldSize.y <= 0.f) return 1.f;
+float computeFitZoom(Vec2 size, const ViewportRect& rect, float padding) {
+    if (size.x <= 0.f || size.y <= 0.f) return 1.f;
     const float availW = std::max(1.f, static_cast<float>(rect.width) - padding * 2.f);
     const float availH = std::max(1.f, static_cast<float>(rect.height) - padding * 2.f);
-    return std::min(availW / worldSize.x, availH / worldSize.y);
+    return std::min(availW / size.x, availH / size.y);
+}
+
+EditorSceneViewState resolvePlayView(const PlayViewportProjectionInput& input) {
+    EditorSceneViewState view;
+    view.zoom = clampZoom(computeFitZoom(input.gameViewportSize, input.hostRect, input.padding));
+    view.pan = Vec2{
+        input.cameraCenter.x - input.worldSize.x * 0.5f,
+        input.cameraCenter.y - input.worldSize.y * 0.5f,
+    };
+    view.gridVisible = false;
+    return view;
 }
 
 Vec2 screenToWorld(const SceneViewCamera& camera, Vec2 screen) {

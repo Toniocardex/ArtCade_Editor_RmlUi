@@ -526,6 +526,9 @@ SceneDef readScene(const nlohmann::json& value, const SceneId& fallbackId) {
     if (value.contains("viewportSize")) {
         scene.viewportSize = readVec2(value["viewportSize"], scene.viewportSize);
     }
+    if (value.contains("cameraStart")) {
+        scene.cameraStart = readVec2(value["cameraStart"], scene.cameraStart);
+    }
     if (value.contains("backgroundColor")) {
         scene.backgroundColor = readVec4(value["backgroundColor"], scene.backgroundColor);
     }
@@ -871,6 +874,7 @@ nlohmann::json sceneToJson(const SceneDef& scene) {
         {"name", scene.name},
         {"worldSize", vec2ToJson(scene.worldSize)},
         {"viewportSize", vec2ToJson(scene.viewportSize)},
+        {"cameraStart", vec2ToJson(scene.cameraStart)},
         {"backgroundColor", vec4ToJson(scene.backgroundColor)},
         {"layers", std::move(layers)},
         {"defaultLayerId", scene.defaultLayerId},

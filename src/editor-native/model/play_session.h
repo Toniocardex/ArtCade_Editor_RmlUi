@@ -85,6 +85,8 @@ struct PlaySceneInfo {
     SceneId sourceSceneId;
     std::string name;
     Vec2 worldSize;
+    Vec2 viewportSize;
+    Vec2 cameraStart;
     Vec4 backgroundColor;
 };
 

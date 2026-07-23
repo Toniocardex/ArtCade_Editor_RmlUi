@@ -335,6 +335,8 @@ std::optional<PlaySession> PlaySession::materialize(
     session.scene_.sourceSceneId = scene->id;
     session.scene_.name = scene->name;
     session.scene_.worldSize = scene->worldSize;
+    session.scene_.viewportSize = scene->viewportSize;
+    session.scene_.cameraStart = scene->cameraStart;
     session.scene_.backgroundColor = scene->backgroundColor;
 
     // RU-04 (docs/PLAY_RUNTIME_UNIFICATION_ROADMAP.md §11): Play now parses

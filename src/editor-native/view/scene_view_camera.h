@@ -34,12 +34,21 @@ SceneViewCamera makeSceneViewCamera(const ViewportRect& rect,
                                     const EditorSceneViewState& view,
                                     Vec2 worldSize);
 
-// Zoom that frames worldSize entirely inside rect, leaving `padding` pixels
-// clear on every edge. Pure math, no state: the single formula behind the
-// Scene Inspector's Fit View action and Play's own from-scratch camera (see
-// editor_app.cpp) - both must agree on what "fit" means, so neither keeps a
-// private copy. 1.0 when worldSize is degenerate (nothing to fit).
-float computeFitZoom(Vec2 worldSize, const ViewportRect& rect, float padding);
+// Zoom that frames size entirely inside rect, leaving `padding` pixels clear
+// on every edge. Pure math: Fit View (world) and Play Fit (Game View) share it.
+// 1.0 when size is degenerate.
+float computeFitZoom(Vec2 size, const ViewportRect& rect, float padding);
+
+// ADR-0018: Play camera from Game View + runtime center (never editor pan/zoom).
+struct PlayViewportProjectionInput {
+    Vec2 worldSize;
+    Vec2 gameViewportSize;
+    Vec2 cameraCenter;
+    ViewportRect hostRect;
+    float padding = 0.f;
+};
+
+EditorSceneViewState resolvePlayView(const PlayViewportProjectionInput& input);
 
 // screen = (world - target) * zoom + offset  =>  inverse below.
 Vec2 screenToWorld(const SceneViewCamera& camera, Vec2 screen);

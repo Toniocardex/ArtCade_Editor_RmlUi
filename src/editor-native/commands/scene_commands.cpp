@@ -197,6 +197,46 @@ EditorOperationResult SetSceneSizeCommand::undo(ProjectDocument& document) {
         DomainChange::sceneChanged(sceneId_));
 }
 
+// ----------------------------------------------------------------------------
+// SetSceneViewportSizeCommand (ADR-0018)
+// ----------------------------------------------------------------------------
+SetSceneViewportSizeCommand::SetSceneViewportSizeCommand(SceneId sceneId, Vec2 size)
+    : sceneId_(std::move(sceneId)), newSize_(size) {}
+
+EditorOperationResult SetSceneViewportSizeCommand::apply(ProjectDocument& document) {
+    if (!std::isfinite(newSize_.x) || !std::isfinite(newSize_.y)
+        || newSize_.x <= 0.f || newSize_.y <= 0.f) {
+        return EditorOperationResult::failure("Game View size must be positive");
+    }
+    const Vec2 size{std::round(newSize_.x), std::round(newSize_.y)};
+    const SceneDef* scene = document.findScene(sceneId_);
+    if (!scene) {
+        return EditorOperationResult::failure("No target scene");
+    }
+    if (scene->viewportSize.x == size.x && scene->viewportSize.y == size.y) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+    if (!captured_) {
+        oldSize_ = scene->viewportSize;
+        captured_ = true;
+    }
+    if (!document.setSceneViewportSize(sceneId_, size)) {
+        return EditorOperationResult::failure("Failed to set Game View size");
+    }
+    return EditorOperationResult::success(
+        EditorInvalidation::Inspector | EditorInvalidation::Viewport,
+        DomainChange::sceneChanged(sceneId_));
+}
+
+EditorOperationResult SetSceneViewportSizeCommand::undo(ProjectDocument& document) {
+    if (!captured_ || !document.setSceneViewportSize(sceneId_, oldSize_)) {
+        return EditorOperationResult::failure("Cannot undo Game View size change");
+    }
+    return EditorOperationResult::success(
+        EditorInvalidation::Inspector | EditorInvalidation::Viewport,
+        DomainChange::sceneChanged(sceneId_));
+}
+
 SetSceneBackgroundCommand::SetSceneBackgroundCommand(SceneId sceneId, Vec4 color)
     : sceneId_(std::move(sceneId)), newColor_(color) {}
 

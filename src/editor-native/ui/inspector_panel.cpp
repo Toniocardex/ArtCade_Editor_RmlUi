@@ -543,6 +543,34 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         // Fit View lives in the toolbar's view group (audit 7.4): a camera action
         // belongs to the Scene View, not to scene properties.
 
+        // -- GAME VIEW (ADR-0018): visible area at Play; not world bounds --------
+        html += header("game-view", isSectionCollapsed("game-view"),
+                       "&#xed30;", "Game View", "", "", "", playing);
+        html += fieldWithUnit("Width", "commit-scene-viewport-width",
+                              num(scene->viewportSize.x), "px", playing);
+        html += fieldWithUnit("Height", "commit-scene-viewport-height",
+                              num(scene->viewportSize.y), "px", playing);
+        if (scene->viewportSize.x > scene->worldSize.x
+            || scene->viewportSize.y > scene->worldSize.y) {
+            html += "<div class=\"prop-hint warn\">Game View exceeds World Bounds</div>";
+        }
+        if (!playing) {
+            html += "<div class=\"prop-row prop-presets\">";
+            const struct { const char* label; float w; float h; } presets[] = {
+                {"512×320", 512.f, 320.f},
+                {"640×360", 640.f, 360.f},
+                {"960×540", 960.f, 540.f},
+                {"1280×720", 1280.f, 720.f},
+            };
+            for (const auto& preset : presets) {
+                html += "<button class=\"panel-btn compact\" data-action=\"set-scene-viewport-preset\""
+                        " data-arg=\"" + std::to_string(static_cast<int>(preset.w)) + "x"
+                        + std::to_string(static_cast<int>(preset.h)) + "\">"
+                      + preset.label + "</button>";
+            }
+            html += "</div>";
+        }
+
         // -- LAYER MANAGER (per-scene render order; top row = foreground) ------
         html += header("layers", isSectionCollapsed("layers"),
                        "&#xee9e;", "Layer Manager", "", "", "", playing,

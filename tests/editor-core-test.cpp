@@ -3176,17 +3176,22 @@ int main() {
 
     // == CameraTarget: scene-instance authority, Undo, persistence, Play ====
     {
-        // A fresh PlaySession has no editor pan/zoom to inherit. Without a
-        // CameraTarget its native runtime camera starts at the scene centre,
-        // never at the world origin.
+        // ADR-0018: without a CameraTarget, Play starts at cameraStart+viewport/2
+        // (defaults equal world centre when viewport == world and cameraStart is 0).
         EditorCoordinator noTarget{makeInheritedDoc()};
         std::optional<PlaySession> centredSession = PlaySession::startProject(noTarget.document());
         CHECK(centredSession.has_value());
         const Vec2 centred = centredSession->cameraCenter();
         const SceneDef* centredScene = noTarget.document().findScene(kSceneA);
         CHECK(centredScene != nullptr);
-        CHECK(centred.x == centredScene->worldSize.x * 0.5f);
-        CHECK(centred.y == centredScene->worldSize.y * 0.5f);
+        CHECK(centredSession->scene().viewportSize.x == centredScene->viewportSize.x);
+        CHECK(centredSession->scene().cameraStart.x == centredScene->cameraStart.x);
+        const Vec2 expectedNoTarget{
+            centredScene->cameraStart.x + centredScene->viewportSize.x * 0.5f,
+            centredScene->cameraStart.y + centredScene->viewportSize.y * 0.5f,
+        };
+        CHECK(centred.x == expectedNoTarget.x);
+        CHECK(centred.y == expectedNoTarget.y);
 
         EditorCoordinator c{makeInheritedDoc()};
         c.apply(SelectEntityIntent{kHero});
@@ -3217,16 +3222,53 @@ int main() {
             *loaded.value.findInstanceInScene(kSceneA, kHero)->cameraTarget;
         CHECK(restored.offsetX == 3.f && restored.offsetY == -4.f && restored.followSpeed == 0.f);
 
+        // Enlarge world past Game View so clamp allows an interior target (ADR-0018).
+        CHECK(c.execute(SetSceneSizeCommand{kSceneA, {1024.f, 640.f}}).ok);
+        CHECK(c.execute(SetSceneViewportSizeCommand{kSceneA, {512.f, 320.f}}).ok);
+        // Place the hero well inside the clamp band (half-viewport from each edge).
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {400.f, 300.f}}).ok);
+
         std::optional<PlaySession> session = PlaySession::startProject(c.document());
         CHECK(session.has_value());
         session->tick(RuntimeInputSnapshot{}, 0.016f);
         const Vec2 camera = session->cameraCenter();
-        CHECK(camera.x == 13.f && camera.y == 16.f);  // transform + authored offset
+        // transform (400,300) + offset (3,-4)
+        CHECK(camera.x == 403.f && camera.y == 296.f);
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->cameraTarget->offsetX == 3.f);
 
         CHECK(c.execute(RemoveCameraTargetCommand{kSceneA, kHero}).ok);
         CHECK(c.undo().ok);
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->cameraTarget.has_value());
+    }
+
+    // -- ADR-0018: viewportSize + cameraStart Save/Load round-trip ------------
+    {
+        EditorCoordinator c{makeDoc()};
+        CHECK(c.execute(SetSceneSizeCommand{kSceneA, {1024.f, 320.f}}).ok);
+        CHECK(c.execute(SetSceneViewportSizeCommand{kSceneA, {512.f, 320.f}}).ok);
+        ProjectDoc doc = c.document().data();
+        doc.scenes.at(kSceneA).cameraStart = {64.f, 16.f};
+        doc.scenes.at(kSceneA).viewportSize = {512.f, 320.f};
+        doc.scenes.at(kSceneA).worldSize = {1024.f, 640.f};
+        const SerializeResult saved = ProjectSerializer::serialize(ProjectDocument{doc});
+        CHECK(saved.ok);
+        CHECK(saved.value.find("\"cameraStart\"") != std::string::npos);
+        CHECK(saved.value.find("\"viewportSize\"") != std::string::npos);
+        const DeserializeResult loaded = ProjectSerializer::deserialize(saved.value);
+        CHECK(loaded.ok);
+        const SceneDef* restored = loaded.value.findScene(kSceneA);
+        CHECK(restored != nullptr);
+        CHECK(restored->worldSize.x == 1024.f && restored->worldSize.y == 640.f);
+        CHECK(restored->viewportSize.x == 512.f);
+        CHECK(restored->cameraStart.x == 64.f && restored->cameraStart.y == 16.f);
+
+        std::optional<PlaySession> session = PlaySession::startProject(loaded.value);
+        CHECK(session.has_value());
+        CHECK(session->scene().viewportSize.x == 512.f);
+        CHECK(session->scene().cameraStart.x == 64.f);
+        const Vec2 cam = session->cameraCenter();
+        CHECK(cam.x == 64.f + 256.f);
+        CHECK(cam.y == 16.f + 160.f);
     }
 
     // A target is not type-owned and there is never a second automatic target
@@ -3769,6 +3811,19 @@ int main() {
         CHECK(computeFitZoom(Vec2{100.f, -1.f}, rect, 0.f) == 1.f);
     }
 
+    // -- ADR-0018: Play zoom follows Game View, not world bounds --------------
+    {
+        ViewportRect rect{0, 0, 1000, 500};
+        const auto a = resolvePlayView(PlayViewportProjectionInput{
+            {512.f, 320.f}, {512.f, 320.f}, {256.f, 160.f}, rect, 0.f});
+        const auto b = resolvePlayView(PlayViewportProjectionInput{
+            {1024.f, 320.f}, {512.f, 320.f}, {256.f, 160.f}, rect, 0.f});
+        CHECK(a.zoom == b.zoom);
+        CHECK(a.zoom == computeFitZoom(Vec2{512.f, 320.f}, rect, 0.f));
+        // Larger world with same center shifts pan (relative to world mid).
+        CHECK(b.pan.x != a.pan.x);
+    }
+
     // -- pickEntityAt: topmost hit; miss returns INVALID ----------------------
     {
         SceneFrameSnapshot f;
@@ -4058,6 +4113,33 @@ int main() {
         CHECK(c.document().findScene(kSceneA)->worldSize.x == 320.f);
         CHECK(c.redo().ok);
         CHECK(c.document().findScene(kSceneA)->worldSize.x == 199.f);
+    }
+
+    // -- Set scene Game View size (ADR-0018): distinct from world bounds -----
+    {
+        EditorCoordinator c{makeDoc()};
+        CHECK(c.document().findScene(kSceneA)->viewportSize.x == 512.f);
+        CHECK(c.execute(SetSceneViewportSizeCommand{kSceneA, {640.f, 360.f}}).ok);
+        CHECK(c.document().findScene(kSceneA)->viewportSize.x == 640.f);
+        CHECK(c.document().findScene(kSceneA)->viewportSize.y == 360.f);
+        CHECK(c.document().findScene(kSceneA)->worldSize.x == 512.f);  // world untouched
+
+        CHECK(!c.execute(SetSceneViewportSizeCommand{kSceneA, {0.f, 100.f}}).ok);
+        CHECK(!c.execute(SetSceneViewportSizeCommand{kSceneA, {-1.f, 100.f}}).ok);
+        CHECK(c.document().findScene(kSceneA)->viewportSize.x == 640.f);
+
+        CHECK(c.execute(SetSceneViewportSizeCommand{kSceneA, {199.4f, 150.6f}}).ok);
+        CHECK(c.document().findScene(kSceneA)->viewportSize.x == 199.f);
+        CHECK(c.document().findScene(kSceneA)->viewportSize.y == 151.f);
+
+        const std::size_t undoBeforeNoop = c.undoSize();
+        CHECK(c.execute(SetSceneViewportSizeCommand{kSceneA, {199.f, 151.f}}).ok);
+        CHECK(c.undoSize() == undoBeforeNoop);  // no-op
+
+        CHECK(c.undo().ok);
+        CHECK(c.document().findScene(kSceneA)->viewportSize.x == 640.f);
+        CHECK(c.redo().ok);
+        CHECK(c.document().findScene(kSceneA)->viewportSize.x == 199.f);
     }
 
     // -- Persistent numeric boundaries reject NaN/Inf atomically ------------

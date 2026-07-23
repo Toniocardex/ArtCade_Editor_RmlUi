@@ -48,6 +48,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <chrono>
 #include <limits>
 #include <optional>
@@ -2831,6 +2832,32 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
             if (action == "commit-scene-width") size.x = *parsed;
             else                                size.y = *parsed;
             coordinator_.execute(SetSceneSizeCommand{coordinator_.state().activeSceneId, size});
+        }
+    } else if (action == "commit-scene-viewport-width"
+               || action == "commit-scene-viewport-height") {
+        const SceneDef* scene =
+            coordinator_.document().findScene(coordinator_.state().activeSceneId);
+        const std::optional<float> parsed = parseNumberField(value);
+        if (!scene) {
+            coordinator_.logError("No selected scene");
+        } else if (!parsed.has_value()) {
+            coordinator_.logError("Game View size is not a number");
+        } else {
+            Vec2 size = scene->viewportSize;
+            if (action == "commit-scene-viewport-width") size.x = *parsed;
+            else                                         size.y = *parsed;
+            coordinator_.execute(
+                SetSceneViewportSizeCommand{coordinator_.state().activeSceneId, size});
+        }
+    } else if (action == "set-scene-viewport-preset") {
+        float w = 0.f, h = 0.f;
+        if (const char* x = std::strchr(arg.c_str(), 'x')) {
+            w = static_cast<float>(std::atoi(arg.c_str()));
+            h = static_cast<float>(std::atoi(x + 1));
+        }
+        if (w > 0.f && h > 0.f) {
+            coordinator_.execute(
+                SetSceneViewportSizeCommand{coordinator_.state().activeSceneId, Vec2{w, h}});
         }
     } else if (action == "commit-scene-background-r"
                || action == "commit-scene-background-g"

@@ -61,6 +61,7 @@ class SetBoxColliderSizeCommand;
 class SetBoxColliderModeCommand;
 class RenameSceneCommand;
 class SetSceneSizeCommand;
+class SetSceneViewportSizeCommand;
 class SetSceneBackgroundCommand;
 class AddSpriteAnimationAssetCommand;
 class RemoveSpriteAnimationAssetCommand;
@@ -273,6 +274,7 @@ private:
     friend class SetScriptAttachmentEnabledCommand;
     friend class RenameSceneCommand;
     friend class SetSceneSizeCommand;
+    friend class SetSceneViewportSizeCommand;
     friend class SetSceneBackgroundCommand;
     friend class CreateSpriteAnimationAssetCommand;
     friend class AddSpriteAnimationAssetCommand;
@@ -341,6 +343,7 @@ private:
     // entity left outside the new bounds keeps its coordinates (Outside Scene UX
     // flags it); only rendering/clipping/spawn-centre derive from this.
     bool setSceneSize(const SceneId& sceneId, Vec2 size);
+    bool setSceneViewportSize(const SceneId& sceneId, Vec2 size);
     bool setSceneBackground(const SceneId& sceneId, Vec4 color);
     // The persisted gameplay start scene. Empty is allowed only when there are
     // no scenes; a non-empty id must reference an existing scene.

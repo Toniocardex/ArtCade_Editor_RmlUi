@@ -1601,23 +1601,17 @@ int EditorApp::run(int argc, char** argv) {
                                                     coordinator.state().tilemapEditor);
             }
             // Play never reads the editor's own pan/zoom (EditorState::
-            // sceneViews is workspace-only, per the authority table) - a
-            // fresh, from-scratch camera every frame instead of
-            // coordinator.sceneView(active), or whatever the user happened
-            // to have scrolled/zoomed to while painting would leak straight
-            // into the runtime. Centered (pan 0) and zoomed to fit the
-            // scene's world bounds - exactly what "Fit View" computes - so
-            // Play always shows the game the way it's meant to be seen.
+            // sceneViews is workspace-only). Fit Game View (viewportSize), not
+            // world bounds; center from runtime camera (ADR-0018).
             EditorSceneViewState renderView;
             if (playSession) {
-                renderView.zoom =
-                    clampZoom(computeFitZoom(snapshot.worldSize, visibleRect, kSceneFitPadding));
-                // Play owns its camera state. The Scene View only presents the
-                // runtime centre; it never persists this into EditorState.
-                const Vec2 runtimeCenter = playSession->cameraCenter();
-                renderView.pan = Vec2{runtimeCenter.x - snapshot.worldSize.x * 0.5f,
-                                      runtimeCenter.y - snapshot.worldSize.y * 0.5f};
-                renderView.gridVisible = false;
+                renderView = resolvePlayView(PlayViewportProjectionInput{
+                    snapshot.worldSize,
+                    playSession->scene().viewportSize,
+                    playSession->cameraCenter(),
+                    visibleRect,
+                    kSceneFitPadding,
+                });
             } else {
                 renderView = coordinator.sceneView(active);
             }

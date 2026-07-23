@@ -101,6 +101,26 @@ private:
     bool    captured_ = false;
 };
 
+/**
+ * Set one scene's Game View size (ADR-0018). Distinct from world bounds:
+ * viewport is the area visible at Play zoom Fit. Finite, > 0, whole pixels.
+ * Invalidates Inspector | Viewport.
+ */
+class SetSceneViewportSizeCommand final : public EditorCommand {
+public:
+    SetSceneViewportSizeCommand(SceneId sceneId, Vec2 size);
+
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "SetSceneViewportSize"; }
+
+private:
+    SceneId sceneId_;
+    Vec2    newSize_;
+    Vec2    oldSize_{};
+    bool    captured_ = false;
+};
+
 /** Set one scene's background colour. Invalidates Inspector | Viewport. */
 class SetSceneBackgroundCommand final : public EditorCommand {
 public:
