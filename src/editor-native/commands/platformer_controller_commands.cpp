@@ -32,9 +32,12 @@ bool hasOneWayCollider(const EntityDef& type) {
 // The canonical field each editable value maps onto.
 float readField(const PlatformerControllerComponent& c, PlatformerField field) {
     switch (field) {
-        case PlatformerField::MoveSpeed: return c.maxSpeed;
-        case PlatformerField::JumpSpeed: return c.jumpForce;
-        case PlatformerField::Gravity:   return c.customGravity;
+        case PlatformerField::MoveSpeed:  return c.maxSpeed;
+        case PlatformerField::JumpSpeed:  return c.jumpForce;
+        case PlatformerField::Gravity:    return c.customGravity;
+        case PlatformerField::CoyoteTime: return c.coyoteTime;
+        case PlatformerField::JumpBuffer: return c.jumpBuffer;
+        case PlatformerField::ClimbSpeed: return c.climbSpeed;
     }
     return 0.f;
 }

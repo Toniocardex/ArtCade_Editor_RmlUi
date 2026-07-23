@@ -410,7 +410,7 @@ private:
     bool removeAutoDestroy(const std::string& objectTypeId);
     bool setAutoDestroyLifespan(const std::string& objectTypeId, float lifespan);
     // PlatformerController is authored on the object type only. `field` selects the
-    // canonical scalar (0 = maxSpeed, 1 = jumpForce, 2 = customGravity), matching
+    // canonical scalar (0 = maxSpeed … 5 = climbSpeed), matching
     // commands/PlatformerField so this header stays free of the command enum.
     bool addPlatformerController(const std::string& objectTypeId, PlatformerControllerComponent component);
     bool removePlatformerController(const std::string& objectTypeId);

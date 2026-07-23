@@ -820,11 +820,13 @@ nlohmann::json objectTypeToJson(const std::string& id, const EntityDef& def) {
     if (def.platformerController.has_value()) {
         // Use the canonical runtime field names. The exported game and the
         // editor's current-format reader share this JSON contract directly.
-        // The other canonical fields stay at their defaults on load.
         json["platformerController"] = nlohmann::json{
             {"maxSpeed", def.platformerController->maxSpeed},
             {"jumpForce", def.platformerController->jumpForce},
             {"customGravity", def.platformerController->customGravity},
+            {"coyoteTime", def.platformerController->coyoteTime},
+            {"jumpBuffer", def.platformerController->jumpBuffer},
+            {"climbSpeed", def.platformerController->climbSpeed},
         };
     }
     if (def.autoDestroy.has_value()) {
@@ -1544,6 +1546,9 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                 component.customGravity = p.contains("customGravity")
                     ? readFloat(p, "customGravity", component.customGravity)
                     : readFloat(p, "gravity", component.customGravity);
+                component.coyoteTime = readFloat(p, "coyoteTime", component.coyoteTime);
+                component.jumpBuffer = readFloat(p, "jumpBuffer", component.jumpBuffer);
+                component.climbSpeed = readFloat(p, "climbSpeed", component.climbSpeed);
                 def.platformerController = component;
             }
             if (const nlohmann::json* autoDestroyValue = optionalObject(

@@ -1208,6 +1208,9 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         html += field("Move Speed", "commit-platformer-move", num(platformer->maxSpeed), playing);
         html += field("Jump Speed", "commit-platformer-jump", num(platformer->jumpForce), playing);
         html += field("Gravity", "commit-platformer-gravity", num(platformer->customGravity), playing);
+        html += field("Coyote Time", "commit-platformer-coyote", num(platformer->coyoteTime), playing);
+        html += field("Jump Buffer", "commit-platformer-jump-buffer", num(platformer->jumpBuffer), playing);
+        html += field("Climb Speed", "commit-platformer-climb", num(platformer->climbSpeed), playing);
     }
 
     // -- Camera Target (instance-owned, one per scene; ADR-0003) ------------

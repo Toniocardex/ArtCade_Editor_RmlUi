@@ -75,7 +75,10 @@ inline bool isValid(const TopDownControllerComponent& component) {
 inline bool isValid(const PlatformerControllerComponent& component) {
     return isNonNegative(component.maxSpeed)
         && isNonNegative(component.jumpForce)
-        && isNonNegative(component.customGravity);
+        && isNonNegative(component.customGravity)
+        && isNonNegative(component.coyoteTime)
+        && isNonNegative(component.jumpBuffer)
+        && isNonNegative(component.climbSpeed);
 }
 
 inline bool isValid(const TilemapComponent& component) {

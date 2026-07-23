@@ -2576,6 +2576,18 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         const std::optional<float> parsed = parseNumberField(value);
         if (!parsed.has_value()) coordinator_.logError("Platformer gravity is not a number");
         else setPlatformerGravity(coordinator_, *parsed);
+    } else if (action == "commit-platformer-coyote") {
+        const std::optional<float> parsed = parseNumberField(value);
+        if (!parsed.has_value()) coordinator_.logError("Platformer coyote time is not a number");
+        else setPlatformerCoyoteTime(coordinator_, *parsed);
+    } else if (action == "commit-platformer-jump-buffer") {
+        const std::optional<float> parsed = parseNumberField(value);
+        if (!parsed.has_value()) coordinator_.logError("Platformer jump buffer is not a number");
+        else setPlatformerJumpBuffer(coordinator_, *parsed);
+    } else if (action == "commit-platformer-climb") {
+        const std::optional<float> parsed = parseNumberField(value);
+        if (!parsed.has_value()) coordinator_.logError("Platformer climb speed is not a number");
+        else setPlatformerClimbSpeed(coordinator_, *parsed);
     } else if (action == "commit-transform-position-x") {
         commitInspectorTransformField(coordinator_, selected,
                                       InspectorTransformField::PositionX, value);

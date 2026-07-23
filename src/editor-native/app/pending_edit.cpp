@@ -23,6 +23,8 @@ bool isNumericCommit(const std::string& action) {
         "commit-topdown-speed", "commit-topdown-acceleration",
         "commit-topdown-friction", "commit-platformer-move",
         "commit-platformer-jump", "commit-platformer-gravity",
+        "commit-platformer-coyote", "commit-platformer-jump-buffer",
+        "commit-platformer-climb",
         "commit-auto-destroy-lifespan",
         "commit-camera-target-offset-x", "commit-camera-target-offset-y",
         "commit-camera-target-follow-speed",

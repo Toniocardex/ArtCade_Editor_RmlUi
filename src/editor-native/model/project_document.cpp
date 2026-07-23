@@ -719,6 +719,9 @@ bool ProjectDocument::setPlatformerValue(const std::string& objectTypeId, int fi
         case 0: pc.maxSpeed      = value; break;
         case 1: pc.jumpForce     = value; break;
         case 2: pc.customGravity = value; break;
+        case 3: pc.coyoteTime    = value; break;
+        case 4: pc.jumpBuffer    = value; break;
+        case 5: pc.climbSpeed    = value; break;
         default: return false;
     }
     markDirty();

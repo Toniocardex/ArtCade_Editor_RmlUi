@@ -75,6 +75,9 @@ EditorOperationResult removePlatformerController(EditorCoordinator& coordinator)
 EditorOperationResult setPlatformerMoveSpeed(EditorCoordinator& coordinator, float value);
 EditorOperationResult setPlatformerJumpSpeed(EditorCoordinator& coordinator, float value);
 EditorOperationResult setPlatformerGravity(EditorCoordinator& coordinator, float value);
+EditorOperationResult setPlatformerCoyoteTime(EditorCoordinator& coordinator, float value);
+EditorOperationResult setPlatformerJumpBuffer(EditorCoordinator& coordinator, float value);
+EditorOperationResult setPlatformerClimbSpeed(EditorCoordinator& coordinator, float value);
 
 /** Add a Tilemap component to the selected instance, auto-assigned to the
  *  project's first TilesetAsset (the Inspector's tileset picker changes it

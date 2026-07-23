@@ -490,6 +490,33 @@ EditorOperationResult setPlatformerGravity(EditorCoordinator& coordinator, float
         SetPlatformerValueCommand{objectTypeId, PlatformerField::Gravity, value});
 }
 
+EditorOperationResult setPlatformerCoyoteTime(EditorCoordinator& coordinator, float value) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
+        return fail(coordinator, "No selected object type");
+    }
+    return coordinator.execute(
+        SetPlatformerValueCommand{objectTypeId, PlatformerField::CoyoteTime, value});
+}
+
+EditorOperationResult setPlatformerJumpBuffer(EditorCoordinator& coordinator, float value) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
+        return fail(coordinator, "No selected object type");
+    }
+    return coordinator.execute(
+        SetPlatformerValueCommand{objectTypeId, PlatformerField::JumpBuffer, value});
+}
+
+EditorOperationResult setPlatformerClimbSpeed(EditorCoordinator& coordinator, float value) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
+        return fail(coordinator, "No selected object type");
+    }
+    return coordinator.execute(
+        SetPlatformerValueCommand{objectTypeId, PlatformerField::ClimbSpeed, value});
+}
+
 EditorOperationResult addTilemapComponent(EditorCoordinator& coordinator) {
     SceneId sceneId; EntityId id;
     if (!selectedTarget(coordinator, sceneId, id)) {

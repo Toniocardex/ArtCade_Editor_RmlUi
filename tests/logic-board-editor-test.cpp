@@ -939,6 +939,29 @@ static void testTopDownMovementViaLogicInput() {
     CHECK(leftCompiled.ok());
     CHECK(leftCompiled.programs.front().source.find("set_flip_x(true)")
           != std::string::npos);
+
+    const Logic::LogicBlockDescriptor* moveH = Logic::findDescriptor(Logic::kMoveHorizontal);
+    CHECK(moveH != nullptr);
+    CHECK(moveH->properties.size() == 1);
+    CHECK(moveH->properties[0].key == "direction");
+    CHECK(moveH->properties[0].semantic == Logic::LogicPropertySemantic::PlatformerDirection);
+    const std::vector<std::string> moveOptions{"Left", "Right"};
+    CHECK(moveH->properties[0].options == moveOptions);
+
+    ProjectDoc platformerMove = makeProjectData();
+    platformerMove.objectTypes.at("Hero").platformerController = PlatformerControllerComponent{};
+    LogicBoardDef moveBoard;
+    moveBoard.id = "logic:Hero";
+    LogicRuleDef moveRule = Logic::makeDefaultRule("rule-1");
+    moveRule.trigger = {Logic::kKeyHeld, {{"key", LogicKey::A}}};
+    moveRule.actions[0] = {Logic::kMoveHorizontal,
+                           {{"direction", LogicStringValue{"Left"}}}};
+    moveBoard.rules.push_back(std::move(moveRule));
+    platformerMove.objectTypes.at("Hero").logicBoard = std::move(moveBoard);
+    const auto moveCompiled = Logic::compileProjectLogic(platformerMove);
+    CHECK(moveCompiled.ok());
+    CHECK(moveCompiled.programs.front().source.find("platformer_move(-1)")
+          != std::string::npos);
 }
 
 static void testFlipHorizontalProjectsToSceneView() {

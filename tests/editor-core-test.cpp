@@ -3286,12 +3286,22 @@ int main() {
             EditorCoordinator c{makeInheritedDoc()};
             CHECK(c.execute(AddPlatformerControllerCommand{"Hero"}).ok);
             CHECK(!c.execute(SetPlatformerValueCommand{"Hero", PlatformerField::Gravity, -1.f}).ok);
+            CHECK(!c.execute(SetPlatformerValueCommand{"Hero", PlatformerField::CoyoteTime, -0.1f}).ok);
             CHECK(c.execute(SetPlatformerValueCommand{"Hero", PlatformerField::JumpSpeed, 500.f}).ok);
             CHECK(c.document().data().objectTypes.at("Hero").platformerController->jumpForce == 500.f);
             CHECK(c.undo().ok);
             CHECK(c.document().data().objectTypes.at("Hero").platformerController->jumpForce == 420.f);
             CHECK(c.redo().ok);
             CHECK(c.document().data().objectTypes.at("Hero").platformerController->jumpForce == 500.f);
+
+            CHECK(c.execute(SetPlatformerValueCommand{"Hero", PlatformerField::CoyoteTime, 0.25f}).ok);
+            CHECK(c.execute(SetPlatformerValueCommand{"Hero", PlatformerField::JumpBuffer, 0.2f}).ok);
+            CHECK(c.execute(SetPlatformerValueCommand{"Hero", PlatformerField::ClimbSpeed, 90.f}).ok);
+            CHECK(c.document().data().objectTypes.at("Hero").platformerController->coyoteTime == 0.25f);
+            CHECK(c.document().data().objectTypes.at("Hero").platformerController->jumpBuffer == 0.2f);
+            CHECK(c.document().data().objectTypes.at("Hero").platformerController->climbSpeed == 90.f);
+            CHECK(c.undo().ok);
+            CHECK(c.document().data().objectTypes.at("Hero").platformerController->climbSpeed == 120.f);
         }
 
         // Save/reload preserves the authored subset.
@@ -3299,6 +3309,9 @@ int main() {
             EditorCoordinator c{makeInheritedDoc()};
             CHECK(c.execute(AddPlatformerControllerCommand{"Hero"}).ok);
             CHECK(c.execute(SetPlatformerValueCommand{"Hero", PlatformerField::MoveSpeed, 90.f}).ok);
+            CHECK(c.execute(SetPlatformerValueCommand{"Hero", PlatformerField::CoyoteTime, 0.3f}).ok);
+            CHECK(c.execute(SetPlatformerValueCommand{"Hero", PlatformerField::JumpBuffer, 0.15f}).ok);
+            CHECK(c.execute(SetPlatformerValueCommand{"Hero", PlatformerField::ClimbSpeed, 80.f}).ok);
             const std::filesystem::path path = testTempDir() / "platformer.artcade-project";
             CHECK(saveProjectToFile(c, path).ok);
             EditorCoordinator reloaded{ProjectDoc{}};
@@ -3308,6 +3321,9 @@ int main() {
             CHECK(pc->maxSpeed == 90.f);
             CHECK(pc->jumpForce == 420.f);
             CHECK(pc->customGravity == 1200.f);
+            CHECK(pc->coyoteTime == 0.3f);
+            CHECK(pc->jumpBuffer == 0.15f);
+            CHECK(pc->climbSpeed == 80.f);
         }
     }
 
