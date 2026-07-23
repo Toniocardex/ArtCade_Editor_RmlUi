@@ -1561,10 +1561,21 @@ int EditorApp::run(int argc, char** argv) {
         BeginDrawing();
         ClearBackground(Color{15, 16, 20, 255});
         const PlaySession* playSession = coordinator.playSession();
+        // Asset-editor canvases paint after host.render() into RmlUi holes.
+        // Resolve open assets regardless of Scene/Logic/Script tab — gating
+        // them on Scene left the Sprite/Tileset overlays with metadata only
+        // and pure-black raylib holes after reopen from a non-Scene tab.
         const SpriteAnimationAssetDef* animationAsset = nullptr;
         const TilesetAsset* tilesetAsset = nullptr;
+        if (!playSession) {
+            if (const auto& open = coordinator.state().spriteAnimationEditor.openAssetId) {
+                animationAsset = coordinator.document().findSpriteAnimationAsset(*open);
+            } else if (const auto& openTileset = coordinator.state().tilesetEditor.openAssetId) {
+                tilesetAsset = coordinator.document().findTilesetAsset(*openTileset);
+            }
+        }
         // Logic owns an opaque RmlUi surface. Do not collect a graphical scene
-        // snapshot, prepare textures, render overlays, or paint an asset editor
+        // snapshot, prepare textures, render overlays, or paint the Scene View
         // behind/over it. PlaySession ticking above remains independent.
         if (!nonSceneWorkspace) {
             const SceneId active = playSession ? playSession->sceneId()
@@ -1622,13 +1633,6 @@ int EditorApp::run(int argc, char** argv) {
                 : projection;
             // Asset editors replace the scene viewport only in Edit mode. During
             // Play the runtime scene must always render regardless of workspace UI.
-            if (!playSession) {
-                if (const auto& open = coordinator.state().spriteAnimationEditor.openAssetId) {
-                    animationAsset = coordinator.document().findSpriteAnimationAsset(*open);
-                } else if (const auto& openTileset = coordinator.state().tilesetEditor.openAssetId) {
-                    tilesetAsset = coordinator.document().findTilesetAsset(*openTileset);
-                }
-            }
             if (playSession || (!animationAsset && !tilesetAsset)) {
                 textureCache.prepare(snapshot.sprites, snapshot.tilemaps, textureRequests);
                 const SceneGridDefinition displayGrid = viewportDisplayGrid(

@@ -209,10 +209,19 @@ void renderSpriteAnimationPreview(
         // Image bounds: a brighter 2px frame, distinct from the 1px cell lines.
         DrawRectangleLinesEx(dest, 2.f, Color{120, 120, 130, 235});
     } else {
+        const std::string detail = (resource && !resource->error.empty())
+            ? resource->error
+            : (sheetId.empty()
+                   ? std::string("animation has no source image")
+                   : std::string("image asset not in catalog / path unresolved"));
         drawCanvasText(canvasFont, "Missing sprite sheet",
                        static_cast<float>(canvasRect.x) + 18.f,
                        static_cast<float>(canvasRect.y) + 18.f, 18.f,
                        Color{230, 90, 120, 230});
+        drawCanvasText(canvasFont, detail,
+                       static_cast<float>(canvasRect.x) + 18.f,
+                       static_cast<float>(canvasRect.y) + 42.f, 13.f,
+                       Color{180, 100, 120, 220});
     }
     EndScissorMode();
 }
@@ -245,10 +254,19 @@ void renderSpriteAnimationClipPreview(
     textureCache.prepare({requestSprite}, requests);
     const TextureResource* resource = textureCache.find(sheetId);
     if (!resource || !resource->loaded) {
+        const std::string detail = (resource && !resource->error.empty())
+            ? resource->error
+            : (sheetId.empty()
+                   ? std::string("animation has no source image")
+                   : std::string("image asset not in catalog / path unresolved"));
         drawCanvasText(canvasFont, "Missing sprite sheet",
                        static_cast<float>(previewRect.x) + 12.f,
                        static_cast<float>(previewRect.y) + 12.f, 14.f,
                        Color{230, 90, 120, 230});
+        drawCanvasText(canvasFont, detail,
+                       static_cast<float>(previewRect.x) + 12.f,
+                       static_cast<float>(previewRect.y) + 32.f, 12.f,
+                       Color{180, 100, 120, 220});
         EndScissorMode();
         return;
     }
