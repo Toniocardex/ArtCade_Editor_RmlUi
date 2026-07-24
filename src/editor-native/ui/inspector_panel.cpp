@@ -1,6 +1,7 @@
 #include "editor-native/ui/inspector_panel.h"
 
 #include "editor-native/app/editor_coordinator.h"
+#include "editor-native/app/inspector_commit.h"
 #include "editor-native/commands/scene_layer_commands.h"
 #include "editor-native/model/authored_transform.h"
 #include "editor-native/model/scene_frame_snapshot.h"
@@ -526,14 +527,25 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Entities</span>"
                 "<span class=\"prop-readonly\">"
               + std::to_string(scene->instances.size()) + "</span></div>";
-        html += field("Background R", "commit-scene-background-r",
-                      num(scene->backgroundColor.r), playing);
-        html += field("Background G", "commit-scene-background-g",
-                      num(scene->backgroundColor.g), playing);
-        html += field("Background B", "commit-scene-background-b",
-                      num(scene->backgroundColor.b), playing);
-        html += field("Background A", "commit-scene-background-a",
-                      num(scene->backgroundColor.a), playing);
+        {
+            const std::string hex = formatColorHexRgb(scene->backgroundColor);
+            const std::string opacity = formatOpacityPercent(scene->backgroundColor.a);
+            html += "<div class=\"prop-row\"><span class=\"prop-label\">Background</span>";
+            if (playing) {
+                html += "<div id=\"scene-bg-swatch\" class=\"color-swatch disabled\" title=\"Background color\"></div>";
+            } else {
+                html += "<div id=\"scene-bg-swatch\" class=\"color-swatch\" "
+                        "data-action=\"pick-scene-background-color\" "
+                        "title=\"Choose background color\"></div>";
+            }
+            html += "<input type=\"text\" class=\"prop-input color-hex\""
+                    " data-action=\"commit-scene-background-hex\" value=\""
+                  + escapeRml(hex) + "\"";
+            if (playing) html += " disabled=\"disabled\"";
+            html += "/></div>";
+            html += fieldWithUnit("Opacity", "commit-scene-background-opacity", opacity, "%",
+                                  playing);
+        }
 
         // -- WORLD BOUNDS (world units; resizing never moves instances) ---------
         html += header("world-bounds", isSectionCollapsed("world-bounds"),
@@ -677,6 +689,9 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         }
 
         body->SetInnerRML(finalizeSectionMarkup(html, collapsedSections_));
+        if (Rml::Element* swatch = document->GetElementById("scene-bg-swatch")) {
+            swatch->SetProperty("background-color", formatColorHexRgb(scene->backgroundColor));
+        }
         if (layerRename_) focusSceneLayerRenameInput(document);
         return;
     }

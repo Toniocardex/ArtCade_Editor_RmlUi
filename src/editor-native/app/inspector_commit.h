@@ -34,6 +34,34 @@ enum class InspectorTransformField {
 /** Parse a number field. Returns nullopt for empty/garbage/overflow input. */
 std::optional<float> parseNumberField(const std::string& text);
 
+// Scene / Inspector color helpers (RGB hex; alpha stays a separate 0–1 field).
+struct ColorRgb {
+    float r = 0.f;
+    float g = 0.f;
+    float b = 0.f;
+};
+
+/** Format RGB of @p color as uppercase `#RRGGBB` (alpha ignored). */
+std::string formatColorHexRgb(const Vec4& color);
+
+/**
+ * Parse `#RGB` or `#RRGGBB` (optional leading `#`, case-insensitive) into
+ * channels in [0,1]. Empty / wrong length / non-hex → nullopt.
+ */
+std::optional<ColorRgb> parseColorHexRgb(const std::string& text);
+
+/** True while the buffer is a plausible incomplete hex color edit. */
+bool incompleteColorHexBuffer(const std::string& text);
+
+/** Format document alpha [0,1] as an integer percent string (e.g. "100"). */
+std::string formatOpacityPercent(float alpha);
+
+/**
+ * Parse a percent buffer ("100", "100%", "50.5") into document alpha [0,1].
+ * Out of range is clamped after a successful numeric parse.
+ */
+std::optional<float> parseOpacityPercent(const std::string& text);
+
 EditorOperationResult commitInspectorTransformField(EditorCoordinator& coordinator,
                                                     EntityId entityId,
                                                     InspectorTransformField field,

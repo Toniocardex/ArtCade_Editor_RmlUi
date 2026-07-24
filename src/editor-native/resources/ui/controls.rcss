@@ -850,3 +850,25 @@
     border-color: #242427;
     color: #52525b;
 }
+
+/* Scene Background (ADR-0020): row 1 swatch+hex; row 2 Opacity %. */
+.color-swatch {
+    width: 22dp;
+    height: 22dp;
+    margin-right: 6dp;
+    border: 1px #323236;
+    border-radius: 4dp;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+.color-swatch:hover { border-color: #3b82f6; }
+.color-swatch.disabled {
+    cursor: default;
+    border-color: #242427;
+}
+.prop-input.color-hex {
+    flex: 1;
+    min-width: 80dp;
+    font-family: "JetBrains Mono";
+    font-size: 11dp;
+}

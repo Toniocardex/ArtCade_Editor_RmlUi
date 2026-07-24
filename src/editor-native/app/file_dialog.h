@@ -1,5 +1,7 @@
 #pragma once
 
+#include "editor-native/app/inspector_commit.h"
+
 #include <filesystem>
 #include <optional>
 
@@ -21,5 +23,9 @@ std::optional<std::filesystem::path> openScriptFileDialog();
 // ADR-0019: folder picker for Export destination (Windows IFileDialog).
 std::optional<std::filesystem::path> pickExportDestinationFolder(
     const std::filesystem::path& suggested);
+
+// ADR-0020: native RGB color picker (Windows ChooseColor). nullopt when cancelled.
+// @p initial is document RGB in [0,1]; returned RGB is also in [0,1].
+std::optional<ColorRgb> pickColorRgb(ColorRgb initial);
 
 } // namespace ArtCade::EditorNative

@@ -29,8 +29,6 @@ bool isNumericCommit(const std::string& action) {
         "commit-camera-target-offset-x", "commit-camera-target-offset-y",
         "commit-camera-target-follow-speed",
         "commit-scene-width", "commit-scene-height",
-        "commit-scene-background-r", "commit-scene-background-g",
-        "commit-scene-background-b", "commit-scene-background-a",
         "commit-tilemap-cell-width", "commit-tilemap-cell-height",
         "commit-grid-cell-size", "commit-animation-clip-fps",
         "commit-animation-columns", "commit-animation-rows",
@@ -95,6 +93,32 @@ PendingEditResult failure(PendingEditStatus status, std::string message) {
 PendingEditResult classifyPendingEdit(const std::string& action,
                                       const std::string& value) {
     if (action.rfind("commit-", 0) != 0) return {};
+
+    if (action == "commit-scene-background-hex") {
+        if (incompleteColorHexBuffer(value)) {
+            return failure(PendingEditStatus::Incomplete,
+                           "Finish the focused color value before continuing");
+        }
+        if (!parseColorHexRgb(value).has_value()) {
+            return failure(PendingEditStatus::Invalid,
+                           "The focused field contains an invalid color value");
+        }
+        return {};
+    }
+
+    if (action == "commit-scene-background-opacity") {
+        std::string raw = value;
+        if (!raw.empty() && raw.back() == '%') raw.pop_back();
+        if (incompleteNumericBuffer(raw)) {
+            return failure(PendingEditStatus::Incomplete,
+                           "Finish the focused opacity value before continuing");
+        }
+        if (!parseOpacityPercent(value).has_value()) {
+            return failure(PendingEditStatus::Invalid,
+                           "The focused field contains an invalid opacity value");
+        }
+        return {};
+    }
 
     if (isNumericCommit(action)) {
         if (incompleteNumericBuffer(value)) {

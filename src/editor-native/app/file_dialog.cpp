@@ -11,6 +11,8 @@
 #include <commdlg.h>
 #include <shobjidl.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cwchar>
 #endif
 
@@ -150,6 +152,26 @@ std::optional<std::filesystem::path> pickExportDestinationFolder(
     return result;
 }
 
+std::optional<ColorRgb> pickColorRgb(ColorRgb initial) {
+    static COLORREF customColors[16] = {};
+    const auto toByte = [](float channel) -> BYTE {
+        const float c = std::clamp(channel, 0.0f, 1.0f);
+        return static_cast<BYTE>(std::lround(c * 255.0f));
+    };
+    CHOOSECOLORW cc{};
+    cc.lStructSize = sizeof(cc);
+    cc.hwndOwner = GetActiveWindow();
+    cc.lpCustColors = customColors;
+    cc.rgbResult = RGB(toByte(initial.r), toByte(initial.g), toByte(initial.b));
+    cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+    if (!ChooseColorW(&cc)) return std::nullopt;
+    return ColorRgb{
+        static_cast<float>(GetRValue(cc.rgbResult)) / 255.0f,
+        static_cast<float>(GetGValue(cc.rgbResult)) / 255.0f,
+        static_cast<float>(GetBValue(cc.rgbResult)) / 255.0f,
+    };
+}
+
 #else  // non-Windows: the native editor is Windows-first; no picker yet.
 
 std::optional<std::filesystem::path> openProjectFileDialog() { return std::nullopt; }
@@ -161,6 +183,7 @@ std::optional<std::filesystem::path> openFontFileDialog() { return std::nullopt;
 std::optional<std::filesystem::path> openScriptFileDialog() { return std::nullopt; }
 std::optional<std::filesystem::path> pickExportDestinationFolder(
     const std::filesystem::path&) { return std::nullopt; }
+std::optional<ColorRgb> pickColorRgb(ColorRgb) { return std::nullopt; }
 
 #endif
 

@@ -1177,6 +1177,51 @@ int main() {
         CHECK(!parseNumberField("12.5xz").has_value());
         CHECK(!parseNumberField("12px").has_value());
         CHECK(!parseNumberField("").has_value());
+
+        // -- Scene background hex (ADR-0020) -----------------------------------
+        {
+            const Vec4 sample{0.118f, 0.118f, 0.141f, 1.f};
+            CHECK(formatColorHexRgb(sample) == "#1E1E24");
+            CHECK(formatColorHexRgb(Vec4{1.f, 0.f, 0.5f, 0.25f}) == "#FF0080");
+
+            const auto parsed = parseColorHexRgb("#1E1E24");
+            CHECK(parsed.has_value());
+            CHECK(std::fabs(parsed->r - 30.f / 255.f) < 0.0001f);
+            CHECK(std::fabs(parsed->g - 30.f / 255.f) < 0.0001f);
+            CHECK(std::fabs(parsed->b - 36.f / 255.f) < 0.0001f);
+
+            const auto shortHex = parseColorHexRgb("#abc");
+            CHECK(shortHex.has_value());
+            CHECK(std::fabs(shortHex->r - 170.f / 255.f) < 0.0001f);
+            CHECK(std::fabs(shortHex->g - 187.f / 255.f) < 0.0001f);
+            CHECK(std::fabs(shortHex->b - 204.f / 255.f) < 0.0001f);
+            CHECK(parseColorHexRgb("1e1e24").has_value());
+            CHECK(!parseColorHexRgb("").has_value());
+            CHECK(!parseColorHexRgb("#GG0000").has_value());
+            CHECK(!parseColorHexRgb("#12345").has_value());
+            CHECK(!parseColorHexRgb("#1234567").has_value());
+
+            CHECK(incompleteColorHexBuffer(""));
+            CHECK(incompleteColorHexBuffer("#"));
+            CHECK(incompleteColorHexBuffer("#1"));
+            CHECK(incompleteColorHexBuffer("#12"));
+            CHECK(incompleteColorHexBuffer("#1234"));
+            CHECK(incompleteColorHexBuffer("#12345"));
+            CHECK(!incompleteColorHexBuffer("#123"));
+            CHECK(!incompleteColorHexBuffer("#123456"));
+            CHECK(!incompleteColorHexBuffer("#GG"));
+
+            CHECK(formatOpacityPercent(1.f) == "100");
+            CHECK(formatOpacityPercent(0.f) == "0");
+            CHECK(formatOpacityPercent(0.5f) == "50");
+            CHECK(parseOpacityPercent("100").has_value());
+            CHECK(std::fabs(*parseOpacityPercent("100") - 1.f) < 0.0001f);
+            CHECK(std::fabs(*parseOpacityPercent("50%") - 0.5f) < 0.0001f);
+            CHECK(std::fabs(*parseOpacityPercent("0") - 0.f) < 0.0001f);
+            CHECK(std::fabs(*parseOpacityPercent("150") - 1.f) < 0.0001f);
+            CHECK(!parseOpacityPercent("").has_value());
+            CHECK(!parseOpacityPercent("abc").has_value());
+        }
     }
 
     // -- ┬º24.17  Splitter applies min/max clamp --------------------------------
@@ -2978,6 +3023,21 @@ int main() {
         CHECK(classifyPendingEdit("commit-project-name", "").status
               == PendingEditStatus::Invalid);
         CHECK(classifyPendingEdit("commit-layer-rename", "").status
+              == PendingEditStatus::Invalid);
+
+        CHECK(classifyPendingEdit("commit-scene-background-hex", "#1E1E24").resolved());
+        CHECK(classifyPendingEdit("commit-scene-background-hex", "#abc").resolved());
+        CHECK(classifyPendingEdit("commit-scene-background-hex", "#").status
+              == PendingEditStatus::Incomplete);
+        CHECK(classifyPendingEdit("commit-scene-background-hex", "#12").status
+              == PendingEditStatus::Incomplete);
+        CHECK(classifyPendingEdit("commit-scene-background-hex", "#GG0000").status
+              == PendingEditStatus::Invalid);
+        CHECK(classifyPendingEdit("commit-scene-background-opacity", "100").resolved());
+        CHECK(classifyPendingEdit("commit-scene-background-opacity", "50%").resolved());
+        CHECK(classifyPendingEdit("commit-scene-background-opacity", "").status
+              == PendingEditStatus::Incomplete);
+        CHECK(classifyPendingEdit("commit-scene-background-opacity", "abc").status
               == PendingEditStatus::Invalid);
     }
 

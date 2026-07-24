@@ -5,6 +5,7 @@
 #include "editor-native/app/inspector_actions.h"
 #include "editor-native/app/asset_import.h"
 #include "editor-native/app/inspector_commit.h"
+#include "editor-native/app/file_dialog.h"
 #include "editor-native/commands/domain_change.h"
 #include "editor-native/commands/entity_commands.h"
 #include "editor-native/commands/scene_commands.h"
@@ -2863,23 +2864,54 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
             coordinator_.execute(
                 SetSceneViewportSizeCommand{coordinator_.state().activeSceneId, Vec2{w, h}});
         }
-    } else if (action == "commit-scene-background-r"
-               || action == "commit-scene-background-g"
-               || action == "commit-scene-background-b"
-               || action == "commit-scene-background-a") {
+    } else if (action == "commit-scene-background-hex") {
         const SceneDef* scene =
             coordinator_.document().findScene(coordinator_.state().activeSceneId);
-        const std::optional<float> parsed = parseNumberField(value);
+        const std::optional<ColorRgb> parsed = parseColorHexRgb(value);
         if (!scene) {
             coordinator_.logError("No selected scene");
         } else if (!parsed.has_value()) {
-            coordinator_.logError("Scene background component is not a number");
+            coordinator_.logError("Scene background color is not a valid hex value");
         } else {
             Vec4 color = scene->backgroundColor;
-            if (action == "commit-scene-background-r") color.r = *parsed;
-            else if (action == "commit-scene-background-g") color.g = *parsed;
-            else if (action == "commit-scene-background-b") color.b = *parsed;
-            else color.a = *parsed;
+            color.r = parsed->r;
+            color.g = parsed->g;
+            color.b = parsed->b;
+            coordinator_.execute(
+                SetSceneBackgroundCommand{coordinator_.state().activeSceneId, color});
+        }
+    } else if (action == "pick-scene-background-color") {
+        if (coordinator_.isPlaying()) {
+            coordinator_.logWarning("Stop Play before editing the scene background");
+        } else {
+            const SceneDef* scene =
+                coordinator_.document().findScene(coordinator_.state().activeSceneId);
+            if (!scene) {
+                coordinator_.logError("No selected scene");
+            } else {
+                const ColorRgb initial{scene->backgroundColor.r, scene->backgroundColor.g,
+                                       scene->backgroundColor.b};
+                if (const std::optional<ColorRgb> picked = pickColorRgb(initial)) {
+                    Vec4 color = scene->backgroundColor;
+                    color.r = picked->r;
+                    color.g = picked->g;
+                    color.b = picked->b;
+                    coordinator_.execute(
+                        SetSceneBackgroundCommand{coordinator_.state().activeSceneId, color});
+                }
+            }
+        }
+    } else if (action == "commit-scene-background-opacity") {
+        const SceneDef* scene =
+            coordinator_.document().findScene(coordinator_.state().activeSceneId);
+        const std::optional<float> parsed = parseOpacityPercent(value);
+        if (!scene) {
+            coordinator_.logError("No selected scene");
+        } else if (!parsed.has_value()) {
+            coordinator_.logError("Scene background opacity is not a valid percent");
+        } else {
+            Vec4 color = scene->backgroundColor;
+            color.a = *parsed;
             coordinator_.execute(
                 SetSceneBackgroundCommand{coordinator_.state().activeSceneId, color});
         }
