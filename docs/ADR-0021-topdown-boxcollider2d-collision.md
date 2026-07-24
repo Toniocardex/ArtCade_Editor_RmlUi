@@ -2,6 +2,7 @@
 
 **Status:** Accepted  
 **Date:** 2026-07-24  
+**Revised:** 2026-07-24 (Slice 2 debt removal)  
 **Scope:** shared runtime `World` Top Down step; relationship to
 `BoxCollider2D` materialisation (ADR-0014), Platformer kinematic resolve,
 and the session Physics module  
@@ -73,22 +74,18 @@ implement for Platformer. No Top-Down-specific collision semantics.
 - A permanent dual fallback: “Physics if handle else CollisionWorld.”
 - Authoring a second collider size for locomotion beside `BoxCollider2D`.
 
-## Technical debt (to remove)
+## Former debt (removed — Slice 2)
 
-The following remain **debt**, not accepted long-term design. They must be
-removed in follow-up slices; they must not grow.
+| Item | Resolution |
+|---|---|
+| `ensurePhysicsBody` special-cased `hasTopDown` | Removed: Physics body only when explicit Physics collider size is authored |
+| Top Down Physics `Dynamic` vs CollisionBody `Kinematic` | `resolvePhysicsBodyRules`: Top Down + explicit collider → `Kinematic` (same as Platformer) |
+| Dual default 32×32 Physics geometry for Top Down | Gone with the `hasTopDown` ensure path; locomotion size is `BoxCollider2D` only |
+| Missing Solid / Trigger / disabled proofs | `world_topdown_boxcollider_test` (no Physics handles on hero or wall) |
 
-| Debt | Why it is wrong | Removal direction |
-|---|---|---|
-| `ensurePhysicsBody` creates a body because `hasTopDown` even without an explicit Physics collider | Invents a second geometry (often default 32×32) unrelated to `BoxCollider2D` | Create Physics bodies only for explicit Physics / shared rules that do not special-case Top Down for locomotion |
-| Top Down Physics `bodyType` Dynamic while CollisionBody is Kinematic | Two body-type policies for one character | Align with Platformer: kinematic (or no Physics body) while Transform owns motion |
-| Any reliance on `physics.step` to block Top Down against solids | Solids live in `CollisionWorld`, not necessarily in Physics | Locomotion resolve only via `resolveKinematicCollisionBody` |
-| Physics collider size/offset not copied from `BoxCollider2D` | Dual sizes; Inspector lies relative to Physics | Either retire Physics collider for Top Down locomotion, or derive from the same materialiser (still one authoring field) |
-| Missing integration test “Top Down blocked by Solid BoxCollider2D” | Regressions return unnoticed | Add shared runtime test beside Platformer CollisionWorld proofs |
-
-Until debt removal lands, the **locomotion** path above is authoritative:
-even if a Physics handle still exists for legacy reasons, Top Down must
-not use Physics contacts to decide blocking against authored boxes.
+Optional Physics handle on a Top Down entity is allowed only for an
+**explicit** authored Physics collider; it is push-aligned from Transform and
+never the solid-blocking authority.
 
 ## Alternatives rejected
 
@@ -103,26 +100,21 @@ not use Physics contacts to decide blocking against authored boxes.
 
 ## Implementation slices
 
-### Slice 1 — Authority restore (this change)
+### Slice 1 — Authority restore — **done**
 
-- Rewrite `stepTopDownController` to mirror Platformer’s integrate →
-  resolve → setTransform → push Physics handle.
-- Exclude Top Down from `syncPhysicsToEntities`.
-- Document debt table above; comment call sites that still special-case
-  Top Down for Physics body creation as debt (ADR-0021).
+- `stepTopDownController`: integrate → resolve → setTransform → optional push.
+- Top Down excluded from `syncPhysicsToEntities`.
 
-### Slice 2 — Debt removal
+### Slice 2 — Debt removal — **done**
 
-- Stop `ensurePhysicsBody` from creating bodies solely for Top Down.
-- Align or delete Top Down entries in `physics-body-rules` that exist only
-  for the old Dynamic locomotion path.
-- Prove with tests that Solid `BoxCollider2D` walls block Top Down with
-  **no** Physics bodies on the walls.
+- `ensurePhysicsBody` no longer creates bodies for Top Down alone.
+- Top Down + explicit Physics collider → `Kinematic` (gravityScale 0).
+- Tests prove Solid blocks with **zero** Physics handles on hero and wall.
 
-### Slice 3 — Parity
+### Slice 3 — Parity — **done** (headless)
 
-- Top Down vs Solid / Trigger (no block) / disabled collider.
-- Same scene in Editor Play and headless `GameplaySession`.
+- Solid / Trigger / disabled covered by `world_topdown_boxcollider_test`.
+- Editor Play and `game.exe` share the same `World` / `GameplaySession` path.
 
 ## Consequences
 
