@@ -8,6 +8,7 @@
 #include "editor-native/model/project_io.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/ui/logic_board_editor_controller.h"
+#include "editor-native/ui/logic_property_editor.h"
 #include "app/render/scene_frame_snapshot.h"
 #include "logic-core.h"
 
@@ -1871,6 +1872,241 @@ static void testIncompatibleBoardRecovery() {
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules.size() == 7);
 }
 
+// ADR-0025: three scenes so Go To Scene, last-wins queueing and Restart can
+// all be observed end to end. Hero lives in scene-1, Ghost in scene-2.
+static ProjectDoc makeMultiSceneProjectData() {
+    ProjectDoc doc = makeProjectData();
+
+    EntityDef ghost;
+    ghost.name = "Ghost";
+    ghost.className = "Ghost";
+    ghost.spriteRenderer = SpriteRendererComponent{{}, true};
+    doc.objectTypes.emplace("Ghost", ghost);
+
+    SceneDef second;
+    second.id = "scene-2";
+    second.name = "Scene 2";
+    second.worldSize = {512.f, 320.f};
+    second.defaultLayerId = "layer-s2";
+    second.layers.push_back(SceneLayerDef{"layer-s2", "Layer 1"});
+    SceneInstanceDef ghostInstance;
+    ghostInstance.id = 2;
+    ghostInstance.objectTypeId = "Ghost";
+    ghostInstance.instanceName = "Ghost 1";
+    ghostInstance.layerId = "layer-s2";
+    ghostInstance.transform.position = {7.f, 8.f};
+    second.instances.push_back(ghostInstance);
+    second.entityIds.push_back(2);
+    doc.scenes.emplace(second.id, second);
+
+    SceneDef third;
+    third.id = "scene-3";
+    third.name = "Scene 3";
+    third.worldSize = {512.f, 320.f};
+    third.defaultLayerId = "layer-s3";
+    third.layers.push_back(SceneLayerDef{"layer-s3", "Layer 1"});
+    doc.scenes.emplace(third.id, third);
+    return doc;
+}
+
+static void testSceneActionCatalogAndDefaults() {
+    const Logic::LogicBlockDescriptor* restart = Logic::findDescriptor(Logic::kSceneRestart);
+    const Logic::LogicBlockDescriptor* goTo = Logic::findDescriptor(Logic::kSceneGoTo);
+    CHECK(restart != nullptr && restart->kind == Logic::BlockKind::Action);
+    CHECK(goTo != nullptr && goTo->kind == Logic::BlockKind::Action);
+    CHECK(restart->categoryId == "scene" && goTo->categoryId == "scene");
+    CHECK(restart->requiredFeature == "scene.restart");
+    CHECK(goTo->requiredFeature == "scene.go_to");
+    CHECK(restart->properties.empty());
+    CHECK(goTo->properties.size() == 1
+          && goTo->properties[0].semantic == Logic::LogicPropertySemantic::SceneReference);
+
+    // Add Action through the real Command path: the deterministic default is
+    // the first scene by sorted SceneId ("scene-1"), never an empty red field.
+    EditorCoordinator coordinator{makeMultiSceneProjectData()};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& initial = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(initial));
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
+    CHECK(coordinator.execute(ChangeLogicActionTypeCommand{
+        "Hero", rule.id, 0, Logic::kSceneGoTo}).ok);
+    const LogicBoardDef& authored =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicPropertyDef* sceneProperty =
+        Logic::findProperty(authored.rules[0].actions[0], "sceneId");
+    CHECK(sceneProperty != nullptr);
+    const auto* sceneValue = std::get_if<LogicStringValue>(&sceneProperty->value);
+    CHECK(sceneValue != nullptr && sceneValue->value == "scene-1");
+
+    // RmlUi projection: the SceneReference dropdown lists scenes by display
+    // name and carries the pick-logic-property action for each entry.
+    const LogicPropertyAddress address{authored.rules[0].id, LogicPropertyTarget::Action, 0};
+    const std::string dropdownId =
+        "property|" + encodeLogicPropertyAddress(address, "sceneId");
+    const std::string markup = renderLogicProperties(
+        coordinator.document(), authored.rules[0].actions[0], address,
+        dropdownId, LogicKeyBindingEditorState{}, /*playing=*/false);
+    CHECK(markup.find("Scene 2") != std::string::npos);
+    CHECK(markup.find("Scene 3") != std::string::npos);
+    CHECK(markup.find("pick-logic-property") != std::string::npos);
+}
+
+static void testSceneActionValidation() {
+    ProjectDoc data = makeMultiSceneProjectData();
+    LogicBoardDef board;
+    board.id = "logic:Hero";
+    LogicRuleDef rule = Logic::makeDefaultRule("rule-1");
+    rule.actions[0] = Logic::makeDefaultBlock(Logic::kSceneGoTo, Logic::BlockKind::Action);
+    rule.actions[0].properties[0].value = LogicStringValue{"scene-2"};
+    board.rules.push_back(rule);
+    data.objectTypes.at("Hero").logicBoard = board;
+
+    // Valid reference: no diagnostics, and the generated program carries the
+    // deferred context call plus its runtime feature gate.
+    CHECK(!Logic::hasLogicErrors(Logic::validateBoard(
+        "Hero", *data.objectTypes.at("Hero").logicBoard,
+        &data.objectTypes.at("Hero"), &data,
+        Logic::LogicValidationPurpose::Executable)));
+    const Logic::LogicCompileResult compiled = Logic::compileBoard(
+        "Hero", *data.objectTypes.at("Hero").logicBoard,
+        &data.objectTypes.at("Hero"), &data);
+    CHECK(compiled.ok());
+    CHECK(compiled.programs.size() == 1);
+    CHECK(compiled.programs[0].source.find("context:scene_go_to(\"scene-2\")")
+          != std::string::npos);
+    CHECK(std::find(compiled.programs[0].requiredFeatures.begin(),
+                    compiled.programs[0].requiredFeatures.end(),
+                    "scene.go_to")
+          != compiled.programs[0].requiredFeatures.end());
+
+    // Unknown / empty scene: semantic error (LB_SCENE_REFERENCE) on the
+    // authoring and executable paths, while StructuralCommit stays loadable.
+    ProjectDoc unknown = data;
+    unknown.objectTypes.at("Hero").logicBoard->rules[0].actions[0].properties[0].value =
+        LogicStringValue{"scene-missing"};
+    CHECK(ProjectValidator::validate(ProjectDocument{unknown}).ok);
+    CHECK(Logic::hasLogicErrors(Logic::validateBoard(
+        "Hero", *unknown.objectTypes.at("Hero").logicBoard,
+        &unknown.objectTypes.at("Hero"), &unknown,
+        Logic::LogicValidationPurpose::AuthoringDiagnostics)));
+
+    ProjectDoc empty = data;
+    empty.objectTypes.at("Hero").logicBoard->rules[0].actions[0].properties[0].value =
+        LogicStringValue{};
+    CHECK(Logic::hasLogicErrors(Logic::validateBoard(
+        "Hero", *empty.objectTypes.at("Hero").logicBoard,
+        &empty.objectTypes.at("Hero"), &empty,
+        Logic::LogicValidationPurpose::AuthoringDiagnostics)));
+
+    // Restart Scene has no properties and no scene reference to validate.
+    ProjectDoc restart = data;
+    restart.objectTypes.at("Hero").logicBoard->rules[0].actions[0] =
+        Logic::makeDefaultBlock(Logic::kSceneRestart, Logic::BlockKind::Action);
+    CHECK(!Logic::hasLogicErrors(Logic::validateBoard(
+        "Hero", *restart.objectTypes.at("Hero").logicBoard,
+        &restart.objectTypes.at("Hero"), &restart,
+        Logic::LogicValidationPurpose::Executable)));
+}
+
+static void testSceneGoToSwitchesSceneAndFiresOnStart() {
+    ProjectDoc data = makeMultiSceneProjectData();
+
+    // Hero (scene-1), On Start: two Go To requests in one dispatch - the
+    // last one wins (scene-3), matching SceneLifecycleService semantics.
+    LogicBoardDef heroBoard;
+    heroBoard.id = "logic:Hero";
+    LogicRuleDef heroRule = Logic::makeDefaultRule("rule-1");
+    heroRule.actions[0] = Logic::makeDefaultBlock(Logic::kSceneGoTo, Logic::BlockKind::Action);
+    heroRule.actions[0].properties[0].value = LogicStringValue{"scene-2"};
+    LogicBlockDef secondGoTo = Logic::makeDefaultBlock(Logic::kSceneGoTo, Logic::BlockKind::Action);
+    secondGoTo.properties[0].value = LogicStringValue{"scene-3"};
+    heroRule.actions.push_back(secondGoTo);
+    heroBoard.rules.push_back(heroRule);
+    data.objectTypes.at("Hero").logicBoard = heroBoard;
+
+    {
+        EditorCoordinator coordinator{data};
+        CHECK(coordinator.playCurrentScene().ok);
+        CHECK(coordinator.playSession() != nullptr);
+        CHECK(coordinator.playSession()->sceneId() == "scene-1");
+
+        RuntimeInputSnapshot none;
+        coordinator.tickRuntime(none, 1.f / 60.f);
+        CHECK(coordinator.playSession()->sceneId() == "scene-3");
+        CHECK(coordinator.playSession()->scene().name == "Scene 3");
+        // Authoring stays untouched during Play (Edit/Play isolation).
+        CHECK(coordinator.document().data().activeSceneId == "scene-1");
+        CHECK(coordinator.stopPlaying().ok);
+    }
+
+    // Single Go To scene-2: the incoming scene's own On Start must fire
+    // (Ghost's Move By runs), and scene-1's Hero leaves the renderables.
+    data.objectTypes.at("Hero").logicBoard->rules[0].actions.pop_back();
+    LogicBoardDef ghostBoard;
+    ghostBoard.id = "logic:Ghost";
+    LogicRuleDef ghostRule = Logic::makeDefaultRule("rule-1");
+    ghostRule.actions[0] = LogicBlockDef{
+        Logic::kTranslateBy, {{"offset", Vec2{10.f, 20.f}}}};
+    ghostBoard.rules.push_back(ghostRule);
+    data.objectTypes.at("Ghost").logicBoard = ghostBoard;
+
+    EditorCoordinator coordinator{data};
+    CHECK(coordinator.playCurrentScene().ok);
+    CHECK(coordinator.playSession() != nullptr);
+
+    RuntimeInputSnapshot none;
+    coordinator.tickRuntime(none, 1.f / 60.f);
+    CHECK(coordinator.playSession()->sceneId() == "scene-2");
+    const auto ghost = findRenderable(*coordinator.playSession(), 2);
+    CHECK(ghost.has_value());
+    CHECK(ghost->transform.position.x == 17.f);
+    CHECK(ghost->transform.position.y == 28.f);
+    CHECK(!findRenderable(*coordinator.playSession(), 1).has_value());
+    CHECK(coordinator.stopPlaying().ok);
+}
+
+static void testSceneRestartRestoresAuthoredLayoutAndRefiresOnStart() {
+    ProjectDoc data = makeProjectData();
+
+    // On Start: Move By (10, 0). D: Move By (100, 0). Space: Restart Scene.
+    // After restart the authored position is restored AND On Start re-fires,
+    // so x returns to 5 + 10 = 15, not 5 and not 115.
+    LogicBoardDef board;
+    board.id = "logic:Hero";
+    LogicRuleDef startRule = Logic::makeDefaultRule("rule-1");
+    startRule.actions[0] = LogicBlockDef{
+        Logic::kTranslateBy, {{"offset", Vec2{10.f, 0.f}}}};
+    board.rules.push_back(startRule);
+    LogicRuleDef nudgeRule = Logic::makeDefaultRule("rule-2");
+    nudgeRule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::D}}};
+    nudgeRule.actions[0] = LogicBlockDef{
+        Logic::kTranslateBy, {{"offset", Vec2{100.f, 0.f}}}};
+    board.rules.push_back(nudgeRule);
+    LogicRuleDef restartRule = Logic::makeDefaultRule("rule-3");
+    restartRule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
+    restartRule.actions[0] =
+        Logic::makeDefaultBlock(Logic::kSceneRestart, Logic::BlockKind::Action);
+    board.rules.push_back(restartRule);
+    data.objectTypes.at("Hero").logicBoard = board;
+
+    EditorCoordinator coordinator{data};
+    CHECK(coordinator.playCurrentScene().ok);
+    CHECK(coordinator.playSession() != nullptr);
+    CHECK(findRenderable(*coordinator.playSession(), 1)->transform.position.x == 15.f);
+
+    RuntimeInputSnapshot nudge;
+    nudge.pressedLogicKeys.push_back(LogicKey::D);
+    coordinator.tickRuntime(nudge, 1.f / 60.f);
+    CHECK(findRenderable(*coordinator.playSession(), 1)->transform.position.x == 115.f);
+
+    RuntimeInputSnapshot restart;
+    restart.pressedLogicKeys.push_back(LogicKey::Space);
+    coordinator.tickRuntime(restart, 1.f / 60.f);
+    CHECK(coordinator.playSession()->sceneId() == "scene-1");
+    CHECK(findRenderable(*coordinator.playSession(), 1)->transform.position.x == 15.f);
+    CHECK(coordinator.stopPlaying().ok);
+}
+
 int main() {
     testCommandsAndPersistence();
     testIncompatibleBoardRecovery();
@@ -1898,6 +2134,10 @@ int main() {
     testPlayNavigationFromLogicBoard();
     testExecutionModeCommand();
     testKeyBindingEditorRoutes();
+    testSceneActionCatalogAndDefaults();
+    testSceneActionValidation();
+    testSceneGoToSwitchesSceneAndFiresOnStart();
+    testSceneRestartRestoresAuthoredLayoutAndRefiresOnStart();
     std::cout << "logic-board-editor-test: " << passed << " passed, "
               << failed << " failed\n";
     return failed == 0 ? 0 : 1;

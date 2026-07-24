@@ -202,6 +202,27 @@ std::string renderLogicProperties(
                                  id == selected, dropdownId, encoded);
             }
             html += dropdown(selected.empty() ? "Any" : selected, dropdownId, entries, open, playing);
+        } else if (property.semantic == Logic::LogicPropertySemantic::SceneReference) {
+            const std::string selected = stringValue(current);
+            std::vector<const SceneDef*> scenes;
+            scenes.reserve(document.data().scenes.size());
+            for (const auto& [id, scene] : document.data().scenes) {
+                (void)id; scenes.push_back(&scene);
+            }
+            std::sort(scenes.begin(), scenes.end(),
+                [](const SceneDef* a, const SceneDef* b) { return a->id < b->id; });
+            std::string entries;
+            for (const SceneDef* scene : scenes) {
+                entries += entry(scene->name.empty() ? scene->id : scene->name, scene->id,
+                                 scene->id == selected, dropdownId, encoded);
+            }
+            const SceneDef* selectedScene =
+                selected.empty() ? nullptr : document.findScene(selected);
+            const std::string label = selected.empty()
+                ? std::string("Select scene")
+                : (selectedScene && !selectedScene->name.empty() ? selectedScene->name
+                                                                 : selected);
+            html += dropdown(label, dropdownId, entries, open, playing);
         } else if (property.semantic == Logic::LogicPropertySemantic::GlobalVariable) {
             const std::string selected = stringValue(current);
             const auto required = Logic::requiredVariableType(block.typeId);

@@ -92,6 +92,8 @@ PlaySession::PlaySession(PlaySession&& other) noexcept
     : scene_(std::move(other.scene_)),
       renderEntityOrder_(std::move(other.renderEntityOrder_)),
       tilemaps_(std::move(other.tilemaps_)),
+      scenesById_(std::move(other.scenesById_)),
+      transitionSignal_(std::move(other.transitionSignal_)),
       ctx_(std::move(other.ctx_)),
       runtime_(std::move(other.runtime_)),
       audio_(std::move(other.audio_)),
@@ -104,6 +106,8 @@ PlaySession& PlaySession::operator=(PlaySession&& other) noexcept {
     scene_ = std::move(other.scene_);
     renderEntityOrder_ = std::move(other.renderEntityOrder_);
     tilemaps_ = std::move(other.tilemaps_);
+    scenesById_ = std::move(other.scenesById_);
+    transitionSignal_ = std::move(other.transitionSignal_);
     ctx_ = std::move(other.ctx_);
     runtime_ = std::move(other.runtime_);
     audio_ = std::move(other.audio_);
@@ -217,12 +221,6 @@ std::optional<PlaySession> PlaySession::materialize(
     }
 
     PlaySession session;
-    session.scene_.sourceSceneId = scene->id;
-    session.scene_.name = scene->name;
-    session.scene_.worldSize = scene->worldSize;
-    session.scene_.viewportSize = scene->viewportSize;
-    session.scene_.cameraStart = scene->cameraStart;
-    session.scene_.backgroundColor = scene->backgroundColor;
 
     // RU-04 (docs/PLAY_RUNTIME_UNIFICATION_ROADMAP.md §11): Play now parses
     // the project through the exact same canonical loader the exported game
@@ -296,9 +294,26 @@ std::optional<PlaySession> PlaySession::materialize(
     // No presentation Renderer: the editor's own Scene View draws from the
     // frame snapshot (scene_frame_snapshot.cpp), never through GameplaySession/
     // World directly - World already tolerates a null renderer (RU-02a).
+    //
+    // The transition handler mirrors Application::handleSceneTransition
+    // (app_scene_lifecycle.cpp): every committed runtime scene transition
+    // (Logic scene.restart / scene.go_to, Script scene.load) reinstalls
+    // Logic/Script scopes so the incoming scene's On Start fires. Captures
+    // are raw pointers into unique_ptr-owned storage (stable across
+    // PlaySession moves); World::init's replaceProject bypasses the
+    // lifecycle service, so this never fires during materialize itself.
+    session.transitionSignal_ = std::make_unique<PlaySceneTransitionSignal>();
+    PlaySceneTransitionSignal* transitionSignal = session.transitionSignal_.get();
+    GameplaySession* runtime = session.runtime_.get();
     if (!session.runtime_->initialize(
             PhysicsMode::Auto, ctx, /*presentationRenderer=*/nullptr, bootStep,
-            [](const Modules::SceneTransitionResult&) {})) {
+            [runtime, transitionSignal](const Modules::SceneTransitionResult& result) {
+                if (!result.changed) return;
+                runtime->installLogicScopesForActiveScene();
+                runtime->installScriptScopesForActiveScene();
+                transitionSignal->changed = true;
+                transitionSignal->sceneId = result.sceneId;
+            })) {
         if (error) *error = bootError;
         return std::nullopt;
     }
@@ -354,29 +369,45 @@ std::optional<PlaySession> PlaySession::materialize(
     // starts — same lenient gate RU-03 tests lock in); painted valid maps are
     // projected into SceneFrameSnapshot each frame without rereading the
     // authoring document.
-    for (const SceneInstanceDef* inst : document.instancesInRenderOrder(sceneId)) {
-        session.renderEntityOrder_.push_back(inst->id);
-        if (!inst->tilemap.has_value()) continue;
-        const TilesetAsset* tileset =
-            document.findTilesetAsset(inst->tilemap->tilesetAssetId);
-        if (!tileset || !document.findImageAsset(tileset->imageAssetId)) continue;
-        const std::optional<std::vector<TilemapResolvedCell>> resolved =
-            resolveTilemapCellsStrict(*inst->tilemap, *tileset);
-        if (!resolved) continue;
-        PlayTilemap playTm;
-        playTm.entityId = inst->id;
-        playTm.imageAssetId = tileset->imageAssetId;
-        playTm.cellSize = inst->tilemap->cellSize;
-        playTm.authoredOrigin = inst->transform.position;
-        playTm.visible = inst->visible;
-        playTm.cells.reserve(resolved->size());
-        for (const TilemapResolvedCell& cell : *resolved) {
-            playTm.cells.push_back(PlayTilemapCell{
-                cell.cellX, cell.cellY,
-                cell.source.x, cell.source.y, cell.source.width, cell.source.height});
+    //
+    // ADR-0025: every scene is baked, not just the starting one, so a runtime
+    // scene transition (Logic scene.go_to / scene.restart) swaps to a block
+    // materialized at Start Play instead of reading the authoring document
+    // mid-Play.
+    for (const auto& [id, sceneDef] : document.data().scenes) {
+        PlaySceneMaterialization block;
+        block.info.sourceSceneId = sceneDef.id;
+        block.info.name = sceneDef.name;
+        block.info.worldSize = sceneDef.worldSize;
+        block.info.viewportSize = sceneDef.viewportSize;
+        block.info.cameraStart = sceneDef.cameraStart;
+        block.info.backgroundColor = sceneDef.backgroundColor;
+        for (const SceneInstanceDef* inst : document.instancesInRenderOrder(id)) {
+            block.renderEntityOrder.push_back(inst->id);
+            if (!inst->tilemap.has_value()) continue;
+            const TilesetAsset* tileset =
+                document.findTilesetAsset(inst->tilemap->tilesetAssetId);
+            if (!tileset || !document.findImageAsset(tileset->imageAssetId)) continue;
+            const std::optional<std::vector<TilemapResolvedCell>> resolved =
+                resolveTilemapCellsStrict(*inst->tilemap, *tileset);
+            if (!resolved) continue;
+            PlayTilemap playTm;
+            playTm.entityId = inst->id;
+            playTm.imageAssetId = tileset->imageAssetId;
+            playTm.cellSize = inst->tilemap->cellSize;
+            playTm.authoredOrigin = inst->transform.position;
+            playTm.visible = inst->visible;
+            playTm.cells.reserve(resolved->size());
+            for (const TilemapResolvedCell& cell : *resolved) {
+                playTm.cells.push_back(PlayTilemapCell{
+                    cell.cellX, cell.cellY,
+                    cell.source.x, cell.source.y, cell.source.width, cell.source.height});
+            }
+            block.tilemaps.push_back(std::move(playTm));
         }
-        session.tilemaps_.push_back(std::move(playTm));
+        session.scenesById_.emplace(id, std::move(block));
     }
+    session.activateMaterializedScene(sceneId);
 
     return session;
 }
@@ -407,6 +438,14 @@ std::optional<PlaySession> PlaySession::startActiveScene(
     return materialize(document, sceneId, scripts, error);
 }
 
+void PlaySession::activateMaterializedScene(const SceneId& sceneId) {
+    const auto it = scenesById_.find(sceneId);
+    if (it == scenesById_.end()) return;
+    scene_ = it->second.info;
+    renderEntityOrder_ = it->second.renderEntityOrder;
+    tilemaps_ = it->second.tilemaps;
+}
+
 void PlaySession::tick(const RuntimeInputSnapshot& input, float dt) {
     if (!runtime_ || !input_) return;
     input_->poll();
@@ -417,6 +456,12 @@ void PlaySession::tick(const RuntimeInputSnapshot& input, float dt) {
     runtime_->dispatchInput(frame);
     if (std::isfinite(dt) && dt > 0.f) {
         runtime_->tickFixedStep(dt);
+    }
+    // A scene transition committed inside this tick (transition handler in
+    // materialize()) - swap the presentation projection in the same frame.
+    if (transitionSignal_ && transitionSignal_->changed) {
+        transitionSignal_->changed = false;
+        activateMaterializedScene(transitionSignal_->sceneId);
     }
 }
 

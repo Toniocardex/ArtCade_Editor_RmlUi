@@ -41,6 +41,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace ArtCade {
@@ -111,6 +112,25 @@ struct PlayTilemap {
     Vec2     authoredOrigin{};   // fallback when the entity is not in renderables
     bool     visible = true;     // authored root visibility fallback
     std::vector<PlayTilemapCell> cells;
+};
+
+// Everything PlaySession pre-bakes per scene at Start Play so a runtime
+// scene transition (Logic scene.go_to / scene.restart, Script scene.load)
+// never reads the authoring document mid-Play: the active projection just
+// swaps to the block materialized for the incoming scene.
+struct PlaySceneMaterialization {
+    PlaySceneInfo info;
+    std::vector<EntityId> renderEntityOrder;
+    std::vector<PlayTilemap> tilemaps;
+};
+
+// Written by the GameplaySession scene-transition handler, consumed by
+// tick(). Heap-owned by PlaySession (unique_ptr) so the handler's captured
+// pointer stays stable across PlaySession moves - capturing `this` would
+// dangle the first time EditorCoordinator re-emplaces its std::optional.
+struct PlaySceneTransitionSignal {
+    bool changed = false;
+    SceneId sceneId;
 };
 
 // Runtime side of Play/Stop. Built once from ProjectDocument at Start Play
@@ -196,10 +216,17 @@ private:
                                                   const std::vector<Scripts::ScriptProgram>& scripts,
                                                   std::string* error);
     void shutdownRuntime();
+    // Swaps the active projection to the block pre-baked for @p sceneId.
+    // Unknown ids keep the current projection (defensive - the runtime only
+    // commits transitions to scenes it has registered).
+    void activateMaterializedScene(const SceneId& sceneId);
 
     PlaySceneInfo scene_;
     std::vector<EntityId> renderEntityOrder_;
     std::vector<PlayTilemap> tilemaps_;
+    // Per-scene blocks baked once at materialize; immutable for the session.
+    std::unordered_map<SceneId, PlaySceneMaterialization> scenesById_;
+    std::unique_ptr<PlaySceneTransitionSignal> transitionSignal_;
     // Heap-allocated (not a materialize()-local): GameplaySession's
     // sub-modules (GameAPI, LuaHost, ...) bind ctx by reference and read it
     // for the whole Play session, so its storage must outlive materialize()

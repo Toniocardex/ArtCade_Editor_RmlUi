@@ -125,10 +125,31 @@ void assignDefaultAudioAsset(const ProjectDocument& document, LogicBlockDef& blo
     }
 }
 
+// Deterministic like the audio default above: the first scene by sorted
+// SceneId. A project always has at least one scene, so Go To Scene never
+// lands with an empty (immediately-red) reference.
+void assignDefaultScene(const ProjectDocument& document, LogicBlockDef& block) {
+    if (block.typeId != Logic::kSceneGoTo) return;
+    std::vector<SceneId> ids;
+    ids.reserve(document.data().scenes.size());
+    for (const auto& [id, scene] : document.data().scenes) {
+        (void)scene; ids.push_back(id);
+    }
+    std::sort(ids.begin(), ids.end());
+    if (ids.empty()) return;
+    for (LogicPropertyDef& property : block.properties) {
+        if (property.key != "sceneId") continue;
+        const auto* current = std::get_if<LogicStringValue>(&property.value);
+        if (!current || current->value.empty())
+            property.value = LogicStringValue{ids.front()};
+    }
+}
+
 void assignContextualDefaults(const ProjectDocument& document, LogicBlockDef& block) {
     assignDefaultCollisionObjectType(document, block);
     assignDefaultAnimationClip(document, block);
     assignDefaultAudioAsset(document, block);
+    assignDefaultScene(document, block);
     Logic::applyDeterministicVariableDefault(document.data(), block);
 }
 

@@ -570,6 +570,8 @@ return { on_start = function(ctx) ctx.self:set_position(9, 10) end }
         EntityId spawnObjectType(EntityId, const ObjectTypeId&, float, float) override {
             return INVALID_ENTITY;
         }
+        bool requestSceneRestart() override { return false; }
+        bool requestSceneGoTo(const SceneId&) override { return false; }
     };
 
     const ScriptProgram sandboxed{
