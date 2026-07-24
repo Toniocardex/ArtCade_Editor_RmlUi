@@ -1,5 +1,6 @@
 #include "editor-native/model/play_session.h"
 
+#include "editor-native/app/export/runtime_project_preflight.h"
 #include "editor-native/model/path_confinement.h"
 #include "editor-native/model/project_document.h"
 #include "editor-native/model/project_io.h"
@@ -67,113 +68,6 @@ struct ScratchDirGuard {
         std::filesystem::remove_all(dir, ec);
     }
 };
-
-std::optional<std::string> validatePlaySpriteReferences(const ProjectDocument& document) {
-    for (const auto& [typeId, type] : document.data().objectTypes) {
-        if (type.spriteRenderer && !type.spriteRenderer->imageAssetId.empty()
-            && !document.hasImageAsset(type.spriteRenderer->imageAssetId)) {
-            return "Object Type \"" + typeId
-                 + "\" SpriteRenderer references a missing image asset";
-        }
-        if (type.spritePresentation) {
-            const SpritePresentationSource& source = type.spritePresentation->source;
-            if (const auto* image = std::get_if<SpritePresentationImage>(&source)) {
-                if (!image->imageAssetId.empty()
-                    && !document.hasImageAsset(image->imageAssetId)) {
-                    return "Object Type \"" + typeId
-                         + "\" Sprite references a missing image asset";
-                }
-            } else if (const auto* animation =
-                           std::get_if<SpritePresentationAnimation>(&source)) {
-                if (animation->animationAssetId.empty()
-                    || !document.hasSpriteAnimationAsset(animation->animationAssetId)) {
-                    return "Object Type \"" + typeId
-                         + "\" Sprite references a missing animation asset";
-                }
-                const SpriteAnimationAssetDef* asset =
-                    document.findSpriteAnimationAsset(animation->animationAssetId);
-                if (!animation->defaultClipId.empty() && asset) {
-                    bool ownsClip = false;
-                    for (const SpriteAnimationClipDef& clip : asset->clips) {
-                        if (clip.id == animation->defaultClipId) {
-                            ownsClip = true;
-                            break;
-                        }
-                    }
-                    if (!ownsClip) {
-                        return "Object Type \"" + typeId
-                             + "\" Sprite defaultClipId must belong to its animation asset";
-                    }
-                }
-            }
-        }
-        if (type.spriteAnimator) {
-            const AssetId& animationId = type.spriteAnimator->animationAssetId;
-            if (animationId.empty()) {
-                return "Object Type \"" + typeId
-                     + "\" SpriteAnimator requires an animation asset";
-            }
-            if (!document.hasSpriteAnimationAsset(animationId)) {
-                return "Object Type \"" + typeId
-                     + "\" SpriteAnimator references a missing animation asset";
-            }
-            const SpriteAnimationAssetDef* asset =
-                document.findSpriteAnimationAsset(animationId);
-            if (!type.spriteAnimator->defaultClipId.empty() && asset) {
-                bool ownsClip = false;
-                for (const SpriteAnimationClipDef& clip : asset->clips) {
-                    if (clip.id == type.spriteAnimator->defaultClipId) {
-                        ownsClip = true;
-                        break;
-                    }
-                }
-                if (!ownsClip) {
-                    return "Object Type \"" + typeId
-                         + "\" SpriteAnimator defaultClipId must belong to its animation asset";
-                }
-            }
-        }
-    }
-    for (const auto& [sceneId, scene] : document.data().scenes) {
-        for (const SceneInstanceDef& instance : scene.instances) {
-            const auto type = document.data().objectTypes.find(instance.objectTypeId);
-            // The runtime deliberately skips instances whose Object Type is
-            // absent. Preserve that established Play policy; only validate a
-            // presentation when there is an owner to resolve it against.
-            if (type == document.data().objectTypes.end()) continue;
-            const ResolvedSpritePresentation presentation =
-                resolveSpritePresentation(type->second, instance);
-            if (presentation.renderer && !presentation.renderer->imageAssetId.empty()
-                && !document.hasImageAsset(presentation.renderer->imageAssetId)) {
-                return "Scene \"" + sceneId + "\" sprite renderer references a missing image asset";
-            }
-            if (presentation.animator) {
-                const AssetId& animationId = presentation.animator->animationAssetId;
-                if (animationId.empty()
-                    || !document.hasSpriteAnimationAsset(animationId)) {
-                    return "Scene \"" + sceneId
-                         + "\" sprite animator references a missing animation asset";
-                }
-                const SpriteAnimationAssetDef* asset =
-                    document.findSpriteAnimationAsset(animationId);
-                if (!presentation.animator->defaultClipId.empty() && asset) {
-                    bool ownsClip = false;
-                    for (const SpriteAnimationClipDef& clip : asset->clips) {
-                        if (clip.id == presentation.animator->defaultClipId) {
-                            ownsClip = true;
-                            break;
-                        }
-                    }
-                    if (!ownsClip) {
-                        return "Scene \"" + sceneId
-                             + "\" sprite defaultClipId must belong to its animation asset";
-                    }
-                }
-            }
-        }
-    }
-    return std::nullopt;
-}
 
 } // namespace
 
@@ -249,28 +143,19 @@ std::optional<PlaySession> PlaySession::materialize(
     const SceneId& sceneId,
     const std::vector<Scripts::ScriptProgram>& scripts,
     std::string* error) {
-    // A dangling image reference must reject Play atomically: the runtime
-    // loader cannot turn it into a valid sprite. Keep the documented leniency
-    // for instances with a missing Object Type, which the runtime skips.
-    if (const std::optional<std::string> spriteError = validatePlaySpriteReferences(document)) {
-        if (error) *error = "Cannot start Play: " + *spriteError;
-        return std::nullopt;
-    }
-
-    // Compile every Logic Board before touching the runtime. A blocking
-    // diagnostic rejects Play atomically and leaves authoring untouched -
-    // same contract the old hand-written materialize() had.
-    const Logic::LogicCompileResult logic = Logic::compileProjectLogic(document.data());
-    if (!logic.ok()) {
+    // Shared Play/Export domain preflight (ADR-0019).
+    const RuntimeProjectPreflightResult preflight =
+        prepareRuntimeProjectSnapshot(document);
+    if (!preflight.ok) {
         if (error) {
-            *error = "Cannot start Play: Logic Board validation failed";
-            if (!logic.diagnostics.empty()) {
-                *error += " [" + logic.diagnostics.front().code + "] "
-                       + logic.diagnostics.front().message;
-            }
+            *error = "Cannot start Play: "
+                   + (preflight.diagnostics.empty()
+                          ? std::string{"runtime preflight failed"}
+                          : preflight.diagnostics.front().message);
         }
         return std::nullopt;
     }
+    const Logic::LogicCompileResult& logic = preflight.compiledLogic;
 
     // Editor-only concern (game.exe loads pre-compiled bytecode from disk;
     // the editor Play button hands over the in-memory/unsaved script buffer
@@ -354,28 +239,7 @@ std::optional<PlaySession> PlaySession::materialize(
     // exported game never rigenerates SFX, only plays the baked
     // AudioAssetDef the Generate step already produced), which is the same
     // gap the exported game already has today, not one introduced here.
-    const SerializeResult serialized = ProjectSerializer::serialize(document);
-    if (!serialized.ok) {
-        if (error) *error = "Cannot start Play: failed to serialize project for load";
-        return std::nullopt;
-    }
-    // Fail fast with a specific diagnostic before touching disk: the same
-    // validator AssetLoader::parseProjectJson calls internally, just without
-    // a generic "rejected" message hiding which field tripped it.
-    {
-        std::string validationError;
-        nlohmann::json parsed;
-        bool parseOk = true;
-        try { parsed = nlohmann::json::parse(serialized.value); }
-        catch (...) { parseOk = false; }
-        if (!parseOk || !ProjectJson::validate_current_project_json(parsed, validationError)) {
-            if (error) {
-                *error = "Cannot start Play: canonical loader rejected the project"
-                       + (validationError.empty() ? std::string{} : " [" + validationError + "]");
-            }
-            return std::nullopt;
-        }
-    }
+    // RU-04: round-trip the exact preflight JSON through AssetLoader.
     const std::filesystem::path scratchDir = makeScratchDir();
     ScratchDirGuard scratchDirGuard{scratchDir};
     {
@@ -384,7 +248,7 @@ std::optional<PlaySession> PlaySession::materialize(
             if (error) *error = "Cannot start Play: failed to write temp project package";
             return std::nullopt;
         }
-        projectFile << serialized.value;
+        projectFile << preflight.canonicalProjectJson;
         if (!projectFile) {
             if (error) *error = "Cannot start Play: failed to write temp project package";
             return std::nullopt;

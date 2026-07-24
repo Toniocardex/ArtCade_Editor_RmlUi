@@ -22,6 +22,20 @@ if(NOT EXISTS "${ARTCADE_RUNTIME_DIR}/CMakeLists.txt")
         "    mklink /J vendor\\artcade-runtime ..\\ArtCade-Studio_V2\\runtime-cpp")
 endif()
 
+option(ARTCADE_REQUIRE_EXPORT_TEMPLATES
+    "Fail configuration when shipping export templates are missing" OFF)
+set(_ARTCADE_EXPORT_TEMPLATE_EXE
+    "${CMAKE_SOURCE_DIR}/src/editor-native/resources/export-templates/windows-x64/game.exe")
+set(_ARTCADE_EXPORT_TEMPLATE_JSON
+    "${CMAKE_SOURCE_DIR}/src/editor-native/resources/export-templates/windows-x64/runtime-template.json")
+if(ARTCADE_REQUIRE_EXPORT_TEMPLATES)
+    if(NOT EXISTS "${_ARTCADE_EXPORT_TEMPLATE_EXE}" OR NOT EXISTS "${_ARTCADE_EXPORT_TEMPLATE_JSON}")
+        message(FATAL_ERROR
+            "[ArtCade-Editor] ARTCADE_REQUIRE_EXPORT_TEMPLATES=ON but windows-x64 "
+            "export template is missing. Run scripts/refresh-export-templates.bat")
+    endif()
+endif()
+
 # Engine libraries only — this repo ships the native RmlUi editor, not WASM/React.
 set(ARTCADE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(ARTCADE_BUILD_SMOKE_TESTS OFF CACHE BOOL "" FORCE)

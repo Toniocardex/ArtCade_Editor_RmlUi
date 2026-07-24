@@ -18,4 +18,8 @@ std::optional<std::filesystem::path> openAudioFileDialog();
 std::optional<std::filesystem::path> openFontFileDialog();
 std::optional<std::filesystem::path> openScriptFileDialog();
 
+// ADR-0019: folder picker for Export destination (Windows IFileDialog).
+std::optional<std::filesystem::path> pickExportDestinationFolder(
+    const std::filesystem::path& suggested);
+
 } // namespace ArtCade::EditorNative

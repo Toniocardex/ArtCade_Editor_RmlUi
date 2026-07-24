@@ -3,6 +3,8 @@
 #include "editor-native/app/asset_import.h"
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/app/editor_input.h"
+#include "editor-native/app/export/export_application_service.h"
+#include "editor-native/app/export/export_types.h"
 #include "editor-native/app/file_dialog.h"
 #include "editor-native/app/generated_sfx_generation_preflight.h"
 #include "editor-native/app/generated_sfx_generation_service.h"
@@ -340,6 +342,7 @@ int EditorApp::run(int argc, char** argv) {
 
     ProjectSessionController projectSession{coordinator, ui, textureCache};
     projectSession.bindUi();
+    projectSession.setExportTemplatesRoot(editorResourceRoot() / "export-templates");
 
     artcade::sfx::RaylibPreview sfxPreview;
     // SFX preview (Generated SFX authoring) owns the audio device independent
@@ -351,6 +354,21 @@ int EditorApp::run(int argc, char** argv) {
     GeneratedSfxGenerationService sfxGeneration{sfxOutputRepository};
     projectSession.setProjectRelocationAvailabilityQuery(
         [&] { return !sfxGeneration.busy(); });
+    projectSession.setProjectFilesStableQuery(
+        [&] { return !sfxGeneration.busy(); });
+
+    struct PendingWindowsExport {
+        ExportRequest request;
+        ExportContext context;
+    };
+    std::optional<PendingWindowsExport> pendingWindowsExport;
+    projectSession.setPendingExportRunner(
+        [&](ExportRequest request, ExportContext context) {
+            pendingWindowsExport = PendingWindowsExport{
+                std::move(request), std::move(context)};
+            coordinator.logInfo("Exporting for Windows…");
+        });
+
     GeneratedSfxOutputTransaction sfxOutputTransaction{
         coordinator, sfxOutputRepository};
     bool sfxBatchWasActive = false;
@@ -1436,6 +1454,44 @@ int EditorApp::run(int argc, char** argv) {
             cancelTilePaletteGesture(paletteInput);
         }
         prevTextFocus = rml.textFocus;
+
+        // ADR-0019: deferred sync Export — paint "Exporting…" then run next frame.
+        if (pendingWindowsExport) {
+            PendingWindowsExport job = std::move(*pendingWindowsExport);
+            pendingWindowsExport.reset();
+            ExportApplicationService exportService{{
+                editorResourceRoot() / "export-templates",
+                [&] { return !sfxGeneration.busy(); },
+            }};
+            const ExportResult exported = exportService.exportWindows(
+                job.request, job.context, coordinator.document(), coordinator);
+            if (exported.ok) {
+                coordinator.logInfo("Export completed: " + exported.outputDirectory.u8string());
+                ui.openConfirm(
+                    "Export completed",
+                    "Windows build written to:\n" + exported.outputDirectory.u8string(),
+                    "ProductName.exe + game.artcade",
+                    "",
+                    "OK",
+                    "primary",
+                    {});
+            } else {
+                std::string message = "Export failed";
+                if (!exported.diagnostics.empty()) {
+                    message = std::string(exportDiagnosticCodeString(exported.diagnostics.front().code))
+                            + " — " + exported.diagnostics.front().message;
+                }
+                coordinator.logError(message);
+                ui.openConfirm(
+                    "Export failed",
+                    message,
+                    "The project was not modified.",
+                    "",
+                    "OK",
+                    "primary",
+                    {});
+            }
+        }
 
         // The service owns worker/token/batch state and returns only completions
         // validated against session, revision, asset and recipe. Raylib and the

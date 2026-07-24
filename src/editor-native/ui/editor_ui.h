@@ -92,6 +92,7 @@ public:
                                 ProjectFileRequest open,
                                 ProjectFileRequest save,
                                 ProjectFileRequest saveAs);
+    void setExportWindowsHandler(ProjectFileRequest exportWindows);
     void setPlayHandlers(ProjectFileRequest playProject,
                          ProjectFileRequest playCurrentScene);
     // Import copies a file into the project via the canonical importAsset
@@ -344,6 +345,7 @@ private:
     ProjectFileRequest                  openProjectRequest_;
     ProjectFileRequest                  saveProjectRequest_;
     ProjectFileRequest                  saveProjectAsRequest_;
+    ProjectFileRequest                  exportWindowsRequest_;
     ProjectFileRequest                  playProjectRequest_;
     ProjectFileRequest                  playCurrentSceneRequest_;
     ImportAssetRequest                  importAssetRequest_;

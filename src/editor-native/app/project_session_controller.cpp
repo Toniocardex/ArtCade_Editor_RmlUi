@@ -132,6 +132,7 @@ void ProjectSessionController::bindUi() {
         [this]() { requestOpenProject(); },
         [this]() { saveCurrent(); },
         [this]() { requestSaveAs(); });
+    ui_.setExportWindowsHandler([this]() { requestExportWindows(); });
     ui_.setPlayHandlers(
         [this]() { requestPlayProject(); },
         [this]() { requestPlayCurrentScene(); });
@@ -617,6 +618,112 @@ bool ProjectSessionController::restartAndApplyScripts() {
         snapshotSavedScriptsForPlay();
     if (!scripts) return false;
     return coordinator_.restartPlaying(*scripts, assetRoot({})).ok;
+}
+
+void ProjectSessionController::requestExportWindows() {
+    ui_.resolvePendingEdits();
+    if (coordinator_.isPlaying()) {
+        coordinator_.logError("EXP001 — Export is unavailable during Play");
+        return;
+    }
+    if (projectFilesStable_ && !projectFilesStable_()) {
+        coordinator_.logError(
+            "EXP008 — Project files are being generated. Wait before exporting.");
+        return;
+    }
+
+    const auto proceed = [this]() { beginExportWindowsAfterSaved(); };
+
+    if (currentProjectPath_.empty()) {
+        coordinator_.logWarning("Save the project before Export");
+        const auto picked = saveProjectFileDialog(
+            suggestedProjectSavePath(coordinator_.document().data()));
+        if (!picked) return;
+        if (!saveTo(*picked)) return;
+        proceed();
+        return;
+    }
+
+    const bool dirty = coordinator_.document().isDirty()
+        || coordinator_.state().scriptEditor.anyDirty();
+    if (dirty) {
+        ui_.openConfirm(
+            "Save and Export",
+            "The project has unsaved changes. Save before exporting?",
+            "Discard and Export is not available — the packer reads the saved project.",
+            "",
+            "Save and Export",
+            "primary",
+            [this, proceed](EditorUi::ConfirmChoice choice) {
+                if (choice != EditorUi::ConfirmChoice::Primary) return;
+                if (!saveCurrent()) return;
+                proceed();
+            });
+        return;
+    }
+
+    proceed();
+}
+
+void ProjectSessionController::beginExportWindowsAfterSaved() {
+    if (currentProjectPath_.empty()) {
+        coordinator_.logError("EXP002 — Project must be saved before Export");
+        return;
+    }
+    if (projectFilesStable_ && !projectFilesStable_()) {
+        coordinator_.logError(
+            "EXP008 — Project files are being generated. Wait before exporting.");
+        return;
+    }
+
+    const auto destinationParent = pickExportDestinationFolder(
+        currentProjectPath_.parent_path().parent_path());
+    if (!destinationParent) return;
+
+    std::string productName = coordinator_.document().data().projectName;
+    if (productName.empty()) productName = currentProjectPath_.stem().string();
+    bool normalized = false;
+    productName = normalizeProductFileName(std::move(productName), &normalized);
+
+    const std::filesystem::path finalDir = *destinationParent / productName;
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(finalDir, ec);
+    const auto enqueue = [this, destinationParent, productName, exists]() {
+        ExportRequest request;
+        request.target = ExportTarget::WindowsX64;
+        request.destinationDirectory = *destinationParent;
+        request.productName = productName;
+        request.replaceExisting = exists;
+
+        ExportContext context;
+        context.projectFile = currentProjectPath_;
+        context.projectRoot = currentProjectPath_.parent_path();
+        context.projectId = coordinator_.document().data().projectId;
+        context.projectName = coordinator_.document().data().projectName;
+        context.projectRevision = coordinator_.document().revision();
+        context.projectFormatVersion = coordinator_.document().data().formatVersion;
+
+        if (pendingExportRunner_) {
+            pendingExportRunner_(std::move(request), std::move(context));
+        } else {
+            coordinator_.logError("Export runner is not configured");
+        }
+    };
+
+    if (exists) {
+        ui_.openConfirm(
+            "Replace existing export?",
+            "A folder named \"" + productName + "\" already exists in the destination.",
+            "The previous export will be replaced transactionally.",
+            "",
+            "Replace and Export",
+            "danger",
+            [enqueue](EditorUi::ConfirmChoice choice) {
+                if (choice == EditorUi::ConfirmChoice::Primary) enqueue();
+            });
+        return;
+    }
+    enqueue();
 }
 
 } // namespace ArtCade::EditorNative

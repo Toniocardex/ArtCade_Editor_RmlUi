@@ -2,6 +2,7 @@
 
 #include "core/types.h"
 #include "editor-native/app/asset_import.h"
+#include "editor-native/app/export/export_types.h"
 #include "editor-native/app/project_session_id.h"
 #include "script-runtime.h"
 
@@ -48,15 +49,27 @@ public:
     bool requestPlayProject();
     bool requestPlayCurrentScene();
     bool restartAndApplyScripts();
+    void requestExportWindows();
 
     void refreshWindowTitle();
     void refreshWindowTitleIfNeeded();
+
+    void setProjectFilesStableQuery(std::function<bool()> query) {
+        projectFilesStable_ = std::move(query);
+    }
+    void setExportTemplatesRoot(std::filesystem::path root) {
+        exportTemplatesRoot_ = std::move(root);
+    }
+    void setPendingExportRunner(std::function<void(ExportRequest, ExportContext)> runner) {
+        pendingExportRunner_ = std::move(runner);
+    }
 
 private:
     bool saveCurrent();
     void requestNewProject();
     void requestOpenProject();
     void requestSaveAs();
+    void beginExportWindowsAfterSaved();
     std::optional<std::vector<Scripts::ScriptProgram>> snapshotSavedScriptsForPlay();
 
     EditorCoordinator&      coordinator_;
@@ -65,6 +78,9 @@ private:
     std::filesystem::path   currentProjectPath_;
     ProjectSessionIdentity  sessionIdentity_;
     std::function<bool()>   projectRelocationAvailable_;
+    std::function<bool()>   projectFilesStable_;
+    std::filesystem::path   exportTemplatesRoot_;
+    std::function<void(ExportRequest, ExportContext)> pendingExportRunner_;
     bool                    titleShowsDirty_ = false;
 };
 

@@ -2,6 +2,7 @@
 
 #include "core/types.h"
 #include "editor-native/app/command_stack.h"
+#include "editor-native/app/export/export_types.h"
 #include "editor-native/commands/editor_command.h"
 #include "editor-native/commands/editor_intent.h"
 #include "editor-native/commands/editor_operation_result.h"
@@ -152,6 +153,8 @@ public:
     // nothing (no session, no revision, no dirty, no invalidation).
     bool isPlaying()            const { return playSession_.has_value(); }
     bool canPlayProject()       const;
+    // ADR-0019: domain-only Export eligibility (no project path / filesystem).
+    ExportDomainEligibility evaluateExportDomainEligibility() const;
     bool canPlayCurrentScene()  const;
     const PlaySession* playSession() const {
         return playSession_ ? &*playSession_ : nullptr;

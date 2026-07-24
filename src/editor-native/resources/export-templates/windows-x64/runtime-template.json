@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "templateVersion": 1,
+  "target": "windows-x64",
+  "engineVersion": "2.0.0",
+  "runtimeBuildId": "local",
+  "projectFormat": {
+    "minimum": 10,
+    "maximum": 10
+  },
+  "entryPoint": "game.exe",
+  "supportsEncryptedArtcade": true,
+  "assetKeyId": "artcade-dev-key-v1",
+  "files": {
+    "game.exe": {
+      "size": 3910656,
+      "sha256": "367990b78fe54d41e10361deba18a1c32c1957150252403420e896bc59811690"
+    }
+  }
+}

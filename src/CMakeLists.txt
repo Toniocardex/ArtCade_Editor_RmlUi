@@ -77,6 +77,12 @@ add_library(artcade-editor-core STATIC
     editor-native/app/script_asset_workflow.cpp
     editor-native/app/project_load.cpp
     editor-native/app/new_project_transaction.cpp
+    editor-native/app/export/export_types.cpp
+    editor-native/app/export/runtime_project_preflight.cpp
+    editor-native/app/export/export_transaction.cpp
+    editor-native/app/export/runtime_template_catalog.cpp
+    editor-native/app/export/project_pack_service.cpp
+    editor-native/app/export/export_application_service.cpp
     editor-native/ui/generated_sfx_editor_controller.cpp
 )
 
@@ -104,6 +110,9 @@ target_link_libraries(artcade-editor-core PUBLIC
     # RU-04: Play-start parses the project through the same AssetLoader the
     # exported game uses (docs/PLAY_RUNTIME_UNIFICATION_ROADMAP.md §11).
     artcade-asset-system
+    # ADR-0019: C++ .artcade packer for Export.
+    artcade-pack-core
+    artcade-archive-core
 )
 
 # ----------------------------------------------------------------------------
@@ -232,7 +241,7 @@ target_link_libraries(artcade-editor-native PRIVATE
     RmlUi::Debugger
 )
 if(WIN32)
-    target_link_libraries(artcade-editor-native PRIVATE comdlg32)
+    target_link_libraries(artcade-editor-native PRIVATE comdlg32 ole32 shell32)
 endif()
 
 file(GLOB_RECURSE ARTCADE_EDITOR_RESOURCE_FILES CONFIGURE_DEPENDS

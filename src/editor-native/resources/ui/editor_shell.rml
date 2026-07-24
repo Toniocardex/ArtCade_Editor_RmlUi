@@ -19,6 +19,8 @@
                 <div class="menu-entry" data-action="open-project"><span class="icon">&#xeaad;</span>Open</div>
                 <div class="menu-entry" data-action="save-project"><span class="icon">&#xea7a;</span>Save</div>
                 <div class="menu-entry" data-action="save-project-as"><span class="icon">&#xeae0;</span>Save As</div>
+                <div class="menu-sep"></div>
+                <div class="menu-entry" data-action="export-windows"><span class="icon">&#xed30;</span>Export for Windows…</div>
             </div>
         </div>
         <div class="menu-item has-menu">

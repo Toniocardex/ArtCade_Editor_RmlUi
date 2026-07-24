@@ -39,6 +39,9 @@ artcade_editor_core_suite(script_asset_test
 artcade_editor_core_suite(script_delete_disk_test
     script-delete-disk-test.cpp)
 
+artcade_editor_core_suite(export_foundation_test
+    export-foundation-test.cpp)
+
 artcade_test(script_text_ops_test
     script-text-ops-test.cpp
     artcade-editor-core)

@@ -9,6 +9,7 @@
 #endif
 #include <windows.h>
 #include <commdlg.h>
+#include <shobjidl.h>
 
 #include <cwchar>
 #endif
@@ -102,6 +103,53 @@ std::optional<std::filesystem::path> openScriptFileDialog() {
     return openImportDialog(kScriptFilter, L"lua");
 }
 
+std::optional<std::filesystem::path> pickExportDestinationFolder(
+    const std::filesystem::path& suggested) {
+    HRESULT coInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    const bool needUninit = SUCCEEDED(coInit) || coInit == RPC_E_CHANGED_MODE;
+
+    IFileDialog* dialog = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                                  IID_PPV_ARGS(&dialog));
+    if (FAILED(hr) || !dialog) {
+        if (needUninit && SUCCEEDED(coInit)) CoUninitialize();
+        return std::nullopt;
+    }
+
+    DWORD options = 0;
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM
+                       | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR);
+    dialog->SetTitle(L"Export Destination");
+
+    if (!suggested.empty()) {
+        IShellItem* folder = nullptr;
+        if (SUCCEEDED(SHCreateItemFromParsingName(
+                suggested.wstring().c_str(), nullptr, IID_PPV_ARGS(&folder)))
+            && folder) {
+            dialog->SetFolder(folder);
+            folder->Release();
+        }
+    }
+
+    std::optional<std::filesystem::path> result;
+    hr = dialog->Show(GetActiveWindow());
+    if (SUCCEEDED(hr)) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dialog->GetResult(&item)) && item) {
+            PWSTR path = nullptr;
+            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)) && path) {
+                result = std::filesystem::path(path);
+                CoTaskMemFree(path);
+            }
+            item->Release();
+        }
+    }
+    dialog->Release();
+    if (needUninit && SUCCEEDED(coInit)) CoUninitialize();
+    return result;
+}
+
 #else  // non-Windows: the native editor is Windows-first; no picker yet.
 
 std::optional<std::filesystem::path> openProjectFileDialog() { return std::nullopt; }
@@ -111,6 +159,8 @@ std::optional<std::filesystem::path> openImageFileDialog() { return std::nullopt
 std::optional<std::filesystem::path> openAudioFileDialog() { return std::nullopt; }
 std::optional<std::filesystem::path> openFontFileDialog() { return std::nullopt; }
 std::optional<std::filesystem::path> openScriptFileDialog() { return std::nullopt; }
+std::optional<std::filesystem::path> pickExportDestinationFolder(
+    const std::filesystem::path&) { return std::nullopt; }
 
 #endif
 

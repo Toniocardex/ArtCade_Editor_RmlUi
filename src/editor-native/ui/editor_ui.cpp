@@ -721,6 +721,10 @@ void EditorUi::setProjectFileHandlers(ProjectFileRequest newProject,
     saveProjectAsRequest_ = std::move(saveAs);
 }
 
+void EditorUi::setExportWindowsHandler(ProjectFileRequest exportWindows) {
+    exportWindowsRequest_ = std::move(exportWindows);
+}
+
 void EditorUi::setPlayHandlers(ProjectFileRequest playProject,
                                ProjectFileRequest playCurrentScene) {
     playProjectRequest_ = std::move(playProject);
@@ -3417,6 +3421,8 @@ bool EditorUi::handleProjectFileAction(const std::string& action, const std::str
         if (saveProjectRequest_) saveProjectRequest_();
     } else if (action == "save-project-as") {
         if (saveProjectAsRequest_) saveProjectAsRequest_();
+    } else if (action == "export-windows") {
+        if (exportWindowsRequest_) exportWindowsRequest_();
     } else {
         return false;
     }

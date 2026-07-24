@@ -657,6 +657,23 @@ bool EditorCoordinator::canPlayCurrentScene() const {
     return !sceneId.empty() && document_.hasScene(sceneId);
 }
 
+ExportDomainEligibility EditorCoordinator::evaluateExportDomainEligibility() const {
+    ExportDomainEligibility result;
+    if (isPlaying()) {
+        result.diagnostics.push_back(makeExportError(
+            ExportDiagnosticCode::Playing, "Export is unavailable during Play"));
+        return result;
+    }
+    if (!canPlayProject()) {
+        result.diagnostics.push_back(makeExportError(
+            ExportDiagnosticCode::InvalidStartScene,
+            "Start scene is missing or invalid"));
+        return result;
+    }
+    result.allowed = true;
+    return result;
+}
+
 EditorOperationResult EditorCoordinator::playProject() {
     return playProject({});
 }

@@ -19,3 +19,6 @@ script_test_out.txt
 
 # Junction target is local — use submodule in git; do not commit a copy of runtime
 vendor/artcade-runtime/
+
+# ADR-0019: shipping player binary (refreshed via scripts/refresh-export-templates.bat)
+src/editor-native/resources/export-templates/**/game.exe
