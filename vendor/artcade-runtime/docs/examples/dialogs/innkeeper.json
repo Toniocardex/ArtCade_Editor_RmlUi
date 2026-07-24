@@ -1,0 +1,46 @@
+{
+  "dialogId": "innkeeper",
+  "startNode": "n1",
+  "nodes": {
+    "n1": {
+      "type": "say",
+      "character": "Innkeeper",
+      "text": "Welcome, traveler!",
+      "next": "n2"
+    },
+    "n2": {
+      "type": "say",
+      "character": "Innkeeper",
+      "text": "What do you need?",
+      "next": "n3"
+    },
+    "n3": {
+      "type": "choice",
+      "options": [
+        { "text": "A room", "next": "n4" },
+        { "text": "No thanks", "next": "n5" }
+      ]
+    },
+    "n4": {
+      "type": "setVariable",
+      "variable": "quest.met_innkeeper",
+      "operation": "=",
+      "value": 1,
+      "next": "n6"
+    },
+    "n6": {
+      "type": "emitEvent",
+      "event": "QuestAccepted",
+      "next": "n_end"
+    },
+    "n5": {
+      "type": "say",
+      "character": "Innkeeper",
+      "text": "Come back anytime.",
+      "next": "n_end"
+    },
+    "n_end": {
+      "type": "end"
+    }
+  }
+}

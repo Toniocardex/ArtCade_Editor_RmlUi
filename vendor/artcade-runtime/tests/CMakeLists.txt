@@ -148,8 +148,10 @@ artcade_test(save_load_test
 artcade_test(dialog_parser_test
     dialog-parser-test.cpp
     artcade-dialog)
+# Vendored tree is self-contained: docs/examples lives inside the runtime
+# root itself (no parent repo above it since the 2026-07-25 repo split).
 target_compile_definitions(dialog_parser_test
-    PRIVATE ARTCADE_REPO_ROOT="${ARTCADE_RUNTIME_ROOT}/..")
+    PRIVATE ARTCADE_REPO_ROOT="${ARTCADE_RUNTIME_ROOT}")
 
 # ============================================================================
 # TextureManager — compilato con stub Raylib (funziona anche senza GPU).

@@ -1,0 +1,9 @@
+record_type,id,dialog_id,character,text,text_key,portrait,next,option_index,option_text,variable,operator,value,if_true,if_false,operation,event
+say,n1,innkeeper,Innkeeper,"Welcome, traveler!",,,n2,,,,,,,,,
+say,n2,innkeeper,Innkeeper,"What do you need?",,,n3,,,,,,,,,
+choice,n3,innkeeper,,,,,,,1,"A room",n4,,,,,,
+choice,n3,innkeeper,,,,,,,2,"No thanks",n5,,,,,,
+set_var,n4,innkeeper,,,,,n6,,,,quest.met_innkeeper,,1,,,=,
+emit,n6,innkeeper,,,,,n_end,,,,,,,,,QuestAccepted
+say,n5,innkeeper,Innkeeper,"Come back anytime.",,,n_end,,,,,,,,,
+end,n_end,innkeeper,,,,,,,,,,,,,,
