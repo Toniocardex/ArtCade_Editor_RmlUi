@@ -8,6 +8,7 @@
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/app/generated_sfx_generation_preflight.h"
 #include "editor-native/app/hierarchy_actions.h"
+#include "editor-native/app/instance_name_policy.h"
 #include "editor-native/app/input_routing.h"
 #include "editor-native/app/inspector_commit.h"
 #include "editor-native/app/new_project_transaction.h"
@@ -2355,11 +2356,148 @@ int main() {
         const SceneInstanceDef* clone = c.document().findInstanceInScene(kSceneA, newId);
         CHECK(clone != nullptr);
         CHECK(clone->objectTypeId == "Hero");
-        CHECK(clone->instanceName != "Hero");             // uniquified
+        CHECK(clone->instanceName == "Hero (2)");          // ADR-0023 canonical
         CHECK(clone->transform.position.x != 10.f);        // offset from source (10, 20)
         CHECK(clone->transform.position.y != 20.f);
         CHECK(c.selection().primaryEntity == newId);       // auto-selected
         CHECK(c.document().findInstanceInScene(kSceneA, kHero) != nullptr);  // source kept
+    }
+
+    // -- ADR-0023: canonical duplicate naming ----------------------------------
+    {
+        SceneDef scene;
+        scene.id = "n";
+        auto add = [&](const char* name) {
+            SceneInstanceDef inst;
+            inst.id = static_cast<EntityId>(scene.instances.size() + 1);
+            inst.objectTypeId = "T";
+            inst.instanceName = name;
+            scene.instances.push_back(inst);
+        };
+
+        CHECK(parseInstanceName("Entity 2").root == "Entity 2");
+        CHECK(!parseInstanceName("Entity 2").ordinal.has_value());
+        CHECK(parseInstanceName("Entity 2 (2)").root == "Entity 2");
+        CHECK(parseInstanceName("Entity 2 (2)").ordinal == 2);
+        CHECK(parseInstanceName("Boss Phase 2").root == "Boss Phase 2");
+        CHECK(parseInstanceName("Boss (Final)").root == "Boss (Final)");
+        CHECK(parseInstanceName("Entity (01)").root == "Entity (01)");
+        CHECK(parseInstanceName("Entity (1)").root == "Entity (1)");
+
+        add("Entity 2");
+        CHECK(makeUniqueInstanceName(scene, "Entity 2") == "Entity 2 (2)");
+        add("Entity 2 (2)");
+        CHECK(makeUniqueInstanceName(scene, "Entity 2 (2)") == "Entity 2 (3)");
+
+        SceneDef gaps;
+        gaps.id = "g";
+        for (const char* n : {"Platform", "Platform (2)", "Platform (4)"}) {
+            SceneInstanceDef inst;
+            inst.id = static_cast<EntityId>(gaps.instances.size() + 1);
+            inst.objectTypeId = "T";
+            inst.instanceName = n;
+            gaps.instances.push_back(inst);
+        }
+        CHECK(makeUniqueInstanceName(gaps, "Platform") == "Platform (3)");
+
+        SceneDef plat;
+        plat.id = "p";
+        SceneInstanceDef p;
+        p.id = 1;
+        p.objectTypeId = "T";
+        p.instanceName = "Platform 2";
+        plat.instances.push_back(p);
+        CHECK(makeUniqueInstanceName(plat, "Platform 2") == "Platform 2 (2)");
+
+        SceneDef zeroPad;
+        zeroPad.id = "z";
+        SceneInstanceDef zp;
+        zp.id = 1;
+        zp.objectTypeId = "T";
+        zp.instanceName = "Entity (01)";
+        zeroPad.instances.push_back(zp);
+        CHECK(makeUniqueInstanceName(zeroPad, "Entity (01)") == "Entity (01) (2)");
+    }
+
+    // -- ADR-0023: Duplicate inserts after source; redo uses captured snapshot -
+    {
+        EditorCoordinator c{makeInheritedDoc()};
+        const SceneDef* sceneBefore = c.document().findScene(kSceneA);
+        const std::size_t countBefore = sceneBefore->instances.size();
+        std::size_t heroIndex = countBefore;
+        for (std::size_t i = 0; i < sceneBefore->instances.size(); ++i) {
+            if (sceneBefore->instances[i].id == kHero) { heroIndex = i; break; }
+        }
+        CHECK(heroIndex < countBefore);
+
+        c.apply(SelectEntityIntent{kHero});
+        const EntityId newId = nextAvailableEntityId(c.document(), kSceneA);
+        CHECK(duplicateSelectedEntity(c).ok);
+        const SceneDef* after = c.document().findScene(kSceneA);
+        CHECK(after->instances.size() == countBefore + 1);
+        CHECK(heroIndex + 1 < after->instances.size());
+        CHECK(after->instances[heroIndex + 1].id == newId);
+        CHECK(after->instances[heroIndex + 1].objectTypeId
+              == after->instances[heroIndex].objectTypeId);
+        CHECK(after->instances[heroIndex + 1].instanceName == "Hero (2)");
+
+        CHECK(c.undo().ok);
+        CHECK(c.document().findInstanceInScene(kSceneA, newId) == nullptr);
+        CHECK(c.redo().ok);
+        const SceneInstanceDef* restored = c.document().findInstanceInScene(kSceneA, newId);
+        CHECK(restored != nullptr);
+        CHECK(restored->instanceName == "Hero (2)");
+        const SceneDef* redone = c.document().findScene(kSceneA);
+        CHECK(heroIndex + 1 < redone->instances.size());
+        CHECK(redone->instances[heroIndex + 1].id == newId);
+    }
+
+    // -- ADR-0023: Rename same name is a no-op (no revision / undo entry) ------
+    {
+        EditorCoordinator c{makeDoc()};
+        const uint64_t rev = c.document().revision();
+        const std::size_t undoBefore = c.undoSize();
+        const auto r = c.execute(RenameEntityCommand{kSceneA, kHero, "Hero"});
+        CHECK(r.ok);
+        CHECK(r.invalidation == EditorInvalidation::None);
+        CHECK(c.document().revision() == rev);
+        CHECK(c.undoSize() == undoBefore);
+    }
+
+    // -- ADR-0023: Duplicate blocked on locked layer --------------------------
+    {
+        EditorCoordinator c{makeInheritedDoc()};
+        CHECK(c.execute(AddSceneLayerCommand{kSceneA, "locked", "Locked", 0}).ok);
+        CHECK(c.execute(SetEntityLayerCommand{kSceneA, kHero, "locked"}).ok);
+        CHECK(c.execute(SetLayerLockedCommand{kSceneA, "locked", true}).ok);
+        c.apply(SelectEntityIntent{kHero});
+        const uint64_t rev = c.document().revision();
+        const EntityId sel = c.selection().primaryEntity;
+        CHECK(!duplicateSelectedEntity(c).ok);
+        CHECK(c.document().revision() == rev);
+        CHECK(c.selection().primaryEntity == sel);
+    }
+
+    // -- ADR-0023: hierarchy search matches name / type / layer / id ----------
+    {
+        HierarchySearchFields item;
+        item.instanceName = "Moving Platform";
+        item.objectTypeName = "Platform";
+        item.objectTypeId = "object-2";
+        item.layerName = "Foreground";
+        item.entityId = 42;
+        CHECK(hierarchyInstanceMatches(item, ""));
+        CHECK(hierarchyInstanceMatches(item, "platform"));
+        CHECK(hierarchyInstanceMatches(item, "PLATFORM"));
+        CHECK(hierarchyInstanceMatches(item, "object-2"));
+        CHECK(hierarchyInstanceMatches(item, "foreground"));
+        CHECK(hierarchyInstanceMatches(item, "42"));
+        CHECK(!hierarchyInstanceMatches(item, "missing"));
+
+        SceneInstanceDef plain;
+        CHECK(!hasInstanceOverrides(plain));
+        plain.localVariableOverrides["hp"] = 1.0;
+        CHECK(hasInstanceOverrides(plain));
     }
 
     // -- (10) Empty catalog: Add Instance is a no-op, never a placeholder ------

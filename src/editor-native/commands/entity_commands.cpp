@@ -243,15 +243,15 @@ EditorOperationResult DeleteEntityCommand::undo(ProjectDocument& document) {
 }
 
 // ----------------------------------------------------------------------------
-// CloneInstanceCommand
+// DuplicateInstanceCommand (ADR-0023)
 // ----------------------------------------------------------------------------
-CloneInstanceCommand::CloneInstanceCommand(SceneId sceneId, EntityId sourceId,
-                                           EntityId newId, std::string newName,
-                                           Vec2 newPosition)
+DuplicateInstanceCommand::DuplicateInstanceCommand(SceneId sceneId, EntityId sourceId,
+                                                   EntityId newId, std::string newName,
+                                                   Vec2 newPosition)
     : sceneId_(std::move(sceneId)), sourceId_(sourceId), newId_(newId),
       newName_(std::move(newName)), newPosition_(newPosition) {}
 
-EditorOperationResult CloneInstanceCommand::apply(ProjectDocument& document) {
+EditorOperationResult DuplicateInstanceCommand::apply(ProjectDocument& document) {
     if (newId_ == 0) {
         return EditorOperationResult::failure("Entity id cannot be zero");
     }
@@ -261,39 +261,49 @@ EditorOperationResult CloneInstanceCommand::apply(ProjectDocument& document) {
     if (!NumericValidation::isFinite(newPosition_)) {
         return EditorOperationResult::failure("Entity position must be finite");
     }
-    if (!document.findScene(sceneId_)) {
+    const SceneDef* scene = document.findScene(sceneId_);
+    if (!scene) {
         return EditorOperationResult::failure("No target scene");
-    }
-    const SceneInstanceDef* source = document.findInstanceInScene(sceneId_, sourceId_);
-    if (!source) {
-        return EditorOperationResult::failure("No source instance to clone");
     }
     if (document.findInstanceInScene(sceneId_, newId_)) {
         return EditorOperationResult::failure("An instance with that id already exists");
     }
+
     if (!captured_) {
+        std::size_t sourceIndex = 0;
+        const SceneInstanceDef* source = nullptr;
+        for (std::size_t i = 0; i < scene->instances.size(); ++i) {
+            if (scene->instances[i].id == sourceId_) {
+                source = &scene->instances[i];
+                sourceIndex = i;
+                break;
+            }
+        }
+        if (!source) {
+            return EditorOperationResult::failure("No source instance to duplicate");
+        }
         if (document.isInstanceLayerLocked(sceneId_, *source)) {
             return EditorOperationResult::failure("Cannot duplicate \"" + source->instanceName
                 + "\": its layer is locked");
         }
+        duplicateSnapshot_ = *source;
+        duplicateSnapshot_.id = newId_;
+        duplicateSnapshot_.instanceName = newName_;
+        duplicateSnapshot_.transform.position = newPosition_;
+        insertionIndex_ = sourceIndex + 1;
         captured_ = true;
     }
-    SceneInstanceDef clone      = *source;   // transform/visible/layerId, sparse
-                                             // presentation overrides, tilemap and
-                                             // localVariableOverrides are copied
-    clone.id                    = newId_;
-    clone.instanceName          = newName_;
-    clone.transform.position    = newPosition_;
-    if (!document.createInstance(sceneId_, std::move(clone))) {
-        return EditorOperationResult::failure("Failed to clone instance");
+
+    if (!document.insertInstance(sceneId_, insertionIndex_, duplicateSnapshot_)) {
+        return EditorOperationResult::failure("Failed to duplicate instance");
     }
     return EditorOperationResult::success(kStructureInvalidation,
                                           DomainChange::entityAdded(sceneId_, newId_));
 }
 
-EditorOperationResult CloneInstanceCommand::undo(ProjectDocument& document) {
+EditorOperationResult DuplicateInstanceCommand::undo(ProjectDocument& document) {
     if (!document.deleteInstance(sceneId_, newId_)) {
-        return EditorOperationResult::failure("Cannot undo instance clone");
+        return EditorOperationResult::failure("Cannot undo instance duplicate");
     }
     return EditorOperationResult::success(kStructureInvalidation,
                                           DomainChange::entityRemoved(sceneId_, newId_));
@@ -383,6 +393,9 @@ EditorOperationResult RenameEntityCommand::apply(ProjectDocument& document) {
     }
     if (newName_.empty()) {
         return EditorOperationResult::failure("Name cannot be empty");
+    }
+    if (current->instanceName == newName_) {
+        return EditorOperationResult::success(EditorInvalidation::None);
     }
     if (!captured_) {
         if (document.isInstanceLayerLocked(sceneId_, *current)) {

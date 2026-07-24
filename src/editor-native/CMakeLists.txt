@@ -46,6 +46,7 @@ add_library(artcade-editor-core STATIC
     app/editor_coordinator_ui.cpp
     app/asset_import.cpp
     app/hierarchy_actions.cpp
+    app/instance_name_policy.cpp
     app/inspector_actions.cpp
     app/inspector_commit.cpp
     ui/generated_sfx_editor_controller.cpp

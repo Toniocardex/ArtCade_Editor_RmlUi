@@ -150,6 +150,7 @@
         <div id="left-col" class="panel">
             <div id="hierarchy-pane" class="side-pane hierarchy-pane">
                 <div class="panel-header"><span class="icon">&#xee9e;</span>HIERARCHY</div>
+                <div id="hierarchy-search-slot" class="hierarchy-search-slot"></div>
                 <div class="tree-section">Scenes</div>
                 <div id="scene-tabs" class="scene-tabs"></div>
                 <div class="panel-actions">
@@ -159,7 +160,7 @@
                             <div id="create-scene-entry" class="menu-entry" data-action="add-scene">Create Scene</div>
                             <div id="create-entity-entry" class="menu-entry" data-action="add-entity">Create Entity</div>
                             <div id="create-tilemap-entity-entry" class="menu-entry" data-action="add-tilemap-entity">Create Tilemap Entity</div>
-                            <div id="create-instance-entry" class="menu-entry" data-action="add-instance">Create Instance</div>
+                            <div id="create-instance-entry" class="menu-entry" data-action="add-instance">Create Instance of Type</div>
                             <div id="create-instance-of-type-list"></div>
                         </div>
                     </div>
@@ -326,11 +327,18 @@
     </div>
 
     <div id="hierarchy-context-menu" class="context-menu hidden">
-        <div id="hctx-set-start" class="context-entry" data-action="set-start-scene"><span class="icon">&#xeb2e;</span>Set as Start Scene</div>
-        <div id="hctx-del-scene" class="context-entry destructive" data-action="delete-scene"><span class="icon">&#xeb41;</span>Delete Scene</div>
-        <div id="hctx-add-instance" class="context-entry" data-action="add-instance"><span class="icon">&#xeb0b;</span>Create Instance</div>
-        <div id="hctx-clone-entity" class="context-entry" data-action="clone-entity"><span class="icon">&#xedef;</span>Clone</div>
-        <div id="hctx-del-entity" class="context-entry destructive" data-action="delete-entity"><span class="icon">&#xeb41;</span>Delete Entity</div>
+        <div id="hctx-set-start" class="context-entry" data-action="set-start-scene"><span class="icon">&#xeb2e;</span><span>Set as Start Scene</span></div>
+        <div id="hctx-del-scene" class="context-entry destructive" data-action="delete-scene"><span class="icon">&#xeb41;</span><span>Delete Scene</span></div>
+        <div id="hctx-rename-entity" class="context-entry" data-action="begin-hierarchy-rename"><span class="icon">&#xeb0a;</span><span>Rename</span><span class="context-shortcut">F2</span></div>
+        <div id="hctx-duplicate-entity" class="context-entry" data-action="duplicate-entity"><span class="icon">&#xedef;</span><span>Duplicate Instance</span><span class="context-shortcut">Ctrl+D</span></div>
+        <div id="hctx-add-instance" class="context-entry" data-action="add-instance"><span class="icon">&#xeb0b;</span><span>Create Instance of Type</span></div>
+        <div id="hctx-entity-sep-1" class="menu-separator"></div>
+        <div id="hctx-move-to-layer" class="context-entry has-submenu">
+            <span class="icon">&#xeb2d;</span><span>Move to Layer</span><span class="context-submenu-caret">&#xea61;</span>
+            <div id="hctx-move-layer-list" class="context-submenu"></div>
+        </div>
+        <div id="hctx-entity-sep-2" class="menu-separator"></div>
+        <div id="hctx-del-entity" class="context-entry destructive" data-action="delete-entity"><span class="icon">&#xeb41;</span><span>Delete</span><span class="context-shortcut">Del</span></div>
     </div>
 
     <!-- Assets row menu. Entries carry no static data-action: showPendingAssetMenu

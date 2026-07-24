@@ -121,12 +121,13 @@ EditorOperationResult addInstanceOfSelectedType(EditorCoordinator& coordinator);
 EditorOperationResult deleteSelectedEntity(EditorCoordinator& coordinator);
 
 /**
- * Place a copy of the selected instance: same object type and per-instance
- * overrides (sprite, layer, visibility, local variables), a fresh id, a
- * uniquified name, and a position offset from the source so it doesn't land
- * exactly on top of it. Selects the clone on success. No selection → failure
- * without mutation.
+ * Duplicate the selected instance (ADR-0023): same object type and per-instance
+ * overrides, fresh id/name/position, inserted after the source. Selects the
+ * duplicate on success.
  */
+EditorOperationResult duplicateSelectedEntity(EditorCoordinator& coordinator);
+
+/** @deprecated Prefer duplicateSelectedEntity. */
 EditorOperationResult cloneSelectedEntity(EditorCoordinator& coordinator);
 
 } // namespace ArtCade::EditorNative

@@ -84,15 +84,16 @@ private:
 
 /** Place a copy of an existing instance — same object type and per-instance
  *  overrides (sprite, layer, visibility, local variables), fresh id/name/
- *  position. Invalidates Hierarchy | Inspector | Viewport. */
-class CloneInstanceCommand final : public EditorCommand {
+ *  position, inserted immediately after the source (ADR-0023).
+ *  Invalidates Hierarchy | Inspector | Viewport. */
+class DuplicateInstanceCommand final : public EditorCommand {
 public:
-    CloneInstanceCommand(SceneId sceneId, EntityId sourceId, EntityId newId,
-                         std::string newName, Vec2 newPosition);
+    DuplicateInstanceCommand(SceneId sceneId, EntityId sourceId, EntityId newId,
+                             std::string newName, Vec2 newPosition);
 
     EditorOperationResult apply(ProjectDocument& document) override;
     EditorOperationResult undo(ProjectDocument& document) override;
-    const char* name() const override { return "CloneInstance"; }
+    const char* name() const override { return "DuplicateInstance"; }
 
 private:
     SceneId     sceneId_;
@@ -100,8 +101,14 @@ private:
     EntityId    newId_;
     std::string newName_;
     Vec2        newPosition_{};
-    bool        captured_ = false;   // see CreateEntityCommand::captured_
+
+    SceneInstanceDef duplicateSnapshot_{};
+    std::size_t      insertionIndex_ = 0;
+    bool             captured_ = false;
 };
+
+/** @deprecated Prefer DuplicateInstanceCommand (ADR-0023). */
+using CloneInstanceCommand = DuplicateInstanceCommand;
 
 /** Patch authored Transform fields (position / rotation / scale). Never
  *  touches velocity. Invalidates Inspector | Viewport. */

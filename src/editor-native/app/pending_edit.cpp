@@ -47,7 +47,7 @@ bool isNumericCommit(const std::string& action) {
 bool requiresNonEmptyText(const std::string& action) {
     static constexpr std::string_view actions[] = {
         "commit-project-name", "commit-scene-name", "commit-name",
-        "commit-type-name", "commit-layer-rename",
+        "commit-type-name", "commit-layer-rename", "commit-hierarchy-rename",
         "commit-animation-clip-name", "commit-tileset-name",
         // commit-sfx-name: blur-from-toolbar can report an empty buffer even when
         // the field still displays the current name; handleAction ignores empty.
@@ -142,7 +142,9 @@ PendingEditResult classifyPendingEdit(const std::string& action,
 bool pendingEditNeedsCommit(const std::string& action,
                             const std::string& value,
                             const std::string& renderedValue) {
-    return action == "commit-layer-rename" || value != renderedValue;
+    return action == "commit-layer-rename"
+        || action == "commit-hierarchy-rename"
+        || value != renderedValue;
 }
 
 } // namespace ArtCade::EditorNative

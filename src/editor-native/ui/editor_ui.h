@@ -227,9 +227,10 @@ public:
     // and Ctrl+C. Returns false (no-op) when nothing is selected.
     bool copySelectedConsoleMessage();
 
-    // F2 affordance for Scene Layer inline rename. Delegates to the Inspector's
-    // single beginSceneLayerRename path; no document mutation happens here.
-    void beginActiveSceneLayerRename();
+    // F2: rename the selected instance in Hierarchy; otherwise the active Scene Layer.
+    void beginHierarchyOrLayerRename();
+    /** Expand layer + scroll Hierarchy to an instance after Duplicate (presentation only). */
+    void requestHierarchyReveal(const SceneId& sceneId, EntityId id, const std::string& layerId);
     // Viewport drag preview for the selected entity transform. Presentation only:
     // the model still changes once, on mouse release, through SetEntityTransformCommand.
     void showEntityPositionPreview(EntityId entity, Vec2 position);

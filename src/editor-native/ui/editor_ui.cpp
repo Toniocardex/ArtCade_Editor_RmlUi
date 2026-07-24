@@ -222,12 +222,10 @@ public:
         }
         if (action.empty()) return;
 
-        // Asset search is the only live text field: it is workspace state, not
-        // authoring data, so every RmlUi change event becomes the narrow
-        // SetAssetFilterIntent. Escape clears the same field and follows the
-        // same path. The input itself lives in a stable slot and is not rebuilt
-        // by the Assets list refresh.
-        if (action == "set-asset-filter") {
+        // Asset / Hierarchy search: live workspace filter state (not authoring).
+        // Escape clears the field. The input lives in a stable slot and is not
+        // rebuilt by the list refresh.
+        if (action == "set-asset-filter" || action == "set-hierarchy-filter") {
             if (type == "keydown") {
                 const int key = event.GetParameter<int>("key_identifier", 0);
                 if (key != Rml::Input::KI_ESCAPE) return;
@@ -369,6 +367,8 @@ public:
             if (type == "keydown" && key == Rml::Input::KI_ESCAPE) {
                 if (action == "commit-layer-rename") {
                     ui_.handleAction("cancel-layer-rename", arg, formValue(actionElement, event));
+                } else if (action == "commit-hierarchy-rename") {
+                    ui_.handleAction("cancel-hierarchy-rename", arg, formValue(actionElement, event));
                 } else if (actionElement == focusBaselineElement_) {
                     if (auto* control =
                             rmlui_dynamic_cast<Rml::ElementFormControl*>(actionElement)) {
@@ -1071,9 +1071,57 @@ void EditorUi::showPendingHierarchyMenu() {
     };
     setEntry("hctx-set-start",     sceneKind && !alreadyStart);
     setEntry("hctx-del-scene",     sceneKind);
+    setEntry("hctx-rename-entity", !sceneKind && !entityLocked);
+    setEntry("hctx-duplicate-entity", !sceneKind && !entityLocked);
     setEntry("hctx-add-instance",  !sceneKind);
-    setEntry("hctx-clone-entity",  !sceneKind && !entityLocked);
     setEntry("hctx-del-entity",    !sceneKind && !entityLocked);
+    // ADR-0023: Focus in Scene omitted — no existing reliable camera→entity framing.
+    // Edit Object Type omitted — no complete navigation contract yet.
+    if (Rml::Element* sep = document_->GetElementById("hctx-entity-sep-1"))
+        sep->SetClass("hidden", sceneKind || entityLocked);
+    if (Rml::Element* sep = document_->GetElementById("hctx-entity-sep-2"))
+        sep->SetClass("hidden", sceneKind || entityLocked);
+    if (Rml::Element* move = document_->GetElementById("hctx-move-to-layer")) {
+        const bool showMove = !sceneKind && !entityLocked;
+        move->SetClass("hidden", !showMove);
+        if (Rml::Element* list = document_->GetElementById("hctx-move-layer-list")) {
+            std::string html;
+            if (showMove) {
+                const SceneId& sceneId = coordinator_.state().activeSceneId;
+                const SceneDef* scene = coordinator_.document().findScene(sceneId);
+                const EntityId targetEntity =
+                    static_cast<EntityId>(std::strtoul(request.targetId.c_str(), nullptr, 10));
+                const SceneInstanceDef* inst =
+                    coordinator_.document().findInstanceInScene(sceneId, targetEntity);
+                const std::string curLayer = inst
+                    ? coordinator_.document().effectiveLayerId(sceneId, *inst)
+                    : std::string{};
+                const EditorSceneViewState& view = coordinator_.sceneView(sceneId);
+                if (scene) {
+                    for (std::size_t i = scene->layers.size(); i-- > 0;) {
+                        const SceneLayerDef& layer = scene->layers[i];
+                        const bool isCurrent = layer.id == curLayer;
+                        const bool targetLocked = !isCurrent && layer.locked;
+                        const bool targetHidden = view.hiddenLayerIds.count(layer.id) > 0;
+                        html += "<div class=\"context-entry";
+                        if (isCurrent) html += " selected";
+                        if (targetLocked) html += " disabled";
+                        html += "\"";
+                        if (!isCurrent && !targetLocked) {
+                            html += " data-action=\"set-entity-layer\" data-arg=\""
+                                  + escapeRml(layer.id) + "\"";
+                        }
+                        if (targetLocked) html += " title=\"Layer is locked\"";
+                        else if (targetHidden) html += " title=\"Layer is hidden\"";
+                        html += ">";
+                        if (isCurrent) html += "<span class=\"drop-mark\">&#x25cf;</span>";
+                        html += "<span>" + escapeRml(layer.name) + "</span></div>";
+                    }
+                }
+            }
+            list->SetInnerRML(html);
+        }
+    }
 
     menu->SetProperty("left", std::to_string(request.x) + "px");
     menu->SetProperty("top",  std::to_string(request.y) + "px");
@@ -2231,8 +2279,29 @@ bool EditorUi::cancelLogicKeyCapture() {
     return logicBoardEditor_.cancelKeyCapture();
 }
 
-void EditorUi::beginActiveSceneLayerRename() {
+void EditorUi::beginHierarchyOrLayerRename() {
+    if (coordinator_.isPlaying()) return;
+    const EntityId selected = coordinator_.selection().primaryEntity;
+    if (selected != INVALID_ENTITY) {
+        const SceneId& sceneId = coordinator_.state().activeSceneId;
+        const SceneInstanceDef* inst =
+            coordinator_.document().findInstanceInScene(sceneId, selected);
+        if (!inst) return;
+        if (coordinator_.document().isInstanceLayerLocked(sceneId, *inst)) {
+            coordinator_.logWarning("Cannot rename: the instance layer is locked");
+            return;
+        }
+        hierarchy_.beginRename(sceneId, selected, inst->instanceName);
+        hierarchy_.refresh(document_, coordinator_);
+        return;
+    }
     inspector_.beginActiveSceneLayerRename(document_, coordinator_);
+}
+
+void EditorUi::requestHierarchyReveal(const SceneId& sceneId, EntityId id,
+                                      const std::string& layerId) {
+    hierarchy_.requestReveal(sceneId, id, layerId);
+    hierarchy_.refresh(document_, coordinator_);
 }
 
 void EditorUi::showEntityPositionPreview(EntityId entity, Vec2 position) {
@@ -3182,6 +3251,43 @@ bool EditorUi::handleHierarchyAction(const std::string& action, const std::strin
         const SceneId active = coordinator_.state().activeSceneId;
         coordinator_.execute(
             SetLayerLockedCommand{active, arg, !coordinator_.document().isLayerLocked(active, arg)});
+    } else if (action == "toggle-hierarchy-layer") {
+        hierarchy_.toggleLayerCollapsed(coordinator_.state().activeSceneId, arg);
+        hierarchy_.refresh(document_, coordinator_);
+    } else if (action == "set-hierarchy-filter") {
+        coordinator_.apply(SetHierarchyFilterIntent{value});
+    } else if (action == "begin-hierarchy-rename") {
+        hideContextMenus();
+        EntityId entityId = selected;
+        if (!arg.empty())
+            entityId = static_cast<EntityId>(std::strtoul(arg.c_str(), nullptr, 10));
+        if (entityId == INVALID_ENTITY) return true;
+        const SceneId& sceneId = coordinator_.state().activeSceneId;
+        const SceneInstanceDef* inst =
+            coordinator_.document().findInstanceInScene(sceneId, entityId);
+        if (!inst) return true;
+        if (coordinator_.isPlaying()
+            || coordinator_.document().isInstanceLayerLocked(sceneId, *inst)) {
+            return true;
+        }
+        if (entityId != selected)
+            coordinator_.apply(SelectEntityIntent{entityId});
+        hierarchy_.beginRename(sceneId, entityId, inst->instanceName);
+        hierarchy_.refresh(document_, coordinator_);
+    } else if (action == "commit-hierarchy-rename") {
+        if (!hierarchy_.hasRenameDraft()) return true;
+        const HierarchyRenameDraft draft = hierarchy_.renameDraft();
+        if (value.empty()) {
+            coordinator_.logError("Name cannot be empty");
+            hierarchy_.refresh(document_, coordinator_);
+            return true;
+        }
+        hierarchy_.cancelRename();
+        coordinator_.execute(RenameEntityCommand{draft.sceneId, draft.entityId, value});
+        hierarchy_.refresh(document_, coordinator_);
+    } else if (action == "cancel-hierarchy-rename") {
+        hierarchy_.cancelRename();
+        hierarchy_.refresh(document_, coordinator_);
     } else if (action == "begin-layer-rename") {
         inspector_.beginSceneLayerRename(document_, coordinator_, arg);
     } else if (action == "commit-layer-rename") {
@@ -3222,6 +3328,7 @@ bool EditorUi::handleHierarchyAction(const std::string& action, const std::strin
     } else if (action == "remove-layer") {
         coordinator_.execute(RemoveSceneLayerCommand{coordinator_.state().activeSceneId, arg});
     } else if (action == "set-entity-layer") {
+        hideContextMenus();
         if (selected != INVALID_ENTITY)
             coordinator_.execute(
                 SetEntityLayerCommand{coordinator_.state().activeSceneId, selected, arg});
@@ -3231,9 +3338,18 @@ bool EditorUi::handleHierarchyAction(const std::string& action, const std::strin
     } else if (action == "create-instance-here") {
         hideContextMenus();
         if (createInstanceHereRequest_) createInstanceHereRequest_();
-    } else if (action == "clone-entity") {
+    } else if (action == "clone-entity" || action == "duplicate-entity") {
         hideContextMenus();
-        cloneSelectedEntity(coordinator_);
+        if (duplicateSelectedEntity(coordinator_).ok) {
+            const EntityId newId = coordinator_.selection().primaryEntity;
+            const SceneId& sceneId = coordinator_.state().activeSceneId;
+            std::string layerId;
+            if (const SceneInstanceDef* inst =
+                    coordinator_.document().findInstanceInScene(sceneId, newId)) {
+                layerId = coordinator_.document().effectiveLayerId(sceneId, *inst);
+            }
+            requestHierarchyReveal(sceneId, newId, layerId);
+        }
     } else if (action == "delete-entity") {
         hideContextMenus();
         deleteSelectedEntity(coordinator_);

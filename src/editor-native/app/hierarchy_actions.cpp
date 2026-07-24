@@ -1,6 +1,7 @@
 #include "editor-native/app/hierarchy_actions.h"
 
 #include "editor-native/app/editor_coordinator.h"
+#include "editor-native/app/instance_name_policy.h"
 #include "editor-native/commands/editor_intent.h"
 #include "editor-native/commands/entity_commands.h"
 #include "editor-native/commands/scene_commands.h"
@@ -25,23 +26,9 @@ std::string makeUniqueObjectTypeId(const ProjectDocument& document) {
     }
 }
 
-// How far a clone is nudged from its source: visible but modest, half the
+// How far a duplicate is nudged from its source: visible but modest, half the
 // default grid cell size, so it never lands exactly on top of the source.
-constexpr float kCloneOffset = 24.0f;
-
-// A scene-unique display name from @p base: "base", then "base 2", "base 3", ...
-std::string makeUniqueInstanceName(const SceneDef& scene, const std::string& base) {
-    const auto taken = [&](const std::string& name) {
-        for (const SceneInstanceDef& inst : scene.instances)
-            if (inst.instanceName == name) return true;
-        return false;
-    };
-    if (!taken(base)) return base;
-    for (int n = 2;; ++n) {
-        std::string candidate = base + " " + std::to_string(n);
-        if (!taken(candidate)) return candidate;
-    }
-}
+constexpr float kDuplicateOffset = 24.0f;
 
 float finiteOr(float value, float fallback) {
     return std::isfinite(value) ? value : fallback;
@@ -105,10 +92,10 @@ Vec2 defaultSpawnPosition(const ViewportRect& viewport,
 Vec2 unoccupiedSpawnPosition(const SceneDef& scene, Vec2 candidate, Vec2 sceneSize,
                              SpawnPositionOptions options) {
     // Half a grid cell per step, the same visible-but-modest offset a clone
-    // gets (kCloneOffset): enough that labels never overlap exactly.
+    // gets (kDuplicateOffset): enough that labels never overlap exactly.
     const float step = (std::isfinite(options.gridSize) && options.gridSize > 0.0f)
         ? options.gridSize * 0.5f
-        : kCloneOffset;
+        : kDuplicateOffset;
     const auto occupiedAt = [&](Vec2 point) {
         for (const SceneInstanceDef& instance : scene.instances) {
             if (std::fabs(instance.transform.position.x - point.x) < step * 0.5f
@@ -313,23 +300,27 @@ EditorOperationResult deleteSelectedEntity(EditorCoordinator& coordinator) {
 }
 
 EditorOperationResult cloneSelectedEntity(EditorCoordinator& coordinator) {
+    return duplicateSelectedEntity(coordinator);
+}
+
+EditorOperationResult duplicateSelectedEntity(EditorCoordinator& coordinator) {
     const SceneId& sceneId = coordinator.state().activeSceneId;
     const SceneDef* scene = coordinator.document().findScene(sceneId);
-    if (!scene) return EditorOperationResult::failure("No active scene to clone into");
+    if (!scene) return EditorOperationResult::failure("No active scene to duplicate into");
     const EntityId sourceId = coordinator.selection().primaryEntity;
     const SceneInstanceDef* source =
         coordinator.document().findInstanceInScene(sceneId, sourceId);
     if (!source) {
-        return EditorOperationResult::failure("Select an entity to clone");
+        return EditorOperationResult::failure("Select an entity to duplicate");
     }
     const EntityId newId = nextAvailableEntityId(coordinator.document(), sceneId);
     const std::string newName = makeUniqueInstanceName(*scene, source->instanceName);
     const Vec2 newPosition = normalizeSpawnPosition(
-        Vec2{source->transform.position.x + kCloneOffset,
-             source->transform.position.y + kCloneOffset},
+        Vec2{source->transform.position.x + kDuplicateOffset,
+             source->transform.position.y + kDuplicateOffset},
         scene->worldSize);
     const EditorOperationResult result = coordinator.execute(
-        CloneInstanceCommand{sceneId, sourceId, newId, newName, newPosition});
+        DuplicateInstanceCommand{sceneId, sourceId, newId, newName, newPosition});
     if (result.ok) coordinator.apply(SelectEntityIntent{newId});
     return result;
 }

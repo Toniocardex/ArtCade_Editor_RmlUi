@@ -68,6 +68,7 @@ add_library(artcade-editor-core STATIC
     editor-native/app/editor_coordinator_ui.cpp
     editor-native/app/asset_import.cpp
     editor-native/app/hierarchy_actions.cpp
+    editor-native/app/instance_name_policy.cpp
     editor-native/app/inspector_actions.cpp
     editor-native/app/inspector_commit.cpp
     editor-native/app/pending_edit.cpp

@@ -1197,12 +1197,21 @@ int EditorApp::run(int argc, char** argv) {
             } else if (!nonSceneWorkspace && shift && IsKeyPressed(KEY_D)) {
                 addInstanceOfSelectedType(coordinator);
             } else if (!nonSceneWorkspace && IsKeyPressed(KEY_D)) {
-                cloneSelectedEntity(coordinator);
+                if (duplicateSelectedEntity(coordinator).ok) {
+                    const EntityId newId = coordinator.selection().primaryEntity;
+                    const SceneId& sceneId = coordinator.state().activeSceneId;
+                    std::string layerId;
+                    if (const SceneInstanceDef* inst =
+                            coordinator.document().findInstanceInScene(sceneId, newId)) {
+                        layerId = coordinator.document().effectiveLayerId(sceneId, *inst);
+                    }
+                    ui.requestHierarchyReveal(sceneId, newId, layerId);
+                }
             }
         }
         if (!logicKeyCaptureFrame && !nonSceneWorkspace && !rml.textFocus
             && !coordinator.isPlaying() && IsKeyPressed(KEY_F2)) {
-            ui.beginActiveSceneLayerRename();
+            ui.beginHierarchyOrLayerRename();
         }
         // Tilemap tool shortcuts only switch tools between strokes/rectangles -
         // mid-operation, only Escape (handled inside routeViewportTilemapPaint,
