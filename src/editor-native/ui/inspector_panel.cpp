@@ -666,8 +666,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
 
         // -- LAYER MANAGER (per-scene render order; top row = foreground) ------
         html += header("layers", isSectionCollapsed("layers"),
-                       "&#xee9e;", "Layer Manager", "", "", "", playing,
-                       "Rendering order: top to bottom.");
+                       "&#xee9e;", "Layer Manager", "", "", "", playing);
         const EditorSceneViewState& view = coordinator.sceneView(activeScene);
         const std::string activeLayer = coordinator.activeLayerId(activeScene);
         // Render rows reversed so the foreground layer (last in scene.layers) is on top.

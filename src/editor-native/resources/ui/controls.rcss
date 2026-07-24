@@ -269,18 +269,21 @@
     min-width: 58dp;
     padding: 0 12dp;
 }
-/* top overlaps the 28dp trigger by 1dp — see .menu-dropdown for why. */
+/* top overlaps the 28dp trigger by 1dp — see .menu-dropdown for why.
+   Width fits four presets (8/16/32/64) on one row; the old 154dp box
+   wrapped "64" outside the popover. */
 .grid-size-popover {
     display: none;
     position: absolute;
     top: 27dp;
-    left: 4dp;
+    left: 0;
     z-index: 120;
-    width: 154dp;
+    width: 176dp;
     padding: 8dp;
     background-color: #1c1c1f;
     border: 1px #323236;
     border-radius: 4dp;
+    box-sizing: border-box;
 }
 .grid-size-control:hover .grid-size-popover { display: block; }
 .grid-size-title {
@@ -295,10 +298,10 @@
 }
 .grid-size-input {
     display: block;
-    width: 136dp;
+    width: 160dp;
     height: 26dp;
     line-height: 26dp;
-    margin: 0 0 7dp 0;
+    margin: 0 0 8dp 0;
     padding: 0 8dp;
     background-color: #111113;
     border: 1px #323236;
@@ -306,24 +309,29 @@
     color: #e4e4e7;
     font-family: "JetBrains Mono";
     font-size: 12dp;
+    box-sizing: border-box;
 }
 .grid-size-input:focus { border-color: #3b82f6; }
 .grid-size-presets {
-    display: block;
-    height: 24dp;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    width: 160dp;
+    height: 26dp;
 }
 .grid-size-preset {
-    display: inline-block;
-    height: 24dp;
-    line-height: 24dp;
-    min-width: 30dp;
-    margin: 0 4dp 0 0;
-    padding: 0 6dp;
+    flex: 1;
+    height: 26dp;
+    line-height: 26dp;
+    min-width: 0;
+    margin: 0 2dp;
+    padding: 0;
     background-color: transparent;
     border: 1px #323236;
     border-radius: 2dp;
     color: #c4c4c8;
     font-size: 11dp;
+    text-align: center;
 }
 .grid-size-preset:hover {
     border-color: #3b82f6;
