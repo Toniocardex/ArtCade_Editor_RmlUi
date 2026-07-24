@@ -371,7 +371,7 @@
 .inspector {
     display: block;
     flex: 1;
-    padding: 0 14dp 14dp 14dp;
+    padding: 8dp 12dp 16dp 12dp;
 }
 .inspector-empty {
     color: #6b7280;
@@ -383,14 +383,14 @@
     display: block;
     height: 28dp;
     line-height: 28dp;
-    margin-top: 14dp;
-    margin-bottom: 6dp;
-    border-bottom: 1px #27272a;
+    margin-top: 12dp;
+    margin-bottom: 8dp;
+    border-bottom: 1px #30333B;
     font-size: 10dp;
     font-weight: 700;
     letter-spacing: 1.1dp;
     text-transform: uppercase;
-    color: #8a8a93;
+    color: #9297A3;
 }
 
 /* Component section header: eyebrow title + ownership badge + remove (x). */
@@ -399,9 +399,9 @@
     flex-direction: row;
     align-items: center;
     height: 28dp;
-    margin-top: 14dp;
-    margin-bottom: 6dp;
-    border-bottom: 1px #27272a;
+    margin-top: 12dp;
+    margin-bottom: 8dp;
+    border-bottom: 1px #30333B;
 }
 .comp-title {
     flex: 1;
@@ -410,14 +410,14 @@
     font-weight: 700;
     letter-spacing: 1.1dp;
     text-transform: uppercase;
-    color: #8a8a93;
+    color: #9297A3;
 }
 .comp-toggle { cursor: pointer; }
-.comp-toggle:hover { color: #c4c4c8; }
+.comp-toggle:hover { color: #D8DAE0; }
 .comp-caret {
     display: inline-block;
     width: 15dp;
-    color: #6b6b73;
+    color: #5F646F;
     font-family: tabler-icons;
     font-weight: normal;
 }
@@ -477,16 +477,17 @@
     flex-direction: row;
     align-items: center;
     height: 28dp;
-    margin-bottom: 5dp;
+    margin-bottom: 6dp;
 }
 .prop-label {
-    width: 92dp;
-    color: #8a8a93;
+    width: 78dp;
+    color: #9297A3;
     font-size: 11dp;
+    flex-shrink: 0;
 }
 .prop-readonly {
     flex: 1;
-    color: #d4d4d8;
+    color: #D8DAE0;
     font-size: 12dp;
 }
 /* Buttons inside a prop-row ("Set as Start", On/Off toggles): panel-btn's
@@ -548,8 +549,9 @@
 /* Unit suffix after a numeric field (e.g. "wu"). */
 .prop-unit {
     margin-left: 6dp;
-    color: #52525b;
+    color: #5F646F;
     font-size: 11dp;
+    flex-shrink: 0;
 }
 /* Inspector breadcrumb: the only deliberate way to deselect and return to
    the Scene Inspector (Escape never does - scene_view_interaction.cpp). Text
@@ -557,12 +559,12 @@
    shape in this build, and raw Unicode arrows have no glyph in Inter. */
 .inspector-breadcrumb {
     display: block;
-    margin: 0 0 10dp 0;
-    color: #8a8a93;
+    margin: 2dp 0 8dp 0;
+    color: #9297A3;
     font-size: 11dp;
     cursor: pointer;
 }
-.inspector-breadcrumb:hover { color: #3b82f6; }
+.inspector-breadcrumb:hover { color: #4D8DFF; }
 
 .outside-warning {
     display: block;

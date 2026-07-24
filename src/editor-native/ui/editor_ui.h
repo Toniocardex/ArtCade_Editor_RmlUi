@@ -263,6 +263,15 @@ public:
     void handleSfxMacroChange(const std::string& macroId, float value);
     void commitSfxMacroDrag();
 
+    // Scene Background Opacity slider (ADR-0020). Same drag vs click/keyboard
+    // disposition as Generated SFX macros; draft is panel-local on InspectorPanel.
+    void beginSceneBackgroundOpacityDrag();
+    void handleSceneBackgroundOpacityChange(float opacityPercent);
+    void commitSceneBackgroundOpacityDrag();
+    void cancelSceneBackgroundOpacityDrag();
+    /** Escape / global cancel: restores draft if active. Returns true when handled. */
+    bool cancelSceneBackgroundOpacityDragIfNeeded();
+
     // Static textarea event bridge. Text remains authoritative in
     // ScriptEditorState; these calls never create EditorCommands.
     void handleScriptTextChanged(const std::string& value);

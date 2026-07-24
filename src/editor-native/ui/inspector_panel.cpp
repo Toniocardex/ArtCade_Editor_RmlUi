@@ -2,9 +2,12 @@
 
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/app/inspector_commit.h"
+#include "editor-native/commands/scene_commands.h"
 #include "editor-native/commands/scene_layer_commands.h"
 #include "editor-native/model/authored_transform.h"
+#include "editor-native/model/project_defaults.h"
 #include "editor-native/model/scene_frame_snapshot.h"
+#include "editor-native/model/scene_viewport_presets.h"
 #include "editor-native/model/sprite_render_view.h"
 #include "editor-native/ui/editor_ui.h"
 #include "editor-native/ui/ui_markup.h"
@@ -14,6 +17,7 @@
 #include <RmlUi/Core/Elements/ElementFormControl.h>
 #include <RmlUi/Core/Elements/ElementFormControlInput.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cmath>
 #include <optional>
@@ -161,13 +165,32 @@ constexpr std::string_view kSectionsEnd = "[[inspector-sections-end]]";
 
 bool knownSection(std::string_view id) {
     static constexpr std::string_view ids[] = {
-        "project", "general", "world-bounds", "layers", "diagnostics",
+        "project", "general", "appearance", "world-bounds", "game-view", "layers", "diagnostics",
         "identity", "transform", "sprite", "sprite-renderer", "sprite-animator",
         "tilemap", "camera-target", "scripts", "box-collider", "linear-mover", "top-down-controller",
         "platformer-controller",
     };
     for (std::string_view known : ids) if (known == id) return true;
     return false;
+}
+
+bool isSceneDropdown(std::string_view dropdownId) {
+    return dropdownId == "game-view-preset";
+}
+
+bool isEntityDropdown(std::string_view dropdownId) {
+    return dropdownId == "layer"
+        || dropdownId == "sprite-source"
+        || dropdownId == "sprite-default-clip"
+        || dropdownId == "animator-default-clip"
+        || dropdownId == "tilemap-tileset"
+        || dropdownId == "script-attach";
+}
+
+std::string truncateDisplayName(const std::string& name, std::size_t maxChars) {
+    if (name.size() <= maxChars) return name;
+    if (maxChars <= 3) return name.substr(0, maxChars);
+    return name.substr(0, maxChars - 3) + "...";
 }
 
 std::string finalizeSectionMarkup(const std::string& marked,
@@ -484,15 +507,31 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     if (!inst) {
         lastEntity_ = INVALID_ENTITY;
         addMenuOpen_ = false;
-        openDropdownId_.clear();   // value dropdowns exist only in entity mode
+        reconcileOpenDropdownForScene();
         reconcileSceneLayerRenameUiState(coordinator);
         const bool playing = coordinator.isPlaying();
         const SceneId& activeScene = coordinator.state().activeSceneId;
         const SceneDef* scene = coordinator.document().findScene(activeScene);
+        reconcileBackgroundDraft(coordinator, /*sceneMode=*/true);
+        // A live Opacity drag owns the range element; SetInnerRML would steal
+        // pointer capture and drop dragend. Preview stays surgical until commit.
+        if (backgroundDraft_ && backgroundDraft_->dragActive) {
+            applyBackgroundOpacityPreview(document, backgroundDraft_->preview);
+            return;
+        }
         const std::string projectName = coordinator.document().data().projectName.empty()
             ? std::string("Untitled")
             : coordinator.document().data().projectName;
         std::string html;
+        if (scene) {
+            html += "<div class=\"inspector-scene-context\" title=\""
+                  + escapeRml(scene->name) + "\">"
+                    "<span class=\"context-kind\">Scene</span>"
+                    "<span class=\"context-separator\">&#183;</span>"
+                    "<span class=\"context-name\">"
+                  + escapeRml(truncateDisplayName(scene->name, 28))
+                  + "</span></div>";
+        }
         // Folder glyph, not the plus: "+" is the add-action icon everywhere else
         // (+ Create, + Import, + Add Layer), so "+ PROJECT" read as a button.
         html += header("project", isSectionCollapsed("project"),
@@ -501,6 +540,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                       "inspector-project-name");
         if (!scene) {
             layerRename_.reset();
+            backgroundDraft_.reset();
             html += "<p class=\"inspector-empty\">No scene open</p>";
             body->SetInnerRML(finalizeSectionMarkup(html, collapsedSections_));
             return;
@@ -513,39 +553,75 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         html += header("general", isSectionCollapsed("general"),
                        "&#xeb34;", "General", "", "", "", playing);
         html += field("Name", "commit-scene-name", scene->name, playing);
-        html += "<div class=\"prop-row\"><span class=\"prop-label\">ID</span>"
-                "<span class=\"prop-readonly\">" + escapeRml(scene->id) + "</span></div>";
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Start</span>";
         if (isStart) {
-            html += "<span class=\"prop-readonly\"><span class=\"icon\">&#xeb2e;</span> "
-                    "Start scene</span>";
+            html += "<span class=\"prop-start-badge\"><span class=\"icon\">&#xeb2e;</span>"
+                    "<span>Current Start Scene</span></span>";
         } else {
             html += "<button class=\"" + btn + "\" data-action=\"set-start-scene\">"
-                    "Set as Start</button>";
+                    "Set as Start Scene</button>";
         }
         html += "</div>";
-        html += "<div class=\"prop-row\"><span class=\"prop-label\">Entities</span>"
-                "<span class=\"prop-readonly\">"
-              + std::to_string(scene->instances.size()) + "</span></div>";
-        {
-            const std::string hex = formatColorHexRgb(scene->backgroundColor);
-            const std::string opacity = formatOpacityPercent(scene->backgroundColor.a);
-            html += "<div class=\"prop-row\"><span class=\"prop-label\">Background</span>";
-            if (playing) {
-                html += "<div id=\"scene-bg-swatch\" class=\"color-swatch disabled\" title=\"Background color\"></div>";
-            } else {
-                html += "<div id=\"scene-bg-swatch\" class=\"color-swatch\" "
-                        "data-action=\"pick-scene-background-color\" "
-                        "title=\"Choose background color\"></div>";
-            }
-            html += "<input type=\"text\" class=\"prop-input color-hex\""
-                    " data-action=\"commit-scene-background-hex\" value=\""
-                  + escapeRml(hex) + "\"";
-            if (playing) html += " disabled=\"disabled\"";
-            html += "/></div>";
-            html += fieldWithUnit("Opacity", "commit-scene-background-opacity", opacity, "%",
-                                  playing);
+        html += "<div class=\"prop-subheading\">Metadata</div>";
+        html += "<div class=\"prop-row prop-meta\"><span class=\"prop-label\">ID</span>"
+                "<span class=\"prop-meta-value\">" + escapeRml(scene->id) + "</span>";
+        if (!playing) {
+            html += "<button class=\"prop-copy\" data-action=\"copy-scene-id\" "
+                    "title=\"Copy scene ID\"><span class=\"icon\">&#xea7a;</span></button>";
         }
+        html += "</div>";
+        html += "<div class=\"prop-row prop-meta\"><span class=\"prop-label\">Entities</span>"
+                "<span class=\"prop-meta-value\">"
+              + std::to_string(scene->instances.size()) + "</span></div>";
+
+        // -- APPEARANCE (ADR-0020) ----------------------------------------------
+        const Vec4 bgColor = (backgroundDraft_ && backgroundDraft_->dragActive)
+            ? backgroundDraft_->preview : scene->backgroundColor;
+        const std::string hex = formatColorHexRgb(bgColor);
+        const std::string opacity = formatOpacityPercent(bgColor.a);
+        html += header("appearance", isSectionCollapsed("appearance"),
+                       "&#xeb01;", "Appearance", "", "", "", playing);
+        html += "<div class=\"prop-color-block\">"
+                "<span class=\"prop-label\">Background</span>"
+                "<div class=\"color-field\">";
+        if (playing) {
+            html += "<div id=\"scene-bg-swatch\" class=\"color-swatch disabled\" "
+                    "title=\"Background color\">";
+        } else {
+            html += "<div id=\"scene-bg-swatch\" class=\"color-swatch\" "
+                    "data-action=\"pick-scene-background-color\" "
+                    "title=\"Choose background color\">";
+        }
+        html += "<div class=\"color-swatch-checker\">"
+                "<div id=\"scene-bg-swatch-color\" class=\"color-swatch-color\"></div>"
+                "</div></div>";
+        html += "<input id=\"scene-bg-hex\" type=\"text\" class=\"prop-input color-hex\""
+                " data-action=\"commit-scene-background-hex\" value=\""
+              + escapeRml(hex) + "\"";
+        if (playing) html += " disabled=\"disabled\"";
+        html += "/>";
+        html += "<button class=\"color-reset";
+        if (playing) html += " disabled";
+        html += "\" data-action=\"reset-scene-background\" "
+                "title=\"Reset to default scene background\"";
+        if (playing) html += " disabled=\"disabled\"";
+        html += "><span class=\"icon\">&#xeb55;</span></button>";
+        html += "</div></div>";
+        html += "<div class=\"prop-row opacity-row\">"
+                "<span class=\"prop-label\">Opacity</span>"
+                "<input id=\"scene-bg-opacity-slider\" type=\"range\" "
+                "class=\"inspector-opacity-slider\" "
+                "data-action=\"change-scene-background-opacity\" "
+                "min=\"0\" max=\"100\" step=\"1\" value=\""
+              + escapeRml(opacity) + "\"";
+        if (playing) html += " disabled=\"disabled\"";
+        html += "/>"
+                "<input id=\"scene-bg-opacity-value\" type=\"text\" "
+                "class=\"prop-input opacity-value\" "
+                "data-action=\"commit-scene-background-opacity\" value=\""
+              + escapeRml(opacity) + "\"";
+        if (playing) html += " disabled=\"disabled\"";
+        html += "/><span class=\"prop-unit\">%</span></div>";
 
         // -- WORLD BOUNDS (world units; resizing never moves instances) ---------
         html += header("world-bounds", isSectionCollapsed("world-bounds"),
@@ -558,6 +634,27 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         // -- GAME VIEW (ADR-0018): visible area at Play; not world bounds --------
         html += header("game-view", isSectionCollapsed("game-view"),
                        "&#xed30;", "Game View", "", "", "", playing);
+        {
+            const bool presetOpen = openDropdownId_ == "game-view-preset" && !playing;
+            const std::string presetLabel = sceneViewportPresetLabel(scene->viewportSize);
+            html += dropdownTrigger("Preset", "game-view-preset", presetLabel, presetOpen, playing);
+            if (presetOpen) {
+                html += "<div class=\"drop-list\">";
+                for (const SceneViewportPreset& preset : kSceneViewportPresets) {
+                    const bool selected = matchesWholePixelSize(scene->viewportSize, preset.size);
+                    html += "<div class=\"drop-entry";
+                    if (selected) html += " selected";
+                    html += "\" data-action=\"set-scene-viewport-preset\" data-arg=\""
+                          + std::to_string(static_cast<int>(preset.size.x)) + "x"
+                          + std::to_string(static_cast<int>(preset.size.y)) + "\">";
+                    if (selected) html += "<span class=\"drop-mark\">&#x25cf;</span> ";
+                    html += escapeRml(std::string(preset.label) + " - "
+                                      + sceneViewportSizeText(preset.size));
+                    html += "</div>";
+                }
+                html += "</div>";
+            }
+        }
         html += fieldWithUnit("Width", "commit-scene-viewport-width",
                               num(scene->viewportSize.x), "px", playing);
         html += fieldWithUnit("Height", "commit-scene-viewport-height",
@@ -565,22 +662,6 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         if (scene->viewportSize.x > scene->worldSize.x
             || scene->viewportSize.y > scene->worldSize.y) {
             html += "<div class=\"prop-hint warn\">Game View exceeds World Bounds</div>";
-        }
-        if (!playing) {
-            html += "<div class=\"prop-row prop-presets\">";
-            const struct { const char* label; float w; float h; } presets[] = {
-                {"512×320", 512.f, 320.f},
-                {"640×360", 640.f, 360.f},
-                {"960×540", 960.f, 540.f},
-                {"1280×720", 1280.f, 720.f},
-            };
-            for (const auto& preset : presets) {
-                html += "<button class=\"panel-btn compact\" data-action=\"set-scene-viewport-preset\""
-                        " data-arg=\"" + std::to_string(static_cast<int>(preset.w)) + "x"
-                        + std::to_string(static_cast<int>(preset.h)) + "\">"
-                      + preset.label + "</button>";
-            }
-            html += "</div>";
         }
 
         // -- LAYER MANAGER (per-scene render order; top row = foreground) ------
@@ -689,23 +770,24 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         }
 
         body->SetInnerRML(finalizeSectionMarkup(html, collapsedSections_));
-        if (Rml::Element* swatch = document->GetElementById("scene-bg-swatch")) {
-            swatch->SetProperty("background-color", formatColorHexRgb(scene->backgroundColor));
-        }
+        applyBackgroundOpacityPreview(document, bgColor);
         if (layerRename_) focusSceneLayerRenameInput(document);
         return;
     }
 
     const bool playing = coordinator.isPlaying();
     layerRename_.reset();
+    reconcileBackgroundDraft(coordinator, /*sceneMode=*/false);
     // The Add menu and value dropdowns are transient: a new selection or
-    // entering Play closes them.
+    // entering Play closes them. Scene-only dropdowns are cleared via mode
+    // reconcile; entity dropdowns survive refresh for the same entity.
     if (selected != lastEntity_) {
         addMenuOpen_ = false;
         openDropdownId_.clear();
         lastEntity_ = selected;
     }
     if (playing) { addMenuOpen_ = false; openDropdownId_.clear(); }
+    else reconcileOpenDropdownForEntity();
 
     const std::string btn = playing ? "panel-btn disabled" : "panel-btn";
 
@@ -1350,6 +1432,112 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     }
 
     body->SetInnerRML(finalizeSectionMarkup(html, collapsedSections_));
+}
+
+void InspectorPanel::reconcileOpenDropdownForScene() {
+    if (!openDropdownId_.empty() && !isSceneDropdown(openDropdownId_)) {
+        openDropdownId_.clear();
+    }
+}
+
+void InspectorPanel::reconcileOpenDropdownForEntity() {
+    if (!openDropdownId_.empty() && !isEntityDropdown(openDropdownId_)) {
+        openDropdownId_.clear();
+    }
+}
+
+void InspectorPanel::reconcileBackgroundDraft(const EditorCoordinator& coordinator,
+                                             bool sceneMode) {
+    if (!backgroundDraft_) return;
+
+    const SceneDef* scene = sceneMode
+        ? coordinator.document().findScene(coordinator.state().activeSceneId)
+        : nullptr;
+    const bool invalid = !sceneMode
+        || coordinator.isPlaying()
+        || !scene
+        || scene->id != backgroundDraft_->sceneId;
+    if (invalid) {
+        backgroundDraft_.reset();
+        return;
+    }
+
+    if (!sameSceneBackgroundColor(scene->backgroundColor, backgroundDraft_->original)
+        && !sameSceneBackgroundColor(scene->backgroundColor, backgroundDraft_->preview)) {
+        backgroundDraft_.reset();
+    }
+}
+
+void InspectorPanel::applyBackgroundOpacityPreview(Rml::ElementDocument* document,
+                                                   const Vec4& color) {
+    if (!document) return;
+    const std::string percent = formatOpacityPercent(color.a);
+    if (Rml::Element* slider = document->GetElementById("scene-bg-opacity-slider")) {
+        slider->SetAttribute("value", percent);
+    }
+    if (Rml::Element* value = document->GetElementById("scene-bg-opacity-value")) {
+        if (auto* control = rmlui_dynamic_cast<Rml::ElementFormControl*>(value)) {
+            control->SetValue(percent);
+        } else {
+            value->SetAttribute("value", percent);
+        }
+    }
+    if (Rml::Element* swatchColor = document->GetElementById("scene-bg-swatch-color")) {
+        swatchColor->SetProperty("background-color", formatColorCssRgba(color));
+    }
+}
+
+void InspectorPanel::beginBackgroundOpacityDrag(const EditorCoordinator& coordinator) {
+    if (coordinator.isPlaying()) return;
+    const SceneId& sceneId = coordinator.state().activeSceneId;
+    const SceneDef* scene = coordinator.document().findScene(sceneId);
+    if (!scene) return;
+    backgroundDraft_ = SceneBackgroundOpacityDraft{
+        sceneId, scene->backgroundColor, scene->backgroundColor, /*dragActive=*/true};
+}
+
+void InspectorPanel::previewBackgroundOpacity(Rml::ElementDocument* document,
+                                              const EditorCoordinator& coordinator,
+                                              float opacityPercent) {
+    if (!backgroundDraft_ || !backgroundDraft_->dragActive) return;
+    if (coordinator.state().activeSceneId != backgroundDraft_->sceneId) {
+        backgroundDraft_.reset();
+        return;
+    }
+    const float alpha = std::clamp(opacityPercent / 100.f, 0.f, 1.f);
+    backgroundDraft_->preview = backgroundDraft_->original;
+    backgroundDraft_->preview.a = alpha;
+    applyBackgroundOpacityPreview(document, backgroundDraft_->preview);
+}
+
+void InspectorPanel::commitBackgroundOpacityDrag(Rml::ElementDocument* document,
+                                                 EditorCoordinator& coordinator) {
+    if (!backgroundDraft_) return;
+    const SceneBackgroundOpacityDraft draft = *backgroundDraft_;
+    backgroundDraft_.reset();
+    if (!draft.dragActive) return;
+    if (sameSceneBackgroundColor(draft.preview, draft.original)) {
+        applyBackgroundOpacityPreview(document, draft.original);
+        return;
+    }
+    coordinator.execute(SetSceneBackgroundCommand{draft.sceneId, draft.preview});
+}
+
+void InspectorPanel::cancelBackgroundOpacityDrag(Rml::ElementDocument* document,
+                                                 const EditorCoordinator& coordinator) {
+    if (!backgroundDraft_) return;
+    const Vec4 restore = backgroundDraft_->original;
+    backgroundDraft_.reset();
+    applyBackgroundOpacityPreview(document, restore);
+    (void)coordinator;
+}
+
+void InspectorPanel::cancelBackgroundOpacityDraft() {
+    backgroundDraft_.reset();
+}
+
+bool InspectorPanel::backgroundOpacityDragActive() const {
+    return backgroundDraft_ && backgroundDraft_->dragActive;
 }
 
 } // namespace ArtCade::EditorNative

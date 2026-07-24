@@ -3,6 +3,7 @@
 #include "editor-native/model/generated_sfx_policy.h"
 #include "editor-native/model/numeric_validation.h"
 #include "editor-native/model/path_confinement.h"
+#include "editor-native/model/project_defaults.h"
 
 #include "sprite-animation-core.h"
 
@@ -226,11 +227,11 @@ bool ProjectDocument::createScene(const SceneId& id, const std::string& name) {
     SceneDef scene;
     scene.id = id;
     scene.name = name;
-    // New scenes start on a dark neutral (#1e1e24) instead of the struct's
-    // white: white blinds against the dark editor chrome and washes the grid
-    // out. Authoring data as always - the Inspector can change it, and files
-    // saved without the field keep deserializing to the struct default.
-    scene.backgroundColor = Vec4{0.118f, 0.118f, 0.141f, 1.f};
+    // New scenes use kDefaultSceneBackground instead of the struct's white:
+    // white blinds against the dark editor chrome and washes the grid out.
+    // Authoring data as always - the Inspector can change it, and files saved
+    // without the field keep deserializing to the struct default.
+    scene.backgroundColor = kDefaultSceneBackground;
     // Every scene always has a real first layer (the persistent fallback).
     scene.layers.push_back(SceneLayerDef{"layer-1", "Layer 1", false});
     scene.defaultLayerId = "layer-1";

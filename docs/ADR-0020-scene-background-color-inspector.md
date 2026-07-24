@@ -2,6 +2,7 @@
 
 **Status:** Accepted  
 **Date:** 2026-07-24  
+**Revised:** 2026-07-24 (Appearance section; unitary chrome; Opacity slider draft)  
 **Scope:** native RmlUi Scene Inspector presentation of `SceneDef::backgroundColor`;
 commit path for `SetSceneBackgroundCommand`; Win32 color picker affordance  
 **Related:** Constitution (single authorities; RmlUi never mutates document),
@@ -19,10 +20,11 @@ that one field. Mutation already goes through one Command:
 SetSceneBackgroundCommand(SceneId, Vec4)
 ```
 
-Four separate R/G/B/A float rows misrepresented that authority. The first
-presentation slice unified RGB into hex + swatch with a separate alpha field.
-This revision improves discoverability: the swatch opens a native color picker,
-and alpha is shown as **Opacity %** rather than a 0–1 float labeled `A`.
+Four R/G/B/A float rows misrepresented that authority. Later hex + Opacity %
+improved density but still lived under General and read as disconnected fields.
+This revision places Background under **Appearance**, presents swatch / hex /
+Reset as one control, and adds an Opacity slider with a panel-local draft so
+drag does not fragment Undo history.
 
 ## Decision
 
@@ -32,36 +34,56 @@ and alpha is shown as **Opacity %** rather than a 0–1 float labeled `A`.
 |---|---|
 | Scene background color | `ProjectDocument` → `SceneDef::backgroundColor` (`Vec4`) |
 | Mutation | `SetSceneBackgroundCommand` only |
-| Workspace / UI layout | no new color field in `EditorState` / `EditorUiState` |
+| Default for new scenes / Reset | `kDefaultSceneBackground` (`#1E1E24`, opaque) |
+| Workspace / UI layout | no color field in `EditorState` / `EditorUiState` |
 
-RmlUi remains presentation-only. No second color model, no serializer change,
-no migration, no PlaySession write-back.
+RmlUi remains presentation-only. No `backgroundHex` / `backgroundOpacity`
+document fields, no serializer change, no PlaySession write-back.
+Reset reuses `SetSceneBackgroundCommand` (no second Command type).
 
 ### Inspector presentation
 
 ```text
-Background   [swatch]  #RRGGBB
-Opacity      [0–100] %
+APPEARANCE
+Background   [swatch | #RRGGBB | Reset]
+Opacity      ────●────  [0–100] %
 ```
 
-Two Inspector rows so hex and opacity are not cramped in a narrow panel.
-1. **Swatch** — preview of current RGB. Click opens the platform color picker
-   (Windows `ChooseColorW`). Cancel → no Command. OK → one
-   `SetSceneBackgroundCommand` with new RGB and **unchanged** `a`.
-2. **Hex field** — `#RRGGBB` (also accept `#RGB`). Case-insensitive; display
-   normalizes to uppercase `#RRGGBB` after refresh. Preserves `a` on commit.
-3. **Opacity field** — UI percent 0–100 (optional trailing `%` on parse).
-   Document storage remains `a ∈ [0,1]`. Label is **Opacity**, not `A`.
+1. **Unitary Background field** — swatch (≥24dp) + expandable hex + Reset.
+   Nested checker under swatch color so alpha &lt; 1 reveals transparency.
+   Swatch click opens platform color picker (`ChooseColorW`). Cancel → no
+   Command. OK → one Command with new RGB and **unchanged** `a`.
+2. **Hex field** — `#RRGGBB` (also `#RGB`). Preserves `a` on commit.
+3. **Reset** — Command with `kDefaultSceneBackground`; no-op if already equal.
+4. **Opacity** — slider + numeric percent. Document storage remains `a ∈ [0,1]`.
 
 Do **not** fold alpha into `#RRGGBBAA` as the primary edit surface. Do **not**
-implement an in-RmlUi HSV wheel in this slice.
+implement an in-RmlUi HSV popover in this slice (deferred).
+
+### Opacity slider lifecycle
+
+```text
+dragstart              → panel-local draft, dragActive = true
+change while dragActive → preview only (surgical DOM; no Command)
+dragend                → one SetSceneBackgroundCommand; clear draft
+change without drag    → one Command immediately (click / keyboard)
+Escape                 → cancel draft
+```
+
+Full `InspectorPanel::refresh()` / `SetInnerRML` must **not** run during an
+active drag (would replace the range that owns pointer capture). Preview
+updates `#scene-bg-opacity-slider`, `#scene-bg-opacity-value`, and
+`#scene-bg-swatch-color` only. Viewport follows the document (updates on
+commit). Draft is reconciled away on mode/scene/Play mismatch or external
+mutations that match neither original nor preview.
 
 ### Mutation flow
 
 ```text
-hex / opacity buffer (Enter/blur)  ─┐
-swatch → ChooseColorW (OK)         ─┼→ SetSceneBackgroundCommand → ProjectDocument
-                                   └→ Inspector | Viewport invalidation
+hex / opacity text (Enter/blur) ─┐
+slider (dragend or click/keys)  ─┤
+swatch → ChooseColorW (OK)      ─┼→ SetSceneBackgroundCommand → ProjectDocument
+Reset                           ─┘→ Inspector | Viewport invalidation
 ```
 
 Rules:
@@ -70,31 +92,35 @@ Rules:
 - Hex / picker preserve `a`; opacity preserves RGB.
 - Invalid / incomplete text buffers retain focus (pending-edit gate).
 - Picker cancel / identical color → no dirty / no history.
-- Play: controls disabled; picker must not open.
-- Dialog lives in the application layer (same category as file pickers);
-  Inspector only emits `pick-scene-background-color`.
+- Play: Appearance controls disabled; picker must not open.
+- Dialog lives in the application layer; Inspector emits
+  `pick-scene-background-color` / `reset-scene-background` /
+  `change-scene-background-opacity` (range; not `commit-*`).
 
 ### Parsing / formatting (core-testable)
 
 - `formatColorHexRgb` / `parseColorHexRgb` / `incompleteColorHexBuffer`
-- `formatOpacityPercent` / `parseOpacityPercent` (percent ↔ `a` in `[0,1]`)
+- `formatOpacityPercent` / `parseOpacityPercent`
+- `classifyOpacitySliderChange(dragActive)` → PreviewOnly | CommitImmediately
+- `kDefaultSceneBackground`
 
 ## Alternatives rejected
 
 1. Four R/G/B/A float rows — poor density, no preview.
 2. Hex-only including alpha — opacity buried in 8-digit hex.
-3. In-RmlUi full color wheel — cost without reuse yet; OS picker matches
-   existing `comdlg32` file-dialog pattern.
+3. In-RmlUi full color wheel this slice — deferred; OS picker matches
+   existing `comdlg32` pattern.
 4. Store hex/percent in `SceneDef` — duplicate authority.
-5. Per-channel Commands — history noise.
-6. Opacity slider with per-pixel Undo — deferred; text percent is enough.
+5. Per-channel Commands / per-tick slider Commands — history noise.
+6. `ResetSceneBackgroundCommand` — second path for the same mutation.
+7. CSS multi-gradient checker — conflicts with flat RCSS; use nested
+   elements + small checker texture instead.
 
 ## Consequences
 
-- Authors pick colors visually and edit hex when needed.
-- Opacity reads as a percentage; document/`Vec4` stay 0–1.
+- Appearance can grow (background image, clear mode, …) without restuffing General.
+- Opacity drag is preview-only until release; click/keyboard still commit once.
 - No project format change.
-- Future shared color rows can reuse helpers + picker glue.
 
 ## Constraints / invariants
 
@@ -102,22 +128,15 @@ Rules:
 - `SetSceneBackgroundCommand` sole mutation path.
 - No `ProjectDocument` mutators from RmlUi.
 - No JSON shape change for `backgroundColor`.
-- Swatch / percent are presentation only.
+- Swatch / percent / slider are presentation only; draft is panel-local.
 - Native editor only; no React/Tauri/WASM.
-
-## Implementation slice
-
-1. Swatch `data-action="pick-scene-background-color"` + Win32 `pickColorRgb`.
-2. Opacity % field + `commit-scene-background-opacity`.
-3. Keep `commit-scene-background-hex`.
-4. Pending-edit gates for hex and opacity percent.
-5. Core tests for parse/format; smoke for picker / Play freeze.
 
 ## Verification
 
-1. Background row: swatch + hex; Opacity row: percent + `%`.
+1. Background/Opacity only under Appearance; Project starts collapsed.
 2. Picker OK updates RGB, preserves `a`, one Undo; Cancel no-ops.
-3. Hex commit preserves opacity; opacity commit preserves RGB.
-4. Invalid hex / opacity → no Command.
-5. Play: no picker, fields disabled.
-6. Save/Load `backgroundColor` unchanged.
+3. Slider drag: zero Commands during move, one on release; click/keys: one Command.
+4. Escape cancels draft; Reset / picker cancel draft first.
+5. Reset to `kDefaultSceneBackground`; already-default is no-op.
+6. Play: Appearance controls disabled.
+7. Save/Load `backgroundColor` unchanged.

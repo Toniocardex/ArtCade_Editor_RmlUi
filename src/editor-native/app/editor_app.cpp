@@ -1332,7 +1332,11 @@ int EditorApp::run(int argc, char** argv) {
             }
             if (!logicKeyCaptureFrame && !ui.hasOpenConfirm()
                 && !rml.textFocus && IsKeyPressed(KEY_ESCAPE)) {
-                routeGlobalEscape(coordinator);
+                if (ui.cancelSceneBackgroundOpacityDragIfNeeded()) {
+                    // Escape consumed by Opacity draft cancel.
+                } else {
+                    routeGlobalEscape(coordinator);
+                }
             }
             routeViewportPickDrag(coordinator, projection, rml, drag, contextMenuHit);
             routeViewportContextMenu(coordinator, ui, projection, rml, contextClick,

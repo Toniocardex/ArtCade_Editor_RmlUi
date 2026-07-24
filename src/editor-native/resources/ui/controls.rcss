@@ -501,21 +501,21 @@
     height: 26dp;
     line-height: 26dp;
     padding: 0 26dp 0 8dp;
-    background-color: #111113;
-    border: 1px #27272a;
+    background-color: #1E2026;
+    border: 1px #30333B;
     border-radius: 2dp;
-    color: #d4d4d8;
+    color: #D8DAE0;
     font-size: 12dp;
     white-space: nowrap;
     overflow: hidden;
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
 }
-.drop-trigger:hover { border-color: #323236; }
-.drop-trigger.open  { border-color: #3b82f6; background-color: #3b82f618; }
+.drop-trigger:hover { border-color: #444955; }
+.drop-trigger.open  { border-color: #4D8DFF; background-color: #4D8DFF12; }
 .drop-trigger.disabled {
     background-color: #161618;
     border-color: #242427;
-    color: #52525b;
+    color: #5F646F;
 }
 .drop-caret {
     position: absolute;
@@ -523,15 +523,15 @@
     right: 6dp;
     font-family: tabler-icons;
     font-weight: normal;
-    color: #8a8a93;
+    color: #9297A3;
 }
-.drop-trigger.disabled .drop-caret { color: #3f3f46; }
+.drop-trigger.disabled .drop-caret { color: #5F646F; }
 .drop-list {
     display: block;
-    margin: 2dp 0 8dp 0;
+    margin: 2dp 0 8dp 78dp;
     padding: 4dp;
-    background-color: #1c1c1f;
-    border: 1px #2f2f33;
+    background-color: #1E2026;
+    border: 1px #30333B;
     border-radius: 4dp;
 }
 .drop-entry {
@@ -831,44 +831,229 @@
     height: 26dp;
     line-height: 26dp;
     padding: 0 8dp;
-    background-color: #111113;
-    border: 1px #27272a;
+    background-color: #1E2026;
+    border: 1px #30333B;
     border-radius: 2dp;
-    color: #d4d4d8;
+    color: #D8DAE0;
     font-size: 12dp;
     transition: border-color 0.1s;
 }
-.prop-input:hover { border-color: #323236; }
-.prop-input:focus { border-color: #3b82f6; }
+.prop-input:hover { border-color: #444955; }
+.prop-input:focus { border-color: #4D8DFF; }
 .prop-input.inspector-reveal-highlight {
-    border-color: #3b82f6;
-    background-color: #3b82f612;
+    border-color: #4D8DFF;
+    background-color: #4D8DFF12;
 }
 /* Frozen while Play runs: the field is non-editable, so it reads as inert. */
 .prop-input:disabled {
     background-color: #161618;
     border-color: #242427;
-    color: #52525b;
+    color: #5F646F;
 }
 
-/* Scene Background (ADR-0020): row 1 swatch+hex; row 2 Opacity %. */
-.color-swatch {
+/* Scene context + Appearance (ADR-0020). */
+.inspector-scene-context {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6dp;
+    height: 28dp;
+    margin: 0 0 4dp 0;
+    padding: 0 0 8dp 0;
+    border-bottom: 1px #30333B;
+    color: #D8DAE0;
+    font-size: 12dp;
+}
+.inspector-scene-context .context-kind {
+    color: #5F646F;
+    font-size: 10dp;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.inspector-scene-context .context-separator { color: #444955; }
+.inspector-scene-context .context-name {
+    font-weight: 600;
+    font-size: 13dp;
+    color: #D8DAE0;
+}
+
+.prop-subheading {
+    margin: 8dp 0 2dp 0;
+    padding-left: 0;
+    color: #5F646F;
+    font-size: 10dp;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.prop-row.prop-meta { height: 22dp; margin-bottom: 2dp; }
+.prop-meta-value {
+    flex: 1;
+    min-width: 0;
+    color: #71717a;
+    font-size: 11dp;
+    font-family: "JetBrains Mono";
+}
+.prop-copy {
     width: 22dp;
     height: 22dp;
-    margin-right: 6dp;
-    border: 1px #323236;
-    border-radius: 4dp;
-    flex-shrink: 0;
+    margin: 0;
+    padding: 0;
+    background-color: transparent;
+    border: 1px transparent;
+    border-radius: 2dp;
+    color: #5F646F;
     cursor: pointer;
 }
-.color-swatch:hover { border-color: #3b82f6; }
-.color-swatch.disabled {
-    cursor: default;
-    border-color: #242427;
+.prop-copy:hover { color: #D8DAE0; border-color: #30333B; }
+.prop-start-badge {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6dp;
+    height: 26dp;
+    padding: 0 8dp;
+    background-color: #1E2026;
+    border: 1px #30333B;
+    border-radius: 2dp;
+    color: #D8DAE0;
+    font-size: 12dp;
+}
+.prop-start-badge .icon { color: #EAB308; }
+
+.prop-color-block {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 6dp;
+}
+.prop-color-block > .prop-label { width: 78dp; }
+.color-field {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    min-width: 0;
+    height: 26dp;
+    background-color: #1E2026;
+    border: 1px #30333B;
+    border-radius: 2dp;
+    overflow: hidden;
+}
+.color-field:hover { border-color: #444955; }
+.color-swatch {
+    width: 24dp;
+    height: 24dp;
+    margin: 1dp;
+    border-width: 0;
+    border-radius: 2dp;
+    flex-shrink: 0;
+    cursor: pointer;
+    overflow: hidden;
+}
+.color-swatch.disabled { cursor: default; }
+.color-swatch-checker {
+    width: 100%;
+    height: 100%;
+    border-radius: 2dp;
+    /* RmlUi GL3 backend only loads uncompressed 24/32-bit TGA (not PNG). */
+    decorator: image(checker-8.tga);
+}
+.color-swatch-color {
+    width: 100%;
+    height: 100%;
+    border-radius: 2dp;
 }
 .prop-input.color-hex {
     flex: 1;
-    min-width: 80dp;
+    min-width: 72dp;
+    height: 26dp;
+    line-height: 26dp;
+    margin: 0;
+    border-width: 0;
+    border-radius: 0;
+    background-color: transparent;
+    font-family: "JetBrains Mono";
+    font-size: 11dp;
+}
+.prop-input.color-hex:focus {
+    border-width: 0;
+    background-color: transparent;
+}
+/* Block + line-height (not flex): RmlUi does not centre icon glyphs in flex
+   buttons; also kill the global .icon margin-right: 6dp that shifted the X. */
+.color-reset {
+    display: block;
+    width: 26dp;
+    height: 26dp;
+    line-height: 26dp;
+    margin: 0;
+    padding: 0;
+    background-color: transparent;
+    border-width: 0;
+    border-left: 1px #30333B;
+    border-radius: 0;
+    color: #5F646F;
+    text-align: center;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.color-reset .icon {
+    margin: 0;
+    font-size: 14dp;
+    line-height: 26dp;
+    vertical-align: top;
+}
+.color-reset:hover { color: #D8DAE0; background-color: #24262C; }
+.color-reset.disabled,
+.color-reset:disabled {
+    color: #5F646F;
+    cursor: default;
+}
+
+.prop-row.opacity-row { height: 28dp; margin-bottom: 6dp; }
+.inspector-opacity-slider {
+    flex: 1;
+    min-width: 72dp;
+    height: 22dp;
+    margin-right: 8dp;
+    border: 1px transparent;
+    box-sizing: border-box;
+}
+.inspector-opacity-slider:focus { border-color: #4D8DFF; }
+.inspector-opacity-slider slidertrack {
+    height: 4dp;
+    margin-top: 9dp;
+    background-color: #30333B;
+    border-radius: 2dp;
+}
+.inspector-opacity-slider:hover slidertrack { background-color: #444955; }
+.inspector-opacity-slider sliderbar {
+    width: 14dp;
+    height: 14dp;
+    margin-top: 4dp;
+    background-color: #D8DAE0;
+    border-radius: 7dp;
+    border: 2dp transparent;
+    box-sizing: border-box;
+}
+.inspector-opacity-slider sliderbar:hover { background-color: #EEF0F4; }
+.inspector-opacity-slider sliderbar:active {
+    background-color: #4D8DFF;
+    border-color: #93c5fd;
+}
+.inspector-opacity-slider sliderprogress {
+    height: 4dp;
+    margin-top: 0;
+    background-color: #4D8DFF;
+    border-radius: 2dp;
+}
+.inspector-opacity-slider sliderarrowdec,
+.inspector-opacity-slider sliderarrowinc { display: none; }
+.prop-input.opacity-value {
+    flex: 0 0 44dp;
+    width: 44dp;
     font-family: "JetBrains Mono";
     font-size: 11dp;
 }

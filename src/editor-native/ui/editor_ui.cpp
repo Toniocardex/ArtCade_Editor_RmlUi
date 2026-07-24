@@ -24,6 +24,7 @@
 #include "editor-native/commands/sprite_animation_commands.h"
 #include "editor-native/commands/sprite_presentation_commands.h"
 #include "editor-native/model/logic_component_references.h"
+#include "editor-native/model/project_defaults.h"
 #include "editor-native/model/sprite_render_view.h"
 #include "logic-core.h"
 #include "editor-native/model/tile_palette_availability.h"
@@ -337,6 +338,31 @@ public:
             }
             return;
         }
+        // Scene Background Opacity slider (ADR-0020): same drag vs click/keyboard
+        // disposition as Generated SFX macros.
+        if (action == "change-scene-background-opacity") {
+            if (type == "dragstart") {
+                ui_.beginSceneBackgroundOpacityDrag();
+                return;
+            }
+            if (type == "dragend") {
+                ui_.commitSceneBackgroundOpacityDrag();
+                return;
+            }
+            if (type == "change") {
+                ui_.handleSceneBackgroundOpacityChange(
+                    event.GetParameter<float>("value", 0.f));
+                return;
+            }
+            if (type == "keydown") {
+                const int key = event.GetParameter<int>("key_identifier", 0);
+                if (key == Rml::Input::KI_ESCAPE) {
+                    ui_.cancelSceneBackgroundOpacityDrag();
+                    event.StopPropagation();
+                }
+            }
+            return;
+        }
         // Text edits stay local while typing. Commit only on blur or explicit Enter.
         if (isCommit) {
             const int key = event.GetParameter<int>("key_identifier", 0);
@@ -462,6 +488,7 @@ void EditorUi::bind() {
 }
 
 void EditorUi::detach() {
+    inspector_.cancelBackgroundOpacityDraft();
     if (listener_) {
         const auto detachDocument = [&](Rml::ElementDocument* doc) {
             if (!doc) return;
@@ -545,6 +572,12 @@ void EditorUi::restoreAfterRmlLayout() {
 }
 
 PendingEditResult EditorUi::resolvePendingEdits() {
+    // Finish an Opacity slider drag before commit-* field blur so Save/Play
+    // see the previewed alpha (ADR-0020).
+    if (inspector_.backgroundOpacityDragActive()) {
+        inspector_.commitBackgroundOpacityDrag(document_, coordinator_);
+    }
+
     Rml::Context* visited[3] = {nullptr, nullptr, nullptr};
     std::size_t visitedCount = 0;
     Rml::ElementDocument* documents[] = {document_, animationDocument_, tilesetDocument_};
@@ -2286,7 +2319,8 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     }
     if (action == "set-entity-layer" || action == "set-sprite-asset"
         || action == "set-sprite-animation" || action == "set-tilemap-tileset"
-        || action == "set-animator-default-clip" || action == "attach-script") {
+        || action == "set-animator-default-clip" || action == "attach-script"
+        || action == "set-scene-viewport-preset") {
         inspector_.closeDropdowns();   // then fall through to execute the pick
     }
 
@@ -2865,6 +2899,7 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
                 SetSceneViewportSizeCommand{coordinator_.state().activeSceneId, Vec2{w, h}});
         }
     } else if (action == "commit-scene-background-hex") {
+        inspector_.cancelBackgroundOpacityDraft();
         const SceneDef* scene =
             coordinator_.document().findScene(coordinator_.state().activeSceneId);
         const std::optional<ColorRgb> parsed = parseColorHexRgb(value);
@@ -2884,6 +2919,7 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         if (coordinator_.isPlaying()) {
             coordinator_.logWarning("Stop Play before editing the scene background");
         } else {
+            inspector_.cancelBackgroundOpacityDraft();
             const SceneDef* scene =
                 coordinator_.document().findScene(coordinator_.state().activeSceneId);
             if (!scene) {
@@ -2901,7 +2937,24 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
                 }
             }
         }
+    } else if (action == "reset-scene-background") {
+        if (coordinator_.isPlaying()) {
+            coordinator_.logWarning("Stop Play before editing the scene background");
+        } else {
+            inspector_.cancelBackgroundOpacityDraft();
+            coordinator_.execute(SetSceneBackgroundCommand{
+                coordinator_.state().activeSceneId, kDefaultSceneBackground});
+        }
+    } else if (action == "copy-scene-id") {
+        const SceneDef* scene =
+            coordinator_.document().findScene(coordinator_.state().activeSceneId);
+        if (!scene) {
+            coordinator_.logError("No selected scene");
+        } else {
+            SetClipboardText(scene->id.c_str());
+        }
     } else if (action == "commit-scene-background-opacity") {
+        inspector_.cancelBackgroundOpacityDraft();
         const SceneDef* scene =
             coordinator_.document().findScene(coordinator_.state().activeSceneId);
         const std::optional<float> parsed = parseOpacityPercent(value);
@@ -3523,6 +3576,38 @@ void EditorUi::handleSfxMacroChange(const std::string& macroId, float value) {
 
 void EditorUi::commitSfxMacroDrag() {
     if (generatedSfxEditor_.commitMacroDrag()) refreshGeneratedSfxEditor();
+}
+
+void EditorUi::beginSceneBackgroundOpacityDrag() {
+    inspector_.beginBackgroundOpacityDrag(coordinator_);
+}
+
+void EditorUi::handleSceneBackgroundOpacityChange(float opacityPercent) {
+    if (inspector_.backgroundOpacityDragActive()) {
+        inspector_.previewBackgroundOpacity(document_, coordinator_, opacityPercent);
+        return;
+    }
+    if (coordinator_.isPlaying()) return;
+    const SceneId& sceneId = coordinator_.state().activeSceneId;
+    const SceneDef* scene = coordinator_.document().findScene(sceneId);
+    if (!scene) return;
+    Vec4 color = scene->backgroundColor;
+    color.a = std::clamp(opacityPercent / 100.f, 0.f, 1.f);
+    coordinator_.execute(SetSceneBackgroundCommand{sceneId, color});
+}
+
+void EditorUi::commitSceneBackgroundOpacityDrag() {
+    inspector_.commitBackgroundOpacityDrag(document_, coordinator_);
+}
+
+void EditorUi::cancelSceneBackgroundOpacityDrag() {
+    inspector_.cancelBackgroundOpacityDrag(document_, coordinator_);
+}
+
+bool EditorUi::cancelSceneBackgroundOpacityDragIfNeeded() {
+    if (!inspector_.backgroundOpacityDragActive()) return false;
+    cancelSceneBackgroundOpacityDrag();
+    return true;
 }
 
 } // namespace ArtCade::EditorNative

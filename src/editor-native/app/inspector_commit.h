@@ -62,6 +62,20 @@ std::string formatOpacityPercent(float alpha);
  */
 std::optional<float> parseOpacityPercent(const std::string& text);
 
+/** CSS `rgba(r,g,b,a)` for swatch fills (channels from document Vec4). */
+std::string formatColorCssRgba(const Vec4& color);
+
+enum class OpacitySliderChangeDisposition {
+    PreviewOnly,
+    CommitImmediately,
+};
+
+/** dragActive → PreviewOnly; click/keyboard change without drag → CommitImmediately. */
+OpacitySliderChangeDisposition classifyOpacitySliderChange(bool dragActive);
+
+/** Component-wise equality for background / draft reconciliation. */
+bool sameSceneBackgroundColor(const Vec4& a, const Vec4& b);
+
 EditorOperationResult commitInspectorTransformField(EditorCoordinator& coordinator,
                                                     EntityId entityId,
                                                     InspectorTransformField field,

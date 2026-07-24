@@ -20,6 +20,8 @@
 #include "editor-native/app/unsaved_guard.h"
 #include "editor-native/app/pending_edit.h"
 #include "editor-native/app/inspector_actions.h"
+#include "editor-native/model/project_defaults.h"
+#include "editor-native/model/scene_viewport_presets.h"
 #include "editor-native/commands/box_collider_commands.h"
 #include "editor-native/commands/linear_mover_commands.h"
 #include "editor-native/commands/auto_destroy_commands.h"
@@ -1221,6 +1223,28 @@ int main() {
             CHECK(std::fabs(*parseOpacityPercent("150") - 1.f) < 0.0001f);
             CHECK(!parseOpacityPercent("").has_value());
             CHECK(!parseOpacityPercent("abc").has_value());
+
+            CHECK(classifyOpacitySliderChange(true)
+                  == OpacitySliderChangeDisposition::PreviewOnly);
+            CHECK(classifyOpacitySliderChange(false)
+                  == OpacitySliderChangeDisposition::CommitImmediately);
+            CHECK(sameSceneBackgroundColor(kDefaultSceneBackground, kDefaultSceneBackground));
+            CHECK(!sameSceneBackgroundColor(kDefaultSceneBackground, Vec4{1.f, 0.f, 0.f, 1.f}));
+        }
+
+        // -- Game View presets (Scene Inspector dropdown) ----------------------
+        {
+            CHECK(findSceneViewportPreset({512.f, 320.f}) != nullptr);
+            CHECK(std::string(findSceneViewportPreset({512.f, 320.f})->id) == "artcade-classic");
+            CHECK(std::string(findSceneViewportPreset({640.f, 360.f})->label) == "16:9 Small");
+            CHECK(std::string(findSceneViewportPreset({960.f, 540.f})->label) == "16:9 Medium");
+            CHECK(std::string(findSceneViewportPreset({1280.f, 720.f})->id) == "hd");
+            CHECK(findSceneViewportPreset({800.f, 450.f}) == nullptr);
+            CHECK(sceneViewportPresetLabel({512.f, 320.f}).find("ArtCade Classic") != std::string::npos);
+            CHECK(sceneViewportSizeText({512.f, 320.f}) == "512x320");
+            CHECK(sceneViewportPresetLabel({512.f, 320.f}).find("512x320") != std::string::npos);
+            CHECK(sceneViewportPresetLabel({800.f, 450.f}).find("Custom") != std::string::npos);
+            CHECK(sceneViewportPresetLabel({800.f, 450.f}).find("800x450") != std::string::npos);
         }
     }
 
@@ -1555,6 +1579,8 @@ int main() {
         // struct default (white) is only for files saved without the field.
         CHECK(c.document().findScene("scene-c")->backgroundColor.r == 0.118f);
         CHECK(c.document().findScene("scene-c")->backgroundColor.b == 0.141f);
+        CHECK(sameSceneBackgroundColor(c.document().findScene("scene-c")->backgroundColor,
+                                       kDefaultSceneBackground));
         CHECK(SceneDef{}.backgroundColor.r == 1.f);
         CHECK(!c.execute(CreateSceneCommand{"scene-a", "dup"}).ok); // duplicate rejected
 
@@ -1566,6 +1592,24 @@ int main() {
         CHECK(c.document().findScene(kSceneA)->backgroundColor.r == 1.f);
         c.undo();                                                // undo background
         CHECK(c.document().findScene(kSceneA)->backgroundColor.r == 0.1f);
+
+        // Reset to kDefaultSceneBackground: one Undo entry; no-op when already default.
+        CHECK(c.execute(SetSceneBackgroundCommand{kSceneA, {0.5f, 0.2f, 0.1f, 0.75f}}).ok);
+        CHECK(c.execute(SetSceneBackgroundCommand{kSceneA, kDefaultSceneBackground}).ok);
+        CHECK(sameSceneBackgroundColor(c.document().findScene(kSceneA)->backgroundColor,
+                                       kDefaultSceneBackground));
+        CHECK(c.canUndo());
+        c.undo();
+        CHECK(c.document().findScene(kSceneA)->backgroundColor.r == 0.5f);
+        c.redo();
+        CHECK(sameSceneBackgroundColor(c.document().findScene(kSceneA)->backgroundColor,
+                                       kDefaultSceneBackground));
+        const bool canUndoBeforeNoop = c.canUndo();
+        const EditorOperationResult noopReset = c.execute(
+            SetSceneBackgroundCommand{kSceneA, kDefaultSceneBackground});
+        CHECK(noopReset.ok);
+        CHECK(noopReset.invalidation == EditorInvalidation::None);
+        CHECK(c.canUndo() == canUndoBeforeNoop);
     }
 
     // -- CreateEntityCommand: add, invalidation, DomainChange, undo -------------
