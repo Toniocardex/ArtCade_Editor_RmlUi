@@ -1,0 +1,85 @@
+{
+  "project_name": "Parity Fixture",
+  "version": "2.0.0",
+  "license_tier": "free",
+  "target_fps": 75,
+  "active_scene_id": "level_1",
+  "main_script_path": "scripts/main.luac",
+  "format_version": 2,
+  "world": {
+    "gravity": 15,
+    "pixels_per_meter": 50,
+    "time_scale": 0.5,
+    "physics_mode": "on",
+    "physics_debug_draw": true
+  },
+  "object_types": {
+    "Hero": {
+      "id": "Hero",
+      "display_name": "Hero",
+      "physics": {
+        "bodyType": "Dynamic",
+        "collider": {
+          "shape": "Rectangle",
+          "size": { "x": 32, "y": 32 }
+        }
+      }
+    }
+  },
+  "scenes": {
+    "level_1": {
+      "id": "level_1",
+      "name": "Level 1",
+      "world_size": [1024, 768],
+      "viewport_size": [800, 600],
+      "background_color": { "r": 0.1, "g": 0.2, "b": 0.3, "a": 1 },
+      "instances": [
+        {
+          "id": 1,
+          "object_type_id": "Hero",
+          "instance_name": "Player1",
+          "transform": { "position": { "x": 100, "y": 200 }, "scale": { "x": 1, "y": 1 } },
+          "visible": true
+        }
+      ],
+      "tilemap": {
+        "tile_size": 16,
+        "cols": 2,
+        "rows": 1,
+        "data": [1, 2],
+        "tileset_asset_id": "ts_ground"
+      }
+    }
+  },
+  "tile_palette": [
+    {
+      "id": 1,
+      "name": "Grass",
+      "color": "#00ff00",
+      "solid": true,
+      "ground_class": "Terrain",
+      "surface_kind": "solid"
+    }
+  ],
+  "tilesets": {
+    "ts_ground": {
+      "asset_id": "ts_ground",
+      "sprite_image_path": "tiles/ground.png",
+      "tile_size": 16,
+      "margin": 1,
+      "cols": 4,
+      "rows": 2
+    }
+  },
+  "thumbnails": {
+    "level_1": "thumbnails/level_1.png"
+  },
+  "assets": {
+    "hero_sheet": {
+      "id": "hero_sheet",
+      "path": "sprites/hero.png",
+      "defaultPivot": { "x": 0.5, "y": 1 },
+      "imagePoints": [{ "id": "muzzle", "x": 0.8, "y": 0.5 }]
+    }
+  }
+}

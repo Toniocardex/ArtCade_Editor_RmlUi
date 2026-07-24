@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ArtCade Smoke Test</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0B1121;
+      color: #D1D5DB;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+      gap: 10px;
+    }
+    h1 { color: #00FFFF; font-size: 13px; letter-spacing: 0.2em; }
+    #status {
+      font-size: 11px;
+      color: #9CA3AF;
+      padding: 4px 12px;
+      border: 1px solid #1A253A;
+      border-radius: 4px;
+    }
+    #status.ready { color: #00FFFF; border-color: #00FFFF33; }
+    canvas#artcade-canvas {
+      border: 1px solid #1A253A;
+      display: block;
+    }
+    /* React UI panel (Smoke Test 4) */
+    #react-panel {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 12px;
+      background: #111827;
+      border: 1px solid #1A253A;
+      border-radius: 4px;
+      width: 800px;
+    }
+    #react-panel label { font-size: 11px; color: #9CA3AF; display: flex; align-items: center; gap: 4px; }
+    #react-panel input {
+      background: #1A253A;
+      border: 1px solid #1A253A;
+      color: #D1D5DB;
+      padding: 4px 6px;
+      font-family: monospace;
+      font-size: 11px;
+      width: 70px;
+    }
+    #react-panel button {
+      background: #FF00FF;
+      color: #0B1121;
+      border: none;
+      padding: 5px 14px;
+      font-family: monospace;
+      font-size: 11px;
+      font-weight: bold;
+      cursor: pointer;
+      border-radius: 3px;
+    }
+    #react-panel button:hover { opacity: 0.85; }
+    #react-status { font-size: 10px; color: #9CA3AF; flex: 1; }
+    /* Console */
+    #console {
+      background: #000;
+      border: 1px solid #1A253A;
+      padding: 8px;
+      font-size: 10px;
+      line-height: 1.5;
+      max-height: 140px;
+      overflow-y: auto;
+      width: 800px;
+    }
+  </style>
+</head>
+<body>
+  <h1>ARTCADE SMOKE TESTS — WASM BRIDGE VALIDATION</h1>
+  <div id="status">Loading WASM runtime…</div>
+
+  <canvas id="artcade-canvas" width="800" height="600"></canvas>
+
+  <!-- React UI (ST-4: React → C++ command) -->
+  <div id="react-panel">
+    <label>X <input id="inputX" type="number" value="350" step="10"></label>
+    <label>Y <input id="inputY" type="number" value="250" step="10"></label>
+    <button onclick="sendToC()">Send to C++ (ST-4)</button>
+    <span id="react-status">waiting for WASM…</span>
+  </div>
+
+  <div id="console"><span style="color:#00FFFF">▶ CONSOLE</span><br></div>
+
+  <script>
+    // ── C++ → React callbacks (ST-3): set BEFORE Module / game.js loads ──────
+    window.onObjectUpdated = function(x, y) {
+      log('[C++→React] onObjectUpdated  X=' + x.toFixed(1) + '  Y=' + y.toFixed(1), '#00FFFF');
+      document.getElementById('react-status').textContent =
+        'C++ notified ✓  X=' + Math.round(x) + '  Y=' + Math.round(y);
+    };
+    window.onEntitySelected = function(id) {
+      log('[C++→React] onEntitySelected  id=' + id, '#00FFFF');
+    };
+    window.onEntityTransformChanged = function(id, x, y, rot, sx, sy) {
+      log('[C++→React] transformChanged  id=' + id +
+          '  pos=(' + x.toFixed(0) + ',' + y.toFixed(0) + ')', '#00FFFF');
+    };
+    window.onConsoleLine = function(msg, level) {
+      var c = { info: '#9CA3AF', warn: '#F97316', error: '#EF4444', lua: '#00FFFF' };
+      log(msg, c[level] || '#9CA3AF');
+    };
+
+    function log(msg, color) {
+      var con = document.getElementById('console');
+      var s   = document.createElement('span');
+      s.style.color   = color || '#9CA3AF';
+      s.textContent   = msg;
+      con.appendChild(s);
+      con.appendChild(document.createElement('br'));
+      con.scrollTop = con.scrollHeight;
+    }
+
+    // ── React → C++ (ST-4): ccall into EMSCRIPTEN_KEEPALIVE function ─────────
+    function sendToC() {
+      if (!window.Module || !window.Module.ccall) {
+        log('ERROR: Module not ready yet', '#EF4444');
+        return;
+      }
+      var x = parseFloat(document.getElementById('inputX').value) || 0;
+      var y = parseFloat(document.getElementById('inputY').value) || 0;
+      try {
+        // Exact pattern from ArtCade architecture docs (Smoke Test 4)
+        window.Module.ccall('set_square_pos', null, ['number', 'number'], [x, y]);
+        log('[React→C++] set_square_pos(' + x + ', ' + y + ')', '#FF00FF');
+      } catch(e) {
+        log('[ST-4 only] set_square_pos not exported in this build — open smoke_4_command.html', '#F97316');
+      }
+    }
+
+    // Enter key sends position
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' &&
+          document.activeElement &&
+          (document.activeElement.id === 'inputX' ||
+           document.activeElement.id === 'inputY')) {
+        sendToC();
+      }
+    });
+
+    // ── Emscripten Module pre-configuration ───────────────────────────────────
+    // MUST be declared before the Emscripten script tag that follows.
+    var Module = {
+      canvas: (function() {
+        return document.getElementById('artcade-canvas');
+      })(),
+
+      onRuntimeInitialized: function() {
+        document.getElementById('status').textContent = 'WASM Runtime Ready ✓';
+        document.getElementById('status').classList.add('ready');
+        document.getElementById('react-status').textContent = 'Module ready — try Send to C++';
+        log('[WASM] Runtime initialised.', '#00FFFF');
+      },
+
+      print:    function(t) { log('[stdout] ' + t, '#9CA3AF'); },
+      printErr: function(t) { log('[stderr] ' + t, '#EF4444'); },
+    };
+  </script>
+
+  {{{ SCRIPT }}}
+</body>
+</html>

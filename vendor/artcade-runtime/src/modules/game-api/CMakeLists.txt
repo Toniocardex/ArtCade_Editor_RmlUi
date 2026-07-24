@@ -1,0 +1,45 @@
+add_library(artcade-game-api
+    src/game-api.cpp
+    src/entity-api.cpp
+    src/physics-api.cpp
+    src/input-api.cpp
+    src/intent-api.cpp
+    src/audio-api.cpp
+    src/text-api.cpp
+    src/state-api.cpp
+    src/debug-api.cpp
+    src/save-api.cpp
+    src/event-api.cpp
+    src/time-api.cpp
+    src/camera-api.cpp
+    src/animation-api.cpp
+    src/lifecycle-api.cpp
+    src/grid-api.cpp
+    src/shader-api.cpp
+    src/component-api.cpp
+    src/component-value-api.cpp
+    src/dialog-api.cpp
+)
+target_include_directories(artcade-game-api
+    PUBLIC  include
+    PRIVATE src
+)
+target_link_libraries(artcade-game-api
+    PUBLIC
+        artcade-core
+        artcade-collision
+        artcade-renderer
+        artcade-physics
+        artcade-input
+        artcade-audio
+        artcade-scene-system
+        artcade-runtime-entity-gateway
+        artcade-save-load
+        artcade-world
+        artcade-sprite-animator
+        artcade-asset-system
+        artcade-dialog
+    PRIVATE
+        lua54
+        artcade-presentation
+)

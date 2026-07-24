@@ -1,0 +1,408 @@
+{
+  "projectName": "ArtCade Phase 13 Demo",
+  "version": "2.0.0",
+  "licenseTier": "free",
+  "targetFPS": 60,
+  "activeSceneId": "scene_main",
+  "mainScriptPath": "scripts/main.lua",
+  "globalVariables": [
+    { "key": "score", "type": "number", "initialValue": 0 },
+    { "key": "level", "type": "number", "initialValue": 1 },
+    { "key": "playerName", "type": "string", "initialValue": "Hero" },
+    { "key": "hardMode", "type": "boolean", "initialValue": false },
+    { "key": "alive", "type": "number", "initialValue": 1 },
+    { "key": "playerHp", "type": "number", "initialValue": 100 },
+    { "key": "_smoke_done", "type": "boolean", "initialValue": false }
+  ],
+  "entities": {
+    "1": {
+      "id": 1,
+      "name": "Player",
+      "className": "Player",
+      "tags": [
+        "player",
+        "controllable"
+      ],
+      "transform": {
+        "position": [
+          640,
+          340
+        ],
+        "scale": [
+          3,
+          1
+        ],
+        "rotation": 0
+      },
+      "sprite": {
+        "spriteAssetId": "",
+        "tint": [
+          0.2,
+          0.6,
+          1,
+          1
+        ],
+        "alpha": 1,
+        "renderOrder": 1,
+        "pivot": [
+          0.5,
+          0.5
+        ]
+      },
+      "physics": {
+        "bodyType": "Static",
+        "collider": {
+          "shape": "Rectangle",
+          "size": [52, 52]
+        }
+      },
+      "collisionBody": {
+        "bodyType": "kinematic",
+        "enabled": true,
+        "shapes": [{
+          "type": "rectangle",
+          "response": "solid",
+          "role": "body",
+          "layerId": "player",
+          "maskLayerIds": ["pickup", "hazard"],
+          "size": [52, 52],
+          "enabled": true
+        }]
+      }
+    },
+    "2": {
+      "id": 2,
+      "name": "Patrol_A",
+      "className": "Enemy",
+      "tags": [
+        "enemy"
+      ],
+      "transform": {
+        "position": [
+          200,
+          280
+        ],
+        "scale": [
+          1,
+          1
+        ],
+        "rotation": 0
+      },
+      "sprite": {
+        "spriteAssetId": "",
+        "tint": [
+          1,
+          0.2,
+          0.2,
+          1
+        ],
+        "alpha": 1,
+        "renderOrder": 0,
+        "pivot": [
+          0.5,
+          0.5
+        ]
+      },
+      "physics": {
+        "bodyType": "Kinematic",
+        "collider": {
+          "shape": "Rectangle",
+          "size": [40, 40]
+        }
+      },
+      "collisionBody": {
+        "bodyType": "static",
+        "enabled": true,
+        "shapes": [{
+          "type": "circle",
+          "response": "sensor",
+          "role": "hitbox",
+          "layerId": "hazard",
+          "maskLayerIds": ["player"],
+          "radius": 50,
+          "enabled": true
+        }]
+      }
+    },
+    "3": {
+      "id": 3,
+      "name": "Patrol_B",
+      "className": "Enemy",
+      "tags": [
+        "enemy"
+      ],
+      "transform": {
+        "position": [
+          950,
+          200
+        ],
+        "scale": [
+          1,
+          1
+        ],
+        "rotation": 0
+      },
+      "sprite": {
+        "spriteAssetId": "",
+        "tint": [
+          1,
+          0.4,
+          0,
+          1
+        ],
+        "alpha": 1,
+        "renderOrder": 0,
+        "pivot": [
+          0.5,
+          0.5
+        ]
+      },
+      "physics": {
+        "bodyType": "Kinematic",
+        "collider": {
+          "shape": "Rectangle",
+          "size": [40, 40]
+        }
+      },
+      "collisionBody": {
+        "bodyType": "static",
+        "enabled": true,
+        "shapes": [{
+          "type": "circle",
+          "response": "sensor",
+          "role": "hitbox",
+          "layerId": "hazard",
+          "maskLayerIds": ["player"],
+          "radius": 50,
+          "enabled": true
+        }]
+      }
+    },
+    "4": {
+      "id": 4,
+      "name": "Coin_1",
+      "className": "Coin",
+      "tags": [
+        "pickup"
+      ],
+      "transform": {
+        "position": [
+          400,
+          300
+        ],
+        "scale": [
+          6,
+          1
+        ],
+        "rotation": 0
+      },
+      "sprite": {
+        "spriteAssetId": "",
+        "tint": [
+          1,
+          0.9,
+          0.1,
+          1
+        ],
+        "alpha": 1,
+        "renderOrder": 0,
+        "pivot": [
+          0.5,
+          0.5
+        ]
+      },
+      "physics": {
+        "bodyType": "Static",
+        "collider": {
+          "shape": "Rectangle",
+          "size": [24, 24]
+        }
+      },
+      "collisionBody": {
+        "bodyType": "static",
+        "enabled": true,
+        "shapes": [{
+          "type": "circle",
+          "response": "sensor",
+          "role": "interaction",
+          "layerId": "pickup",
+          "maskLayerIds": ["player"],
+          "radius": 30,
+          "enabled": true
+        }]
+      },
+      "autoDestroy": {
+        "lifespan": 20
+      }
+    },
+    "5": {
+      "id": 5,
+      "name": "Coin_2",
+      "className": "Coin",
+      "tags": [
+        "pickup"
+      ],
+      "transform": {
+        "position": [
+          780,
+          200
+        ],
+        "scale": [
+          1,
+          1
+        ],
+        "rotation": 0
+      },
+      "sprite": {
+        "spriteAssetId": "",
+        "tint": [
+          1,
+          0.9,
+          0.1,
+          1
+        ],
+        "alpha": 1,
+        "renderOrder": 0,
+        "pivot": [
+          0.5,
+          0.5
+        ]
+      },
+      "physics": {
+        "bodyType": "Static",
+        "collider": {
+          "shape": "Rectangle",
+          "size": [24, 24]
+        }
+      },
+      "collisionBody": {
+        "bodyType": "static",
+        "enabled": true,
+        "shapes": [{
+          "type": "circle",
+          "response": "sensor",
+          "role": "interaction",
+          "layerId": "pickup",
+          "maskLayerIds": ["player"],
+          "radius": 30,
+          "enabled": true
+        }]
+      },
+      "autoDestroy": {
+        "lifespan": 20
+      }
+    },
+    "6": {
+      "id": 6,
+      "name": "PhysicsBall",
+      "className": "PhysicsBall",
+      "tags": [
+        "physics"
+      ],
+      "transform": {
+        "position": [
+          640,
+          60
+        ],
+        "scale": [
+          1,
+          1
+        ],
+        "rotation": 0
+      },
+      "sprite": {
+        "spriteAssetId": "",
+        "tint": [
+          0,
+          1,
+          0.5,
+          1
+        ],
+        "alpha": 1,
+        "renderOrder": 2,
+        "pivot": [
+          0.5,
+          0.5
+        ]
+      },
+      "physics": {
+        "bodyType": "Dynamic",
+        "collider": {
+          "shape": "Rectangle",
+          "size": [88, 88]
+        }
+      }
+    },
+    "7": {
+      "id": 7,
+      "name": "PhysicsFloor",
+      "className": "PhysicsFloor",
+      "tags": [
+        "physics",
+        "static"
+      ],
+      "transform": {
+        "position": [
+          640,
+          640
+        ],
+        "scale": [
+          1,
+          1
+        ],
+        "rotation": 0
+      },
+      "sprite": {
+        "spriteAssetId": "",
+        "tint": [
+          0.5,
+          0.35,
+          0.1,
+          1
+        ],
+        "alpha": 1,
+        "renderOrder": 0,
+        "pivot": [
+          0.5,
+          0.5
+        ]
+      },
+      "physics": {
+        "bodyType": "Static",
+        "collider": {
+          "shape": "Rectangle",
+          "size": [1280, 40]
+        }
+      }
+    }
+  },
+  "scenes": {
+    "scene_main": {
+      "id": "scene_main",
+      "name": "Main Scene",
+      "worldSize": [
+        1280,
+        720
+      ],
+      "viewportSize": [
+        1280,
+        720
+      ],
+      "backgroundColor": [
+        0.04,
+        0.05,
+        0.12,
+        1
+      ],
+      "entityIds": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    }
+  }
+}

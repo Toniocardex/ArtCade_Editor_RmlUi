@@ -1,0 +1,6 @@
+build/
+out/
+*.wav
+*.ogg
+*.mp3
+*.artcade_tmp

@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "id": "sfx_player_jump",
+  "name": "Player Jump",
+  "recipe": {
+    "schemaVersion": 1,
+    "generatorVersion": 2,
+    "durationSeconds": 0.3,
+    "masterGain": 0.68,
+    "amplitude": {
+      "attackSeconds": 0.002,
+      "decaySeconds": 0.04,
+      "sustainLevel": 0.72,
+      "releaseSeconds": 0.08
+    },
+    "primaryVoice": {
+      "enabled": true,
+      "waveform": "pulse",
+      "quality": "bandLimited",
+      "gain": 1.0,
+      "detuneSemitones": 0.0,
+      "dutyStart": 0.38,
+      "dutyEnd": 0.62,
+      "pitch": {
+        "startHz": 165.0,
+        "endHz": 720.0,
+        "sweepCurve": 1.55,
+        "sweepMode": "exponential",
+        "vibratoDepthSemitones": 0.0,
+        "vibratoRateHz": 0.0,
+        "arpeggioSemitones": 0.0,
+        "arpeggioRateHz": 0.0
+      }
+    },
+    "secondaryVoice": {
+      "enabled": false,
+      "waveform": "square",
+      "quality": "bandLimited",
+      "gain": 1.0,
+      "detuneSemitones": 0.0,
+      "dutyStart": 0.5,
+      "dutyEnd": 0.5,
+      "pitch": {
+        "startHz": 440.0,
+        "endHz": 440.0,
+        "sweepCurve": 1.0,
+        "sweepMode": "exponential",
+        "vibratoDepthSemitones": 0.0,
+        "vibratoRateHz": 0.0,
+        "arpeggioSemitones": 0.0,
+        "arpeggioRateHz": 0.0
+      }
+    },
+    "noise": {
+      "enabled": false,
+      "gain": 0.0,
+      "clock": {
+        "startHz": 440.0,
+        "endHz": 440.0,
+        "sweepCurve": 1.0,
+        "sweepMode": "exponential",
+        "vibratoDepthSemitones": 0.0,
+        "vibratoRateHz": 0.0,
+        "arpeggioSemitones": 0.0,
+        "arpeggioRateHz": 0.0
+      }
+    },
+    "bitCrusher": {
+      "enabled": true,
+      "quantizationBits": 8,
+      "reductionRateHz": 12000.0
+    },
+    "filter": {
+      "lowPassHz": 0.0,
+      "dcBlockEnabled": true,
+      "dcBlockCutoffHz": 18.0
+    },
+    "randomSeed": 12648430
+  },
+  "output": {
+    "assetId": "audio_player_jump",
+    "path": "assets/audio/generated/player_jump.ogg"
+  }
+}

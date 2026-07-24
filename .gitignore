@@ -17,8 +17,9 @@ Desktop.ini
 script_test_out.txt
 *_test_out.txt
 
-# Junction target is local — use submodule in git; do not commit a copy of runtime
-vendor/artcade-runtime/
+# Vendored runtime (real copy since 2026-07-25; formerly a junction into
+# ArtCade-Studio_V2\runtime-cpp). Build dirs stay out.
+vendor/artcade-runtime/build*/
 
 # ADR-0019: shipping player binary (refreshed via scripts/refresh-export-templates.bat)
 src/editor-native/resources/export-templates/**/game.exe
