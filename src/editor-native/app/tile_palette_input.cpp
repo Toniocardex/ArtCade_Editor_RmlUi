@@ -200,7 +200,8 @@ void routeTilePaletteInput(EditorCoordinator& coordinator,
                            const RmlInputResult& rml,
                            const TilesetEmptyMaskView& emptyMask,
                            const TextureResource* texture,
-                           TilePaletteInputState& state) {
+                           TilePaletteInputState& state,
+                           bool escapePressed) {
     if (!texture || !texture->loaded || !holeRect.valid() || !clipRect.valid()) {
         cancelTilePaletteGesture(state);
         return;
@@ -210,7 +211,7 @@ void routeTilePaletteInput(EditorCoordinator& coordinator,
         return;
     }
     if (state.marquee.active
-        && (IsKeyPressed(KEY_ESCAPE) || state.marqueeTilesetAssetId != tileset.assetId)) {
+        && (escapePressed || state.marqueeTilesetAssetId != tileset.assetId)) {
         cancelTilePaletteGesture(state);
     }
 

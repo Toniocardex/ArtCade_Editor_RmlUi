@@ -1,0 +1,17 @@
+<!-- Reference markup for Help > About ArtCade (stamped by HelpDialogController). -->
+<div class="help-dialog about-dialog">
+    <div class="help-dialog-header">
+        <span class="help-dialog-title">About ArtCade</span>
+        <button class="help-dialog-close" data-action="help-close">×</button>
+    </div>
+    <div class="about-body">
+        <div class="about-brand">ArtCade</div>
+        <div class="about-product">ArtCade Studio</div>
+        <div class="about-version">Version 0.1.0</div>
+        <div class="about-tagline">2D Game Engine and Visual Game Editor</div>
+        <div class="about-meta"></div>
+    </div>
+    <div class="help-dialog-footer">
+        <button id="help-about-close" class="panel-btn" data-action="help-close">Close</button>
+    </div>
+</div>

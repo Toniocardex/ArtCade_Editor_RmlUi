@@ -1,11 +1,16 @@
 #include "editor-native/ui/editor_ui.h"
 
+#include "editor-native/app/editor_action_ui_map.h"
+#include "editor-native/app/editor_build_info.h"
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/app/hierarchy_actions.h"
 #include "editor-native/app/inspector_actions.h"
 #include "editor-native/app/asset_import.h"
 #include "editor-native/app/inspector_commit.h"
 #include "editor-native/app/file_dialog.h"
+#include "editor-native/app/shortcuts/editor_action_catalog.h"
+#include "editor-native/app/shortcuts/keyboard_shortcut_projection.h"
+#include "editor-native/app/shortcuts/shortcut_format.h"
 #include "editor-native/commands/domain_change.h"
 #include "editor-native/commands/entity_commands.h"
 #include "editor-native/commands/scene_commands.h"
@@ -137,8 +142,7 @@ bool actionRequiresPendingEditGate(const std::string& action) {
     if (const auto* generatedSfx = findGeneratedSfxEditorAction(action))
         return generatedSfx->requiresPendingEditResolution;
     static constexpr std::string_view actions[] = {
-        "new-project", "open-project", "save-project", "save-project-as",
-        "play-project", "play-current-scene",
+        // ADR-0024: file new/open/save/play use PendingEditPolicy via dispatcher.
         "select-entity", "select-scene", "select-layer", "select-animation-clip",
         "open-sprite-animation", "close-sprite-animation",
         "open-tileset-editor", "close-tileset-editor",
@@ -159,9 +163,28 @@ public:
 
     void ProcessEvent(Rml::Event& event) override {
         const Rml::String type = event.GetType();
+
+        if (type == "keydown" && ui_.helpDialogOpen()) {
+            const int key = event.GetParameter<int>("key_identifier", 0);
+            if (key == Rml::Input::KI_TAB) {
+                const bool shift = event.GetParameter<int>("shift_key", 0) != 0;
+                ui_.handleHelpTabKey(shift);
+                event.StopImmediatePropagation();
+                return;
+            }
+        }
+
+        std::string editorActionKey;
         std::string action, arg;
         Rml::Element* actionElement = nullptr;
         for (Rml::Element* e = event.GetTargetElement(); e; e = e->GetParentNode()) {
+            if (type != "dblclick") {
+                editorActionKey = attribute(e, "data-editor-action");
+                if (!editorActionKey.empty()) {
+                    actionElement = e;
+                    break;
+                }
+            }
             action = (type == "dblclick") ? attribute(e, "data-dbl-action")
                                           : attribute(e, "data-action");
             if (!action.empty()) {
@@ -169,6 +192,14 @@ public:
                 actionElement = e;
                 break;
             }
+        }
+
+        if (!editorActionKey.empty()) {
+            if (type == "click") {
+                ui_.invokeStableEditorAction(editorActionKey);
+                event.StopImmediatePropagation();
+            }
+            return;
         }
         if (action == "edit-script-buffer") {
             if (type == "focus") { ui_.setScriptEditorFocused(true); return; }
@@ -450,7 +481,8 @@ EditorUi::EditorUi(EditorCoordinator& coordinator, Rml::ElementDocument* documen
       tilesetEditor_(coordinator, tilesetDocument),
       logicBoardEditor_(coordinator, document),
       scriptEditor_(coordinator, document),
-      generatedSfxEditor_(coordinator) {}
+      generatedSfxEditor_(coordinator),
+      helpDialog_(std::make_unique<HelpDialogController>(document)) {}
 
 EditorUi::~EditorUi() { detach(); }
 
@@ -485,6 +517,7 @@ void EditorUi::bind() {
                        | EditorInvalidation::Assets   | EditorInvalidation::Layout
                        | EditorInvalidation::LogicBoard | EditorInvalidation::ScriptEditor);
     updateZoomReadout();   // initial paint (zoom % is Viewport-driven, not in the set)
+    syncHelpMenuShortcutLabel();
 }
 
 void EditorUi::detach() {
@@ -514,6 +547,7 @@ void EditorUi::detach() {
 
     pendingHierarchyMenu_.reset();
     pendingAssetMenu_.reset();
+    if (helpDialog_) helpDialog_->close();
     viewportContextMenuVisible_ = false;
     hierarchyContextMenuVisible_ = false;
     assetsContextMenuVisible_ = false;
@@ -797,6 +831,30 @@ void EditorUi::setFitViewHandler(WorkspaceRequest fitView) {
     fitViewRequest_ = std::move(fitView);
 }
 
+void EditorUi::setFocusSelectionHandler(WorkspaceRequest focusSelection) {
+    focusSelectionRequest_ = std::move(focusSelection);
+}
+
+void EditorUi::setEditorActionInvoker(EditorActionInvokeFn invoker) {
+    editorActionInvoke_ = std::move(invoker);
+}
+
+bool EditorUi::tryScriptHistoryUndo() {
+    if (coordinator_.state().centerWorkspaceMode != CenterWorkspaceMode::Script)
+        return false;
+    if (!coordinator_.state().scriptEditor.active()) return false;
+    scriptEditor_.undo();
+    return true;
+}
+
+bool EditorUi::tryScriptHistoryRedo() {
+    if (coordinator_.state().centerWorkspaceMode != CenterWorkspaceMode::Script)
+        return false;
+    if (!coordinator_.state().scriptEditor.active()) return false;
+    scriptEditor_.redo();
+    return true;
+}
+
 void EditorUi::setAnimationSliceHandler(WorkspaceRequest sliceAnimation) {
     spriteAnimationEditor_.setSliceRequest(std::move(sliceAnimation));
 }
@@ -1074,8 +1132,9 @@ void EditorUi::showPendingHierarchyMenu() {
     setEntry("hctx-rename-entity", !sceneKind && !entityLocked);
     setEntry("hctx-duplicate-entity", !sceneKind && !entityLocked);
     setEntry("hctx-add-instance",  !sceneKind);
+    setEntry("hctx-focus-entity",  !sceneKind);
     setEntry("hctx-del-entity",    !sceneKind && !entityLocked);
-    // ADR-0023: Focus in Scene omitted — no existing reliable camera→entity framing.
+    // ADR-0024: Focus Selection pans workspace camera (no dirty/Undo).
     // Edit Object Type omitted — no complete navigation contract yet.
     if (Rml::Element* sep = document_->GetElementById("hctx-entity-sep-1"))
         sep->SetClass("hidden", sceneKind || entityLocked);
@@ -1785,6 +1844,87 @@ bool EditorUi::hasOpenConfirm() const {
     return pendingConfirm_.has_value();
 }
 
+bool EditorUi::helpDialogOpen() const {
+    return helpDialog_ && helpDialog_->isOpen();
+}
+
+bool EditorUi::hasBlockingModal() const {
+    return hasOpenConfirm() || helpDialogOpen();
+}
+
+void EditorUi::setExportTemplatesRoot(std::filesystem::path root) {
+    exportTemplatesRoot_ = std::move(root);
+}
+
+void EditorUi::syncHelpMenuShortcutLabel() {
+    if (!document_) return;
+    Rml::Element* label = document_->GetElementById("menu-help-keyboard-shortcuts-label");
+    if (!label) return;
+    label->SetInnerRML(escapeRml(formatPrimaryShortcut(EditorActionId::ShowKeyboardShortcuts)));
+}
+
+void EditorUi::invokeStableEditorAction(const std::string& stableKey) {
+    const EditorActionDescriptor* desc = findActionDescriptorByStableKey(stableKey);
+    if (!desc) {
+        TraceLog(LOG_ERROR, "[editor] unknown data-editor-action stable key: %s",
+                 stableKey.c_str());
+        return;
+    }
+    if (!editorActionInvoke_) {
+        TraceLog(LOG_ERROR, "[editor] data-editor-action with no dispatcher: %s",
+                 stableKey.c_str());
+        return;
+    }
+    editorActionInvoke_(desc->id, ActionInvocationSource::Menu);
+}
+
+void EditorUi::handleHelpTabKey(bool shift) {
+    if (helpDialog_) helpDialog_->handleTabKey(shift);
+}
+
+void EditorUi::closeHelp() {
+    if (helpDialog_) helpDialog_->close();
+}
+
+void EditorUi::openHelpKeyboardShortcuts(const EditorActionContext& liveContext) {
+    if (!helpDialog_) return;
+    if (helpDialog_->page() == HelpDialogPage::KeyboardShortcuts) return;
+    KeyboardShortcutProjectionInput input;
+    input.filter = defaultKeyboardShortcutsFilterFor(liveContext.workspace);
+    input.search = {};
+    input.availabilityContext = makeShortcutHelpEvaluationContext(liveContext);
+    helpDialog_->openKeyboardShortcuts(input);
+}
+
+void EditorUi::openHelpAbout() {
+    if (!helpDialog_) return;
+    if (helpDialog_->page() == HelpDialogPage::About) return;
+    helpDialog_->openAbout(buildAboutArtCadeProjection(exportTemplatesRoot_));
+}
+
+bool EditorUi::handleHelpAction(const std::string& action, const std::string& arg,
+                                const std::string& value) {
+    if (!helpDialog_ || !helpDialog_->isOpen()) return false;
+    if (action == "help-close") {
+        closeHelp();
+        return true;
+    }
+    if (action == "help-shortcuts-search") {
+        helpDialog_->setShortcutSearch(value);
+        return true;
+    }
+    if (action == "help-shortcuts-filter") {
+        KeyboardShortcutsFilter filter = KeyboardShortcutsFilter::All;
+        if (arg == "general") filter = KeyboardShortcutsFilter::General;
+        else if (arg == "scene") filter = KeyboardShortcutsFilter::Scene;
+        else if (arg == "logic") filter = KeyboardShortcutsFilter::LogicBoard;
+        else if (arg == "script") filter = KeyboardShortcutsFilter::ScriptEditor;
+        helpDialog_->setShortcutFilter(filter);
+        return true;
+    }
+    return false;
+}
+
 void EditorUi::cancelConfirm() {
     if (!pendingConfirm_) return;
     ConfirmResultHandler onResult = std::move(pendingConfirm_->onResult);
@@ -2267,6 +2407,23 @@ bool EditorUi::copySelectedConsoleMessage() {
     return true;
 }
 
+bool EditorUi::hasConsoleMessageSelected() const {
+    return console_.selectedIndex().has_value()
+        && coordinator_.consoleMessage(console_.selectedIndex()) != nullptr;
+}
+
+bool EditorUi::hasHierarchyRenameDraft() const {
+    return hierarchy_.hasRenameDraft();
+}
+
+void EditorUi::cancelHierarchyRename() {
+    hierarchy_.cancelRename();
+}
+
+bool EditorUi::hasBackgroundOpacityDraft() const {
+    return inspector_.backgroundOpacityDragActive();
+}
+
 bool EditorUi::hasLogicKeyCapture() const {
     return logicBoardEditor_.hasKeyCapture();
 }
@@ -2339,9 +2496,19 @@ void EditorUi::commitGridCellSize(const std::string& text) {
 
 void EditorUi::handleAction(const std::string& action, const std::string& arg,
                             const std::string& value) {
+    // ADR-0024: migrated actions share dispatcher + ActionStateResolver.
+    // PendingEditPolicy is applied inside the dispatcher (not the string gate).
+    if (editorActionInvoke_) {
+        if (const auto mapped = mapUiActionToEditorAction(action)) {
+            editorActionInvoke_(*mapped, invocationSourceForUiAction(action));
+            return;
+        }
+    }
+
     if (actionRequiresPendingEditGate(action) && !resolvePendingEdits().resolved()) return;
 
     if (handleConfirmAction(action)) return;
+    if (handleHelpAction(action, arg, value)) return;
 
     const EntityId selected = coordinator_.selection().primaryEntity;
 
@@ -3239,6 +3406,9 @@ bool EditorUi::handleHierarchyAction(const std::string& action, const std::strin
         hideContextMenus();
         if (addInstanceRequest_) addInstanceRequest_();
         else addInstanceOfSelectedType(coordinator_);
+    } else if (action == "focus-selection") {
+        hideContextMenus();
+        if (focusSelectionRequest_) focusSelectionRequest_();
     } else if (action == "add-instance-of-type") {
         hideContextMenus();
         addInstanceOfType(coordinator_, arg);

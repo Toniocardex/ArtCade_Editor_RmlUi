@@ -4,11 +4,13 @@
 #include "editor-native/commands/domain_change.h"
 #include "editor-native/commands/editor_invalidation.h"
 #include "editor-native/app/pending_edit.h"
+#include "editor-native/app/shortcuts/editor_action.h"
 #include "editor-native/app/unsaved_guard.h"
 #include "editor-native/app/sfx_batch.h"
 #include "editor-native/ui/assets_panel.h"
 #include "editor-native/ui/console_panel.h"
 #include "editor-native/ui/generated_sfx_editor_controller.h"
+#include "editor-native/ui/help_dialog_controller.h"
 #include "editor-native/ui/hierarchy_panel.h"
 #include "editor-native/ui/inspector_panel.h"
 #include "editor-native/ui/tile_palette_dock_panel.h"
@@ -19,6 +21,7 @@
 #include "editor-native/ui/ui_markup.h"
 
 #include <cstddef>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -119,6 +122,15 @@ public:
     // intents, no command). Unset makes the action a no-op.
     using WorkspaceRequest = std::function<void()>;
     void setFitViewHandler(WorkspaceRequest fitView);
+    // ADR-0024: pan Scene View camera to the selected instance (keep zoom).
+    void setFocusSelectionHandler(WorkspaceRequest focusSelection);
+    // ADR-0024: menu/toolbar share dispatcher + ActionStateResolver with keyboard.
+    using EditorActionInvokeFn =
+        std::function<bool(EditorActionId, ActionInvocationSource)>;
+    void setEditorActionInvoker(EditorActionInvokeFn invoker);
+    // Script workspace history (Phase 4 bridge) — used by dispatcher Undo/Redo.
+    bool tryScriptHistoryUndo();
+    bool tryScriptHistoryRedo();
     void setAnimationSliceHandler(WorkspaceRequest sliceAnimation);
     // Apply the pending tileset slicing. Needs the source image's real pixel
     // dimensions (TextureCache), which only the application knows; computes
@@ -222,13 +234,27 @@ public:
     bool promptWarningConfirm(std::string title, std::string copy, std::string hint,
                               std::string primaryLabel, BoolResultHandler onResult);
 
+    // Help dialogs (presentation-only; not a confirm).
+    bool helpDialogOpen() const;
+    bool hasBlockingModal() const;
+    void closeHelp();
+    void openHelpKeyboardShortcuts(const EditorActionContext& liveContext);
+    void openHelpAbout();
+    void setExportTemplatesRoot(std::filesystem::path root);
+    void invokeStableEditorAction(const std::string& stableKey);
+    void handleHelpTabKey(bool shift);
+
     // Copies the selected Console message (full model text) to the clipboard via
     // raylib's SetClipboardText. The single entry point shared by the Copy button
     // and Ctrl+C. Returns false (no-op) when nothing is selected.
     bool copySelectedConsoleMessage();
+    bool hasConsoleMessageSelected() const;
 
     // F2: rename the selected instance in Hierarchy; otherwise the active Scene Layer.
     void beginHierarchyOrLayerRename();
+    bool hasHierarchyRenameDraft() const;
+    void cancelHierarchyRename();
+    bool hasBackgroundOpacityDraft() const;
     /** Expand layer + scroll Hierarchy to an instance after Duplicate (presentation only). */
     void requestHierarchyReveal(const SceneId& sceneId, EntityId id, const std::string& layerId);
     // Viewport drag preview for the selected entity transform. Presentation only:
@@ -371,6 +397,8 @@ private:
     EntityPlacementRequest              createEntityHereRequest_;
     EntityPlacementRequest              createInstanceHereRequest_;
     WorkspaceRequest                    fitViewRequest_;
+    WorkspaceRequest                    focusSelectionRequest_;
+    EditorActionInvokeFn                editorActionInvoke_;
     bool                                viewportContextMenuVisible_ = false;
     bool                                hierarchyContextMenuVisible_ = false;
     // Deferred hierarchy menu request (applied on the next processFrame).
@@ -404,6 +432,9 @@ private:
     std::optional<PendingEditorConfirm> pendingConfirm_;
     void refreshConfirmModal();
     bool handleConfirmAction(const std::string& action);
+    bool handleHelpAction(const std::string& action, const std::string& arg,
+                          const std::string& value);
+    void syncHelpMenuShortcutLabel();
     // ADR-0013 — remove controller still referenced by Logic (three-button confirm).
     void openComponentLogicRemovePrompt(ComponentKind kind, ObjectTypeId objectTypeId,
                                         std::string displayName,
@@ -413,6 +444,8 @@ private:
     std::string                         pointerReadout_;   // last coords text shown
     // Modal RML rebuild is deferred until the active event dispatch ends.
     bool                                generatedSfxRefreshPending_ = false;
+    std::unique_ptr<HelpDialogController> helpDialog_;
+    std::filesystem::path               exportTemplatesRoot_;
 };
 
 } // namespace ArtCade::EditorNative

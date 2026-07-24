@@ -1,8 +1,12 @@
 #include "editor-native/app/editor_app.h"
 
 #include "editor-native/app/asset_import.h"
+#include "editor-native/app/editor_action_dispatcher.h"
+#include "editor-native/app/editor_action_context_builder.h"
+#include "editor-native/app/editor_action_ui_map.h"
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/app/editor_input.h"
+#include "editor-native/app/exclusive_key_capture.h"
 #include "editor-native/app/export/export_application_service.h"
 #include "editor-native/app/export/export_types.h"
 #include "editor-native/app/file_dialog.h"
@@ -12,11 +16,18 @@
 #include "editor-native/app/generated_sfx_status_projection.h"
 #include "editor-native/app/hierarchy_actions.h"
 #include "editor-native/app/input_routing.h"
+#include "editor-native/app/keyboard_consumption_tracker.h"
+#include "editor-native/app/keyboard_focus_tracker.h"
+#include "editor-native/app/native_keyboard_adapter.h"
 #include "editor-native/app/new_project_transaction.h"
 #include "editor-native/app/project_file.h"
 #include "editor-native/app/project_session_controller.h"
 #include "editor-native/app/rml_host.h"
 #include "editor-native/app/scene_view_interaction.h"
+#include "editor-native/app/shortcuts/editor_action_catalog.h"
+#include "editor-native/app/shortcuts/editor_action_state.h"
+#include "editor-native/app/shortcuts/escape_routing.h"
+#include "editor-native/app/shortcuts/shortcut_router.h"
 #include "editor-native/app/sprite_animation_canvas_input.h"
 #include "editor-native/app/sprite_animation_preview_renderer.h"
 #include "editor-native/app/unsaved_guard.h"
@@ -54,6 +65,7 @@
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/Box.h>
+#include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Elements/ElementFormControl.h>
 
 #include <raylib.h>
@@ -100,38 +112,56 @@ namespace {
 // below) - both must render the identical "fit", so the number lives once.
 constexpr float kSceneFitPadding = 28.f;
 
-constexpr std::pair<LogicKey, int> kNativeLogicKeys[] = {
-        {LogicKey::A, KEY_A}, {LogicKey::B, KEY_B}, {LogicKey::C, KEY_C},
-        {LogicKey::D, KEY_D}, {LogicKey::E, KEY_E}, {LogicKey::F, KEY_F},
-        {LogicKey::G, KEY_G}, {LogicKey::H, KEY_H}, {LogicKey::I, KEY_I},
-        {LogicKey::J, KEY_J}, {LogicKey::K, KEY_K}, {LogicKey::L, KEY_L},
-        {LogicKey::M, KEY_M}, {LogicKey::N, KEY_N}, {LogicKey::O, KEY_O},
-        {LogicKey::P, KEY_P}, {LogicKey::Q, KEY_Q}, {LogicKey::R, KEY_R},
-        {LogicKey::S, KEY_S}, {LogicKey::T, KEY_T}, {LogicKey::U, KEY_U},
-        {LogicKey::V, KEY_V}, {LogicKey::W, KEY_W}, {LogicKey::X, KEY_X},
-        {LogicKey::Y, KEY_Y}, {LogicKey::Z, KEY_Z},
-        {LogicKey::Num0, KEY_ZERO}, {LogicKey::Num1, KEY_ONE},
-        {LogicKey::Num2, KEY_TWO}, {LogicKey::Num3, KEY_THREE},
-        {LogicKey::Num4, KEY_FOUR}, {LogicKey::Num5, KEY_FIVE},
-        {LogicKey::Num6, KEY_SIX}, {LogicKey::Num7, KEY_SEVEN},
-        {LogicKey::Num8, KEY_EIGHT}, {LogicKey::Num9, KEY_NINE},
-        {LogicKey::ArrowLeft, KEY_LEFT}, {LogicKey::ArrowRight, KEY_RIGHT},
-        {LogicKey::ArrowUp, KEY_UP}, {LogicKey::ArrowDown, KEY_DOWN},
-        {LogicKey::Space, KEY_SPACE}, {LogicKey::Enter, KEY_ENTER},
+constexpr std::pair<LogicKey, ShortcutKey> kNativeLogicKeys[] = {
+        {LogicKey::A, ShortcutKey::A}, {LogicKey::B, ShortcutKey::B},
+        {LogicKey::C, ShortcutKey::C}, {LogicKey::D, ShortcutKey::D},
+        {LogicKey::E, ShortcutKey::E}, {LogicKey::F, ShortcutKey::F},
+        {LogicKey::G, ShortcutKey::G}, {LogicKey::H, ShortcutKey::H},
+        {LogicKey::I, ShortcutKey::I}, {LogicKey::J, ShortcutKey::J},
+        {LogicKey::K, ShortcutKey::K}, {LogicKey::L, ShortcutKey::L},
+        {LogicKey::M, ShortcutKey::M}, {LogicKey::N, ShortcutKey::N},
+        {LogicKey::O, ShortcutKey::O}, {LogicKey::P, ShortcutKey::P},
+        {LogicKey::Q, ShortcutKey::Q}, {LogicKey::R, ShortcutKey::R},
+        {LogicKey::S, ShortcutKey::S}, {LogicKey::T, ShortcutKey::T},
+        {LogicKey::U, ShortcutKey::U}, {LogicKey::V, ShortcutKey::V},
+        {LogicKey::W, ShortcutKey::W}, {LogicKey::X, ShortcutKey::X},
+        {LogicKey::Y, ShortcutKey::Y}, {LogicKey::Z, ShortcutKey::Z},
+        {LogicKey::Num0, ShortcutKey::Digit0}, {LogicKey::Num1, ShortcutKey::Digit1},
+        {LogicKey::Num2, ShortcutKey::Digit2}, {LogicKey::Num3, ShortcutKey::Digit3},
+        {LogicKey::Num4, ShortcutKey::Digit4}, {LogicKey::Num5, ShortcutKey::Digit5},
+        {LogicKey::Num6, ShortcutKey::Digit6}, {LogicKey::Num7, ShortcutKey::Digit7},
+        {LogicKey::Num8, ShortcutKey::Digit8}, {LogicKey::Num9, ShortcutKey::Digit9},
+        {LogicKey::ArrowLeft, ShortcutKey::Left}, {LogicKey::ArrowRight, ShortcutKey::Right},
+        {LogicKey::ArrowUp, ShortcutKey::Up}, {LogicKey::ArrowDown, ShortcutKey::Down},
+        {LogicKey::Space, ShortcutKey::Space}, {LogicKey::Enter, ShortcutKey::Enter},
 };
 
-std::optional<LogicKey> pressedNativeLogicKey() {
-    for (const auto& [logicKey, raylibKey] : kNativeLogicKeys) {
-        if (IsKeyPressed(raylibKey)) return logicKey;
+std::optional<LogicKey> pressedNativeLogicKey(const KeyboardFrameSnapshot& keyboard) {
+    for (const auto& [logicKey, shortcutKey] : kNativeLogicKeys) {
+        if (keyboard.pressed.test(shortcutKey)) return logicKey;
     }
     return std::nullopt;
 }
 
-void collectLogicKeyPresses(RuntimeInputSnapshot& input) {
-    for (const auto& [logicKey, raylibKey] : kNativeLogicKeys) {
-        if (IsKeyPressed(raylibKey)) input.pressedLogicKeys.push_back(logicKey);
-        if (IsKeyReleased(raylibKey)) input.releasedLogicKeys.push_back(logicKey);
-        if (IsKeyDown(raylibKey)) input.heldLogicKeys.push_back(logicKey);
+void collectLogicKeyPresses(RuntimeInputSnapshot& input,
+                            const KeyboardFrameSnapshot& keyboard,
+                            const KeyboardConsumptionTracker& consumption) {
+    for (const auto& [logicKey, shortcutKey] : kNativeLogicKeys) {
+        if (keyboard.pressed.test(shortcutKey) && !consumption.suppressesPress(shortcutKey))
+            input.pressedLogicKeys.push_back(logicKey);
+        if (keyboard.released.test(shortcutKey) && !consumption.suppressesRelease(shortcutKey))
+            input.releasedLogicKeys.push_back(logicKey);
+        if (keyboard.held.test(shortcutKey) && !consumption.suppressesHeld(shortcutKey))
+            input.heldLogicKeys.push_back(logicKey);
+    }
+}
+
+EditorWorkspaceKind workspaceKindFromMode(CenterWorkspaceMode mode) {
+    switch (mode) {
+    case CenterWorkspaceMode::Logic: return EditorWorkspaceKind::LogicBoard;
+    case CenterWorkspaceMode::Script: return EditorWorkspaceKind::ScriptEditor;
+    case CenterWorkspaceMode::Scene:
+    default: return EditorWorkspaceKind::Scene;
     }
 }
 
@@ -343,6 +373,7 @@ int EditorApp::run(int argc, char** argv) {
     ProjectSessionController projectSession{coordinator, ui, textureCache};
     projectSession.bindUi();
     projectSession.setExportTemplatesRoot(editorResourceRoot() / "export-templates");
+    ui.setExportTemplatesRoot(editorResourceRoot() / "export-templates");
 
     artcade::sfx::RaylibPreview sfxPreview;
     // SFX preview (Generated SFX authoring) owns the audio device independent
@@ -525,6 +556,82 @@ int EditorApp::run(int argc, char** argv) {
         return true;
     };
     ui.setFitViewHandler([&]() { fitActiveScene(); });
+
+    const auto focusSelectionInViewport = [&]() -> bool {
+        if (coordinator.isPlaying()) return false;
+        const SceneId active = coordinator.state().activeSceneId;
+        const SceneDef* scene = coordinator.document().findScene(active);
+        const EntityId selected = coordinator.selection().primaryEntity;
+        if (!scene || selected == INVALID_ENTITY) return false;
+        const SceneInstanceDef* inst =
+            coordinator.document().findInstanceInScene(active, selected);
+        if (!inst) return false;
+
+        const ViewportRect visibleRect = viewportRectFromDocument(host.document());
+        if (visibleRect.width <= 0 || visibleRect.height <= 0) return false;
+        const ViewportRect cameraAnchorRect =
+            elementContentRectFromDocument(host.document(), "center-content");
+
+        Vec2 worldFocus = inst->transform.position;
+        const SceneFrameSnapshot frame = collectSceneFrameSnapshot(
+            coordinator.document(), active, selected,
+            coordinator.sceneView(active).hiddenLayerIds);
+        if (const auto bounds = editorBoundsForEntity(frame, selected)) {
+            worldFocus = Vec2{bounds->x + bounds->width * 0.5f,
+                              bounds->y + bounds->height * 0.5f};
+        }
+
+        const EditorSceneViewState view = coordinator.sceneView(active);
+        const float zoom = view.zoom > 0.f ? view.zoom : 1.f;
+        const Vec2 anchorCenter{cameraAnchorRect.x + cameraAnchorRect.width * 0.5f,
+                                cameraAnchorRect.y + cameraAnchorRect.height * 0.5f};
+        const Vec2 visibleCenter{visibleRect.x + visibleRect.width * 0.5f,
+                                 visibleRect.y + visibleRect.height * 0.5f};
+        const Vec2 targetPan{
+            worldFocus.x - scene->worldSize.x * 0.5f
+                + (anchorCenter.x - visibleCenter.x) / zoom,
+            worldFocus.y - scene->worldSize.y * 0.5f
+                + (anchorCenter.y - visibleCenter.y) / zoom};
+        coordinator.apply(PanViewportIntent{
+            active, {targetPan.x - view.pan.x, targetPan.y - view.pan.y}});
+        return true;
+    };
+    ui.setFocusSelectionHandler([&]() { (void)focusSelectionInViewport(); });
+
+    EditorActionDispatcher actionDispatcher{coordinator, ui, projectSession};
+    KeyboardConsumptionTracker keyboardConsumption;
+    KeyboardFocusTracker keyboardFocus;
+    actionDispatcher.setClearViewportDragHandler([&]() { drag = {}; });
+    actionDispatcher.setFocusSelectionHandler(
+        [&]() { return focusSelectionInViewport(); });
+    actionDispatcher.setScriptHistoryHandlers(
+        [&]() { return ui.tryScriptHistoryUndo(); },
+        [&]() { return ui.tryScriptHistoryRedo(); });
+
+    const auto currentOverlayKind = [&]() {
+        if (coordinator.state().spriteAnimationEditor.openAssetId)
+            return EditorOverlayKind::SpriteAnimationEditor;
+        if (coordinator.state().tilesetEditor.openAssetId)
+            return EditorOverlayKind::TilesetEditor;
+        return EditorOverlayKind::None;
+    };
+
+    ui.setEditorActionInvoker([&](EditorActionId id, ActionInvocationSource source) {
+        const bool modalOpen = ui.hasBlockingModal();
+        const bool popupOpen = ui.hasOpenContextMenu();
+        const ExclusiveCaptureResult capture = ui.hasLogicKeyCapture()
+            ? ExclusiveCaptureResult{ExclusiveCaptureKind::LogicKeyCapture}
+            : ExclusiveCaptureResult{};
+        const bool scriptFocused = coordinator.state().scriptEditor.editorFocused;
+        const EditorActionContext ctx = buildEditorActionContext(
+            coordinator, ui, keyboardFocus.domain(), currentOverlayKind(),
+            scriptFocused, modalOpen, popupOpen, capture.active());
+        const EditorActionResult result =
+            actionDispatcher.invoke({id, source}, ctx);
+        return result.status != EditorActionStatus::Disabled
+            && result.status != EditorActionStatus::Failed;
+    });
+
     const std::function<void()> sliceAnimationHandler = [&]() {
         const SpriteAnimationEditorState& state = coordinator.state().spriteAnimationEditor;
         if (!state.openAssetId || !state.selectedClipId) {
@@ -759,6 +866,12 @@ int EditorApp::run(int argc, char** argv) {
             "Apply");
     };
     ui.setTilesetCloseHandler(closeTilesetEditorGuarded);
+    actionDispatcher.setCloseLegacyOverlayHandler([&]() {
+        if (coordinator.state().tilesetEditor.openAssetId)
+            closeTilesetEditorGuarded();
+        else if (coordinator.state().spriteAnimationEditor.openAssetId)
+            ui.handleAction("close-sprite-animation", "", "");
+    });
     // Arrow-key selection on the pending grid: same positional tile ids the
     // canvas click produces; a missing/stale selection starts at tile one.
     const auto moveTilesetSelection = [&](int dx, int dy) {
@@ -1112,7 +1225,9 @@ int EditorApp::run(int argc, char** argv) {
         if (WindowShouldClose()) {
             glfwSetWindowShouldClose(glfwGetCurrentContext(), 0);
             if (!shotPath.empty()) break;
-            if (!quitConfirmPending && !ui.hasOpenConfirm()) {
+            if (ui.helpDialogOpen()) {
+                ui.closeHelp();
+            } else if (!quitConfirmPending && !ui.hasOpenConfirm()) {
                 quitConfirmPending = true;
                 projectSession.resolveUnsavedChanges([&](bool proceed) {
                     quitConfirmPending = false;
@@ -1143,30 +1258,17 @@ int EditorApp::run(int argc, char** argv) {
         inputSuppression.mouseWheel =
             prevPaletteClipRect.valid()
             && prevPaletteClipRect.contains(GetMouseX(), GetMouseY());
-        const RmlInputResult rml = pumpRmlInput(host.context(), inputSuppression);
-        // ADR-0004: capture owns this frame's keyboard before any editor
-        // shortcut/viewport route. Escape is deliberately cancellation, not a
-        // game key; unsupported keys keep the field armed and are swallowed.
-        const bool logicKeyCaptureFrame = ui.hasLogicKeyCapture();
-        if (logicKeyCaptureFrame) {
-            if (IsKeyPressed(KEY_ESCAPE)) {
-                ui.cancelLogicKeyCapture();
-            } else if (const auto key = pressedNativeLogicKey()) {
-                ui.captureLogicKey(*key);
-            }
-        }
-        if (!logicKeyCaptureFrame && ui.hasOpenConfirm()
-            && IsKeyPressed(KEY_ESCAPE)) {
-            ui.cancelConfirm();
-        }
-        if (!logicKeyCaptureFrame && !ui.hasOpenConfirm()
-            && IsKeyPressed(KEY_F8)) host.toggleDebugger();
+
+        // ADR-0024: one keyboard acquisition per frame, before Rml delivery.
+        const KeyboardFrameSnapshot keyboard = captureKeyboardFrame();
+        keyboardConsumption.beginFrame(keyboard);
+        const RmlInputResult rml = pumpRmlInput(host.context(), keyboard, inputSuppression);
+
+        const bool workspaceChanged =
+            coordinator.state().centerWorkspaceMode != previousWorkspaceMode;
         const bool nonSceneWorkspace = coordinator.state().centerWorkspaceMode
             != CenterWorkspaceMode::Scene;
-        if (coordinator.state().centerWorkspaceMode != previousWorkspaceMode) {
-            // Local presentation gestures belong to the surface that started
-            // them. Never let a hidden Scene drag/context click complete after
-            // switching to Logic (or vice versa).
+        if (workspaceChanged) {
             drag = ViewportDrag{};
             contextClick = ViewportContextClick{};
             pendingContextSpawn.reset();
@@ -1174,84 +1276,116 @@ int EditorApp::run(int argc, char** argv) {
             previousWorkspaceMode = coordinator.state().centerWorkspaceMode;
         }
 
-        // Undo/redo keyboard shortcuts share the single coordinator entry points
-        // with the toolbar buttons; suppressed while a text field has focus, and
-        // guarded against Play by the coordinator. Ctrl+Z = undo; Ctrl+Y or
-        // Ctrl+Shift+Z = redo. Ctrl+D = clone selected; Ctrl+Shift+D = create
-        // instance of selected; all three share the exact free functions the
-        // Hierarchy context menu already calls, so there is one entry point per
-        // operation regardless of trigger. Play-mode rejection also comes from
-        // the coordinator (execute()), same as every other shortcut here.
-        if (!logicKeyCaptureFrame && !rml.textFocus
-            && (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL))) {
-            const bool shift = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
-            if (IsKeyPressed(KEY_Y) || (shift && IsKeyPressed(KEY_Z))) {
-                coordinator.redo();
-            } else if (IsKeyPressed(KEY_Z)) {
-                coordinator.undo();
-            } else if (IsKeyPressed(KEY_C)) {
-                // Copy the selected Console message. A focused RmlUi text field
-                // keeps its own Ctrl+C (guarded by textFocus above); with no
-                // selection this is a no-op.
-                ui.copySelectedConsoleMessage();
-            } else if (!nonSceneWorkspace && shift && IsKeyPressed(KEY_D)) {
-                addInstanceOfSelectedType(coordinator);
-            } else if (!nonSceneWorkspace && IsKeyPressed(KEY_D)) {
-                if (duplicateSelectedEntity(coordinator).ok) {
-                    const EntityId newId = coordinator.selection().primaryEntity;
-                    const SceneId& sceneId = coordinator.state().activeSceneId;
-                    std::string layerId;
-                    if (const SceneInstanceDef* inst =
-                            coordinator.document().findInstanceInScene(sceneId, newId)) {
-                        layerId = coordinator.document().effectiveLayerId(sceneId, *inst);
-                    }
-                    ui.requestHierarchyReveal(sceneId, newId, layerId);
+        const bool logicKeyCaptureFrame = ui.hasLogicKeyCapture();
+        const ExclusiveCaptureResult exclusiveCapture = logicKeyCaptureFrame
+            ? ExclusiveCaptureResult{ExclusiveCaptureKind::LogicKeyCapture}
+            : ExclusiveCaptureResult{};
+        const bool modalOpen = ui.hasBlockingModal();
+        const bool animationEditorOpen =
+            coordinator.state().spriteAnimationEditor.openAssetId.has_value();
+        const bool tilesetEditorOpen =
+            coordinator.state().tilesetEditor.openAssetId.has_value();
+        const bool popupOpenEarly = ui.hasOpenContextMenu();
+        const bool scriptFocused = coordinator.state().scriptEditor.editorFocused;
+
+        // Claim focus domain on click (presentation-only KeyboardFocusTracker).
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && host.context()) {
+            const int sw = GetScreenWidth();
+            const int sh = GetScreenHeight();
+            const float sx = sw > 0
+                ? static_cast<float>(GetRenderWidth()) / static_cast<float>(sw) : 1.f;
+            const float sy = sh > 0
+                ? static_cast<float>(GetRenderHeight()) / static_cast<float>(sh) : 1.f;
+            if (Rml::Element* hit = host.context()->GetElementAtPoint(
+                    Rml::Vector2f{static_cast<float>(GetMouseX()) * sx,
+                                  static_cast<float>(GetMouseY()) * sy})) {
+                keyboardFocus.claimFromElement(hit);
+            }
+        }
+
+        keyboardFocus.sync(host.context(), keyboard.windowFocused, modalOpen,
+                           scriptFocused, rml.textFocus,
+                           workspaceKindFromMode(coordinator.state().centerWorkspaceMode),
+                           workspaceChanged);
+
+        EscapeContext escapeCtx;
+        escapeCtx.modalOpen = modalOpen;
+        escapeCtx.logicKeyCapture = exclusiveCapture.active();
+        escapeCtx.contextMenuOpen = popupOpenEarly;
+        escapeCtx.inlineRenameActive = ui.hasHierarchyRenameDraft();
+        escapeCtx.backgroundOpacityDraft = ui.hasBackgroundOpacityDraft();
+        escapeCtx.tilemapOperationActive =
+            coordinator.state().tilemapEditor.pendingStroke.has_value()
+            || coordinator.state().tilemapEditor.pendingRectangle.has_value();
+        escapeCtx.viewportDragActive = drag.active;
+        escapeCtx.temporaryToolActive =
+            coordinator.state().tilemapEditor.temporaryToolOverride.has_value();
+        escapeCtx.overlayEditorOpen = animationEditorOpen || tilesetEditorOpen;
+        actionDispatcher.setEscapeContext(escapeCtx);
+
+        const EscapeOwner escapeOwner = resolveEscapeOwner(escapeCtx);
+        const bool rmlOwnsEscape =
+            (scriptFocused || rml.textFocus)
+            && !modalOpen && !exclusiveCapture.active()
+            && !ui.hasHierarchyRenameDraft()
+            && !ui.hasBackgroundOpacityDraft();
+
+        // EscapeOwner owns Escape before the catalog router (typed switch).
+        if (keyboard.pressed.test(ShortcutKey::Escape) && !rmlOwnsEscape
+            && escapeOwner != EscapeOwner::None) {
+            keyboardConsumption.consumeUntilRelease(ShortcutKey::Escape);
+            const EditorActionContext escapeActionCtx = buildEditorActionContext(
+                coordinator, ui, keyboardFocus.domain(), currentOverlayKind(),
+                scriptFocused || rml.textFocus, modalOpen, popupOpenEarly,
+                exclusiveCapture.active());
+            actionDispatcher.execute(
+                {EditorActionId::CancelCurrentOperation,
+                 ActionInvocationSource::Shortcut},
+                escapeActionCtx);
+        } else if (exclusiveCapture.active()) {
+            if (const auto key = pressedNativeLogicKey(keyboard))
+                ui.captureLogicKey(*key);
+        } else if (!modalOpen) {
+            // F9: RmlUi debugger (F8 is Stop Play per ADR-0024).
+            if (keyboard.pressed.test(ShortcutKey::F9)) host.toggleDebugger();
+
+            EditorShortcutContext shortcutCtx;
+            shortcutCtx.workspace =
+                workspaceKindFromMode(coordinator.state().centerWorkspaceMode);
+            shortcutCtx.focus = keyboardFocus.domain();
+            shortcutCtx.windowFocused = keyboard.windowFocused;
+            shortcutCtx.playing = coordinator.isPlaying();
+            shortcutCtx.modalOpen = false;
+            shortcutCtx.popupOpen = popupOpenEarly;
+            shortcutCtx.textEditing = rml.textFocus || scriptFocused;
+            shortcutCtx.exclusiveKeyCapture = false;
+            shortcutCtx.tilemapEditingAvailable = selectionSupportsTilemapEditing(
+                coordinator.document(), coordinator.state(),
+                coordinator.state().activeSceneId);
+            shortcutCtx.tilemapOperationActive = escapeCtx.tilemapOperationActive;
+            shortcutCtx.overlay = currentOverlayKind();
+
+            const ShortcutCatalogView catalog{shortcutBindings(), shortcutBindingCount()};
+            const ShortcutResolution resolution =
+                resolveShortcut(keyboard, shortcutCtx, catalog);
+            if (resolution.matched) {
+                if (resolution.requestedConsumption.consumePrimaryUntilRelease)
+                    keyboardConsumption.consumeUntilRelease(
+                        resolution.requestedConsumption.primaryKey);
+
+                const EditorActionContext actionCtx = buildEditorActionContext(
+                    coordinator, ui, shortcutCtx.focus, shortcutCtx.overlay,
+                    shortcutCtx.textEditing, false, shortcutCtx.popupOpen, false);
+                const EditorActionState state =
+                    resolveActionState(resolution.action, actionCtx);
+                if (state.enabled) {
+                    actionDispatcher.execute(
+                        {resolution.action, ActionInvocationSource::Shortcut},
+                        actionCtx);
                 }
             }
         }
-        if (!logicKeyCaptureFrame && !nonSceneWorkspace && !rml.textFocus
-            && !coordinator.isPlaying() && IsKeyPressed(KEY_F2)) {
-            ui.beginHierarchyOrLayerRename();
-        }
-        // Tilemap tool shortcuts only switch tools between strokes/rectangles -
-        // mid-operation, only Escape (handled inside routeViewportTilemapPaint,
-        // which needs the operation's context) may interrupt.
-        if (!logicKeyCaptureFrame && !nonSceneWorkspace && !rml.textFocus && !coordinator.isPlaying()
-            && !coordinator.state().tilemapEditor.pendingStroke
-            && !coordinator.state().tilemapEditor.pendingRectangle) {
-            if (IsKeyPressed(KEY_B)) coordinator.apply(SetActiveToolIntent{EditorTool::Brush});
-            else if (IsKeyPressed(KEY_E)) coordinator.apply(SetActiveToolIntent{EditorTool::Eraser});
-            else if (IsKeyPressed(KEY_I)) coordinator.apply(SetActiveToolIntent{EditorTool::Picker});
-            else if (IsKeyPressed(KEY_R)) coordinator.apply(SetActiveToolIntent{EditorTool::Rectangle});
-            else if (IsKeyPressed(KEY_F)) coordinator.apply(SetActiveToolIntent{EditorTool::Fill});
-        }
-        // Tile Palette Fit shortcuts (Slice 5). Home = Fit Content; Shift+Home
-        // = Fit Selection — never bare F, which stays Fill above. Reveal the
-        // dock first so consumePendingFit can run on the next frame.
-        if (!logicKeyCaptureFrame && !nonSceneWorkspace && !rml.textFocus && !coordinator.isPlaying()
-            && selectionSupportsTilemapEditing(coordinator.document(), coordinator.state(),
-                                               coordinator.state().activeSceneId)
-            && IsKeyPressed(KEY_HOME)) {
-            const SceneInstanceDef* tmInst = coordinator.document().findInstanceInScene(
-                coordinator.state().activeSceneId, coordinator.selection().primaryEntity);
-            if (tmInst && tilemapHasPaintableTileset(coordinator.document(), *tmInst)) {
-                const AssetId tilesetId = tmInst->tilemap->tilesetAssetId;
-                const bool shift = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
-                if (!coordinator.uiState().tilePaletteDockVisible) {
-                    coordinator.apply(SetTilePaletteDockVisibleIntent{true});
-                }
-                coordinator.apply(RequestTilePaletteFitIntent{
-                    tilesetId,
-                    shift ? TilePaletteFitKind::Selection : TilePaletteFitKind::Content});
-            }
-        }
-        // Delete: KEY_DELETE is also forwarded into RmlUi's own text editing
-        // (editor_input.cpp), but only takes effect there while a field has
-        // focus; textFocus is false in exactly the complementary case, so the
-        // two never fire on the same keypress.
-        if (!logicKeyCaptureFrame && !nonSceneWorkspace && !rml.textFocus && IsKeyPressed(KEY_DELETE)) {
-            deleteSelectedEntity(coordinator);
-        }
+
         const ViewportRect visibleRect = viewportRectFromDocument(host.document());
         // Includes the Tile Palette dock's footprint even when it's eating
         // space from the bottom of #viewport, so the camera keeps anchoring on
@@ -1279,23 +1413,20 @@ int EditorApp::run(int argc, char** argv) {
         const bool contextMenuHit = ui.isContextMenuHit(
             static_cast<int>(static_cast<float>(GetMouseX()) * uiPixelScaleX()),
             static_cast<int>(static_cast<float>(GetMouseY()) * uiPixelScaleY()));
-        const bool animationEditorOpen =
-            coordinator.state().spriteAnimationEditor.openAssetId.has_value();
-        const bool tilesetEditorOpen =
-            coordinator.state().tilesetEditor.openAssetId.has_value();
         bool playing = coordinator.isPlaying();
-        const bool popupOpen = ui.hasOpenContextMenu();
+        const bool popupOpen = popupOpenEarly;
 
         // Keyboard ownership is a durable Scene View state, not a side effect
         // of the cursor's current position. Play started from Scene acquires it;
         // any explicit UI/text/window/popup transition releases it.
         if (playing && !previousPlaying) gameplayInputFocused = !nonSceneWorkspace;
         if (!playing || nonSceneWorkspace || rml.textFocus || !IsWindowFocused() || popupOpen
-            || animationEditorOpen || tilesetEditorOpen)
+            || animationEditorOpen || tilesetEditorOpen || modalOpen)
             gameplayInputFocused = false;
         if (playing && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             gameplayInputFocused = !nonSceneWorkspace && !rml.textFocus && !popupOpen
-                && !contextMenuHit && visibleRect.contains(GetMouseX(), GetMouseY());
+                && !modalOpen && !contextMenuHit
+                && visibleRect.contains(GetMouseX(), GetMouseY());
         }
         previousPlaying = playing;
         const ViewportRect animationInputRect = animationEditorOpen
@@ -1304,7 +1435,8 @@ int EditorApp::run(int argc, char** argv) {
         const ViewportRect tilesetInputRect = tilesetEditorOpen
             ? resolveTilesetEditorCanvasContentRect(tilesetDocument)
             : ViewportRect{};
-        if (!logicKeyCaptureFrame && !animationEditorOpen && !tilesetEditorOpen && !nonSceneWorkspace) {
+        if (!exclusiveCapture.active() && !animationEditorOpen && !tilesetEditorOpen
+            && !nonSceneWorkspace && !modalOpen) {
             routeViewportInput(coordinator, sceneViewportProjectionFor(visibleRect, cameraAnchorRect),
                                rml, contextMenuHit);
         }
@@ -1325,9 +1457,9 @@ int EditorApp::run(int argc, char** argv) {
             // game) — there is no host-side hardcoded movement to poll.
             RuntimeInputSnapshot input;
             if (shouldForwardGameplayKeyboardInput({
-                    !nonSceneWorkspace, gameplayInputFocused, IsWindowFocused(),
+                    !nonSceneWorkspace, gameplayInputFocused, keyboard.windowFocused,
                     rml.textFocus, popupOpen})) {
-                collectLogicKeyPresses(input);
+                collectLogicKeyPresses(input, keyboard, keyboardConsumption);
             }
             coordinator.tickRuntime(input, dt);
         } else if (!animationEditorOpen && !tilesetEditorOpen && !nonSceneWorkspace) {
@@ -1339,14 +1471,7 @@ int EditorApp::run(int argc, char** argv) {
             if (!editScene.empty() && !coordinator.sceneView(editScene).initialized) {
                 if (fitActiveScene()) coordinator.markSceneViewInitialized(editScene);
             }
-            if (!logicKeyCaptureFrame && !ui.hasOpenConfirm()
-                && !rml.textFocus && IsKeyPressed(KEY_ESCAPE)) {
-                if (ui.cancelSceneBackgroundOpacityDragIfNeeded()) {
-                    // Escape consumed by Opacity draft cancel.
-                } else {
-                    routeGlobalEscape(coordinator);
-                }
-            }
+            // Escape is owned by EditorActionDispatcher (EscapeOwner) above.
             routeViewportPickDrag(coordinator, projection, rml, drag, contextMenuHit);
             routeViewportContextMenu(coordinator, ui, projection, rml, contextClick,
                                      pendingContextSpawn, contextMenuHit);
@@ -1393,18 +1518,21 @@ int EditorApp::run(int argc, char** argv) {
             // pending-grid selection. prevTextFocus covers the commit frame -
             // the Enter that just committed a field must not double as Apply,
             // and the Esc that dismissed a field must not close the editor.
-            if (!rml.textFocus && !prevTextFocus && !ui.hasOpenConfirm()) {
-                if (IsKeyPressed(KEY_ESCAPE)) {
-                    closeTilesetEditorGuarded();
-                } else if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) {
+            if (!rml.textFocus && !prevTextFocus && !ui.hasBlockingModal()) {
+                // Escape closes via EscapeOwner::LegacyOverlayHandler.
+                if (keyboard.pressed.test(ShortcutKey::Enter)) {
                     tryApplyPendingTilesetSlicing([](bool) {});
                 } else {
                     int dx = 0;
                     int dy = 0;
-                    if (IsKeyPressed(KEY_RIGHT) || IsKeyPressedRepeat(KEY_RIGHT)) dx = 1;
-                    else if (IsKeyPressed(KEY_LEFT) || IsKeyPressedRepeat(KEY_LEFT)) dx = -1;
-                    else if (IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN)) dy = 1;
-                    else if (IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP)) dy = -1;
+                    if (keyboard.pressed.test(ShortcutKey::Right)
+                        || keyboard.repeated.test(ShortcutKey::Right)) dx = 1;
+                    else if (keyboard.pressed.test(ShortcutKey::Left)
+                             || keyboard.repeated.test(ShortcutKey::Left)) dx = -1;
+                    else if (keyboard.pressed.test(ShortcutKey::Down)
+                             || keyboard.repeated.test(ShortcutKey::Down)) dy = 1;
+                    else if (keyboard.pressed.test(ShortcutKey::Up)
+                             || keyboard.repeated.test(ShortcutKey::Up)) dy = -1;
                     if (dx != 0 || dy != 0) moveTilesetSelection(dx, dy);
                 }
             }
@@ -1458,7 +1586,8 @@ int EditorApp::run(int argc, char** argv) {
                     : std::filesystem::path{});
             const auto [inputHole, inputClip] = resolveTilePaletteRects();
             routeTilePaletteInput(coordinator, *tilePaletteTileset, inputHole, inputClip,
-                                  rml, tilePaletteMask, tilePaletteTexture, paletteInput);
+                                  rml, tilePaletteMask, tilePaletteTexture, paletteInput,
+                                  keyboard.pressed.test(ShortcutKey::Escape));
             prevPaletteClipRect = inputClip;
         } else {
             // Not routable this frame (Play, other workspace, an asset editor

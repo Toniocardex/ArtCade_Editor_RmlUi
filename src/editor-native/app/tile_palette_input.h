@@ -52,6 +52,7 @@ void routeTilePaletteInput(EditorCoordinator& coordinator,
                            const RmlInputResult& rml,
                            const TilesetEmptyMaskView& emptyMask,
                            const TextureResource* texture,
-                           TilePaletteInputState& state);
+                           TilePaletteInputState& state,
+                           bool escapePressed = false);
 
 } // namespace ArtCade::EditorNative

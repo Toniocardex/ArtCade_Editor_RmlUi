@@ -72,6 +72,15 @@ add_library(artcade-editor-core STATIC
     editor-native/app/inspector_actions.cpp
     editor-native/app/inspector_commit.cpp
     editor-native/app/pending_edit.cpp
+    editor-native/app/shortcuts/editor_action_catalog.cpp
+    editor-native/app/shortcuts/shortcut_conflicts.cpp
+    editor-native/app/shortcuts/shortcut_format.cpp
+    editor-native/app/shortcuts/shortcut_context.cpp
+    editor-native/app/shortcuts/shortcut_router.cpp
+    editor-native/app/shortcuts/editor_action_state.cpp
+    editor-native/app/shortcuts/escape_routing.cpp
+    editor-native/app/shortcuts/keyboard_shortcut_projection.cpp
+    editor-native/app/editor_build_info.cpp
     editor-native/app/project_file.cpp
     editor-native/app/project_script_file_service.cpp
     editor-native/app/script_syntax_validator.cpp
@@ -172,6 +181,11 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/app/generated_sfx_output_transaction.cpp
     editor-native/app/project_session_controller.cpp
     editor-native/app/scene_view_interaction.cpp
+    editor-native/app/native_keyboard_adapter.cpp
+    editor-native/app/keyboard_consumption_tracker.cpp
+    editor-native/app/keyboard_focus_tracker.cpp
+    editor-native/app/editor_action_dispatcher.cpp
+    editor-native/app/editor_action_context_builder.cpp
     ${rmlui_SOURCE_DIR}/Backends/RmlUi_Renderer_GL3.cpp
     editor-native/app/rml_system.cpp
     editor-native/app/rml_host.cpp
@@ -194,6 +208,7 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/app/tilemap_paint_input.cpp
     editor-native/ui/ui_markup.cpp
     editor-native/ui/editor_ui.cpp
+    editor-native/ui/help_dialog_controller.cpp
     editor-native/ui/logic_board_editor_controller.cpp
     editor-native/ui/logic_property_editor.cpp
     editor-native/ui/script_editor_controller.cpp

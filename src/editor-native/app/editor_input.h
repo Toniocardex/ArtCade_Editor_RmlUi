@@ -4,6 +4,9 @@ namespace Rml { class Context; }
 
 namespace ArtCade::EditorNative {
 
+struct KeyboardFrameSnapshot;
+struct RmlInputSuppression;
+
 // Result of feeding one frame of raylib input into RmlUi — used to route the
 // remainder to the viewport (prompt §19).
 struct RmlInputResult {
@@ -19,8 +22,10 @@ struct RmlInputSuppression {
     bool mouseWheel = false;
 };
 
-// Translate this frame's raylib mouse/keyboard/text into the RmlUi context.
+// Translate this frame's mouse (Raylib) + keyboard snapshot into the RmlUi
+// context. Keyboard must not be re-read from Raylib here (ADR-0024).
 RmlInputResult pumpRmlInput(Rml::Context* context,
+                            const KeyboardFrameSnapshot& keyboard,
                             const RmlInputSuppression& suppression = {});
 
 } // namespace ArtCade::EditorNative

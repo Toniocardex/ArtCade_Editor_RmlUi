@@ -51,6 +51,12 @@ public:
     bool restartAndApplyScripts();
     void requestExportWindows();
 
+    // ADR-0024: public session workflows (keyboard dispatcher + menu).
+    void requestNewProject();
+    void requestOpenProject();
+    bool requestSave();
+    void requestSaveAs();
+
     void refreshWindowTitle();
     void refreshWindowTitleIfNeeded();
 
@@ -66,9 +72,6 @@ public:
 
 private:
     bool saveCurrent();
-    void requestNewProject();
-    void requestOpenProject();
-    void requestSaveAs();
     void beginExportWindowsAfterSaved();
     std::optional<std::vector<Scripts::ScriptProgram>> snapshotSavedScriptsForPlay();
 

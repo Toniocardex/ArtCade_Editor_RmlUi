@@ -30,8 +30,13 @@ class RuntimeTemplateCatalog {
 public:
     explicit RuntimeTemplateCatalog(std::filesystem::path exportTemplatesRoot);
 
+    // Full export readiness check (binary + hash + format compatibility).
     RuntimeTemplateInfo resolve(ExportTarget target, int projectFormatVersion,
                                 std::string_view packerAssetKeyId) const;
+
+    // Reads version fields from runtime-template.json without requiring the
+    // player binary. ok=true when the manifest parses with an engineVersion.
+    RuntimeTemplateInfo peekManifest(ExportTarget target) const;
 
 private:
     std::filesystem::path root_;

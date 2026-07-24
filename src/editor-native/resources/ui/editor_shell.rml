@@ -5,6 +5,7 @@
     <link type="text/rcss" href="layout.rcss"/>
     <link type="text/rcss" href="panels.rcss"/>
     <link type="text/rcss" href="controls.rcss"/>
+    <link type="text/rcss" href="dialogs.rcss"/>
     <link type="text/rcss" href="logic_board.rcss"/>
     <link type="text/rcss" href="script_editor.rcss"/>
     <link type="text/rcss" href="sfx_editor.rcss"/>
@@ -45,6 +46,20 @@
                 <div class="menu-separator"></div>
                 <div class="menu-entry" data-action="toggle-console"><span class="icon">&#xebdc;</span>Toggle Console</div>
                 <div id="menu-tile-palette" class="menu-entry" data-action="toggle-tile-palette-dock"><span class="icon">&#xf22f;</span>Tile Palette</div>
+            </div>
+        </div>
+        <div class="menu-item has-menu">
+            <span class="menu-label">Help</span>
+            <div class="menu-dropdown menu-dropdown-right">
+                <div id="menu-help-keyboard-shortcuts" class="menu-entry"
+                     data-editor-action="help.keyboard_shortcuts">
+                    <span class="menu-entry-label">Keyboard Shortcuts…</span>
+                    <span id="menu-help-keyboard-shortcuts-label" class="menu-entry-shortcut"></span>
+                </div>
+                <div class="menu-separator"></div>
+                <div class="menu-entry" data-editor-action="help.about">
+                    <span class="menu-entry-label">About ArtCade…</span>
+                </div>
             </div>
         </div>
     </div>
@@ -147,8 +162,8 @@
     </div>
 
     <div id="workspace">
-        <div id="left-col" class="panel">
-            <div id="hierarchy-pane" class="side-pane hierarchy-pane">
+        <div id="left-col" class="panel" data-keyboard-domain="hierarchy">
+            <div id="hierarchy-pane" class="side-pane hierarchy-pane" data-keyboard-domain="hierarchy">
                 <div class="panel-header"><span class="icon">&#xee9e;</span>HIERARCHY</div>
                 <div id="hierarchy-search-slot" class="hierarchy-search-slot"></div>
                 <div class="tree-section">Scenes</div>
@@ -167,7 +182,7 @@
                 </div>
                 <div id="hierarchy-list" class="tree"></div>
             </div>
-            <div id="assets-pane" class="side-pane assets-pane">
+            <div id="assets-pane" class="side-pane assets-pane" data-keyboard-domain="assets">
                 <div class="panel-header"><span class="icon">&#xeaad;</span>ASSETS</div>
                 <div id="assets-search-slot" class="assets-search-slot"></div>
                 <div id="assets-list" class="assets"></div>
@@ -187,7 +202,7 @@
             <div id="workspace-content">
                 <div id="center-workspace">
                     <div id="center-content">
-                        <div id="viewport">
+                        <div id="viewport" data-keyboard-domain="scene-viewport">
                     <div id="viewport-empty" class="viewport-empty hidden">
                         <div class="viewport-empty-box">
                             <div class="viewport-empty-title">No scene open</div>
@@ -197,7 +212,7 @@
                     </div>
                 </div>
                         <div id="split-tile-palette" class="hsplit hidden" data-action="resize-tile-palette"></div>
-                        <div id="tile-palette-dock" class="hidden">
+                        <div id="tile-palette-dock" class="hidden" data-keyboard-domain="tile-palette">
                     <div class="tile-palette-dock-header">
                         <span class="icon">&#xf22f;</span>
                         <span id="tile-palette-dock-title" class="tile-palette-dock-title">TILE PALETTE</span>
@@ -258,7 +273,7 @@
 
                 <div id="split-right" class="vsplit" data-action="resize-right"></div>
 
-                <div id="right-col" class="panel">
+                <div id="right-col" class="panel" data-keyboard-domain="inspector">
                     <div class="panel-header"><span class="icon">&#xea03;</span>INSPECTOR</div>
                     <div id="inspector-body" class="inspector"></div>
                 </div>
@@ -268,7 +283,7 @@
 
     <div id="split-console" class="hsplit" data-action="resize-console"></div>
 
-    <div id="console" class="panel">
+    <div id="console" class="panel" data-keyboard-domain="console">
         <div class="panel-header">
             <span class="icon">&#xebdc;</span>CONSOLE
             <span id="console-counts" class="console-counts"></span>
@@ -332,6 +347,7 @@
         <div id="hctx-rename-entity" class="context-entry" data-action="begin-hierarchy-rename"><span class="icon">&#xeb0a;</span><span>Rename</span><span class="context-shortcut">F2</span></div>
         <div id="hctx-duplicate-entity" class="context-entry" data-action="duplicate-entity"><span class="icon">&#xedef;</span><span>Duplicate Instance</span><span class="context-shortcut">Ctrl+D</span></div>
         <div id="hctx-add-instance" class="context-entry" data-action="add-instance"><span class="icon">&#xeb0b;</span><span>Create Instance of Type</span></div>
+        <div id="hctx-focus-entity" class="context-entry" data-action="focus-selection"><span class="icon">&#xea6c;</span><span>Focus Selection</span><span class="context-shortcut">F</span></div>
         <div id="hctx-entity-sep-1" class="menu-separator"></div>
         <div id="hctx-move-to-layer" class="context-entry has-submenu">
             <span class="icon">&#xeb2d;</span><span>Move to Layer</span><span class="context-submenu-caret">&#xea61;</span>
@@ -371,5 +387,8 @@
 
     <!-- Shared themed confirm (unsaved, delete, tileset, remove-controller, …). -->
     <div id="editor-confirm-modal" class="editor-modal-backdrop hidden"></div>
+
+    <!-- Help host (Keyboard Shortcuts / About). Mutually exclusive pages. -->
+    <div id="editor-help-modal" class="editor-modal-backdrop hidden"></div>
 </body>
 </rml>

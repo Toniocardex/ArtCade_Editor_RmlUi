@@ -1,0 +1,22 @@
+<!-- Reference markup for Help > Keyboard Shortcuts (stamped by HelpDialogController). -->
+<div class="help-dialog keyboard-shortcuts-dialog">
+    <div class="help-dialog-header">
+        <span class="help-dialog-title">Keyboard Shortcuts</span>
+        <button class="help-dialog-close" data-action="help-close">×</button>
+    </div>
+    <div class="shortcuts-toolbar">
+        <input id="help-shortcuts-search" class="shortcuts-search" type="text"
+               data-action="help-shortcuts-search" placeholder="Search actions…"/>
+    </div>
+    <div class="shortcuts-tabs">
+        <button class="shortcuts-tab" data-action="help-shortcuts-filter" data-arg="all">All</button>
+        <button class="shortcuts-tab" data-action="help-shortcuts-filter" data-arg="general">General</button>
+        <button class="shortcuts-tab" data-action="help-shortcuts-filter" data-arg="scene">Scene</button>
+        <button class="shortcuts-tab" data-action="help-shortcuts-filter" data-arg="logic">Logic Board</button>
+        <button class="shortcuts-tab" data-action="help-shortcuts-filter" data-arg="script">Script</button>
+    </div>
+    <div class="shortcuts-list"></div>
+    <div class="help-dialog-footer">
+        <button class="panel-btn" data-action="help-close">Close</button>
+    </div>
+</div>

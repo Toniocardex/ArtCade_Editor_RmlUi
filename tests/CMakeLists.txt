@@ -24,6 +24,9 @@ endfunction()
 artcade_editor_core_suite(editor_core_test
     editor-core-test.cpp)
 
+artcade_editor_core_suite(editor_actions_shortcut_test
+    editor-actions-shortcut-test.cpp)
+
 artcade_editor_core_suite(sprite_animation_test
     sprite-animation-test.cpp)
 

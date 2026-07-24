@@ -1,0 +1,241 @@
+/* Help dialogs — Keyboard Shortcuts + About (presentation-only). */
+
+.help-dialog {
+    width: 720dp;
+    max-width: 92%;
+    max-height: 86%;
+    background-color: #17181c;
+    border: 1px #30333b;
+    border-radius: 4dp;
+    display: flex;
+    flex-direction: column;
+}
+
+.keyboard-shortcuts-dialog {
+    height: 560dp;
+}
+
+.about-dialog {
+    width: 440dp;
+    height: auto;
+}
+
+.help-dialog-header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 12dp 14dp;
+    border-bottom: 1px #292b31;
+}
+
+.help-dialog-title {
+    flex: 1;
+    font-size: 15dp;
+    font-weight: 600;
+    color: #e4e6eb;
+}
+
+.help-dialog-close {
+    width: 28dp;
+    height: 28dp;
+    line-height: 26dp;
+    text-align: center;
+    background-color: transparent;
+    border: 1px transparent;
+    border-radius: 2dp;
+    color: #9aa0ab;
+    font-size: 18dp;
+}
+
+.help-dialog-close:hover {
+    background-color: #22252c;
+    color: #e4e6eb;
+}
+
+.shortcuts-toolbar {
+    display: flex;
+    padding: 12dp;
+    border-bottom: 1px #292b31;
+}
+
+.shortcuts-search {
+    flex: 1;
+    height: 30dp;
+    padding: 0 10dp;
+    background-color: #121317;
+    border: 1px #30333b;
+    border-radius: 3dp;
+    color: #d8dae0;
+    font-size: 12dp;
+}
+
+.shortcuts-tabs {
+    display: flex;
+    flex-direction: row;
+    padding: 8dp 12dp;
+    border-bottom: 1px #292b31;
+}
+
+.shortcuts-tab {
+    height: 26dp;
+    line-height: 24dp;
+    margin-right: 6dp;
+    padding: 0 10dp;
+    background-color: transparent;
+    border: 1px transparent;
+    border-radius: 3dp;
+    color: #8b919c;
+    font-size: 12dp;
+}
+
+.shortcuts-tab:hover {
+    background-color: #1e2026;
+    color: #d8dae0;
+}
+
+.shortcuts-tab.active {
+    background-color: #252830;
+    border-color: #3a3f4a;
+    color: #e4e6eb;
+}
+
+.shortcuts-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4dp 0 8dp 0;
+}
+
+.shortcut-section {
+    padding: 10dp 12dp 4dp 12dp;
+    color: #737985;
+    font-size: 10dp;
+    font-weight: 700;
+    letter-spacing: 1dp;
+}
+
+.shortcut-row {
+    display: flex;
+    flex-direction: row;
+    height: 34dp;
+    padding: 0 12dp;
+    border-bottom: 1px #25272d;
+}
+
+.shortcut-row:hover {
+    background-color: #1e2026;
+}
+
+.shortcut-row-unavailable {
+    opacity: 0.45;
+}
+
+.shortcut-label {
+    flex: 1;
+    line-height: 34dp;
+    color: #d8dae0;
+    font-size: 12dp;
+}
+
+.shortcut-gesture {
+    width: 220dp;
+    line-height: 34dp;
+    text-align: right;
+    color: #cfd2d9;
+    font-family: "JetBrains Mono";
+    font-size: 11dp;
+}
+
+.shortcuts-empty {
+    padding: 24dp 12dp;
+    color: #737985;
+    font-size: 12dp;
+    text-align: center;
+}
+
+.help-dialog-footer {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-end;
+    padding: 10dp 12dp;
+    border-top: 1px #292b31;
+}
+
+.about-body {
+    padding: 20dp 24dp 8dp 24dp;
+    text-align: center;
+}
+
+.about-brand {
+    font-size: 12dp;
+    font-weight: 700;
+    letter-spacing: 2dp;
+    color: #7aa2e8;
+    margin-bottom: 8dp;
+}
+
+.about-product {
+    font-size: 18dp;
+    font-weight: 600;
+    color: #e8eaef;
+    margin-bottom: 4dp;
+}
+
+.about-version {
+    font-size: 12dp;
+    color: #a0a6b2;
+    margin-bottom: 12dp;
+}
+
+.about-tagline {
+    font-size: 12dp;
+    color: #8b919c;
+    margin-bottom: 18dp;
+}
+
+.about-meta {
+    text-align: left;
+    margin: 0 auto;
+    max-width: 320dp;
+}
+
+.about-meta-row {
+    display: flex;
+    flex-direction: row;
+    padding: 4dp 0;
+}
+
+.about-meta-key {
+    width: 140dp;
+    color: #737985;
+    font-size: 12dp;
+}
+
+.about-meta-value {
+    flex: 1;
+    color: #d8dae0;
+    font-size: 12dp;
+}
+
+.about-copyright {
+    margin-top: 12dp;
+    justify-content: center;
+}
+
+.about-copyright .about-meta-value {
+    text-align: center;
+    color: #737985;
+    font-size: 11dp;
+}
+
+/* Reuse confirm backdrop positioning for the Help host. */
+#editor-help-modal {
+    z-index: 320;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+#editor-help-modal.hidden {
+    display: none;
+}

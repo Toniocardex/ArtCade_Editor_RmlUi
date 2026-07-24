@@ -48,6 +48,14 @@ namespace {
 // metadata only; source text remains in project-relative .lua files.
 constexpr int kCurrentSchemaVersion = 10;
 
+} // namespace
+
+int currentProjectSchemaVersion() {
+    return kCurrentSchemaVersion;
+}
+
+namespace {
+
 class JsonReadError final : public std::runtime_error {
 public:
     explicit JsonReadError(std::string message) : std::runtime_error(std::move(message)) {}

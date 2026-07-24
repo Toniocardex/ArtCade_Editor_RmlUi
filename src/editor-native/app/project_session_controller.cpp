@@ -130,7 +130,7 @@ void ProjectSessionController::bindUi() {
     ui_.setProjectFileHandlers(
         [this]() { requestNewProject(); },
         [this]() { requestOpenProject(); },
-        [this]() { saveCurrent(); },
+        [this]() { requestSave(); },
         [this]() { requestSaveAs(); });
     ui_.setExportWindowsHandler([this]() { requestExportWindows(); });
     ui_.setPlayHandlers(
@@ -229,6 +229,10 @@ bool ProjectSessionController::saveCurrent() {
         return picked ? saveTo(*picked) : false;
     }
     return saveTo(currentProjectPath_);
+}
+
+bool ProjectSessionController::requestSave() {
+    return saveCurrent();
 }
 
 void ProjectSessionController::resolveUnsavedChanges(std::function<void(bool proceed)> done) {

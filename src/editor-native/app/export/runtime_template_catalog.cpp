@@ -121,4 +121,34 @@ RuntimeTemplateInfo RuntimeTemplateCatalog::resolve(
     return info;
 }
 
+RuntimeTemplateInfo RuntimeTemplateCatalog::peekManifest(ExportTarget target) const {
+    RuntimeTemplateInfo info;
+    const char* folder = (target == ExportTarget::WindowsX64) ? "windows-x64" : "";
+    if (*folder == '\0') return info;
+
+    info.directory = root_ / folder;
+    const auto manifestPath = info.directory / "runtime-template.json";
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(manifestPath, ec)) return info;
+
+    nlohmann::json json;
+    try {
+        std::ifstream in(manifestPath);
+        in >> json;
+    } catch (...) {
+        return info;
+    }
+
+    if (json.value("schemaVersion", 0) != 1) return info;
+    info.engineVersion = json.value("engineVersion", "");
+    info.runtimeBuildId = json.value("runtimeBuildId", "");
+    if (json.contains("projectFormat")) {
+        info.projectFormatMin = json["projectFormat"].value("minimum", 0);
+        info.projectFormatMax = json["projectFormat"].value("maximum", 0);
+    }
+    if (info.engineVersion.empty()) return info;
+    info.ok = true;
+    return info;
+}
+
 } // namespace ArtCade::EditorNative

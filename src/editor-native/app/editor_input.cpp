@@ -1,5 +1,7 @@
 #include "editor-native/app/editor_input.h"
 
+#include "editor-native/app/shortcuts/shortcut_types.h"
+
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/Input.h>
@@ -10,24 +12,27 @@ namespace ArtCade::EditorNative {
 
 namespace {
 
-int currentModifiers() {
+int modifiersFromSnapshot(const KeyboardFrameSnapshot& keyboard) {
     int mod = 0;
-    if (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) mod |= Rml::Input::KM_CTRL;
-    if (IsKeyDown(KEY_LEFT_SHIFT)   || IsKeyDown(KEY_RIGHT_SHIFT))   mod |= Rml::Input::KM_SHIFT;
-    if (IsKeyDown(KEY_LEFT_ALT)     || IsKeyDown(KEY_RIGHT_ALT))     mod |= Rml::Input::KM_ALT;
+    if (any(keyboard.modifiers & ShortcutModifier::Primary)) mod |= Rml::Input::KM_CTRL;
+    if (any(keyboard.modifiers & ShortcutModifier::Shift)) mod |= Rml::Input::KM_SHIFT;
+    if (any(keyboard.modifiers & ShortcutModifier::Alt)) mod |= Rml::Input::KM_ALT;
     return mod;
 }
 
-// Editing keys that an RML text field needs. Printable characters arrive
-// separately via ProcessTextInput (GetCharPressed).
-struct KeyPair { int raylib; Rml::Input::KeyIdentifier rml; };
+struct KeyPair { ShortcutKey logical; Rml::Input::KeyIdentifier rml; };
 constexpr KeyPair kKeys[] = {
-    {KEY_BACKSPACE, Rml::Input::KI_BACK},   {KEY_DELETE, Rml::Input::KI_DELETE},
-    {KEY_ENTER,     Rml::Input::KI_RETURN}, {KEY_KP_ENTER, Rml::Input::KI_RETURN},
-    {KEY_TAB,       Rml::Input::KI_TAB},    {KEY_ESCAPE,   Rml::Input::KI_ESCAPE},
-    {KEY_LEFT,      Rml::Input::KI_LEFT},   {KEY_RIGHT, Rml::Input::KI_RIGHT},
-    {KEY_UP,        Rml::Input::KI_UP},     {KEY_DOWN,  Rml::Input::KI_DOWN},
-    {KEY_HOME,      Rml::Input::KI_HOME},   {KEY_END,   Rml::Input::KI_END},
+    {ShortcutKey::Backspace, Rml::Input::KI_BACK},
+    {ShortcutKey::Delete, Rml::Input::KI_DELETE},
+    {ShortcutKey::Enter, Rml::Input::KI_RETURN},
+    {ShortcutKey::Tab, Rml::Input::KI_TAB},
+    {ShortcutKey::Escape, Rml::Input::KI_ESCAPE},
+    {ShortcutKey::Left, Rml::Input::KI_LEFT},
+    {ShortcutKey::Right, Rml::Input::KI_RIGHT},
+    {ShortcutKey::Up, Rml::Input::KI_UP},
+    {ShortcutKey::Down, Rml::Input::KI_DOWN},
+    {ShortcutKey::Home, Rml::Input::KI_HOME},
+    {ShortcutKey::End, Rml::Input::KI_END},
 };
 
 bool focusIsTextField(Rml::Context* context) {
@@ -40,11 +45,12 @@ bool focusIsTextField(Rml::Context* context) {
 } // namespace
 
 RmlInputResult pumpRmlInput(Rml::Context* context,
+                            const KeyboardFrameSnapshot& keyboard,
                             const RmlInputSuppression& suppression) {
     RmlInputResult result;
     if (!context) return result;
 
-    const int mod = currentModifiers();
+    const int mod = modifiersFromSnapshot(keyboard);
 
     // RmlUi's context is sized in physical framebuffer pixels, but raylib reports
     // the mouse in logical pixels (it applies SetMouseScale under HIGHDPI). Scale
@@ -68,13 +74,13 @@ RmlInputResult pumpRmlInput(Rml::Context* context,
     if (wheel != 0.0f && !suppression.mouseWheel) context->ProcessMouseWheel(-wheel, mod);
 
     for (const KeyPair& key : kKeys) {
-        if (IsKeyPressed(key.raylib) || IsKeyPressedRepeat(key.raylib))
+        if (keyboard.pressed.test(key.logical) || keyboard.repeated.test(key.logical))
             context->ProcessKeyDown(key.rml, mod);
-        if (IsKeyReleased(key.raylib))
+        if (keyboard.released.test(key.logical))
             context->ProcessKeyUp(key.rml, mod);
     }
 
-    for (int c = GetCharPressed(); c > 0; c = GetCharPressed())
+    for (char32_t c : keyboard.textInput)
         context->ProcessTextInput(static_cast<Rml::Character>(c));
 
     result.textFocus = focusIsTextField(context);
