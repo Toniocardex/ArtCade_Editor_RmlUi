@@ -10,8 +10,9 @@ and Scene View overlays
 [`COMPONENT_ALIGNMENT_AND_LEGACY_RETIREMENT_ROADMAP.md`](COMPONENT_ALIGNMENT_AND_LEGACY_RETIREMENT_ROADMAP.md)
 (§3.3 Collision fork), [`NATIVE_EDITOR_MIGRATION.md`](NATIVE_EDITOR_MIGRATION.md)
 (runtime collisions baseline), [`ADR-0010`](ADR-0010-sprite-animation-sheet-materialization.md)
-(shared materialiser pattern), Constitution (single authority; no
-runtime→authoring sync)
+(shared materialiser pattern), [`ADR-0021`](ADR-0021-topdown-boxcollider2d-collision.md)
+(Top Down locomotion uses this CollisionWorld path), Constitution (single
+authority; no runtime→authoring sync)
 
 ## Context
 
