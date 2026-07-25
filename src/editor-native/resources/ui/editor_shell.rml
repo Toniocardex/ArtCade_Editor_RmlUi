@@ -51,7 +51,7 @@
         <div class="menu-item has-menu">
             <span class="menu-label">Help</span>
             <div class="menu-dropdown menu-dropdown-right">
-                <div id="menu-help-keyboard-shortcuts" class="menu-entry"
+                <div id="menu-help-keyboard-shortcuts" class="menu-entry with-shortcut"
                      data-editor-action="help.keyboard_shortcuts">
                     <span class="menu-entry-label">Keyboard Shortcuts…</span>
                     <span id="menu-help-keyboard-shortcuts-label" class="menu-entry-shortcut"></span>

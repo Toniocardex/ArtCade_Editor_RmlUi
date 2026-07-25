@@ -52,10 +52,13 @@
     left: auto;
     right: 0;
 }
+/* Base entries stay block: RmlUi flex containers do not lay out bare text
+   children, and most menu rows are `<span class="icon"/>Label` with the label
+   as a raw text node (File/Edit/View, the Create dropdown, context menus).
+   Rows that need the right-aligned shortcut column opt into flex via
+   .with-shortcut and must wrap their text in menu-entry-label/-shortcut. */
 .menu-entry {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
+    display: block;
     height: 28dp;
     line-height: 28dp;
     padding: 0 10dp;
@@ -70,6 +73,11 @@
 .menu-entry.active { color: #7aa2e8; }
 .menu-entry.disabled { color: #3f3f46; }
 .menu-entry.disabled:hover { background-color: transparent; color: #3f3f46; }
+.menu-entry.with-shortcut {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
 .menu-entry-label {
     flex: 1;
 }
