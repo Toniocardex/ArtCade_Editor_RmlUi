@@ -115,6 +115,23 @@ std::string componentGalleryMarkup() {
         + specimen("disabled", "<div class=\"gallery-menu drop-list\">"
                                "<div class=\"drop-entry disabled\">Layer 1</div></div>"));
 
+    // -- logic-key-binding: the Logic Board key picker. Its hover rule was
+    //    left dangling by the phase-2 migration and merged with the search
+    //    panel's layout, so hovering the button made it full-width and shoved
+    //    the card down. Pinned here in both states. --
+    html += section("logic-key-binding",
+        specimen("normal", "<div class=\"logic-key-binding\">"
+                           "<button class=\"logic-key-capture\">Space</button>"
+                           "<button class=\"logic-key-search-toggle\">Search key…</button></div>")
+        + specimen("capture hover", "<div class=\"logic-key-binding\">"
+                                    "<button class=\"logic-key-capture\" data-force=\"hover\">Space</button>"
+                                    "<button class=\"logic-key-search-toggle\">Search key…</button></div>")
+        + specimen("toggle hover", "<div class=\"logic-key-binding\">"
+                                   "<button class=\"logic-key-capture\">Space</button>"
+                                   "<button class=\"logic-key-search-toggle\" data-force=\"hover\">Search key…</button></div>")
+        + specimen("capturing", "<div class=\"logic-key-binding\">"
+                                "<button class=\"logic-key-capture capturing\">Press a key…</button></div>"));
+
     // -- prop-input: the Inspector field, sunken surface + focus ring --
     html += section("prop-input",
         specimen("normal", "<input type=\"text\" class=\"prop-input\" value=\"256\"/>")

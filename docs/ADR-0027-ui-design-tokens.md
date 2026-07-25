@@ -440,6 +440,29 @@ to the accent CTA", which was simply untrue. The contract now states the gap.
 Promoting it globally would turn six buttons blue: a visual decision, left
 deliberate rather than folded into tooling work.
 
+### Migration artefact: dangling selectors (fixed)
+
+A rule whose declarations were *all* colour became empty after the strip, and
+the cleanup regex that removed empty rules only matched single-line selectors.
+Where the selector list spanned two lines it deleted the closing line and left
+the first dangling, which then merged into the **next** rule's block. In the
+Logic Board that meant hovering the key-picker button applied the search
+panel's `flex: 1 0 100%`, so the button went full-width and shoved the card
+down — reported from the UI, not caught by any test.
+
+Six rules were affected across `controls.rcss`, `logic_board.rcss` and
+`panels.rcss`. Found by a decisive check rather than by eye: a current rule
+whose selectors come from **two different** pre-migration rules can only be a
+merge. That check now reports zero.
+
+This is the third defect from the same root — the migration's regexes assumed
+one-line selectors. The other two were the multi-line selector list that lost
+six of seven selectors (`5ae50f7`) and this one. Recorded so a future
+stylesheet migration parses rules instead of lines.
+
+`.logic-key-binding` is now a gallery specimen in all four states, so this
+particular regression cannot return silently.
+
 ### Not yet done
 
 Phase 5 (a second theme), and the spacing scale, which §Correction above

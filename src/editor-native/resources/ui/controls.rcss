@@ -394,10 +394,7 @@
     font-family: tabler-icons;
     font-weight: normal;
     transition: background-color 0.1s, color 0.1s;
-}
-.tab-menu:hover,
-
-/* Destructive context-menu entries hint red on hover only. */
+}/* Destructive context-menu entries hint red on hover only. */
 
 /* Tree section eyebrow ("Instances"). */
 .tree-section {
@@ -721,7 +718,6 @@
 
     font-size: 11dp;
 }
-.tree-row:hover .row-name,
 .tree-row.selected .row-name { font-weight: 500; }
 .row-name-input {
     flex: 1;
@@ -739,7 +735,8 @@
     flex: 0 0 auto;
     flex-direction: row;
     align-items: center;
-}.row-override-indicator,
+}
+.row-override-indicator,
 .row-shared-type {
     display: inline-block;
     width: 14dp;
@@ -750,20 +747,13 @@
 .row-shared-type {
     font-family: tabler-icons;
 }
-.tree-row:hover .row-override-indicator,
-.tree-row:hover .row-shared-type,
-.tree-row.selected .row-override-indicator,
 .row-menu {
     flex: 0 0 auto;
     width: 16dp;
     margin-left: 2dp;
-}
-.tree-row:hover .row-menu,
-.tree-row.layer-hidden .row-name,
-.tree-row.layer-hidden .row-icon,
-.tree-row.layer-hidden .row-override-indicator,
-/* Instance row inside a layer group: indented under its header so the
-   layer -> entities containment reads as a tree, not a flat list. */
+}/* Instance row inside a layer group: indented under its header so the
+   layer -> entities containment reads as a tree,
+not a flat list. */
 .tree-row.in-layer { padding-left: 20dp; }
 
 /* -- Hierarchy layer group headers (reuses the Inspector's eye/lock) -------- */

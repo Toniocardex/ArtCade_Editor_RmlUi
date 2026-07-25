@@ -58,7 +58,6 @@
     border-radius: 2dp;
 
 }
-.logic-variables-toggle:hover,
 .logic-variables-drawer {
     display: block;
     padding: 12dp 16dp 14dp 16dp;
@@ -259,7 +258,6 @@
     font-size: 11dp;
 }
 .logic-key-capture { min-width: 88dp; text-align: left; }
-.logic-key-capture:hover, .logic-key-search-toggle:hover,
 .logic-key-search {
     flex: 1 0 100%;
     display: flex;
