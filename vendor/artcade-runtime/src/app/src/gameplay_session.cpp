@@ -807,6 +807,22 @@ void GameplaySession::tickFixedStep(float dt) {
         }
     }
     dispatchGameplayCollisionTransitions();
+    // Collision Destroy Self/Other queue during dispatch (never mid-callback).
+    // Flush here so removal is visible this frame — same post-dispatch contract
+    // as input (dispatchInput) and ADR-0026; no extra fixed-step of lag.
+    {
+        const auto start = Clock::now();
+        world_->flushEntityQueues();
+        if (profilerPort_) profilerPort_->addGameplayMs(elapsedMs(start));
+    }
+    {
+        const auto start = Clock::now();
+        const std::uint32_t events = gameAPI_->dispatchLifecycleEvents();
+        if (profilerPort_) {
+            profilerPort_->addLuaMs(elapsedMs(start));
+            profilerPort_->addLuaEvents(events);
+        }
+    }
 
     // Drain errors from input/update/collision callbacks once the fixed-step
     // lifecycle has reached a stable post-dispatch boundary. RU-03: buffered

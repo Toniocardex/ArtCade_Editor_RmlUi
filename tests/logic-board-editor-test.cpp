@@ -1173,9 +1173,8 @@ static void testCollisionEventOtherAndDeferredDestroy() {
     // spawn path — enter destroys Pickup; exit hides Hero once Sensor separates.
     CHECK(coordinator.playCurrentScene().ok);
     RuntimeInputSnapshot none;
-    coordinator.tickRuntime(none, 1.f / 60.f);
-    // Destroy Self queues removal after collision dispatch; the next fixed-step
-    // flush applies it (same deferred contract as game.exe).
+    // Destroy Self queues during collision dispatch; same-frame post-dispatch
+    // flush applies it (ADR-0026 / game.exe tickFixedStep).
     coordinator.tickRuntime(none, 1.f / 60.f);
     CHECK(!findRenderable(*coordinator.playSession(), 2).has_value());
     CHECK(coordinator.document().findInstanceInScene("scene-1", 2) != nullptr);
@@ -2148,9 +2147,8 @@ static void testDestroyOtherCollectsPickup() {
 
     CHECK(coordinator.playCurrentScene().ok);
     RuntimeInputSnapshot none;
-    coordinator.tickRuntime(none, 1.f / 60.f);
     // Destroy Other rides the same deferred queue as Destroy Self: removal is
-    // applied by the next fixed-step flush, never mid-dispatch.
+    // applied by the same-frame post-dispatch flush, never mid-dispatch.
     coordinator.tickRuntime(none, 1.f / 60.f);
     CHECK(!findRenderable(*coordinator.playSession(), 2).has_value());
     CHECK(findRenderable(*coordinator.playSession(), 1).has_value());
