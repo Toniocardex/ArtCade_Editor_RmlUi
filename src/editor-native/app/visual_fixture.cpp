@@ -65,6 +65,20 @@ LogicRuleDef makeCollectRule() {
     return rule;
 }
 
+/** Key Pressed → Spawn Object of the board's OWN type, at an explicit
+    position: the reported repro for the reentrant-install crash, and the only
+    rule in the fixture with a Vec2 property, so the two-field value row stays
+    covered by the visual reference. */
+LogicRuleDef makeCloneRule() {
+    LogicRuleDef rule = Logic::makeDefaultRule("rule-clone");
+    rule.name = "Clone self";
+    rule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Enter}}};
+    rule.actions[0] = {Logic::kSpawnObject,
+                       {{"objectTypeId", LogicStringValue{"Player"}},
+                        {"position", Vec2{64.f, 32.f}}}};
+    return rule;
+}
+
 } // namespace
 
 ProjectDoc makeVisualFixtureProject() {
@@ -75,6 +89,9 @@ ProjectDoc makeVisualFixtureProject() {
     LogicBoardDef board;
     board.id = "logic:Player";
     board.rules.push_back(makeKeyRule());
+    // Second, not last: the capture is one window tall, and this is the rule
+    // whose Vec2 row the reference exists to watch.
+    board.rules.push_back(makeCloneRule());
     board.rules.push_back(makeCollectRule());
     player.logicBoard = board;
     doc.objectTypes.emplace("Player", player);

@@ -105,6 +105,11 @@
                     `.primary` is the accent CTA.
    .prop-input      Inspector field on surface-sunken; `:focus` shows
                     border-focus, `:disabled` uses surface-disabled.
+   .logic-value-input
+                    The same field inside a Logic Board rule card (Position
+                    X/Y, Volume, Speed, any Number property). Same roles and
+                    metrics as .prop-input — a value box must not read as
+                    static text just because it sits in a card.
    ============================================================================= */
 
 body {
@@ -241,6 +246,7 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 .asset-option.disabled,
 .drop-trigger.disabled,
 .logic-key-search,
+.logic-value-input:disabled,
 .logic-variables-drawer,
 .prop-input:disabled,
 .sw-disabled,
@@ -406,6 +412,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-key-search input,
 .logic-key-search-cancel,
 .logic-key-search-toggle,
+.logic-value-input,
 .logic-variable-description,
 .logic-variable-row button.logic-variable-value,
 .logic-variable-row input.logic-variable-key,
@@ -466,6 +473,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-more-trigger.open,
 .logic-rule.logic-rule-focus,
 .logic-toolbar-search:focus,
+.logic-value-input:focus,
 .logic-variable-row button.logic-variable-value.active,
 .logic-variable-row input:focus,
 .logic-variables-toggle.active,
@@ -552,6 +560,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-key-search-toggle,
 .logic-more-trigger,
 .logic-more-trigger:hover,
+.logic-value-input:hover,
 .logic-variable-description,
 .logic-variable-row button.logic-variable-value,
 .logic-variable-row input.logic-variable-key,
@@ -643,6 +652,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-empty,
 .logic-rule,
 .logic-toolbar-search,
+.logic-value-input,
+.logic-value-input:disabled,
 .logic-variables-empty,
 .panel-btn.disabled,
 .panel-btn.primary.disabled,
@@ -719,6 +730,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .layer-group-header.hidden .layer-eye,
 .layer-row.hidden .layer-eye,
 .logic-col-empty-sub,
+.logic-value-input:disabled,
 .menu-entry.disabled,
 .menu-entry.disabled .menu-entry-hint,
 .menu-entry.disabled:hover,
@@ -779,6 +791,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-more-trigger:hover,
 .logic-toolbar-search,
 .logic-variable-description,
+.logic-value-input,
 .logic-variable-row button.logic-variable-value,
 .logic-variable-row button.logic-variable-value.active,
 .logic-variable-row input.logic-variable-key,

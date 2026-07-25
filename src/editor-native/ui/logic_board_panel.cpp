@@ -791,11 +791,13 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 const char* labelY = action.typeId == Logic::kTranslateBy ? "ΔY" : "Y";
                 html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">"
                      + std::string(labelX) + "</span>"
-                        "<input type=\"text\" data-action=\"" + std::string(commitX) + "\" data-arg=\""
+                        "<input type=\"text\" class=\"logic-value-input\" data-action=\""
+                     + std::string(commitX) + "\" data-arg=\""
                      + escapeRml(arg) + "\" value=\"" + number(value.x) + "\"";
                 if (playing) html += " disabled=\"disabled\"";
                 html += "/><span class=\"logic-block-label\">" + std::string(labelY) + "</span>"
-                        "<input type=\"text\" data-action=\"" + std::string(commitY) + "\" data-arg=\""
+                        "<input type=\"text\" class=\"logic-value-input\" data-action=\""
+                     + std::string(commitY) + "\" data-arg=\""
                      + escapeRml(arg) + "\" value=\"" + number(value.y) + "\"";
                 if (playing) html += " disabled=\"disabled\"";
                 html += "/></div>";
@@ -859,7 +861,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 if (const LogicPropertyDef* p = property(action, "speed"))
                     if (const auto* v = std::get_if<double>(&p->value)) speed = *v;
                 html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Self - speed</span>"
-                        "<input type=\"text\" data-action=\"commit-logic-animation-speed\" data-arg=\""
+                        "<input type=\"text\" class=\"logic-value-input\""
+                        " data-action=\"commit-logic-animation-speed\" data-arg=\""
                      + escapeRml(arg) + "\" value=\"" + number(speed) + "\"";
                 if (playing) html += " disabled=\"disabled\"";
                 html += "/></div>";
@@ -912,7 +915,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 if (const LogicPropertyDef* p = property(action, "volume"))
                     if (const auto* v = std::get_if<double>(&p->value)) volume = *v;
                 html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Volume</span>"
-                        "<input type=\"text\" data-action=\"commit-logic-audio-volume\" data-arg=\""
+                        "<input type=\"text\" class=\"logic-value-input\""
+                        " data-action=\"commit-logic-audio-volume\" data-arg=\""
                      + escapeRml(arg) + "\" value=\"" + number(volume) + "\"";
                 if (playing) html += " disabled=\"disabled\"";
                 html += "/></div>";

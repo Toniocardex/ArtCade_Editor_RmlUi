@@ -124,17 +124,20 @@ std::string renderLogicProperties(
                 else if (const auto* integerValue = std::get_if<int64_t>(&current->value))
                     value = static_cast<double>(*integerValue);
             }
-            html += "<input type=\"text\" data-action=\"commit-logic-property\" data-arg=\""
+            html += "<input type=\"text\" class=\"logic-value-input\""
+                    " data-action=\"commit-logic-property\" data-arg=\""
                   + escapeRml(encoded) + "\" value=\"" + number(value) + "\"";
             if (playing) html += " disabled=\"disabled\"";
             html += "/>";
         } else if (property.valueKind == Logic::LogicValueKind::Vec2) {
             Vec2 value{};
             if (current) if (const auto* vec = std::get_if<Vec2>(&current->value)) value = *vec;
-            html += "<input type=\"text\" data-action=\"commit-logic-property-component\" data-arg=\""
+            html += "<input type=\"text\" class=\"logic-value-input\""
+                    " data-action=\"commit-logic-property-component\" data-arg=\""
                   + escapeRml(encoded + "|x") + "\" value=\"" + number(value.x) + "\"";
             if (playing) html += " disabled=\"disabled\"";
-            html += "/><input type=\"text\" data-action=\"commit-logic-property-component\" data-arg=\""
+            html += "/><input type=\"text\" class=\"logic-value-input\""
+                    " data-action=\"commit-logic-property-component\" data-arg=\""
                   + escapeRml(encoded + "|y") + "\" value=\"" + number(value.y) + "\"";
             if (playing) html += " disabled=\"disabled\"";
             html += "/>";

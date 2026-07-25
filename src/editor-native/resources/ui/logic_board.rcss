@@ -377,7 +377,29 @@
 .logic-property-dropdown { flex: 1; min-width: 0; display: block; }
 .logic-property-dropdown .drop-trigger { box-sizing: border-box; width: 100%; }
 .logic-property-dropdown .drop-list { margin-bottom: 0; }
-.logic-inline input { width: 110dp; margin-right: 6dp; }
+/* Every editable value in a rule card - Position X/Y, Volume, Speed, any
+   Number property. It carries an explicit class rather than matching
+   `.logic-inline input`, which also caught the key-search field one level
+   down and quietly overrode its own sizing. Metrics are `.prop-input`'s, so
+   an Inspector field and a Logic Board field are the same control; `flex`
+   matches `.logic-property-dropdown` so a value box lines up with the picker
+   above it instead of stopping short. */
+.logic-value-input {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    height: 26dp;
+    line-height: 26dp;
+    padding: 0 8dp;
+    margin-right: 6dp;
+
+    border-width: 1px;
+    border-radius: 2dp;
+
+    font-size: 12dp;
+    transition: border-color 0.1s;
+}
+.logic-value-input:last-child { margin-right: 0; }
 .logic-action-row { display: flex; flex-direction: row; align-items: center; }
 .logic-action-main { flex: 1; }
 .logic-diagnostic { display: block; margin: 5dp 10dp; padding: 7dp;   border-width: 0dp; text-align: left; font-size: 12dp; width: 100%; }

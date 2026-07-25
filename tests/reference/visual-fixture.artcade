@@ -93,6 +93,47 @@
           {
             "actions": [
               {
+                "properties": [
+                  {
+                    "key": "objectTypeId",
+                    "value": {
+                      "kind": "string",
+                      "value": "Player"
+                    }
+                  },
+                  {
+                    "key": "position",
+                    "value": {
+                      "kind": "vec2",
+                      "x": 64.0,
+                      "y": 32.0
+                    }
+                  }
+                ],
+                "typeId": "entity.spawn"
+              }
+            ],
+            "conditions": [],
+            "enabled": true,
+            "executionMode": "every_occurrence",
+            "id": "rule-clone",
+            "name": "Clone self",
+            "trigger": {
+              "properties": [
+                {
+                  "key": "key",
+                  "value": {
+                    "kind": "key",
+                    "value": "Enter"
+                  }
+                }
+              ],
+              "typeId": "input.key_pressed"
+            }
+          },
+          {
+            "actions": [
+              {
                 "properties": [],
                 "typeId": "collision.destroy_other"
               },
