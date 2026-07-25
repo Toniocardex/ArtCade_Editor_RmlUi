@@ -1,7 +1,7 @@
 # ADR-0027 — UI Design Tokens and Component Contracts
 
-**Status:** Accepted — phases 1–2 implemented (all eight stylesheets migrated);
-phases 3–5 open  
+**Status:** Accepted — phases 1–3 implemented (all stylesheets migrated,
+invariants enforced by test); phases 4–5 open  
 **Date:** 2026-07-25  
 **Scope:** `src/editor-native/resources/ui/*.rcss` (4182 lines), the colour and
 spacing values they declare, the contracts of shared component classes, and the
@@ -231,7 +231,7 @@ independently revertible.
 |---|---|---|
 | 1 | Role vocabulary + scale into `theme.rcss`; migrate one stylesheet (`controls.rcss`, the largest and the source of both bugs) | Live screenshots match pre-migration for every touched surface |
 | 2 | Migrate the remaining sheets, one commit each | Same, per sheet |
-| 3 | Enforcement test | Suite green with zero literals outside the token layer |
+| 3 | Enforcement test | Suite green with zero literals outside the token layer — **done**; spacing enforcement withdrawn, see below |
 | 4 | Component gallery + reference capture | Reference image reviewed and committed |
 | 5 | Second theme (light or high-contrast) | Only when a real need exists — not preventive |
 
@@ -347,10 +347,45 @@ three real parts. Both phases were re-verified afterwards: no rule in any sheet
 lost a non-colour property, and the app builds and renders with zero RmlUi
 warnings.
 
+## Phase 3 — implemented
+
+`tests/ui-stylesheet-tokens-test.cpp` (CTest target `ui_stylesheet_tokens_test`,
+also wired into `scripts\build.bat --test`) enforces two invariants against the
+shipped `.rcss` sources:
+
+1. no colour of any kind outside `theme.rcss` — hex **and** named colours, so
+   `color: white` cannot slip past a hex-only scan the way it nearly did in
+   phase 2;
+2. every colour `theme.rcss` declares must appear in one of its palette
+   comments, so growing the palette costs a line of documentation and a
+   reviewer sees it.
+
+It found a real gap on first run: `warning-border` (`#6b5420`) had been
+introduced during phase 2 without being added to the documented palette. Now
+documented.
+
+The scanner is checked against the shapes real sheets use, including the one it
+must *not* flag — an RCSS id selector (`#btn-play-project`) is not a colour —
+and the whole thing is verified end to end by introducing a deliberate
+violation and confirming it fails. A test that cannot fail is not enforcement.
+
+### Correction: spacing is not enforced
+
+This ADR's §Scale proposed 2/4/6/8/12/16/24dp. Measured against the UI as
+built, that scale is wrong: `10dp` alone appears 52 times, and 152 declarations
+across 14 values sit off the proposed scale. The colour work could be a
+faithful migration because roles were derived from real usage; the spacing
+scale was not, and adopting it now would change the density of every panel.
+
+Spacing therefore stays unenforced, and the scale above should be treated as
+**not yet decided** rather than as a rule the code is failing. Fixing it is its
+own phase, with its own visual verification — the same discipline the colour
+phases used.
+
 ### Not yet done
 
-The enforcement test (phase 3) is now unblocked but is deliberately left to its
-own commit, as is the component gallery (phase 4).
+The component gallery and visual regression (phase 4) and any second theme
+(phase 5).
 
 ## Verification
 

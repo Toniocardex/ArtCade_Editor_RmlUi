@@ -68,6 +68,7 @@
      danger-text       #e5706b   danger-text-hi  #f0918c (hover)
      danger-surface    #2a1f20   danger-border   #7f3b38
      warning-text      #d8b44a   warning-surface #241f13
+     warning-border    #6b5420
      success-text      #4f9b68
 
    -----------------------------------------------------------------------------
@@ -1176,6 +1177,14 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
    are deliberately NOT folded into the zinc roles above. Base is the Material
    Palenight set the Script Editor already shipped. They live here so the
    invariant "no colour outside theme.rcss" stays absolute and testable.
+
+     code-text        #d8d8dc   base code / identifier
+     code-keyword     #c792ea   code-string    #c3e88d
+     code-comment     #697098   code-number    #f78c6c
+     code-operator    #89ddff
+     code-error-bg    #3a1f24   code-error-rule #f07178
+     code-bracket     #3b82f6   on #ffffff     (matched pair)
+     code-caret-layer #00000000 (functional transparency, see below)
    ============================================================================= */
 .script-editor-highlight { color: #d8d8dc; }
 .script-editor-highlight .lua-kw  { color: #c792ea; }   /* keyword    */

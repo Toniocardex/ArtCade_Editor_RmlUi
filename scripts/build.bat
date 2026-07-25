@@ -68,7 +68,7 @@ if errorlevel 1 ( popd >nul & echo [FAIL] build failed. & exit /b 1 )
 
 if "!DO_TEST!"=="1" (
     echo [editor] Building + running editor core suites and sfx_synthesizer_test...
-    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target editor_core_test editor_actions_shortcut_test sprite_animation_test tileset_tilemap_test generated_sfx_model_test script_asset_test script_delete_disk_test export_foundation_test script_text_ops_test script_api_catalog_test generated_sfx_editor_controller_test generated_sfx_generation_service_test sfx_synthesizer_test
+    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target editor_core_test editor_actions_shortcut_test sprite_animation_test tileset_tilemap_test generated_sfx_model_test script_asset_test script_delete_disk_test export_foundation_test script_text_ops_test script_api_catalog_test generated_sfx_editor_controller_test generated_sfx_generation_service_test sfx_synthesizer_test ui_stylesheet_tokens_test
     if errorlevel 1 ( popd >nul & echo [FAIL] test build failed. & exit /b 1 )
     "!BUILD_DIR!\tests\editor_core_test.exe"
     if errorlevel 1 ( popd >nul & echo [FAIL] editor_core_test failed. & exit /b 1 )
@@ -98,6 +98,8 @@ if "!DO_TEST!"=="1" (
     if errorlevel 1 ( popd >nul & echo [FAIL] generated_sfx_generation_service_test failed. & exit /b 1 )
     "!BUILD_DIR!\tests\sfx_synthesizer_test.exe"
     if errorlevel 1 ( popd >nul & echo [FAIL] sfx_synthesizer_test failed. & exit /b 1 )
+    "!BUILD_DIR!\tests\ui_stylesheet_tokens_test.exe"
+    if errorlevel 1 ( popd >nul & echo [FAIL] ui_stylesheet_tokens_test failed. & exit /b 1 )
     echo [editor] Building + running logic_board_editor_test...
     "%CMAKE_EXE%" --build "!BUILD_DIR!" --target logic_board_editor_test
     if errorlevel 1 ( popd >nul & echo [FAIL] Logic Board test build failed. & exit /b 1 )
