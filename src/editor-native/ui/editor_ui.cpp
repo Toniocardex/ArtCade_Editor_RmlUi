@@ -39,6 +39,7 @@
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view_camera.h"
 
+#include <RmlUi/Core/ComputedValues.h>
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -1222,21 +1223,43 @@ bool EditorUi::isContextMenuHit(int physicalX, int physicalY) const {
     if (!document_) return false;
     // Full-window confirm modal owns the pointer while open (blocks Scene View).
     if (pendingConfirm_) return true;
-    const auto hits = [&](const char* id, bool visible) {
-        if (!visible) return false;
-        Rml::Element* menu = document_->GetElementById(id);
-        if (!menu) return false;
-        const Rml::Vector2f offset = menu->GetAbsoluteOffset();
+    const float x = static_cast<float>(physicalX);
+    const float y = static_cast<float>(physicalY);
+    const auto rectContains = [&](Rml::Element* el) {
+        if (!el) return false;
+        const Rml::Vector2f offset = el->GetAbsoluteOffset();
         const float left = offset.x;
         const float top = offset.y;
-        const float right = left + menu->GetClientWidth();
-        const float bottom = top + menu->GetClientHeight();
-        const float x = static_cast<float>(physicalX);
-        const float y = static_cast<float>(physicalY);
+        const float right = left + el->GetClientWidth();
+        const float bottom = top + el->GetClientHeight();
         return x >= left && x < right && y >= top && y < bottom;
     };
+    const auto hits = [&](const char* id, bool visible) {
+        return visible && rectContains(document_->GetElementById(id));
+    };
+    // The "Move to Layer" row opens a flyout (`#hctx-move-layer-list`, ADR
+    // n/a — controls.rcss `.context-submenu`) that is CSS :hover-only (no
+    // tracked visibility bool) and renders past the parent menu's own right
+    // edge (`left: 100%`). A click on it lands outside the rect above, so
+    // without this it reads as "outside every menu" — the menu closes and
+    // the click falls through to a Scene View pick instead of moving the
+    // instance to the clicked layer. Union in the flyout's own rect, but
+    // only while it is actually displayed: GetClientWidth/Height reads the
+    // last-computed layout box, which RmlUi does not zero out when display
+    // flips back to none (Layout skips reformatting hidden elements
+    // entirely), so a hover-only flyout can report a stale non-zero size
+    // long after the mouse has left it. GetComputedValues().display() is
+    // the live value and is what avoids permanently over-including a rect
+    // no longer shown anywhere.
+    bool hierarchyHit = hits("hierarchy-context-menu", hierarchyContextMenuVisible_);
+    if (!hierarchyHit && hierarchyContextMenuVisible_) {
+        if (Rml::Element* submenu = document_->GetElementById("hctx-move-layer-list")) {
+            if (submenu->GetComputedValues().display() != Rml::Style::Display::None)
+                hierarchyHit = rectContains(submenu);
+        }
+    }
     return hits("viewport-context-menu", viewportContextMenuVisible_)
-        || hits("hierarchy-context-menu", hierarchyContextMenuVisible_)
+        || hierarchyHit
         || hits("assets-context-menu", assetsContextMenuVisible_)
         || hits("logic-type-menu", logicTypeMenuVisible_)
         || hits("logic-more-menu", logicMoreMenuVisible_);
