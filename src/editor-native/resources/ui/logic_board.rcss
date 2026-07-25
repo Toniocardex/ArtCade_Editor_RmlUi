@@ -5,8 +5,7 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    background-color: #18181b;
-    color: #d4d4d8;
+
 }
 .logic-board-panel.hidden { display: none; }
 .logic-head {
@@ -14,15 +13,15 @@
     flex-direction: row;
     align-items: center;
     padding: 10dp 14dp;
-    background-color: #18181b;
-    border-bottom: 1px #27272a;
+
+    border-bottom-width: 1px;
 }
 .logic-heading { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 /* The Object Type picker sits inline with the title instead of pinned to the
    header's far edge — it's part of what "Logic Board · <name>" means, not an
    unrelated remote control. */
 .logic-title-row { display: flex; flex-direction: row; align-items: center; min-width: 0; }
-.logic-title-prefix { flex: 0 0 auto; font-size: 17dp; color: #f4f4f5; margin-right: 7dp; }
+.logic-title-prefix { flex: 0 0 auto; font-size: 17dp;  margin-right: 7dp; }
 /* .drop-trigger's shared `flex: 1` is right for an Inspector prop-row (one
    fixed label, one control) but would let this picker consume the whole
    title row — cap it, and let it shrink (not just cap) so a long Object Type
@@ -30,7 +29,7 @@
    (see editor_ui.cpp), not an in-flow .drop-list, so opening it never
    resizes this header. */
 .logic-type-trigger { flex: 0 1 240dp; min-width: 140dp; max-width: 240dp; }
-.logic-owner { margin-top: 3dp; color: #8a8a93; font-size: 11dp; letter-spacing: 0.5dp; }
+.logic-owner { margin-top: 3dp;  font-size: 11dp; letter-spacing: 0.5dp; }
 /* "..." menu (Remove Logic Board) — deliberately its own class, not reusing
    .comp-remove or .logic-btn.danger verbatim: it sits right next to the
    Object Type picker and must read as calm/secondary until interacted with,
@@ -45,33 +44,26 @@
     line-height: 24dp;
     text-align: center;
     background-color: transparent;
-    border: 1px #323236;
+    border-width: 1px;
     border-radius: 2dp;
-    color: #8a8a93;
+
 }
-.logic-more-trigger:hover { border-color: #4a4a52; color: #d4d4d8; }
-.logic-more-trigger.open { border-color: #3b82f6; background-color: #3b82f618; color: #3b82f6; }
 .logic-more-trigger.disabled { opacity: 0.42; }
 .logic-variables-toggle {
     flex: 0 0 auto;
     margin-left: 10dp;
     padding: 5dp 9dp;
     background-color: transparent;
-    border: 1px #323236;
+    border-width: 1px;
     border-radius: 2dp;
-    color: #a1a1aa;
+
 }
 .logic-variables-toggle:hover,
-.logic-variables-toggle.active {
-    border-color: #3b82f6;
-    color: #3b82f6;
-    background-color: #3b82f618;
-}
 .logic-variables-drawer {
     display: block;
     padding: 12dp 16dp 14dp 16dp;
-    background-color: #151518;
-    border-bottom: 1px #27272a;
+
+    border-bottom-width: 1px;
 }
 .logic-variables-head {
     display: flex;
@@ -101,19 +93,15 @@
     background-color: transparent;
     border: 0;
     border-radius: 2dp;
-    color: #6b6b73;
+
     font-family: tabler-icons;
     font-weight: normal;
     transition: background-color 0.1s, color 0.1s;
 }
-.logic-variables-collapse:hover {
-    background-color: #1c1c1f;
-    color: #d4d4d8;
-}
 .logic-variables-collapse .icon { margin: 0; }
 .logic-variables-title {
     display: block;
-    color: #f4f4f5;
+
     font-size: 13dp;
     font-weight: 600;
 }
@@ -121,8 +109,8 @@
 .logic-variables-empty {
     display: block;
     padding: 12dp 14dp;
-    color: #71717a;
-    border: 1px #27272a;
+
+    border-width: 1px;
     border-radius: 2dp;
 }
 /* Name / Type / Value stay equal cells; Description stretches as optional notes
@@ -139,7 +127,7 @@
     padding: 0 0 6dp 0;
 }
 .logic-variable-col {
-    color: #71717a;
+
     font-size: 9dp;
     font-weight: 700;
     letter-spacing: 0.8dp;
@@ -177,14 +165,12 @@
     margin: 0 10dp 0 0;
     padding: 0 8dp;
     text-align: center;
-    color: #d4d4d8;
-    background-color: #111113;
-    border: 1px #323236;
+
+    border-width: 1px;
     border-radius: 2dp;
     font-size: 11dp;
     font-weight: 500;
 }
-.logic-variable-row input:focus { border-color: #3b82f6; }
 .logic-variable-type {
     position: relative;
     flex: 0 0 auto;
@@ -201,7 +187,7 @@
     text-align: center;
     font-size: 11dp;
     font-weight: 500;
-    border-color: #323236;
+
 }
 .logic-variable-type .drop-list {
     position: absolute;
@@ -210,11 +196,6 @@
     z-index: 40;
     width: 128dp;
     margin: 0;
-}
-.logic-variable-row button.logic-variable-value.active {
-    background-color: #3b82f626;
-    border-color: #3b82f6;
-    color: #d4d4d8;
 }
 .logic-variable-description {
     flex: 1;
@@ -225,9 +206,8 @@
     margin: 0 10dp 0 0;
     padding: 0 10dp;
     text-align: left;
-    color: #d4d4d8;
-    background-color: #111113;
-    border: 1px #323236;
+
+    border-width: 1px;
     border-radius: 2dp;
     font-size: 11dp;
     font-weight: 400;
@@ -236,7 +216,7 @@
     width: 52dp;
     margin: 0 6dp 0 0;
     text-align: right;
-    color: #71717a;
+
     font-size: 10dp;
 }
 .logic-variable-row .comp-remove {
@@ -253,12 +233,9 @@
     margin-right: 5dp;
     padding: 5dp 9dp;
     background-color: transparent;
-    border: 1px #323236;
+    border-width: 1px;
     border-radius: 2dp;
-    color: #c4c4c8;
-}
-.logic-btn:hover, .logic-icon-btn:hover {
-    border-color: #3b82f6; color: #3b82f6;
+
 }
 
 /* ADR-0004 — compact key binding control shared by triggers and conditions.
@@ -276,32 +253,21 @@
     box-sizing: border-box;
     min-height: 26dp;
     padding: 4dp 8dp;
-    color: #d4d4d8;
-    background-color: #111113;
-    border: 1px #323236;
+
+    border-width: 1px;
     border-radius: 2dp;
     font-size: 11dp;
 }
 .logic-key-capture { min-width: 88dp; text-align: left; }
-.logic-key-capture.capturing {
-    color: #93c5fd;
-    border-color: #3b82f6;
-    background-color: #3b82f61c;
-}
-.logic-key-search-toggle, .logic-key-search-cancel { color: #a1a1aa; }
 .logic-key-capture:hover, .logic-key-search-toggle:hover,
-.logic-key-search-cancel:hover, .logic-key-result:hover {
-    border-color: #3b82f6;
-    color: #bfdbfe;
-}
 .logic-key-search {
     flex: 1 0 100%;
     display: flex;
     flex-wrap: wrap;
     gap: 5dp;
     padding: 6dp;
-    background-color: #161618;
-    border: 1px #323236;
+
+    border-width: 1px;
     border-radius: 2dp;
 }
 .logic-key-search input {
@@ -310,13 +276,11 @@
     height: 26dp;
     box-sizing: border-box;
     padding: 0 7dp;
-    color: #e4e4e7;
-    background-color: #0d0d0f;
-    border: 1px #3f3f46;
+
+    border-width: 1px;
     border-radius: 2dp;
     font-size: 11dp;
 }
-.logic-key-search input:focus { border-color: #3b82f6; }
 .logic-key-results {
     flex: 1 0 100%;
     display: flex;
@@ -326,12 +290,7 @@
     overflow-y: auto;
 }
 .logic-key-result { min-width: 34dp; }
-.logic-key-result.selected { border-color: #3b82f6; color: #93c5fd; }
-.logic-key-empty { color: #71717a; font-size: 11dp; padding: 4dp; }
-.logic-btn.primary { background-color: #3b82f6; border-color: #3b82f6; color: #ffffff; }
-.logic-btn.primary:hover { background-color: #2f74e6; border-color: #2f74e6; color: #ffffff; }
-.logic-btn.danger { color: #e5706b; }
-.logic-btn.danger:hover { background-color: #2a1f20; border-color: #7f3b38; color: #f0918c; }
+.logic-key-empty {  font-size: 11dp; padding: 4dp; }
 .logic-btn.disabled, .logic-icon-btn.disabled { opacity: 0.42; }
 /* Sits inside .logic-col-footer now (padded by the footer itself), so no
    margin of its own is needed — unlike the old bare-child-of-.logic-rule
@@ -343,14 +302,14 @@
    of itself (rule list, EVENT/ACTION blocks, diagnostics) or block content
    (the empty-state card) — left inline they'd run onto one line / flow
    horizontally instead of stacking, exactly like .logic-empty-title did. */
-.logic-empty { display: block; margin: 28dp auto; width: 430dp; padding: 28dp; text-align: center; background-color: #1c1c1f; border: 1px #27272a; border-radius: 4dp; }
-.logic-empty-title { display: block; font-size: 18dp; color: #f4f4f5; margin-bottom: 8dp; }
-.logic-muted { display: block; color: #8a8a93; margin-bottom: 14dp; }
+.logic-empty { display: block; margin: 28dp auto; width: 430dp; padding: 28dp; text-align: center;  border-width: 1px; border-radius: 4dp; }
+.logic-empty-title { display: block; font-size: 18dp;  margin-bottom: 8dp; }
+.logic-muted { display: block;  margin-bottom: 14dp; }
 /* Capped so a rule card reads as a card even on very wide/ultrawide windows,
    but raised from the old 720dp (too tight for the 3-column Event/
    Conditions/Actions body — see .logic-rule-body below) to 1280dp, and
    centered instead of hugging the left edge with dead space to its right. */
-.logic-rule { display: block; margin: 10dp auto; padding-bottom: 10dp; max-width: 1280dp; background-color: #1c1c1f; border: 1px #27272a; border-radius: 4dp; }
+.logic-rule { display: block; margin: 10dp auto; padding-bottom: 10dp; max-width: 1280dp;  border-width: 1px; border-radius: 4dp; }
 .logic-rule.off { opacity: 0.62; }
 /* Separator is a hairline border, not a background shade — same convention
    as .comp-header, so the head reads as "a section of this card", not a
@@ -361,8 +320,8 @@
     align-items: center;
     min-height: 34dp;
     padding: 10dp 12dp;
-    background-color: #1c1c1f;
-    border-bottom: 1px #27272a;
+
+    border-bottom-width: 1px;
     cursor: pointer;
 }
 /* Reuses .comp-caret's tabler-icons glyph styling (panels.rcss). Hit target
@@ -374,11 +333,10 @@
     line-height: 28dp;
     text-align: center;
     margin-right: 2dp;
-    color: #6b6b73;
+
     font-family: tabler-icons;
     font-weight: normal;
 }
-.logic-rule-head:hover .logic-rule-caret { color: #c4c4c8; }
 /* Scoped to cards, not the shared .comp-remove definition itself (other
    panels use that class at its own, smaller size) — the move/delete buttons
    throughout a Logic Board card get the same real hit area as the caret. */
@@ -389,13 +347,12 @@
     text-align: center;
     padding: 0;
 }
-.logic-rule-index { color: #6b6b73; margin-right: 8dp; }
-.logic-rule-title { flex: 1; font-size: 13dp; color: #f4f4f5; }
+.logic-rule-index {  margin-right: 8dp; }
+.logic-rule-title { flex: 1; font-size: 13dp;  }
 .logic-rule-diagnostic-count {
     margin-right: 8dp;
     padding: 2dp 7dp;
-    color: #e5706b;
-    background-color: #2a1f20;
+
     font-size: 10dp;
 }
 /* Blue used to mark every block's left edge permanently (Event/Action/
@@ -410,11 +367,11 @@
     display: block;
     margin: 8dp 0;
     padding: 9dp;
-    background-color: #18181b;
-    border: 1px #27272a;
+
+    border-width: 1px;
     border-radius: 4dp;
 }
-.logic-block-label { color: #9ca3af; margin-right: 8dp; }
+.logic-block-label {  margin-right: 8dp; }
 .logic-inline { display: flex; flex-direction: row; align-items: center; margin-top: 7dp; }
 /* Keep a property picker and its list together. `.logic-inline` is a row, so
    emitting the list directly beside the trigger would lay it out to the
@@ -425,13 +382,10 @@
 .logic-inline input { width: 110dp; margin-right: 6dp; }
 .logic-action-row { display: flex; flex-direction: row; align-items: center; }
 .logic-action-main { flex: 1; }
-.logic-diagnostic { display: block; margin: 5dp 10dp; padding: 7dp; color: #e5706b; background-color: #2a1f20; border-width: 0dp; text-align: left; font-size: 12dp; width: 100%; }
-.logic-diagnostic.warning { color: #a1a1aa; background-color: #1f1f23; }
-.logic-diagnostic:hover { background-color: #3a2829; }
-.logic-diagnostic.logic-diagnostic-focus { border: 1dp #e5706b; }
-.logic-rule.logic-rule-focus { border-color: #5b8def; }
-.logic-repair-banner { margin: 8dp 10dp 4dp 10dp; padding: 10dp; background-color: #2a1f20; }
-.logic-repair-title { color: #e5706b; font-weight: bold; margin-bottom: 4dp; }
+.logic-diagnostic { display: block; margin: 5dp 10dp; padding: 7dp;   border-width: 0dp; text-align: left; font-size: 12dp; width: 100%; }
+.logic-diagnostic.logic-diagnostic-focus { border-width: 1dp; }
+.logic-repair-banner { margin: 8dp 10dp 4dp 10dp; padding: 10dp;  }
+.logic-repair-title {  font-weight: bold; margin-bottom: 4dp; }
 .logic-repair-actions { margin-top: 8dp; }
 .logic-repair-actions button { margin-right: 6dp; margin-bottom: 4dp; }
 .logic-rule-diagnostics { display: block; }
@@ -448,8 +402,8 @@
    so this deliberately stays simple. */
 .logic-rule-col { display: block; box-sizing: border-box; min-width: 0; padding: 12dp; }
 .logic-rule-col.event-col { flex: 0 0 30%; }
-.logic-rule-col.conditions-col { flex: 0 0 30%; border-left: 1px #27272a; }
-.logic-rule-col.actions-col { flex: 0 0 40%; border-left: 1px #27272a; }
+.logic-rule-col.conditions-col { flex: 0 0 30%; border-left-width: 1px; }
+.logic-rule-col.actions-col { flex: 0 0 40%; border-left-width: 1px; }
 .logic-condition-toolbar {
     display: flex;
     flex-direction: row;
@@ -461,7 +415,7 @@
     display: inline-block;
     margin-right: 5dp;
     padding: 5dp 8dp;
-    color: #71717a;
+
     font-size: 10dp;
     font-weight: 700;
 }
@@ -474,8 +428,8 @@
     display: block;
     padding-bottom: 8dp;
     margin-bottom: 8dp;
-    border-bottom: 1px #27272a;
-    color: #8a8a93;
+    border-bottom-width: 1px;
+
     font-size: 10dp;
     font-weight: 700;
     letter-spacing: 1.1dp;
@@ -491,17 +445,16 @@
     align-items: center;
     margin: 6dp 0 2dp 0;
     padding: 6dp 9dp;
-    color: #8a8a93;
+
     font-size: 12dp;
 }
 .logic-execution-join {
     margin-right: 8dp;
-    color: #6b6b73;
+
     font-size: 10dp;
     font-weight: 700;
     letter-spacing: 0.6dp;
 }
-.logic-execution-label { color: #9ca3af; }
 .logic-execution-footer {
     display: flex;
     flex-direction: row;
@@ -513,18 +466,18 @@
 .logic-col-empty {
     display: block;
     margin-bottom: 8dp;
-    color: #8a8a93;
+
     font-size: 11dp;
 }
-.logic-col-empty-sub { display: block; margin-top: 3dp; color: #5f5f68; font-size: 10dp; }
+.logic-col-empty-sub { display: block; margin-top: 3dp;  font-size: 10dp; }
 .logic-board-panel.compact .logic-rule-body { flex-direction: column; }
 .logic-board-panel.compact .logic-rule-col { flex: 1 1 auto; width: 100%; }
 .logic-board-panel.compact .logic-rule-col.conditions-col,
 .logic-board-panel.compact .logic-rule-col.actions-col {
     border-left-width: 0;
-    border-top: 1px #27272a;
+    border-top-width: 1px;
 }
-.logic-code { display: block; padding: 12dp; color: #d4d4d8; background-color: #111113; white-space: pre; font-family: "JetBrains Mono"; }
+.logic-code { display: block; padding: 12dp;   white-space: pre; font-family: "JetBrains Mono"; }
 
 /* The Key picker's option list spans 40+ entries (A-Z, 0-9, arrows, Space,
    Enter) — bounded and scrollable, or it would push every rule below it
@@ -538,7 +491,7 @@
 .logic-catalog-category {
     display: block;
     padding: 7dp 9dp 3dp 9dp;
-    color: #8a8a93;
+
     font-size: 10dp;
     font-weight: 700;
     letter-spacing: 0.8dp;
@@ -554,8 +507,8 @@
 }
 .logic-catalog-entry.disabled { opacity: 0.48; }
 .logic-catalog-name, .logic-catalog-description { display: block; }
-.logic-catalog-name { color: #d4d4d8; font-size: 12dp; }
-.logic-catalog-description { margin-top: 2dp; color: #8a8a93; font-size: 10dp; }
+.logic-catalog-name {  font-size: 12dp; }
+.logic-catalog-description { margin-top: 2dp;  font-size: 10dp; }
 
 /* A second, always-visible "+ Add Logic" at the end of the list — the natural
    continuation of scrolling down, not a replacement for the toolbar button.
@@ -570,13 +523,12 @@
     line-height: 38dp;
     margin: 8dp auto 18dp auto;
     background-color: transparent;
-    border: 1px #323236;
+    border-width: 1px;
     border-radius: 2dp;
-    color: #8a8a93;
+
     font-size: 12dp;
     font-weight: 500;
     text-align: center;
     transition: border-color 0.1s, color 0.1s;
 }
-.logic-add-rule-footer:hover { border-color: #3b82f6; color: #3b82f6; }
 .logic-add-rule-footer.disabled { opacity: 0.42; }

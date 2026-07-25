@@ -1,10 +1,9 @@
 /* panels.rcss — panel surfaces, headers, console rows, inspector sections.
    Lengths in `dp` (DPI-scaled); 1px borders stay physical hairlines. */
 
-.panel { background-color: #18181b; }
 
-#left-col  { border-right: 1px #27272a; }
-#right-col { border-left: 1px #27272a; }
+#left-col  { border-right-width: 1px; }
+#right-col { border-left-width: 1px; }
 
 .panel-header {
     display: block;
@@ -12,8 +11,8 @@
     height: 32dp;
     line-height: 32dp;
     padding: 0 12dp;
-    background-color: #18181b;
-    border-bottom: 1px #27272a;
+
+    border-bottom-width: 1px;
 }
 
 /* Right-aligned action in a panel header (Console Copy). */
@@ -26,15 +25,13 @@
     line-height: 22dp;
     padding: 0 10dp;
     background-color: transparent;
-    border: 1px #323236;
+    border-width: 1px;
     border-radius: 2dp;
-    color: #c4c4c8;
+
     font-size: 11dp;
     font-weight: 500;
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
 }
-.header-btn:hover  { border-color: #3b82f6; color: #3b82f6; }
-.header-btn.disabled { border-color: #242427; color: #3f3f46; }
 /* Console header: Copy plus a compact chevron that toggles the dock. */
 #btn-console-copy { right: 38dp; }
 .console-collapse-btn {
@@ -50,19 +47,13 @@
     background-color: transparent;
     border: 1px transparent;
     border-radius: 3dp;
-    color: #8a8a93;
+
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
-}
-.console-collapse-btn:hover {
-    background-color: #27272a;
-    border-color: #3f3f46;
-    color: #e4e4e7;
 }
 .console-collapse-btn .icon {
     margin: 0;
-    color: #8a8a93;
+
 }
-.console-collapse-btn:hover .icon { color: #e4e4e7; }
 
 .assets {
     display: block;
@@ -73,7 +64,7 @@
 .assets-empty {
     display: block;
     padding: 6dp 4dp;
-    color: #6b7280;
+
     font-size: 11dp;
 }
 .asset-row {
@@ -86,14 +77,13 @@
     border-radius: 2dp;
     transition: background-color 0.1s;
 }
-.asset-row:hover { background-color: #1c1c1f; }
 /* Kind glyph column: fixed width keeps names aligned when a row has no icon. */
 .asset-ico {
     display: inline-block;
     width: 16dp;
     margin-right: 4dp;
     text-align: center;
-    color: #8a8a93;
+
     font-size: 12dp;
 }
 .asset-name {
@@ -102,11 +92,11 @@
     overflow: hidden;
     white-space: nowrap;
     margin-right: 6dp;
-    color: #c4c4c8;
+
     font-size: 12dp;
 }
 .asset-meta {
-    color: #6b7280;
+
     font-size: 11dp;
     margin-right: 6dp;
 }
@@ -115,7 +105,7 @@
 .asset-sub {
     display: block;
     margin: 0 0 3dp 24dp;
-    color: #52525b;
+
     font-size: 10dp;
     white-space: nowrap;
     overflow: hidden;
@@ -123,7 +113,7 @@
 .asset-group-title {
     display: block;
     margin: 8dp 0 4dp 0;
-    color: #71717a;
+
     font-size: 10dp;
     font-weight: 600;
     letter-spacing: 0.5dp;
@@ -134,7 +124,6 @@
     padding: 2dp 2dp;
     border-radius: 2dp;
 }
-.assets .asset-group-title:hover { background-color: #1c1c1f; color: #a1a1aa; }
 .asset-group-caret {
     display: inline-block;
     width: 14dp;
@@ -143,7 +132,7 @@
     font-family: tabler-icons;
     font-size: 11dp;
     font-weight: normal;
-    color: #8a8a93;
+
 }
 .asset-group-label {
     display: inline;
@@ -153,8 +142,7 @@
     margin-left: 6dp;
     padding: 0 5dp;
     border-radius: 8dp;
-    background-color: #1c1c1f;
-    color: #8a8a93;
+
     font-size: 9dp;
     font-weight: 600;
 }
@@ -169,12 +157,11 @@
     padding: 5dp 10dp;
     margin: 0;
     text-align: left;
-    background-color: #1c1c1f;
-    border-color: #323236;
+
 }
 .asset-import .create-dropdown { top: 45dp; }
-.asset-import-title { display: block; color: #d4d4d8; font-size: 12dp; font-weight: 600; }
-.asset-import-subtitle { display: block; color: #71717a; font-size: 10dp; font-weight: 400; }
+.asset-import-title { display: block;  font-size: 12dp; font-weight: 600; }
+.asset-import-subtitle { display: block;  font-size: 10dp; font-weight: 400; }
 .assets-search-slot {
     display: flex;
     flex-direction: row;
@@ -186,7 +173,7 @@
     display: inline-block;
     width: 20dp;
     line-height: 24dp;
-    color: #6b6b73;
+
     font-family: tabler-icons;
     font-size: 11dp;
 }
@@ -198,14 +185,12 @@
     height: 24dp;
     line-height: 24dp;
     padding: 0 8dp;
-    background-color: #111113;
-    border: 1px #27272a;
+
+    border-width: 1px;
     border-radius: 2dp;
-    color: #d4d4d8;
+
     font-size: 11dp;
 }
-.assets-search-field:hover { border-color: #323236; }
-.assets-search-field:focus { border-color: #3b82f6; }
 .hierarchy-search-slot {
     display: flex;
     flex-direction: row;
@@ -217,7 +202,7 @@
     display: inline-block;
     width: 20dp;
     line-height: 24dp;
-    color: #6b6b73;
+
     font-family: tabler-icons;
     font-size: 11dp;
 }
@@ -229,18 +214,16 @@
     height: 24dp;
     line-height: 24dp;
     padding: 0 8dp;
-    background-color: #111113;
-    border: 1px #27272a;
+
+    border-width: 1px;
     border-radius: 2dp;
-    color: #d4d4d8;
+
     font-size: 11dp;
 }
-.hierarchy-search-field:hover { border-color: #323236; }
-.hierarchy-search-field:focus { border-color: #3b82f6; }
 .assets-filter-empty {
     display: block;
     padding: 8dp 4dp 2dp 4dp;
-    color: #8a8a93;
+
     font-size: 11dp;
 }
 
@@ -261,13 +244,13 @@
     display: block;
     font-size: 17dp;
     font-weight: 600;
-    color: #d4d4d8;
+
     margin-bottom: 7dp;
 }
 .viewport-empty-sub {
     display: block;
     font-size: 12dp;
-    color: #8a8a93;
+
     margin-bottom: 18dp;
 }
 .viewport-empty-btn {
@@ -275,16 +258,15 @@
     height: 32dp;
     line-height: 32dp;
     padding: 0 20dp;
-    background-color: #3b82f6;
-    border: 1px #3b82f6;
+
+    border-width: 1px;
     border-radius: 2dp;
-    color: #ffffff;
+
     font-size: 13dp;
     font-weight: 600;
     white-space: nowrap;
     transition: background-color 0.1s, border-color 0.1s;
 }
-.viewport-empty-btn:hover { background-color: #2f74e6; border-color: #2f74e6; }
 
 /* Console error/warning tally in the header: reads the log's health without
    opening it. Counts light up only when non-zero. */
@@ -294,11 +276,10 @@
     font-weight: 500;
     letter-spacing: 0.4dp;
     text-transform: none;
-    color: #6b7280;
+
 }
-.console-counts .count-err  { color: #e5706b; font-weight: 600; }
-.console-counts .count-warn { color: #d8b44a; font-weight: 600; }
-.console-source-link { color: #60a5fa; }
+.console-counts .count-err  {  font-weight: 600; }
+.console-counts .count-warn {  font-weight: 600; }
 
 /* Console toolbar — level toggles, search, Clear. Local visual state only:
    nothing here is authoring, so a click is a plain Intent, not a Command. */
@@ -308,8 +289,8 @@
     align-items: center;
     height: 30dp;
     padding: 0 10dp;
-    background-color: #161619;
-    border-bottom: 1px #27272a;
+
+    border-bottom-width: 1px;
 }
 .console-toggle {
     display: inline-block;
@@ -318,19 +299,15 @@
     margin-right: 5dp;
     padding: 0 9dp;
     background-color: transparent;
-    border: 1px #323236;
+    border-width: 1px;
     border-radius: 2dp;
-    color: #6b7280;
+
     font-size: 10dp;
     font-weight: 600;
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
 }
-.console-toggle:hover { border-color: #323236; color: #c4c4c8; }
 /* Same blue-accent active convention as the toolbar's Grid/Snap toggles;
    Warn/Error override with their own log-level colour. */
-.console-toggle.active { color: #d4d4d8; border-color: #3b82f6; background-color: #3b82f626; }
-#btn-console-warning.active { color: #d8b44a; border-color: #5c4c26; background-color: #3a2f1526; }
-#btn-console-error.active   { color: #e5706b; border-color: #6b3532; background-color: #3a1f1e26; }
 /* Flex-sizing shell for the search field. Elements parsed statically from RML
    at document load do not render as text inputs in this RmlUi build — every
    working text field in this app (Name, Width, Height, ...) is injected via
@@ -350,15 +327,13 @@
     height: 22dp;
     line-height: 22dp;
     padding: 0 8dp;
-    background-color: #111113;
-    border: 1px #27272a;
+
+    border-width: 1px;
     border-radius: 2dp;
-    color: #d4d4d8;
+
     font-size: 11dp;
     transition: border-color 0.1s;
 }
-.console-search-field:hover { border-color: #323236; }
-.console-search-field:focus { border-color: #3b82f6; }
 /* In-flow Clear button — unlike .header-btn (absolute, for the panel-header
    row), this one lives in the normal toolbar flex flow. */
 .console-clear-btn {
@@ -367,14 +342,13 @@
     line-height: 22dp;
     padding: 0 10dp;
     background-color: transparent;
-    border: 1px #323236;
+    border-width: 1px;
     border-radius: 2dp;
-    color: #a1a1aa;
+
     font-size: 11dp;
     font-weight: 500;
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
 }
-.console-clear-btn:hover { border-color: #7f3b38; color: #e5706b; }
 
 /* Console — monospace: log lines are technical output, fixed-width helps
    scanning stack-like or tabular messages. */
@@ -389,14 +363,9 @@
     display: block;
     padding: 2dp 6dp;
     border-radius: 2dp;
-    color: #a1a1aa;
+
     transition: background-color 0.1s;
 }
-.log:hover      { background-color: #1c1c1f; }
-.log.selected   { background-color: #3b82f626; color: #d4d4d8; }
-.log-info    { color: #a1a1aa; }
-.log-warning { color: #d8b44a; }
-.log-error   { color: #e5706b; }
 
 /* Inspector */
 .inspector {
@@ -405,7 +374,7 @@
     padding: 8dp 12dp 16dp 12dp;
 }
 .inspector-empty {
-    color: #6b7280;
+
     padding: 14dp 0;
 }
 
@@ -416,12 +385,12 @@
     line-height: 28dp;
     margin-top: 12dp;
     margin-bottom: 8dp;
-    border-bottom: 1px #30333B;
+    border-bottom-width: 1px;
     font-size: 10dp;
     font-weight: 700;
     letter-spacing: 1.1dp;
     text-transform: uppercase;
-    color: #9297A3;
+
 }
 
 /* Component section header: eyebrow title + ownership badge + remove (x). */
@@ -432,7 +401,7 @@
     height: 28dp;
     margin-top: 12dp;
     margin-bottom: 8dp;
-    border-bottom: 1px #30333B;
+    border-bottom-width: 1px;
 }
 .comp-title {
     flex: 1;
@@ -441,14 +410,13 @@
     font-weight: 700;
     letter-spacing: 1.1dp;
     text-transform: uppercase;
-    color: #9297A3;
+
 }
 .comp-toggle { cursor: pointer; }
-.comp-toggle:hover { color: #D8DAE0; }
 .comp-caret {
     display: inline-block;
     width: 15dp;
-    color: #5F646F;
+
     font-family: tabler-icons;
     font-weight: normal;
 }
@@ -459,14 +427,13 @@
     padding: 0 6dp;
     margin-right: 4dp;
     border-radius: 8dp;
-    background-color: #1c1c1f;
-    border: 1px #2f2f33;
-    color: #71717a;
+
+    border-width: 1px;
+
     font-size: 9dp;
     font-weight: 600;
     letter-spacing: 0.6dp;
 }
-.comp-badge.override { color: #7aa2e8; border-color: #3b82f655; }
 .comp-help {
     display: inline-block;
     width: 16dp;
@@ -475,9 +442,9 @@
     margin: 0 0 0 6dp;
     padding: 0;
     background-color: transparent;
-    border: 1px #3f3f46;
+    border-width: 1px;
     border-radius: 8dp;
-    color: #8a8a93;
+
     font-size: 10dp;
     font-weight: 700;
     text-align: center;
@@ -485,11 +452,6 @@
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
 }
 .comp-help:hover,
-.comp-help:focus {
-    background-color: #27272a;
-    border-color: #3b82f6;
-    color: #f4f4f5;
-}
 .comp-remove {
     display: inline-block;
     width: 22dp;
@@ -497,11 +459,9 @@
     line-height: 22dp;
     text-align: center;
     border-radius: 2dp;
-    color: #6b6b73;
+
     transition: background-color 0.1s, color 0.1s;
 }
-.comp-remove:hover { background-color: #2a1f20; color: #e5706b; }
-.comp-remove.disabled { color: #3f3f46; }
 
 .prop-row {
     display: flex;
@@ -512,13 +472,13 @@
 }
 .prop-label {
     width: 78dp;
-    color: #9297A3;
+
     font-size: 11dp;
     flex-shrink: 0;
 }
 .prop-readonly {
     flex: 1;
-    color: #D8DAE0;
+
     font-size: 12dp;
 }
 /* Buttons inside a prop-row ("Set as Start", On/Off toggles): panel-btn's
@@ -538,26 +498,23 @@
     flex: 1;
     min-width: 0;
     padding: 5dp 6dp;
-    color: #d4d4d8;
+
     background-color: transparent;
     border-width: 0;
     text-align: left;
 }
 
-.script-attachment-name:hover { color: #60a5fa; }
 
 .script-attachment-action {
     width: 24dp;
     height: 24dp;
     padding: 0;
-    color: #a1a1aa;
+
     background-color: transparent;
     border-width: 0;
     text-align: center;
 }
 
-.script-attachment-action:hover { color: #60a5fa; }
-.script-attachment-action.disabled { color: #52525b; }
 .mode-block {
     display: block;
     margin: 2dp 0 8dp 0;
@@ -565,7 +522,7 @@
 .mode-label {
     display: block;
     margin-bottom: 4dp;
-    color: #8a8a93;
+
     font-size: 11dp;
 }
 .mode-options {
@@ -576,11 +533,11 @@
 }
 
 /* A non-zero diagnostic count reads as a soft warning. */
-.prop-readonly.warn { color: #d8b44a; font-weight: 600; }
+.prop-readonly.warn {  font-weight: 600; }
 /* Unit suffix after a numeric field (e.g. "wu"). */
 .prop-unit {
     margin-left: 6dp;
-    color: #5F646F;
+
     font-size: 11dp;
     flex-shrink: 0;
 }
@@ -591,19 +548,17 @@
 .inspector-breadcrumb {
     display: block;
     margin: 2dp 0 8dp 0;
-    color: #9297A3;
+
     font-size: 11dp;
     cursor: pointer;
 }
-.inspector-breadcrumb:hover { color: #4D8DFF; }
 
 .outside-warning {
     display: block;
     margin: 2dp 0 7dp 0;
     padding: 6dp 8dp;
-    border-left: 2dp #d8b44a;
-    background-color: #241f13;
-    color: #d8b44a;
+    border-left-width: 2dp;
+
     font-size: 11dp;
 }
 /* Variant for a warning that opens the panel (locked-layer note): match the
@@ -613,7 +568,7 @@
     display: block;
     margin: 0 0 6dp 0;
     padding: 4dp 8dp;
-    color: #71717a;
+
     font-size: 10dp;
 }
 
@@ -630,8 +585,8 @@
     flex: 1;
     min-height: 80dp;
     margin: 4dp 0 0 0;
-    background-color: #131316;
-    border: 1px #27272a;
+
+    border-width: 1px;
     border-radius: 2dp;
     /* Raylib owns clicks inside the hole. */
     pointer-events: none;
@@ -647,10 +602,10 @@
     display: block;
     padding: 8dp;
     margin: 4dp 0 6dp 0;
-    color: #8a8a93;
+
     font-size: 11dp;
-    background-color: #1c1c1f;
-    border: 1px #27272a;
+
+    border-width: 1px;
     border-radius: 4dp;
 }
 /* The "Open Tileset Editor" call-to-action follows the message on its own
@@ -665,10 +620,10 @@
 .tile-palette-selected {
     display: block;
     margin: 0 0 10dp 0;
-    color: #8a8a93;
+
     font-size: 11dp;
 }
-.tile-palette-selected .value { color: #d4d4d8; font-weight: 600; }
+.tile-palette-selected .value {  font-weight: 600; }
 
 /* Shared in-editor modal (ADR-0013 component-remove confirm, etc.). */
 .editor-modal-backdrop {
@@ -678,7 +633,7 @@
     top: 0px;
     bottom: 0px;
     z-index: 80;
-    background: #0b0d10cc;
+
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -689,9 +644,9 @@
     width: 420px;
     max-width: 90%;
     padding: 18px 20px;
-    background: #181c23;
-    border: 1px #303743;
-    color: #dfe5ee;
+
+    border-width: 1px;
+
 }
 .editor-modal-title {
     display: block;
@@ -702,7 +657,7 @@
 .editor-modal-copy {
     display: block;
     font-size: 12px;
-    color: #9aa8bc;
+
     margin-bottom: 10px;
     line-height: 1.45;
     white-space: pre-wrap;
@@ -710,7 +665,7 @@
 .editor-modal-hint {
     display: block;
     font-size: 11px;
-    color: #758399;
+
     margin-bottom: 16px;
     line-height: 1.4;
     white-space: pre-wrap;
@@ -721,15 +676,5 @@
     justify-content: flex-end;
     flex-wrap: wrap;
     gap: 8px;
-}
-.editor-modal-actions .panel-btn.primary { background: #3b82f6; color: white; }
-.editor-modal-actions .panel-btn.danger {
-    background: #3a2224;
-    color: #e5706b;
-    border-color: #5a3438;
-}
-.editor-modal-actions .panel-btn.danger:hover {
-    background: #4a2a2d;
-    border-color: #e5706b;
 }
 

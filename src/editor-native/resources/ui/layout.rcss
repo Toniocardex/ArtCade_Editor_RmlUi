@@ -16,8 +16,8 @@ body {
     flex-direction: row;
     align-items: center;
     padding: 0 6dp;
-    background-color: #18181b;
-    border-bottom: 1px #27272a;
+
+    border-bottom-width: 1px;
 }
 
 #toolbar {
@@ -28,8 +28,8 @@ body {
     align-items: center;
     overflow: hidden;
     padding: 4dp 10dp;
-    background-color: #18181b;
-    border-bottom: 1px #27272a;
+
+    border-bottom-width: 1px;
 }
 
 .tool-group {
@@ -67,22 +67,21 @@ body {
 .logic-search-icon {
     display: inline-block;
     width: 18dp;
-    color: #6b6b73;
+
     font-family: tabler-icons;
     font-size: 11dp;
 }
-.logic-search-label { display: inline-block; margin-right: 6dp; color: #6b6b73; font-size: 11dp; }
+.logic-search-label { display: inline-block; margin-right: 6dp;  font-size: 11dp; }
 .logic-toolbar-search {
     display: block;
     width: 220dp;
     height: 30dp;
     padding: 0 8dp;
-    background-color: #111216;
-    border: 1px #343640;
+
+    border-width: 1px;
     border-radius: 2dp;
-    color: #d4d4d8;
+
 }
-.logic-toolbar-search:focus { border-color: #3b82f6; }
 
 #workspace {
     flex: 1;
@@ -107,7 +106,7 @@ body {
     min-height: 120dp;
     overflow: hidden;
 }
-.hierarchy-pane { border-bottom: 1px #27272a; }
+.hierarchy-pane { border-bottom-width: 1px; }
 .assets-pane { min-height: 150dp; }
 
 #workspace-main {
@@ -142,8 +141,8 @@ body {
     flex-direction: row;
     align-items: flex-end;
     justify-content: center;
-    background-color: #161619;
-    border-bottom: 1px #27272a;
+
+    border-bottom-width: 1px;
 }
 
 #center-mode-tabs {
@@ -152,9 +151,9 @@ body {
     flex-direction: row;
     align-items: flex-end;
     padding: 0 4dp;
-    background-color: #1a1a1d;
-    border-left: 1px #27272a;
-    border-right: 1px #27272a;
+
+    border-left-width: 1px;
+    border-right-width: 1px;
 }
 
 .center-mode-tab {
@@ -167,15 +166,12 @@ body {
     background-color: transparent;
     border-width: 0 0 3px 0;
     border-color: transparent;
-    color: #9a9aa3;
+
     font-size: 12dp;
     font-weight: 600;
     text-align: center;
     transition: border-color 0.1s, background-color 0.1s, color 0.1s;
 }
-.center-mode-tab:hover { color: #e4e4e7; background-color: #242429; }
-.center-mode-tab.active { color: #ffffff; background-color: #202126; border-bottom-color: #3b82f6; }
-.center-mode-tab:focus { border-color: #3b82f6; }
 
 #center-content {
     flex: 1;
@@ -194,7 +190,7 @@ body {
     overflow: hidden;
     background-color: transparent;
     box-sizing: border-box;
-    border: 1px #25252a;
+    border-width: 1px;
     /* Raylib owns clicks inside the hole; keep RmlUi from treating the empty
        div as a hit target (empty-state UI re-enables pointer events below). */
     pointer-events: none;
@@ -222,8 +218,8 @@ body {
     max-height: 480dp;
     display: flex;
     flex-direction: column;
-    background-color: #161619;
-    border-top: 1px #27272a;
+
+    border-top-width: 1px;
     overflow: hidden;
     pointer-events: auto;
 }
@@ -236,16 +232,16 @@ body {
     flex-direction: row;
     align-items: center;
     padding: 0 10dp;
-    background-color: #18181b;
-    border-bottom: 1px #27272a;
-    color: #a1a1aa;
+
+    border-bottom-width: 1px;
+
     font-size: 11dp;
 }
-.tile-palette-dock-header .icon { margin-right: 6dp; color: #71717a; }
+.tile-palette-dock-header .icon { margin-right: 6dp;  }
 .tile-palette-dock-title {
     flex: 1;
     min-width: 0;
-    color: #d4d4d8;
+
     font-size: 11dp;
     font-weight: 600;
 }
@@ -258,20 +254,12 @@ body {
     background-color: transparent;
     border: 1px transparent;
     border-radius: 3dp;
-    color: #8a8a93;
+
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
-}
-.tile-palette-dock-collapse-btn:hover {
-    background-color: #27272a;
-    border-color: #3f3f46;
-    color: #e4e4e7;
 }
 .tile-palette-dock-collapse-btn .icon {
     margin: 0;
-    color: #8a8a93;
-}
-.tile-palette-dock-collapse-btn:hover .icon {
-    color: #e4e4e7;
+
 }
 .tile-palette-dock-body {
     flex: 1;
@@ -313,7 +301,7 @@ body {
     flex: 0 0 auto;
     height: 1px;
     margin: 1dp 4dp;
-    background-color: #27272a;
+
 }
 .tile-palette-dock-main {
     flex: 1;
@@ -332,7 +320,7 @@ body {
     justify-content: space-between;
     gap: 10dp;
     margin: 4dp 0 0 0;
-    color: #8a8a93;
+
     font-size: 11dp;
     white-space: nowrap;
     overflow: hidden;
@@ -340,10 +328,10 @@ body {
 .tile-palette-dock-status-selection {
     overflow: hidden;
 }
-.tile-palette-dock-status-selection .value { color: #d4d4d8; font-weight: 600; }
+.tile-palette-dock-status-selection .value {  font-weight: 600; }
 .tile-palette-dock-status-meta {
     flex: 0 0 auto;
-    color: #6b6b73;
+
 }
 
 /* Logic/Script fill the center column when Scene (and the palette dock) are hidden. */
@@ -369,8 +357,8 @@ body {
     max-height: 600dp;
     display: flex;
     flex-direction: column;
-    background-color: #161619;
-    border-top: 1px #27272a;
+
+    border-top-width: 1px;
     /* #console is a normal-flow flex child, but .sfx-editor (and any other
        full-workspace overlay) is position:absolute with z-index:30 covering
        the same screen region -- without a stacking context of its own, a
@@ -396,9 +384,9 @@ body {
     flex-direction: row;
     align-items: center;
     padding: 0 10dp;
-    background-color: #161619;
-    border-top: 1px #27272a;
-    color: #71717a;
+
+    border-top-width: 1px;
+
     font-size: 10dp;
     cursor: pointer;
 }
@@ -406,18 +394,14 @@ body {
 /* Splitters — slim, light up to accent on hover/drag. */
 .vsplit {
     width: 5dp;
-    background-color: #0e0e10;
+
     drag: drag;
     transition: background-color 0.1s;
 }
-.vsplit:hover  { background-color: #3b82f6; }
-.vsplit:active { background-color: #60a0ff; }
 
 .hsplit {
     height: 5dp;
-    background-color: #0e0e10;
+
     drag: drag;
     transition: background-color 0.1s;
 }
-.hsplit:hover  { background-color: #3b82f6; }
-.hsplit:active { background-color: #60a0ff; }

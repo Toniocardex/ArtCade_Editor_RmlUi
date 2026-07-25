@@ -10,7 +10,7 @@
     display: inline-block;
     line-height: 30dp;
     padding: 0 12dp 0 6dp;
-    
+
     font-size: 12dp;
     font-weight: 700;
     letter-spacing: 0.4dp;
@@ -23,7 +23,7 @@
     padding: 0 10dp;
     margin: 0 1dp;
     border-radius: 2dp;
-    
+
     font-size: 12dp;
     font-weight: 400;
     transition: background-color 0.1s, color 0.1s;
@@ -42,7 +42,7 @@
     z-index: 100;
     min-width: 168dp;
     padding: 4dp;
-    
+
     border-width: 1px;
     border-radius: 4dp;
 }
@@ -62,7 +62,7 @@
     line-height: 28dp;
     padding: 0 10dp;
     border-radius: 2dp;
-    
+
     font-size: 13dp;
     font-weight: 500;
     white-space: nowrap;
@@ -80,7 +80,7 @@
 .menu-entry-shortcut {
     margin-left: auto;
     padding-left: 16dp;
-    
+
     font-size: 11dp;
     font-weight: 400;
 }
@@ -96,7 +96,7 @@
     height: 20dp;
     line-height: 20dp;
     padding: 0 10dp;
-    
+
     font-size: 10dp;
     font-weight: 700;
     letter-spacing: 1.1dp;
@@ -106,7 +106,7 @@
    its display name — default-named types would otherwise be identical rows). */
 .menu-entry-hint {
     margin-left: 8dp;
-    
+
     font-size: 11dp;
     font-weight: 400;
 }
@@ -120,10 +120,10 @@
     text-align: center;
     margin: 3dp;
     padding: 0 13dp;
-    
+
     border-width: 1px;
     border-radius: 2dp;
-    
+
     font-size: 13dp;
     font-weight: 500;
     white-space: nowrap;
@@ -131,17 +131,15 @@
 }
 
 .tool-btn.primary {
-    
-    
-    
+
     font-weight: 600;
 }
 
 /* Primary call-to-action: Play Project (accent). */
 #btn-play-project {
-    
+
     border-width: 1px;
-    
+
     font-weight: 600;
 }
 
@@ -163,7 +161,7 @@
     flex: 0 0 auto;
     margin: 3dp 6dp;
     padding: 0 4dp;
-    
+
     font-size: 12dp;
     line-height: 28dp;
     white-space: nowrap;
@@ -187,7 +185,7 @@
     padding: 0;
     overflow: hidden;
     text-align: center;
-    
+
     font-family: JetBrains Mono;
     font-size: 11dp;
     font-weight: 500;
@@ -208,7 +206,7 @@
     padding: 0 5dp;
     background-color: transparent;
     border: 0;
-    
+
     font-size: 10dp;
 }
 .status-dot {
@@ -249,7 +247,7 @@
     margin: 3dp 2dp;
     padding: 0 8dp;
     border-radius: 2dp;
-    
+
     font-size: 12dp;
     font-weight: 500;
     transition: background-color 0.1s, color 0.1s;
@@ -276,7 +274,7 @@
     z-index: 120;
     width: 176dp;
     padding: 8dp;
-    
+
     border-width: 1px;
     border-radius: 4dp;
     box-sizing: border-box;
@@ -287,7 +285,7 @@
     height: 16dp;
     line-height: 16dp;
     margin: 0 0 6dp 0;
-    
+
     font-size: 10dp;
     font-weight: 700;
     letter-spacing: 0.5dp;
@@ -299,10 +297,10 @@
     line-height: 26dp;
     margin: 0 0 8dp 0;
     padding: 0 8dp;
-    
+
     border-width: 1px;
     border-radius: 2dp;
-    
+
     font-family: "JetBrains Mono";
     font-size: 12dp;
     box-sizing: border-box;
@@ -324,7 +322,7 @@
     background-color: transparent;
     border-width: 1px;
     border-radius: 2dp;
-    
+
     font-size: 11dp;
     text-align: center;
 }
@@ -332,8 +330,7 @@
 
 /* Tilemap cell size: read-only navigation affordance (not an editor). */
 #btn-grid-size.grid-size-nav {
-    
-    
+
     cursor: pointer;
 }
 .grid-nav-icon {
@@ -352,7 +349,7 @@
 #btn-grid-visible.disabled,
 #btn-grid-snap.disabled,
 #btn-grid-size.disabled {
-    
+
     border-width: 1px;
 }
 
@@ -378,7 +375,7 @@
     z-index: 120;
     min-width: 168dp;
     padding: 4dp;
-    
+
     border-width: 1px;
     border-radius: 4dp;
 }
@@ -393,7 +390,7 @@
     text-align: center;
     margin-left: 4dp;
     border-radius: 2dp;
-    
+
     font-family: tabler-icons;
     font-weight: normal;
     transition: background-color 0.1s, color 0.1s;
@@ -406,7 +403,7 @@
 .tree-section {
     display: block;
     padding: 6dp 10dp 2dp 10dp;
-    
+
     font-size: 9dp;
     font-weight: 700;
     letter-spacing: 1dp;
@@ -422,7 +419,7 @@
     background-color: transparent;
     border-width: 1px;
     border-radius: 2dp;
-    
+
     font-size: 11dp;
     font-weight: 500;
     white-space: nowrap;
@@ -443,7 +440,7 @@
     text-align: center;
     border-width: 1px;
     border-radius: 2dp;
-    
+
     font-size: 12dp;
     font-weight: 500;
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
@@ -453,7 +450,7 @@
     display: block;
     margin-top: 4dp;
     padding: 4dp;
-    
+
     border-width: 1px;
     border-radius: 4dp;
 }
@@ -463,7 +460,7 @@
     line-height: 26dp;
     padding: 0 10dp;
     border-radius: 2dp;
-    
+
     font-size: 12dp;
     transition: background-color 0.1s, color 0.1s;
 }
@@ -481,10 +478,10 @@
     height: 26dp;
     line-height: 26dp;
     padding: 0 26dp 0 8dp;
-    
+
     border-width: 1px;
     border-radius: 2dp;
-    
+
     font-size: 12dp;
     white-space: nowrap;
     overflow: hidden;
@@ -501,7 +498,7 @@
     display: block;
     margin: 2dp 0 8dp 78dp;
     padding: 4dp;
-    
+
     border-width: 1px;
     border-radius: 4dp;
 }
@@ -511,7 +508,7 @@
     line-height: 24dp;
     padding: 0 8dp;
     border-radius: 2dp;
-    
+
     font-size: 11dp;
     white-space: nowrap;
     overflow: hidden;
@@ -522,18 +519,6 @@
 .drop-list .asset-group-title { margin: 6dp 0 3dp 4dp; }
 
 /* -- Inspector asset picker ------------------------------------------------ */
-.asset-options { display: block; margin: 6dp 0 8dp 0; }
-.asset-option {
-    display: block;
-    padding: 5dp 9dp;
-    
-    
-    border-width: 1px;
-    border-radius: 2dp;
-    margin-bottom: 3dp;
-    font-size: 11dp;
-    transition: background-color 0.1s, border-color 0.1s, color 0.1s;
-}
 
 /* -- Viewport context menu ------------------------------------------------- */
 .context-menu {
@@ -542,7 +527,7 @@
     z-index: 200;
     min-width: 188dp;
     padding: 4dp;
-    
+
     border-width: 1px;
     border-radius: 4dp;
 }
@@ -554,7 +539,7 @@
     line-height: 28dp;
     padding: 0 10dp;
     border-radius: 2dp;
-    
+
     font-size: 12dp;
     font-weight: 500;
     white-space: nowrap;
@@ -568,13 +553,13 @@
 .context-shortcut {
     margin-left: auto;
     padding-left: 12dp;
-    
+
     font-size: 10dp;
 }
 .context-submenu-caret {
     margin-left: auto;
     padding-left: 12dp;
-    
+
     font-family: tabler-icons;
     font-size: 11dp;
 }
@@ -593,7 +578,7 @@
        padding, fusing the two borders into one continuous shape. */
     margin-left: 6dp;
     padding: 4dp;
-    
+
     border-width: 1px;
     border-radius: 4dp;
 }
@@ -614,7 +599,7 @@
     padding: 0 4dp;
     margin-bottom: 2dp;
     border-radius: 2dp;
-    
+
     transition: background-color 0.1s, color 0.1s;
 }
 .layer-eye {
@@ -626,7 +611,7 @@
     display: inline-block;
     width: 22dp;
     text-align: center;
-    
+
     transition: color 0.1s;
 }
 .layer-name { flex: 1; font-size: 12dp; padding: 0 4dp; }
@@ -635,10 +620,10 @@
     height: 22dp;
     line-height: 22dp;
     padding: 0 6dp;
-    
+
     border-width: 1px;
     border-radius: 2dp;
-    
+
     font-size: 12dp;
 }
 /* Indent lines up with the layer name text: 4dp row padding + 22dp eye
@@ -646,14 +631,14 @@
 .layer-rename-error {
     display: block;
     margin: 0 0 4dp 52dp;
-    
+
     font-size: 10dp;
 }
 .layer-btn {
     display: inline-block;
     width: 20dp;
     text-align: center;
-    
+
     font-size: 13dp;
     border-radius: 2dp;
     transition: background-color 0.1s, color 0.1s;
@@ -665,7 +650,7 @@
     display: inline-block;
     width: 20dp;
     text-align: center;
-    
+
     font-size: 13dp;
     border-radius: 2dp;
     transition: background-color 0.1s, color 0.1s;
@@ -683,7 +668,7 @@
     flex-direction: row;
     flex-wrap: wrap;
     padding: 6dp 8dp 8dp 10dp;
-    
+
     border-bottom-width: 1px;
 }
 /* No scenes: the empty strip is just a dark band — collapse it. Needs its own
@@ -698,8 +683,7 @@
     margin: 0 5dp 5dp 0;
     border-radius: 2dp;
     border-width: 1px;
-    
-    
+
     font-size: 12dp;
     font-weight: 500;
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
@@ -721,7 +705,7 @@
     padding: 0 5dp 0 7dp;
     border-left: 2dp transparent;
     background-color: transparent;
-    
+
     transition: background-color 0.1s, color 0.1s;
 }
 .row-icon {
@@ -734,7 +718,7 @@
     min-width: 0;
     overflow: hidden;
     white-space: nowrap;
-    
+
     font-size: 11dp;
 }
 .tree-row:hover .row-name,
@@ -747,8 +731,7 @@
     padding: 0 4dp;
     border-width: 1dp;
     border-radius: 3dp;
-    
-    
+
     font-size: 11dp;
 }
 .row-indicators {
@@ -756,14 +739,12 @@
     flex: 0 0 auto;
     flex-direction: row;
     align-items: center;
-}
-.row-override-indicator,
-.row-shared-type,
-.row-indicator-spacer {
+}.row-override-indicator,
+.row-shared-type {
     display: inline-block;
     width: 14dp;
     text-align: center;
-    
+
     font-size: 11dp;
 }
 .row-shared-type {
@@ -793,15 +774,15 @@
     height: 26dp;
     padding: 0 10dp 0 4dp;
     margin-top: 2dp;
-    
+
     border-left: 2dp transparent;
-    
+
     font-size: 11dp;
     font-weight: 600;
     transition: background-color 0.1s, color 0.1s;
 }
 .layer-group-header.active {
-    
+
     border-left-width: 2dp;
 }
 .layer-chevron {
@@ -819,7 +800,7 @@
 .layer-count {
     flex: 0 0 auto;
     margin-left: 4dp;
-    
+
     font-size: 10dp;
     font-weight: 500;
 }
@@ -836,21 +817,21 @@
 .hierarchy-empty-icon {
     display: block;
     margin-bottom: 10dp;
-    
+
     font-family: tabler-icons;
     font-size: 28dp;
 }
 .hierarchy-empty-title {
     display: block;
     margin-bottom: 5dp;
-    
+
     font-size: 13dp;
     font-weight: 600;
 }
 .hierarchy-empty-copy {
     display: block;
     margin-bottom: 13dp;
-    
+
     font-size: 11dp;
 }
 .hierarchy-empty-action { margin: 0; }
@@ -861,10 +842,10 @@
     height: 26dp;
     line-height: 26dp;
     padding: 0 8dp;
-    
+
     border-width: 1px;
     border-radius: 2dp;
-    
+
     font-size: 12dp;
     transition: border-color 0.1s;
 }
@@ -880,11 +861,11 @@
     margin: 0 0 4dp 0;
     padding: 0 0 8dp 0;
     border-bottom-width: 1px;
-    
+
     font-size: 12dp;
 }
 .inspector-scene-context .context-kind {
-    
+
     font-size: 10dp;
     font-weight: 700;
     letter-spacing: 0.06em;
@@ -898,7 +879,7 @@
 .prop-subheading {
     margin: 8dp 0 2dp 0;
     padding-left: 0;
-    
+
     font-size: 10dp;
     font-weight: 600;
     letter-spacing: 0.04em;
@@ -908,7 +889,7 @@
 .prop-meta-value {
     flex: 1;
     min-width: 0;
-    
+
     font-size: 11dp;
     font-family: "JetBrains Mono";
 }
@@ -920,7 +901,7 @@
     background-color: transparent;
     border: 1px transparent;
     border-radius: 2dp;
-    
+
     cursor: pointer;
 }
 .prop-start-badge {
@@ -930,10 +911,10 @@
     gap: 6dp;
     height: 26dp;
     padding: 0 8dp;
-    
+
     border-width: 1px;
     border-radius: 2dp;
-    
+
     font-size: 12dp;
 }
 
@@ -951,7 +932,7 @@
     align-items: center;
     min-width: 0;
     height: 26dp;
-    
+
     border-width: 1px;
     border-radius: 2dp;
     overflow: hidden;
@@ -1008,7 +989,7 @@
     border-width: 0;
     border-left-width: 1px;
     border-radius: 0;
-    
+
     text-align: center;
     cursor: pointer;
     flex-shrink: 0;
@@ -1021,7 +1002,7 @@
 }
 .color-reset.disabled,
 .color-reset:disabled {
-    
+
     cursor: default;
 }
 
@@ -1037,14 +1018,14 @@
 .inspector-opacity-slider slidertrack {
     height: 4dp;
     margin-top: 9dp;
-    
+
     border-radius: 2dp;
 }
 .inspector-opacity-slider sliderbar {
     width: 14dp;
     height: 14dp;
     margin-top: 4dp;
-    
+
     border-radius: 7dp;
     border: 2dp transparent;
     box-sizing: border-box;
@@ -1052,7 +1033,7 @@
 .inspector-opacity-slider sliderprogress {
     height: 4dp;
     margin-top: 0;
-    
+
     border-radius: 2dp;
 }
 .inspector-opacity-slider sliderarrowdec,

@@ -4,8 +4,8 @@
     width: 720dp;
     max-width: 92%;
     max-height: 86%;
-    background-color: #17181c;
-    border: 1px #30333b;
+
+    border-width: 1px;
     border-radius: 4dp;
     display: flex;
     flex-direction: column;
@@ -25,14 +25,14 @@
     flex-direction: row;
     align-items: center;
     padding: 12dp 14dp;
-    border-bottom: 1px #292b31;
+    border-bottom-width: 1px;
 }
 
 .help-dialog-title {
     flex: 1;
     font-size: 15dp;
     font-weight: 600;
-    color: #e4e6eb;
+
 }
 
 .help-dialog-close {
@@ -43,29 +43,25 @@
     background-color: transparent;
     border: 1px transparent;
     border-radius: 2dp;
-    color: #9aa0ab;
+
     font-size: 18dp;
 }
 
-.help-dialog-close:hover {
-    background-color: #22252c;
-    color: #e4e6eb;
-}
 
 .shortcuts-toolbar {
     display: flex;
     padding: 12dp;
-    border-bottom: 1px #292b31;
+    border-bottom-width: 1px;
 }
 
 .shortcuts-search {
     flex: 1;
     height: 30dp;
     padding: 0 10dp;
-    background-color: #121317;
-    border: 1px #30333b;
+
+    border-width: 1px;
     border-radius: 3dp;
-    color: #d8dae0;
+
     font-size: 12dp;
 }
 
@@ -73,7 +69,7 @@
     display: flex;
     flex-direction: row;
     padding: 8dp 12dp;
-    border-bottom: 1px #292b31;
+    border-bottom-width: 1px;
 }
 
 .shortcuts-tab {
@@ -84,20 +80,11 @@
     background-color: transparent;
     border: 1px transparent;
     border-radius: 3dp;
-    color: #8b919c;
+
     font-size: 12dp;
 }
 
-.shortcuts-tab:hover {
-    background-color: #1e2026;
-    color: #d8dae0;
-}
 
-.shortcuts-tab.active {
-    background-color: #252830;
-    border-color: #3a3f4a;
-    color: #e4e6eb;
-}
 
 .shortcuts-list {
     flex: 1;
@@ -107,7 +94,7 @@
 
 .shortcut-section {
     padding: 10dp 12dp 4dp 12dp;
-    color: #737985;
+
     font-size: 10dp;
     font-weight: 700;
     letter-spacing: 1dp;
@@ -118,12 +105,9 @@
     flex-direction: row;
     height: 34dp;
     padding: 0 12dp;
-    border-bottom: 1px #25272d;
+    border-bottom-width: 1px;
 }
 
-.shortcut-row:hover {
-    background-color: #1e2026;
-}
 
 .shortcut-row-unavailable {
     opacity: 0.45;
@@ -132,7 +116,7 @@
 .shortcut-label {
     flex: 1;
     line-height: 34dp;
-    color: #d8dae0;
+
     font-size: 12dp;
 }
 
@@ -140,14 +124,14 @@
     width: 220dp;
     line-height: 34dp;
     text-align: right;
-    color: #cfd2d9;
+
     font-family: "JetBrains Mono";
     font-size: 11dp;
 }
 
 .shortcuts-empty {
     padding: 24dp 12dp;
-    color: #737985;
+
     font-size: 12dp;
     text-align: center;
 }
@@ -157,7 +141,7 @@
     flex-direction: row;
     justify-content: flex-end;
     padding: 10dp 12dp;
-    border-top: 1px #292b31;
+    border-top-width: 1px;
 }
 
 .about-body {
@@ -169,26 +153,26 @@
     font-size: 12dp;
     font-weight: 700;
     letter-spacing: 2dp;
-    color: #7aa2e8;
+
     margin-bottom: 8dp;
 }
 
 .about-product {
     font-size: 18dp;
     font-weight: 600;
-    color: #e8eaef;
+
     margin-bottom: 4dp;
 }
 
 .about-version {
     font-size: 12dp;
-    color: #a0a6b2;
+
     margin-bottom: 12dp;
 }
 
 .about-tagline {
     font-size: 12dp;
-    color: #8b919c;
+
     margin-bottom: 18dp;
 }
 
@@ -206,13 +190,13 @@
 
 .about-meta-key {
     width: 140dp;
-    color: #737985;
+
     font-size: 12dp;
 }
 
 .about-meta-value {
     flex: 1;
-    color: #d8dae0;
+
     font-size: 12dp;
 }
 
@@ -223,7 +207,7 @@
 
 .about-copyright .about-meta-value {
     text-align: center;
-    color: #737985;
+
     font-size: 11dp;
 }
 

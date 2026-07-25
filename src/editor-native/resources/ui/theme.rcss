@@ -169,102 +169,276 @@ scrollbarvertical sliderbar:active { background-color: #71717a; }
    to a component.
    ============================================================================= */
 
-/* surface-chrome */
-.tab {
-    background-color: #18181b;
+/* surface-base */
+.sfx-editor,
+.sfx-editor-browser,
+.sfx-modal-input {
+    background: #131316;
 }
 
-/* surface-disabled */
+/* surface-base */
+#center-modebar,
+#console,
+#status-bar,
+#tile-palette-dock,
+.console-toolbar,
+.help-dialog,
+.logic-toolbar-search,
+.script-editor-code,
+.script-editor-panel,
+.script-tab.active,
+.script-toolbar-field input,
+.shortcuts-search,
+.tile-palette-sheet,
+textarea#script-editor-textarea scrollbarvertical slidertrack {
+    background-color: #131316;
+}
+
+/* surface-chrome */
+.editor-modal,
+.sfx-batch-panel,
+.sfx-browser-row:hover,
+.sfx-editor-header,
+.sfx-more-menu,
+.sfx-section,
+.sfx-summary {
+    background: #18181b;
+}
+
+/* surface-chrome */
+#center-mode-tabs,
+#menubar,
+#toolbar,
+.logic-block,
+.logic-board-panel,
+.logic-head,
+.panel,
+.panel-header,
+.script-api-item:hover,
+.script-completion-popup,
+.script-editor-current-line,
+.script-editor-status,
+.script-editor-tabs,
+.tab,
+.tile-palette-dock-header {
+    background-color: #18181b;
+}/* surface-disabled */
 #btn-grid-size.disabled,
-.asset-option.disabled,
 .drop-trigger.disabled,
+.logic-key-search,
+.logic-variables-drawer,
 .prop-input:disabled {
     background-color: #151517;
 }
 
 /* surface-hover */
+.sfx-batch-cancel:hover,
+.sfx-batch-cta:hover,
+.sfx-browser-action:hover,
+.sfx-browser-add:hover,
+.sfx-mode-toggle-row:hover,
+.sfx-more-entry:hover,
+.sfx-preset:hover {
+    background: #27272a;
+}/* surface-hover */
 .add-entry:hover,
-.asset-option:hover,
+.center-mode-tab.active,
+.comp-help:focus,
+.console-collapse-btn:hover,
 .context-entry:hover,
 .drop-entry:hover,
 .layer-btn:hover,
 .layer-group-header:hover,
 .menu-entry:hover,
 .menu-item:hover,
+.script-tab:hover,
 .tab:hover,
+.tile-palette-dock-collapse-btn:hover,
+.tile-palette-dock-rail-sep,
 .tool-btn:hover,
-.toolbar-zoom:hover {
+.toolbar-zoom:hover,
+textarea#script-editor-textarea scrollbarvertical sliderbar {
     background-color: #27272a;
 }
 
 /* surface-raised */
+.sfx-batch-cancel,
+.sfx-batch-cta,
+.sfx-browser-add,
+.sfx-choice,
+.sfx-preset {
+    background: #1f1f23;
+}/* surface-raised */
 .add-list,
-.asset-option,
+.asset-count,
+.asset-row:hover,
+.assets .asset-group-title:hover,
+.assets .asset-import-trigger,
+.center-mode-tab:hover,
 .color-reset:hover,
+.comp-badge,
 .context-menu,
 .context-submenu,
 .create-dropdown,
 .grid-size-popover,
+.help-dialog-close:hover,
 .layer-group-header,
 .layer-row:hover,
+.log:hover,
+.logic-diagnostic.warning,
+.logic-empty,
+.logic-rule,
+.logic-rule-head,
+.logic-variables-collapse:hover,
 .menu-dropdown,
 .scene-tabs,
+.sfx-macro-slider slidertrack,
+.shortcuts-tab.active,
+.tile-palette-empty,
 .tool-btn,
 .tree-row:hover {
     background-color: #1f1f23;
 }
 
 /* surface-selected */
+.sfx-browser-create-entry:hover,
+.sfx-browser-row.selected,
+.sfx-inline-action:hover,
+.sfx-preset-divider,
+.sfx-preset.active {
+    background: #2f2f36;
+}/* surface-selected */
 #btn-grid-size.grid-size-nav:hover,
 .add-component-btn.open,
-.asset-option.selected,
+.console-toggle.active,
 .drop-entry.selected,
 .drop-trigger.open,
+.hsplit:active,
+.hsplit:hover,
 .inspector-opacity-slider sliderbar:active,
 .inspector-opacity-slider sliderprogress,
 .layer-group-header.active,
 .layer-row.active,
+.log.selected,
+.logic-key-capture.capturing,
+.logic-more-trigger.open,
+.logic-variable-row button.logic-variable-value.active,
+.logic-variables-toggle.active,
 .panel-btn.active,
 .panel-btn:active,
 .prop-input.inspector-reveal-highlight,
 .row-menu:hover,
+.script-api-insert-btn,
+.script-api-insert-btn:hover,
+.script-api-item.selected,
+.script-completion-item.active,
+.script-tab-close:hover,
+.sfx-macro-slider sliderbar:active,
+.sfx-macro-slider sliderprogress,
+.sfx-macro-slider:hover slidertrack,
 .tab.active,
 .tool-btn.active,
 .tool-btn:active,
-.tree-row.selected {
+.tree-row.selected,
+.vsplit:active,
+.vsplit:hover {
     background-color: #2f2f36;
 }
 
 /* surface-sunken */
+.editor-modal-backdrop,
+.sfx-batch-bar,
+.sfx-browser-search,
+.sfx-field input,
+.sfx-macro-input,
+.sfx-name {
+    background: #0b0b0d;
+}
+
+/* surface-sunken */
+.assets-search-field,
 .color-field,
+.console-search-field,
 .drop-list,
 .drop-trigger,
 .grid-size-input,
+.hierarchy-search-field,
+.hsplit,
 .layer-rename-input,
+.logic-code,
+.logic-key-result,
+.logic-key-search input,
+.logic-variable-description,
+.logic-variable-row button.logic-variable-value,
 .prop-input,
 .prop-start-badge,
-.row-name-input {
+.row-name-input,
+.script-api-panel,
+.script-line-numbers,
+.shortcut-row:hover,
+.shortcuts-tab:hover,
+.vsplit {
     background-color: #0b0b0d;
 }
 
 /* border-focus */
+.sfx-batch-bar-fill {
+    background: #71717a;
+}
+
+/* border-focus */
+.center-mode-tab.active {
+    border-bottom-color: #71717a;
+}/* border-focus */
 #btn-grid-size.grid-size-nav,
 #btn-grid-size.grid-size-nav:hover,
 .add-component-btn.open,
 .add-component-btn:hover,
-.asset-option.selected,
+.assets-search-field:focus,
+.center-mode-tab:focus,
+.comp-badge.override,
+.comp-help:focus,
+.console-search-field:focus,
+.console-toggle.active,
 .drop-trigger.open,
 .grid-size-input:focus,
 .grid-size-preset:hover,
+.header-btn:hover,
+.hierarchy-search-field:focus,
 .inspector-opacity-slider sliderbar:active,
 .inspector-opacity-slider:focus,
 .layer-rename-input,
+.logic-add-rule-footer:hover,
+.logic-btn:hover,
+.logic-icon-btn:hover,
+.logic-key-capture.capturing,
+.logic-key-result.selected,
+.logic-key-search input:focus,
+.logic-key-search-cancel:hover,
+.logic-key-result:hover,
+.logic-more-trigger.open,
+.logic-rule.logic-rule-focus,
+.logic-toolbar-search:focus,
+.logic-variable-row button.logic-variable-value.active,
+.logic-variable-row input:focus,
+.logic-variables-toggle.active,
 .panel-btn.active,
 .panel-btn:active,
 .panel-btn:hover,
 .prop-input.inspector-reveal-highlight,
 .prop-input:focus,
 .row-name-input,
+.script-api-insert-btn,
+.script-completion-popup,
+.script-toolbar-field input:focus,
+.sfx-browser-add:hover,
+.sfx-browser-search:focus,
+.sfx-inline-action,
+.sfx-macro-slider sliderbar:active,
+.sfx-macro-slider:focus,
+.sfx-modal-input:focus,
+.sfx-name:focus,
+.sfx-preset.active,
 .tab.active,
 .tool-btn.active,
 .tool-btn:active {
@@ -277,6 +451,11 @@ scrollbarvertical sliderbar:active { background-color: #71717a; }
     border-left-color: #71717a;
 }
 
+/* border-focus */
+.script-tab.active {
+    border-top-color: #71717a;
+}
+
 /* border-strong */
 .inspector-opacity-slider:hover slidertrack,
 .menu-separator,
@@ -285,23 +464,71 @@ scrollbarvertical sliderbar:active { background-color: #71717a; }
 }
 
 /* border-strong */
+.sfx-editor-header {
+    border-bottom-color: #3f3f46;
+}/* border-strong */
 .add-component-btn,
 .add-list,
-.asset-option:hover,
+.assets .asset-import-trigger,
+.assets-search-field:hover,
 .color-field:hover,
+.comp-badge,
+.comp-help,
+.console-clear-btn,
+.console-collapse-btn:hover,
+.console-search-field:hover,
+.console-toggle,
+.console-toggle:hover,
 .context-menu,
 .context-submenu,
 .create-dropdown,
 .drop-trigger:hover,
+.editor-modal,
 .grid-size-input,
 .grid-size-popover,
 .grid-size-preset,
+.header-btn,
+.hierarchy-search-field:hover,
+.logic-add-rule-footer,
+.logic-btn,
+.logic-icon-btn,
+.logic-key-result,
+.logic-key-search,
+.logic-key-search input,
+.logic-more-trigger,
+.logic-more-trigger:hover,
+.logic-variable-description,
+.logic-variable-row button.logic-variable-value,
+.logic-variable-type .drop-trigger,
+.logic-variables-toggle,
 .menu-dropdown,
 .panel-btn,
 .prop-input:hover,
+.sfx-batch-bar,
+.sfx-batch-cancel,
+.sfx-batch-panel,
+.sfx-browser-add,
+.sfx-browser-search,
+.sfx-choice,
+.sfx-field input,
+.sfx-macro-input,
+.sfx-modal-input,
+.sfx-more-menu,
+.sfx-name,
+.sfx-name:hover,
+.sfx-preset,
+.sfx-section,
+.sfx-summary,
+.shortcuts-tab.active,
 .tab:hover,
+.tile-palette-dock-collapse-btn:hover,
 .tool-btn:hover {
     border-color: #3f3f46;
+}
+
+/* border-strong */
+.sfx-editor-browser {
+    border-right-color: #3f3f46;
 }
 
 /* border-subtle */
@@ -310,53 +537,109 @@ scrollbarvertical sliderbar:active { background-color: #71717a; }
 }
 
 /* border-subtle */
+#center-modebar,
+#menubar,
+#toolbar,
+.comp-header,
+.console-toolbar,
+.help-dialog-header,
+.hierarchy-pane,
 .inspector-scene-context,
-.scene-tabs {
+.logic-col-head,
+.logic-head,
+.logic-rule-head,
+.logic-variables-drawer,
+.panel-header,
+.prop-group-title,
+.scene-tabs,
+.script-api-panel-header,
+.script-editor-tabs,
+.shortcut-row,
+.shortcuts-tabs,
+.shortcuts-toolbar,
+.tile-palette-dock-header {
     border-bottom-color: #27272a;
-}
-
-/* border-subtle */
+}/* border-subtle */
 #btn-grid-size.disabled,
+#viewport,
 .add-component-btn.disabled,
-.asset-option,
-.asset-option.disabled,
+.assets-search-field,
 .color-field,
+.console-search-field,
 .drop-list,
 .drop-trigger,
 .drop-trigger.disabled,
+.header-btn.disabled,
+.help-dialog,
+.hierarchy-search-field,
+.logic-block,
+.logic-empty,
+.logic-rule,
+.logic-toolbar-search,
+.logic-variables-empty,
 .panel-btn.disabled,
 .prop-copy:hover,
 .prop-input,
 .prop-input:disabled,
 .prop-start-badge,
+.script-toolbar-field input,
+.sfx-mode-toggle-row,
+.shortcuts-search,
 .tab,
+.tile-palette-empty,
+.tile-palette-sheet,
 .tool-btn {
     border-color: #27272a;
 }
 
 /* border-subtle */
-.color-reset {
+#center-mode-tabs,
+#right-col,
+.color-reset,
+.logic-rule-col.actions-col,
+.logic-rule-col.conditions-col,
+.script-api-panel {
     border-left-color: #27272a;
 }
 
-/* text-disabled */
+/* border-subtle */
+#center-mode-tabs,
+#left-col,
+.script-line-numbers,
+.script-tab {
+    border-right-color: #27272a;
+}
+
+/* border-subtle */
+#console,
+#status-bar,
+#tile-palette-dock,
+.help-dialog-footer,
+.logic-board-panel.compact .logic-rule-col.actions-col,
+.script-api-detail,
+.script-editor-status {
+    border-top-color: #27272a;
+}/* text-disabled */
 #btn-grid-size.disabled,
 .add-component-btn.disabled,
-.asset-option.disabled,
 .color-reset,
 .color-reset:disabled,
+.comp-caret,
+.comp-remove.disabled,
 .context-submenu .context-entry.disabled,
 .context-submenu .context-entry.disabled:hover,
 .drop-entry.disabled,
 .drop-entry.disabled:hover,
 .drop-trigger.disabled,
 .drop-trigger.disabled .drop-caret,
+.header-btn.disabled,
 .inspector-scene-context .context-kind,
 .layer-btn.disabled,
 .layer-btn.disabled:hover,
 .layer-count,
 .layer-group-header.hidden .layer-eye,
 .layer-row.hidden .layer-eye,
+.logic-col-empty-sub,
 .menu-entry.disabled,
 .menu-entry.disabled .menu-entry-hint,
 .menu-entry.disabled:hover,
@@ -364,7 +647,8 @@ scrollbarvertical sliderbar:active { background-color: #71717a; }
 .prop-copy,
 .prop-input:disabled,
 .prop-subheading,
-.row-indicator-spacer,
+.prop-unit,
+.script-line-numbers,
 .toolbar-zoom.disabled {
     color: #52525b;
 }
@@ -372,18 +656,21 @@ scrollbarvertical sliderbar:active { background-color: #71717a; }
 /* text-primary */
 .inspector-opacity-slider sliderbar {
     background-color: #d4d4d8;
-}
-
-/* text-primary */
+}/* text-primary */
+.about-meta-value,
 .add-component-btn.open,
 .add-entry:hover,
-.asset-option.selected,
-.asset-option:hover,
+.asset-import-title,
+.assets-search-field,
 .color-reset:hover,
+.comp-toggle:hover,
+.console-search-field,
+.console-toggle.active,
 .context-entry:hover,
 .drop-entry.selected,
 .drop-entry:hover,
 .drop-trigger,
+.hierarchy-search-field,
 .inspector-scene-context,
 .inspector-scene-context .context-name,
 .layer-btn:hover,
@@ -392,140 +679,404 @@ scrollbarvertical sliderbar:active { background-color: #71717a; }
 .layer-lock:hover,
 .layer-rename-input,
 .layer-row.active,
+.log.selected,
+.logic-board-panel,
+.logic-catalog-name,
+.logic-code,
+.logic-key-result,
+.logic-more-trigger:hover,
+.logic-toolbar-search,
+.logic-variable-description,
+.logic-variable-row button.logic-variable-value,
+.logic-variable-row button.logic-variable-value.active,
+.logic-variables-collapse:hover,
 .menu-entry:hover,
 .menu-item:hover,
 .panel-btn.active,
 .panel-btn:active,
 .prop-copy:hover,
 .prop-input,
+.prop-readonly,
 .prop-start-badge,
 .row-menu:hover,
+.script-api-detail-sig,
+.script-attachment-name,
+.script-completion-item,
+.script-editor-empty-title,
+.script-editor-panel,
+.script-line-current,
+.script-tab:hover,
+.script-toolbar-field input,
+.shortcut-gesture,
+.shortcut-label,
+.shortcuts-search,
+.shortcuts-tab:hover,
 .status-health:hover,
 .tab.active,
 .tab:hover,
+.tile-palette-dock-status-selection .value,
+.tile-palette-dock-title,
+.tile-palette-selected .value,
 .tool-btn.active,
 .tool-btn:active,
 .tool-btn:hover,
 .toolbar-tilemap-stamp .value,
-.toolbar-zoom:hover {
+.toolbar-zoom:hover,
+.viewport-empty-title {
     color: #d4d4d8;
-}
-
-/* text-secondary */
+}/* text-secondary */
+.about-tagline,
+.about-version,
 .add-component-btn,
 .add-entry,
-.asset-option,
+.asset-count,
+.asset-group-caret,
+.asset-ico,
+.asset-name,
+.assets .asset-group-title:hover,
+.assets-filter-empty,
+.center-mode-tab,
+.comp-help,
+.comp-title,
+.console-clear-btn,
+.console-collapse-btn,
+.console-collapse-btn .icon,
+.console-toggle:hover,
 .context-entry,
 .drop-caret,
 .drop-entry,
+.editor-modal-copy,
 .grid-size-preset,
+.header-btn,
+.help-dialog-close,
 .hierarchy-empty-title,
+.inspector-breadcrumb,
 .layer-eye,
 .layer-group-header,
 .layer-lock,
 .layer-row,
+.log,
+.log-info,
+.logic-add-rule-footer,
+.logic-block-label,
+.logic-btn,
+.logic-icon-btn,
+.logic-catalog-category,
+.logic-catalog-description,
+.logic-col-empty,
+.logic-col-head,
+.logic-diagnostic.warning,
+.logic-execution-clause,
+.logic-execution-label,
+.logic-key-search-toggle,
+.logic-key-search-cancel,
+.logic-more-trigger,
+.logic-muted,
+.logic-owner,
+.logic-rule-head:hover .logic-rule-caret,
+.logic-variables-toggle,
 .menu-entry,
 .menu-item,
+.mode-label,
 .panel-btn,
+.prop-group-title,
+.prop-label,
 .row-icon,
 .row-name,
+.script-api-detail-doc,
+.script-api-hint,
+.script-api-item,
+.script-api-panel-header,
+.script-attachment-action,
+.script-tab,
+.sfx-batch-name,
+.sfx-batch-summary,
+.sfx-empty-workspace,
+.sfx-field-label,
+.sfx-macro-label,
+.sfx-more-entry .icon,
+.sfx-randomize,
+.sfx-section-title,
+.sfx-status,
+.shortcuts-tab,
 .status-coords,
 .status-health,
 .status-project,
 .status-project.dirty,
 .tab,
+.tile-palette-dock-collapse-btn,
+.tile-palette-dock-collapse-btn .icon,
+.tile-palette-dock-header,
+.tile-palette-dock-status,
+.tile-palette-empty,
+.tile-palette-selected,
 .tool-btn,
 .toolbar-tilemap-stamp,
 .toolbar-zoom,
 .tree-row,
 .tree-row.selected .row-menu,
-.tree-row.selected .row-shared-type {
+.tree-row.selected .row-shared-type,
+.viewport-empty-sub {
     color: #a1a1aa;
 }
 
 /* text-strong */
-.inspector-opacity-slider sliderbar:hover {
+.inspector-opacity-slider sliderbar:hover,
+.script-editor-caret,
+.sfx-macro-slider sliderbar,
+.sfx-macro-slider sliderbar:hover {
     background-color: #f4f4f5;
 }
 
 /* text-strong */
 #btn-grid-size.grid-size-nav,
 #btn-grid-size.grid-size-nav:hover,
+.about-product,
 .add-component-btn:hover,
 .brand,
+.center-mode-tab:hover,
+.comp-badge.override,
+.comp-help:focus,
+.console-collapse-btn:hover,
+.console-collapse-btn:hover .icon,
+.console-source-link,
 .context-submenu .context-entry.selected,
 .drop-mark,
+.editor-modal,
 .grid-size-input,
 .grid-size-preset:hover,
+.header-btn:hover,
+.help-dialog-close:hover,
+.help-dialog-title,
+.inspector-breadcrumb:hover,
 .layer-active-dot,
+.logic-add-rule-footer:hover,
+.logic-btn:hover, .logic-icon-btn:hover,
+.logic-empty-title,
+.logic-key-capture.capturing,
+.logic-key-result.selected,
+.logic-key-search input,
+.logic-key-search-cancel:hover, .logic-key-result:hover,
+.logic-more-trigger.open,
+.logic-rule-title,
+.logic-title-prefix,
+.logic-variables-title,
+.logic-variables-toggle.active,
 .menu-entry.active,
 .panel-btn:hover,
 .row-name-input,
+.script-api-detail-name,
+.script-api-insert-btn,
+.script-api-item:hover,
+.script-attachment-action:hover,
+.script-attachment-name:hover,
+.script-tab-close:hover,
+.script-tab-dirty,
+.script-tab.active,
+.sfx-batch-cancel,
+.sfx-batch-cta,
+.sfx-batch-title,
+.sfx-browser-action:hover .icon,
+.sfx-browser-add,
+.sfx-browser-create-entry,
+.sfx-browser-create-entry:hover,
+.sfx-browser-name,
+.sfx-browser-row,
+.sfx-browser-row-main,
+.sfx-browser-search,
+.sfx-choice,
+.sfx-editor,
+.sfx-empty-title,
+.sfx-field input,
+.sfx-inline-action,
+.sfx-inline-action:hover,
+.sfx-macro-input,
+.sfx-modal-input,
+.sfx-mode-toggle-row,
+.sfx-mode-toggle-row:hover,
+.sfx-more-entry,
+.sfx-more-entry:hover .icon,
+.sfx-name,
+.sfx-preset,
+.sfx-preset.active,
+.sfx-subsection-toggle,
+.shortcuts-tab.active,
+.tile-palette-dock-collapse-btn:hover,
+.tile-palette-dock-collapse-btn:hover .icon,
 .tree-row.selected .row-name {
     color: #f4f4f5;
 }
 
 /* text-tertiary */
+#status-bar,
+.about-copyright .about-meta-value,
+.about-meta-key,
+.asset-group-title,
+.asset-import-subtitle,
+.asset-meta,
+.asset-sub,
+.assets-empty,
+.assets-search-icon,
+.comp-badge,
+.comp-remove,
+.console-counts,
+.console-toggle,
 .context-shortcut,
 .context-submenu-caret,
+.editor-modal-hint,
 .grid-size-title,
 .hierarchy-empty-copy,
 .hierarchy-empty-icon,
+.hierarchy-search-icon,
+.inspector-empty,
 .inspector-scene-context .context-separator,
 .layer-btn,
 .layer-chevron,
 .layer-group-header.hidden,
 .layer-remove,
 .layer-row.hidden,
+.logic-condition-join.fixed,
+.logic-execution-join,
+.logic-key-empty,
+.logic-rule-caret,
+.logic-rule-index,
+.logic-search-icon,
+.logic-search-label,
+.logic-variable-col,
+.logic-variable-refs,
+.logic-variables-collapse,
+.logic-variables-empty,
 .menu-entry-hint,
 .menu-entry-shortcut,
 .menu-section,
 .prop-meta-value,
 .row-menu,
+.script-api-detail-label,
+.script-attachment-action.disabled,
+.script-editor-empty,
+.script-editor-status,
+.script-tab-close,
+.script-toolbar-field,
+.sfx-browser-action,
+.sfx-browser-action .icon,
+.sfx-browser-create-title,
+.sfx-browser-empty,
+.sfx-browser-status,
+.sfx-custom-badge,
+.sfx-help,
+.sfx-kicker,
+.sfx-macro-unit,
+.sfx-modal-label,
+.sfx-mode-toggle-chevron,
+.sfx-output-path,
+.sfx-section-caret,
+.shortcut-section,
+.shortcuts-empty,
 .status-context,
+.tile-palette-dock-header .icon,
+.tile-palette-dock-status-meta,
 .tree-empty,
 .tree-row.layer-hidden .row-shared-type,
-.tree-section {
+.tree-section,
+.type-owned-note {
     color: #71717a;
 }
 
 /* accent */
+.editor-modal-actions .panel-btn.primary,
+.sfx-header-actions .primary {
+    background: #2563eb;
+}
+
+/* accent */
 #btn-play-project,
-.tool-btn.primary {
+.logic-btn.primary,
+.script-restart-button,
+.tool-btn.primary,
+.viewport-empty-btn {
     background-color: #2563eb;
 }
 
 /* accent */
 #btn-play-project,
-.tool-btn.primary {
+.logic-btn.primary,
+.script-restart-button,
+.sfx-batch-cta,
+.tool-btn.primary,
+.viewport-empty-btn {
     border-color: #2563eb;
 }
 
 /* accent-hover */
-#btn-play-project:hover {
+#btn-play-project:hover,
+.logic-btn.primary:hover,
+.script-restart-button:hover,
+.viewport-empty-btn:hover {
     background-color: #1d4ed8;
 }
 
 /* accent-hover */
-#btn-play-project:hover {
+#btn-play-project:hover,
+.logic-btn.primary:hover,
+.viewport-empty-btn:hover {
     border-color: #1d4ed8;
 }
 
 /* accent-on */
 #btn-play-project,
-.tool-btn.primary {
+.center-mode-tab.active,
+.editor-modal-actions .panel-btn.primary,
+.logic-btn.primary,
+.logic-btn.primary:hover,
+.script-api-item.selected,
+.script-completion-item.active,
+.script-restart-button,
+.sfx-header-actions .primary,
+.tool-btn.primary,
+.viewport-empty-btn {
     color: #ffffff;
 }
 
+/* brand */
+.about-brand {
+    color: #3b82f6;
+}
+
 /* danger-border */
-#btn-stop:hover {
+#btn-console-error.active,
+#btn-stop:hover,
+.console-clear-btn:hover,
+.editor-modal-actions .panel-btn.danger,
+.editor-modal-actions .panel-btn.danger:hover,
+.logic-btn.danger:hover,
+.logic-diagnostic.logic-diagnostic-focus {
     border-color: #7f3b38;
 }
 
+/* danger-border */
+.script-diagnostics {
+    border-top-color: #7f3b38;
+}
+
 /* danger-surface */
+.editor-modal-actions .panel-btn.danger,
+.editor-modal-actions .panel-btn.danger:hover {
+    background: #2a1f20;
+}
+
+/* danger-surface */
+#btn-console-error.active,
 #btn-stop:hover,
+.comp-remove:hover,
 .context-entry.destructive:hover,
-.layer-remove:hover {
+.layer-remove:hover,
+.logic-btn.danger:hover,
+.logic-diagnostic,
+.logic-diagnostic:hover,
+.logic-repair-banner,
+.logic-rule-diagnostic-count,
+.script-diagnostic:hover,
+.script-diagnostics {
     background-color: #2a1f20;
 }
 
@@ -535,17 +1086,51 @@ scrollbarvertical sliderbar:active { background-color: #71717a; }
 }
 
 /* danger-text */
+#btn-console-error.active,
 #btn-stop,
+.comp-remove:hover,
+.console-clear-btn:hover,
+.console-counts .count-err,
 .context-entry.destructive:hover,
+.editor-modal-actions .panel-btn.danger,
 .layer-remove:hover,
 .layer-rename-error,
+.log-error,
+.logic-btn.danger,
+.logic-diagnostic,
+.logic-repair-title,
+.logic-rule-diagnostic-count,
+.script-diagnostic,
+.script-line-error,
+.sfx-browser-action.destructive:hover .icon,
+.sfx-modal-error,
 .status-health.error {
     color: #e5706b;
 }
 
 /* danger-text-hi */
-#btn-stop:hover {
+#btn-stop:hover,
+.logic-btn.danger:hover,
+.script-diagnostic:hover {
     color: #f0918c;
+}
+
+/* warning-border */
+.script-restart-banner {
+    border-bottom-color: #6b5420;
+}
+
+/* warning-border */
+#btn-console-warning.active,
+.sfx-batch-cancel:hover {
+    border-color: #6b5420;
+}
+
+/* warning-surface */
+#btn-console-warning.active,
+.outside-warning,
+.script-restart-banner {
+    background-color: #241f13;
 }
 
 /* warning-text */
@@ -554,8 +1139,22 @@ scrollbarvertical sliderbar:active { background-color: #71717a; }
 }
 
 /* warning-text */
+.outside-warning {
+    border-left-color: #d8b44a;
+}
+
+/* warning-text */
+#btn-console-warning.active,
+.console-counts .count-warn,
 .layer-lock.locked,
+.log-warning,
+.outside-warning,
+.prop-readonly.warn,
 .prop-start-badge .icon,
+.script-api-detail-status,
+.script-restart-banner,
+.sfx-browser-status.stale,
+.sfx-status.stale,
 .status-health.warning {
     color: #d8b44a;
 }
@@ -565,3 +1164,36 @@ scrollbarvertical sliderbar:active { background-color: #71717a; }
     background-color: #4f9b68;
 }
 
+/* success-text */
+.sfx-browser-status.ready,
+.sfx-status.ready {
+    color: #4f9b68;
+}
+
+/* =============================================================================
+   CONTENT PALETTE — not chrome.
+   Syntax highlighting carries meaning: these hues encode Lua token classes and
+   are deliberately NOT folded into the zinc roles above. Base is the Material
+   Palenight set the Script Editor already shipped. They live here so the
+   invariant "no colour outside theme.rcss" stays absolute and testable.
+   ============================================================================= */
+.script-editor-highlight { color: #d8d8dc; }
+.script-editor-highlight .lua-kw  { color: #c792ea; }   /* keyword    */
+.script-editor-highlight .lua-str { color: #c3e88d; }   /* string     */
+.script-editor-highlight .lua-com { color: #697098; }   /* comment    */
+.script-editor-highlight .lua-num { color: #f78c6c; }   /* number     */
+.script-editor-highlight .lua-op  { color: #89ddff; }   /* operator   */
+.script-editor-highlight .lua-id  { color: #d8d8dc; }   /* identifier */
+.script-editor-highlight .lua-line-error {
+    background-color: #3a1f24;
+    border-bottom: 1px #f07178;
+}
+/* Matched-bracket highlight: brand tint is legitimate here — it marks a
+   caret-driven pair in code, not a call to action. */
+.script-editor-highlight .lua-bracket {
+    color: #ffffff;
+    background-color: #3b82f6;
+}
+/* The editable textarea sits invisibly over the highlighted layer: its own
+   glyphs must not paint, so the transparency is functional, not decorative. */
+textarea#script-editor-textarea.script-editor-textarea { color: #00000000; }

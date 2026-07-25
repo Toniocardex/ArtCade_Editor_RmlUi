@@ -4,7 +4,7 @@
     display: flex;
     flex-direction: row;
     align-items: center;
-    color: #71717a;
+
     font-size: 10dp;
 }
 .script-toolbar-field input {
@@ -12,11 +12,10 @@
     height: 28dp;
     margin-left: 5dp;
     padding: 0 7dp;
-    background-color: #111216;
-    border: 1px #343640;
-    color: #d4d4d8;
+
+    border-width: 1px;
+
 }
-.script-toolbar-field input:focus { border-color: #3b82f6; }
 .script-goto-field input { width: 48dp; }
 
 .script-editor-panel {
@@ -24,8 +23,7 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    background-color: #111216;
-    color: #d4d4d8;
+
 }
 .script-editor-panel.hidden { display: none; }
 .script-editor-tabs {
@@ -34,8 +32,8 @@
     flex-direction: row;
     align-items: stretch;
     overflow-x: auto;
-    background-color: #18181b;
-    border-bottom: 1px #292a30;
+
+    border-bottom-width: 1px;
 }
 .script-restart-banner {
     min-height: 36dp;
@@ -44,21 +42,20 @@
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
-    background-color: #2b2415;
-    border-bottom: 1px #6b5420;
-    color: #e5c66b;
+
+    border-bottom-width: 1px;
+
     font-size: 11dp;
 }
 .script-restart-banner.hidden { display: none; }
 .script-restart-button {
     height: 26dp;
     padding: 0 10dp;
-    background-color: #3b82f6;
-    border: 1px #60a5fa;
-    color: #ffffff;
+
+    border-width: 1px;
+
     font-size: 10dp;
 }
-.script-restart-button:hover { background-color: #2563eb; }
 .script-tab {
     min-width: 120dp;
     max-width: 240dp;
@@ -66,13 +63,12 @@
     flex-direction: row;
     align-items: center;
     padding-left: 10dp;
-    border-right: 1px #292a30;
-    color: #8f8f98;
+    border-right-width: 1px;
+
 }
-.script-tab:hover { background-color: #202126; color: #d4d4d8; }
-.script-tab.active { background-color: #111216; color: #f4f4f5; border-top: 2px #3b82f6; }
+.script-tab.active {   border-top-width: 2px; }
 .script-tab-name { flex: 1; overflow: hidden; }
-.script-tab-dirty { margin-left: 5dp; color: #60a5fa; }
+.script-tab-dirty { margin-left: 5dp;  }
 .script-tab-close {
     width: 25dp;
     height: 25dp;
@@ -80,19 +76,18 @@
     padding: 0;
     background-color: transparent;
     border: 0px transparent;
-    color: #71717a;
+
 }
-.script-tab-close:hover { background-color: #30313a; color: #f4f4f5; }
 .script-editor-empty {
     flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: #71717a;
+
 }
 .script-editor-empty.hidden { display: none; }
-.script-editor-empty-title { margin-bottom: 7dp; color: #d4d4d8; font-size: 15dp; }
+.script-editor-empty-title { margin-bottom: 7dp;  font-size: 15dp; }
 .script-editor-empty .panel-btn { margin-top: 14dp; }
 .script-editor-body {
     flex: 1;
@@ -109,18 +104,15 @@
     padding: 12dp 10dp 12dp 0;
     overflow: hidden;
     text-align: right;
-    background-color: #0e0f12;
-    border-right: 1px #26272c;
-    color: #555761;
+
+    border-right-width: 1px;
+
     font-family: "JetBrains Mono";
     font-size: 12dp;
     line-height: 18dp;
 }
-.script-line-error {
-    color: #f07178;
-}
 .script-line-current {
-    color: #d4d4d8;
+
     font-weight: bold;
 }
 .script-editor-code {
@@ -138,7 +130,7 @@
     min-height: 0;
 
     overflow: hidden;
-    background-color: #111216;
+
 }
 .script-editor-highlight {
     position: absolute;
@@ -149,7 +141,6 @@
     padding: 12dp;
     overflow: hidden;
     background-color: transparent;
-    color: #d8d8dc;
     font-family: "JetBrains Mono";
     font-size: 12dp;
     line-height: 18dp;
@@ -161,26 +152,12 @@
 .script-editor-highlight .lua-line {
     display: inline;
 }
-.script-editor-highlight .lua-line-error {
-    background-color: #3a1f24;
-    border-bottom: 1px #f07178;
-}
-.script-editor-highlight .lua-kw { color: #c792ea; }
-.script-editor-highlight .lua-str { color: #c3e88d; }
-.script-editor-highlight .lua-com { color: #697098; }
-.script-editor-highlight .lua-num { color: #f78c6c; }
-.script-editor-highlight .lua-op { color: #89ddff; }
-.script-editor-highlight .lua-id { color: #d8d8dc; }
-.script-editor-highlight .lua-bracket {
-    color: #ffffff;
-    background-color: #3b82f6;
-}
 .script-editor-current-line {
     position: absolute;
     left: 0dp;
     right: 0dp;
     height: 18dp;
-    background-color: #1a1c24;
+
     pointer-events: none;
     z-index: 0;
     display: none;
@@ -190,7 +167,7 @@
     position: absolute;
     width: 2dp;
     height: 18dp;
-    background-color: #e4e4e7;
+
     pointer-events: none;
     z-index: 2;
     display: none;
@@ -217,7 +194,6 @@ textarea#script-editor-textarea.script-editor-textarea {
 
     background-color: transparent;
     border: 0px transparent;
-    color: #00000000;
 
     font-family: "JetBrains Mono";
     font-size: 12dp;
@@ -237,11 +213,8 @@ textarea#script-editor-textarea.script-editor-textarea:focus {
 textarea#script-editor-textarea scrollbarvertical {
     width: 10dp;
 }
-textarea#script-editor-textarea scrollbarvertical slidertrack {
-    background-color: #111216;
-}
 textarea#script-editor-textarea scrollbarvertical sliderbar {
-    background-color: #27272a;
+
     border-radius: 3dp;
     margin-left: 2dp;
     margin-right: 2dp;
@@ -253,8 +226,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
     flex-direction: column;
     max-height: 94dp;
     overflow-y: auto;
-    background-color: #181316;
-    border-top: 1px #482729;
+
+    border-top-width: 1px;
 }
 .script-diagnostics.hidden { display: none; }
 .script-diagnostic {
@@ -263,12 +236,11 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
     padding: 5dp 10dp;
     border: 0px transparent;
     background-color: transparent;
-    color: #e9948f;
+
     text-align: left;
     font-family: Inter;
     font-size: 11dp;
 }
-.script-diagnostic:hover { background-color: #2a1b1e; color: #f4aaa5; }
 .script-editor-status {
     height: 24dp;
     display: flex;
@@ -276,15 +248,15 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
     align-items: center;
     justify-content: space-between;
     padding: 0 10dp;
-    background-color: #18181b;
-    border-top: 1px #292a30;
-    color: #71717a;
+
+    border-top-width: 1px;
+
     font-size: 10dp;
 }
 .script-api-hint {
     flex: 1;
     overflow: hidden;
-    color: #a1a1aa;
+
     font-family: "JetBrains Mono";
     font-size: 10dp;
     padding-right: 12dp;
@@ -295,8 +267,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
     height: 100%;
     display: flex;
     flex-direction: column;
-    background-color: #0e0f12;
-    border-left: 1px #26272c;
+
+    border-left-width: 1px;
 }
 .script-api-panel-header {
     height: 28dp;
@@ -304,9 +276,9 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
     display: flex;
     flex-direction: row;
     align-items: center;
-    color: #8f8f98;
+
     font-size: 10dp;
-    border-bottom: 1px #26272c;
+    border-bottom-width: 1px;
 }
 .script-api-list {
     flex: 1;
@@ -320,43 +292,41 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
     padding: 4dp 10dp;
     border: 0px transparent;
     background-color: transparent;
-    color: #a1a1aa;
+
     text-align: left;
     font-family: "JetBrains Mono";
     font-size: 10dp;
 }
-.script-api-item:hover { background-color: #1a1c24; color: #e4e4e7; }
-.script-api-item.selected { background-color: #1e3a5f; color: #ffffff; }
 .script-api-detail {
     display: flex;
     flex-direction: column;
     gap: 6dp;
     padding: 10dp;
-    border-top: 1px #26272c;
+    border-top-width: 1px;
     max-height: 42%;
     overflow-y: auto;
     min-height: 120dp;
 }
 .script-api-detail-name {
-    color: #e4e4e7;
+
     font-family: Inter;
     font-size: 11dp;
     font-weight: bold;
 }
 .script-api-detail-doc {
-    color: #a1a1aa;
+
     font-family: Inter;
     font-size: 10dp;
     line-height: 14dp;
 }
 .script-api-detail-label {
-    color: #71717a;
+
     font-family: Inter;
     font-size: 9dp;
     text-transform: uppercase;
 }
 .script-api-detail-sig {
-    color: #c4c4cc;
+
     font-family: "JetBrains Mono";
     font-size: 10dp;
     white-space: pre-wrap;
@@ -365,17 +335,15 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
     display: block;
     width: 100%;
     padding: 6dp 8dp;
-    border: 1px #3b82f6;
-    background-color: #1e3a5f;
-    color: #e4e4e7;
+    border-width: 1px;
+
     text-align: center;
     font-family: Inter;
     font-size: 10dp;
 }
-.script-api-insert-btn:hover { background-color: #254a75; }
 .script-api-insert-btn.hidden { display: none; }
 .script-api-detail-status {
-    color: #fbbf24;
+
     font-family: Inter;
     font-size: 10dp;
     min-height: 14dp;
@@ -388,8 +356,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
     max-width: 360dp;
     max-height: 180dp;
     overflow-y: auto;
-    background-color: #18181b;
-    border: 1px #3b82f6;
+
+    border-width: 1px;
     z-index: 5;
 }
 .script-completion-popup.hidden { display: none; }
@@ -399,10 +367,9 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
     padding: 5dp 8dp;
     border: 0px transparent;
     background-color: transparent;
-    color: #d4d4d8;
+
     text-align: left;
     font-family: "JetBrains Mono";
     font-size: 11dp;
 }
 .script-completion-item:hover,
-.script-completion-item.active { background-color: #1e3a5f; color: #ffffff; }

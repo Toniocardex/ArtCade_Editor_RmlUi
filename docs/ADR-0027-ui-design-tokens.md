@@ -1,7 +1,7 @@
 # ADR-0027 — UI Design Tokens and Component Contracts
 
-**Status:** Accepted — phase 1 implemented (theme.rcss + controls.rcss);
-phases 2–5 open  
+**Status:** Accepted — phases 1–2 implemented (all eight stylesheets migrated);
+phases 3–5 open  
 **Date:** 2026-07-25  
 **Scope:** `src/editor-native/resources/ui/*.rcss` (4182 lines), the colour and
 spacing values they declare, the contracts of shared component classes, and the
@@ -301,14 +301,56 @@ meet 3:1: those controls are identified by their surface fill — inputs sit on
 `surface-sunken`, two steps below their container — and the border is
 decorative. Recorded here rather than left as an implicit claim.
 
+## Phase 2 — implemented
+
+The remaining six sheets are migrated. **Zero colour literals now exist outside
+`theme.rcss`** — the invariant is absolute, which is what makes phase 3's
+enforcement test possible at all.
+
+Three things the phase-1 script had not had to face:
+
+- **`background` shorthand.** `sfx_editor.rcss` writes `background: #xxx`, not
+  `background-color`. The property was in neither of the script's lists, so 33
+  values passed through *silently* — the one failure mode the abort-on-unknown
+  design existed to prevent. Fixed by treating `background` as a colour
+  property; the same pass also normalises the named colour `white`, which the
+  hex-only regex would have missed.
+- **Content vs chrome.** The Script Editor carries a syntax-highlighting
+  palette (Material Palenight: keyword, string, comment, number, operator,
+  identifier). Those hues encode Lua token classes; flattening them to zinc
+  would destroy code readability. They move into `theme.rcss` under a separate
+  CONTENT PALETTE section rather than into the chrome roles, so the "no colour
+  outside theme.rcss" rule stays absolute without lying about what they are.
+  The invisible textarea's `color: #00000000` moves with them: that
+  transparency is functional, not decorative.
+- **One value, two roles.** `#181d25` served both section backgrounds and a
+  hover in `sfx_editor.rcss`. Mapping by value alone would have erased the
+  hover feedback, so that one selector carries an explicit override.
+
+### Cleanup
+
+- 81 whitespace-only lines left by the phase-1 strip, removed.
+- Three genuinely dead selectors deleted (`.asset-option`, `.asset-options`,
+  `.row-indicator-spacer` — no reference in any RML or C++ file). The phase-1
+  migration had scattered `.asset-option`'s states across 12 role groups, so
+  dead code had been promoted into the design system; it is gone from both
+  files now.
+
+### A regression this caught
+
+Rebuilding `theme.rcss` split it on the first `=====*/` marker, which matched
+the doc comment rather than the role-group banner — so the base element styles,
+including `body { font-family: Inter; … }`, were dropped. RmlUi reported it as
+"No font face defined" on a console button. Found by diffing warnings against
+the committed phase-1 build, and fixed by reconstructing the file from its
+three real parts. Both phases were re-verified afterwards: no rule in any sheet
+lost a non-colour property, and the app builds and renders with zero RmlUi
+warnings.
+
 ### Not yet done
 
-`panels.rcss`, `layout.rcss`, `dialogs.rcss`, `logic_board.rcss`,
-`script_editor.rcss` and `sfx_editor.rcss` still declare their own colours, so
-until phase 2 the app shows a seam: the Create Scene button and the Logic
-Board, Script and SFX editors keep the old blue-accented selection. The
-enforcement test (phase 3) is deliberately not added yet — it would fail on
-those six sheets by design.
+The enforcement test (phase 3) is now unblocked but is deliberately left to its
+own commit, as is the component gallery (phase 4).
 
 ## Verification
 
