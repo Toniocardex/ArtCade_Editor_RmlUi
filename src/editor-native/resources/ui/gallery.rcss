@@ -1,0 +1,71 @@
+/* gallery.rcss — ADR-0027 phase 4 specimen sheet.
+   Structure only: every colour here comes from theme.rcss, exactly like any
+   other component sheet (the gallery is a consumer of the roles, not an
+   exception to them). Loaded always but inert until --shot-gallery injects
+   the markup. */
+
+.gallery {
+    display: block;
+    padding: 16dp;
+    overflow-y: auto;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+.gallery-section-title {
+    display: block;
+    margin: 16dp 0 6dp 0;
+    font-size: 10dp;
+    font-weight: 700;
+    letter-spacing: 1.2dp;
+    text-transform: uppercase;
+}
+
+.gallery-row {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+/* Fixed cell so a specimen that changes size shifts only itself, keeping the
+   rest of the sheet aligned — a whole-page reflow would swamp the diff. */
+.gallery-cell {
+    display: block;
+    width: 168dp;
+    margin: 0 8dp 12dp 0;
+}
+
+.gallery-caption {
+    display: block;
+    margin-top: 4dp;
+    font-size: 10dp;
+    font-weight: 400;
+}
+
+.gallery-swatch {
+    display: block;
+    height: 40dp;
+    border-width: 1px;
+    border-radius: 2dp;
+}
+
+.gallery-text {
+    display: block;
+    height: 24dp;
+    line-height: 24dp;
+    font-size: 15dp;
+    font-weight: 600;
+}
+
+/* Menu-family specimens need their real container: .menu-entry and friends
+   are styled for the inside of a dropdown, not for bare page background. */
+.gallery-menu {
+    display: block;
+    padding: 4dp;
+    border-width: 1px;
+    border-radius: 4dp;
+}
+
+/* .drop-list carries a 78dp left margin because in the Inspector it sits under
+   a label column; inside a specimen cell that would push it out of frame. */
+.gallery-menu.drop-list { margin: 0; }
