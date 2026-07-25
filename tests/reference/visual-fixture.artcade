@@ -1,0 +1,304 @@
+{
+  "activeSceneId": "scene-1",
+  "audioAssets": [],
+  "fontAssets": [],
+  "formatVersion": 10,
+  "generatedSfx": [],
+  "globalVariables": [
+    {
+      "description": "Coins collected",
+      "initialValue": 0.0,
+      "key": "score",
+      "type": "number"
+    }
+  ],
+  "imageAssets": [],
+  "mainScriptPath": "scripts/main.luac",
+  "objectTypes": [
+    {
+      "boxCollider2D": {
+        "enabled": true,
+        "mode": "trigger",
+        "offset": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "size": {
+          "x": 32.0,
+          "y": 32.0
+        }
+      },
+      "id": "Player",
+      "logicBoard": {
+        "apiVersion": 2,
+        "id": "logic:Player",
+        "rules": [
+          {
+            "actions": [
+              {
+                "properties": [
+                  {
+                    "key": "target",
+                    "value": {
+                      "kind": "entity",
+                      "target": "self"
+                    }
+                  },
+                  {
+                    "key": "visible",
+                    "value": {
+                      "kind": "bool",
+                      "value": false
+                    }
+                  }
+                ],
+                "typeId": "entity.set_visible"
+              }
+            ],
+            "conditions": [
+              {
+                "block": {
+                  "properties": [
+                    {
+                      "key": "expected",
+                      "value": {
+                        "kind": "bool",
+                        "value": true
+                      }
+                    }
+                  ],
+                  "typeId": "entity.is_visible"
+                },
+                "join": "and",
+                "negated": false
+              }
+            ],
+            "enabled": true,
+            "executionMode": "every_occurrence",
+            "id": "rule-hide",
+            "name": "Hide on Space",
+            "trigger": {
+              "properties": [
+                {
+                  "key": "key",
+                  "value": {
+                    "kind": "key",
+                    "value": "Space"
+                  }
+                }
+              ],
+              "typeId": "input.key_pressed"
+            }
+          },
+          {
+            "actions": [
+              {
+                "properties": [],
+                "typeId": "collision.destroy_other"
+              },
+              {
+                "properties": [
+                  {
+                    "key": "key",
+                    "value": {
+                      "id": "score",
+                      "kind": "variable"
+                    }
+                  },
+                  {
+                    "key": "amount",
+                    "value": {
+                      "kind": "number",
+                      "value": 1.0
+                    }
+                  }
+                ],
+                "typeId": "state.add"
+              }
+            ],
+            "conditions": [],
+            "enabled": true,
+            "executionMode": "every_occurrence",
+            "id": "rule-collect",
+            "name": "Collect coin",
+            "trigger": {
+              "properties": [
+                {
+                  "key": "objectTypeId",
+                  "value": {
+                    "kind": "string",
+                    "value": "Coin"
+                  }
+                }
+              ],
+              "typeId": "collision.enter"
+            }
+          }
+        ],
+        "schemaVersion": 3
+      },
+      "name": "Player",
+      "spritePresentation": {
+        "source": {
+          "kind": "none"
+        },
+        "visible": true
+      },
+      "visible": true
+    },
+    {
+      "boxCollider2D": {
+        "enabled": true,
+        "mode": "trigger",
+        "offset": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "size": {
+          "x": 32.0,
+          "y": 32.0
+        }
+      },
+      "id": "Coin",
+      "name": "Coin",
+      "spritePresentation": {
+        "source": {
+          "kind": "none"
+        },
+        "visible": true
+      },
+      "visible": true
+    }
+  ],
+  "projectName": "ArtCade Visual Fixture",
+  "scenes": {
+    "scene-1": {
+      "backgroundColor": {
+        "a": 1.0,
+        "b": 0.1411764770746231,
+        "g": 0.11764705926179886,
+        "r": 0.11764705926179886
+      },
+      "cameraStart": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "defaultLayerId": "layer-main",
+      "id": "scene-1",
+      "instances": [
+        {
+          "id": 1,
+          "instanceName": "Player 1",
+          "layerId": "layer-main",
+          "objectTypeId": "Player",
+          "transform": {
+            "position": {
+              "x": 96.0,
+              "y": 160.0
+            },
+            "rotation": 0.0,
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            }
+          },
+          "visible": true
+        },
+        {
+          "id": 2,
+          "instanceName": "Coin 1",
+          "layerId": "layer-main",
+          "objectTypeId": "Coin",
+          "transform": {
+            "position": {
+              "x": 224.0,
+              "y": 160.0
+            },
+            "rotation": 0.0,
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            }
+          },
+          "visible": true
+        },
+        {
+          "id": 3,
+          "instanceName": "Coin 2",
+          "layerId": "layer-bg",
+          "objectTypeId": "Coin",
+          "transform": {
+            "position": {
+              "x": 320.0,
+              "y": 96.0
+            },
+            "rotation": 0.0,
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            }
+          },
+          "visible": true
+        }
+      ],
+      "layers": [
+        {
+          "id": "layer-bg",
+          "locked": true,
+          "name": "Background"
+        },
+        {
+          "id": "layer-main",
+          "locked": false,
+          "name": "Main"
+        }
+      ],
+      "name": "Level 1",
+      "viewportSize": {
+        "x": 512.0,
+        "y": 320.0
+      },
+      "worldSize": {
+        "x": 512.0,
+        "y": 320.0
+      }
+    },
+    "scene-2": {
+      "backgroundColor": {
+        "a": 1.0,
+        "b": 0.1411764770746231,
+        "g": 0.11764705926179886,
+        "r": 0.11764705926179886
+      },
+      "cameraStart": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "defaultLayerId": "layer-main-2",
+      "id": "scene-2",
+      "instances": [],
+      "layers": [
+        {
+          "id": "layer-main-2",
+          "locked": false,
+          "name": "Main"
+        }
+      ],
+      "name": "Level 2",
+      "viewportSize": {
+        "x": 512.0,
+        "y": 320.0
+      },
+      "worldSize": {
+        "x": 512.0,
+        "y": 320.0
+      }
+    }
+  },
+  "schemaVersion": 10,
+  "scriptAssets": [],
+  "spriteAnimationAssets": [],
+  "targetFPS": 60.0,
+  "tilesets": [],
+  "version": "2.0.0"
+}

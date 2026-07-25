@@ -440,6 +440,36 @@ to the accent CTA", which was simply untrue. The contract now states the gap.
 Promoting it globally would turn six buttons blue: a visual decision, left
 deliberate rather than folded into tooling work.
 
+### Phase 4b — the harness covers real panels
+
+The gallery pins each shared control in isolation. It cannot see defects of
+*composition*, which is where all three reported UI bugs actually lived. The
+harness therefore renders two more views from a committed fixture project:
+
+| view | what it covers |
+|---|---|
+| `gallery` | every shared control, every state, hover/focus forced |
+| `scene` | Hierarchy with two layers (one locked), a populated Inspector with INSTANCE/OBJECT TYPE/TYPE badges, scene tabs, the Scene View |
+| `logic` | Logic Board rule cards: key picker, condition clause with AND/NOT, two-action THEN column, Object Type and variable references |
+
+The fixture (`tests/reference/visual-fixture.artcade`) is **generated from
+code**, not hand-written: `artcade-editor-native --write-fixture <path>` builds
+it in `src/editor-native/app/visual_fixture.cpp` and serializes it through the
+real project writer, so it stays readable, reviewable and regenerable when the
+schema moves. Every element in it earns its place by making some panel render a
+state that would otherwise go unphotographed.
+
+The two layers are demonstrably complementary. Injecting the dangling-selector
+bug (hover-dependent) fails `gallery` and passes the panels; removing
+`.tree-row.selected` from its role group (static) passes `gallery` and fails
+both panel views with a 6707-pixel diff bounding the Hierarchy's selected row.
+Neither alone is sufficient.
+
+One determinism note, found the hard way: the status bar prints the pointer's
+world position, so the `scene` view differed from a reference generated seconds
+earlier. The bottom 26-pixel strip is excluded from the comparison; everything
+above it, including the entire workspace, is still diffed.
+
 ### Migration artefact: dangling selectors (fixed)
 
 A rule whose declarations were *all* colour became empty after the strip, and

@@ -50,6 +50,7 @@
 #include "editor-native/model/tilemap_stroke_preview.h"
 #include "editor-native/model/tilemap_validation.h"
 #include "editor-native/model/tileset_slicing.h"
+#include "editor-native/app/visual_fixture.h"
 #include "editor-native/ui/component_gallery.h"
 #include "editor-native/ui/editor_ui.h"
 #include "editor-native/view/scene_grid.h"
@@ -215,6 +216,7 @@ int EditorApp::run(int argc, char** argv) {
     bool shotDeselect = false;  // click the Inspector breadcrumb before the shot
     std::string shotAssetMenu;  // "kind|id": open the Assets row menu on that asset
     bool shotGallery = false;   // ADR-0027 phase 4: render the component specimen sheet
+    std::string writeFixturePath;  // ADR-0027 phase 4: regenerate the visual fixture project
     int shotWidth = 0, shotHeight = 0;  // >0: force a viewport size for responsive UI shots
     bool lifecycleSmoke = false; // hidden, self-checking bind/detach/shutdown run
     for (int i = 1; i < argc; ++i) {
@@ -251,6 +253,8 @@ int EditorApp::run(int argc, char** argv) {
         else if (std::strcmp(argv[i], "--shot-asset-menu") == 0 && i + 1 < argc)
             shotAssetMenu = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-gallery") == 0) shotGallery = true;
+        else if (std::strcmp(argv[i], "--write-fixture") == 0 && i + 1 < argc)
+            writeFixturePath = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-size") == 0 && i + 1 < argc) {
             if (const char* x = std::strchr(argv[i + 1], 'x')) {
                 shotWidth = std::atoi(argv[i + 1]);
@@ -259,6 +263,19 @@ int EditorApp::run(int argc, char** argv) {
         }
         else if (std::strcmp(argv[i], "--lifecycle-smoke") == 0)
             lifecycleSmoke = true;
+    }
+
+    // ADR-0027 phase 4: regenerate the visual-regression fixture. Pure
+    // serialization — returns before any window or GL context is created, so
+    // it runs anywhere, unlike the captures that consume it.
+    if (!writeFixturePath.empty()) {
+        const std::string error = writeVisualFixtureProject(writeFixturePath);
+        if (!error.empty()) {
+            std::fprintf(stderr, "write-fixture failed: %s\n", error.c_str());
+            return 1;
+        }
+        std::printf("fixture written: %s\n", writeFixturePath.c_str());
+        return 0;
     }
 
     // Start empty: the editor opens a real project (File > Open) or builds one

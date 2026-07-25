@@ -207,6 +207,7 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/view/tilemap_paint_overlay.cpp
     editor-native/app/tilemap_paint_input.cpp
     editor-native/ui/ui_markup.cpp
+    editor-native/app/visual_fixture.cpp
     editor-native/ui/component_gallery.cpp
     editor-native/ui/editor_ui.cpp
     editor-native/ui/help_dialog_controller.cpp
