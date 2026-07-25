@@ -97,3 +97,10 @@ add_executable(ui_stylesheet_tokens_test ui-stylesheet-tokens-test.cpp)
 target_compile_definitions(ui_stylesheet_tokens_test PRIVATE
     ARTCADE_UI_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/src/editor-native/resources/ui")
 add_test(NAME ui_stylesheet_tokens_test COMMAND ui_stylesheet_tokens_test)
+
+# A bare text node inside a `display: flex` element is invisible in RmlUi.
+# Cross-checks the shipped .rml against the flex rules the .rcss declare.
+add_executable(ui_markup_flex_text_test ui-markup-flex-text-test.cpp)
+target_compile_definitions(ui_markup_flex_text_test PRIVATE
+    ARTCADE_UI_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/src/editor-native/resources/ui")
+add_test(NAME ui_markup_flex_text_test COMMAND ui_markup_flex_text_test)

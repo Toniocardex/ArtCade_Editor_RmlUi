@@ -248,7 +248,7 @@
                             <div id="script-completion-popup" class="script-completion-popup hidden"></div>
                         </div>
                         <div id="script-api-panel" class="script-api-panel">
-                            <div class="script-api-panel-header">API v1</div>
+                            <div class="script-api-panel-header"><span>API v1</span></div>
                             <div id="script-api-list" class="script-api-list"></div>
                             <div id="script-api-detail" class="script-api-detail">
                                 <div id="script-api-detail-name" class="script-api-detail-name">Select an API</div>
@@ -338,8 +338,8 @@
     </div>
 
     <div id="viewport-context-menu" class="context-menu hidden">
-        <div class="context-entry" data-action="create-entity-here"><span class="icon">&#xeb0b;</span>Create Entity Here</div>
-        <div id="ctx-create-instance" class="context-entry" data-action="create-instance-here"><span class="icon">&#xeb0b;</span>Create Instance Here</div>
+        <div class="context-entry" data-action="create-entity-here"><span class="icon">&#xeb0b;</span><span>Create Entity Here</span></div>
+        <div id="ctx-create-instance" class="context-entry" data-action="create-instance-here"><span class="icon">&#xeb0b;</span><span>Create Instance Here</span></div>
     </div>
 
     <div id="hierarchy-context-menu" class="context-menu hidden">
@@ -362,13 +362,13 @@
          stamps action + arg per asset kind at show time, reusing the exact actions
          the panel's old always-visible buttons dispatched (one operation path). -->
     <div id="assets-context-menu" class="context-menu hidden">
-        <div id="actx-edit" class="context-entry hidden"><span class="icon">&#xeb0a;</span>Open Editor</div>
-        <div id="actx-use" class="context-entry hidden"><span class="icon">&#xea5f;</span>Use on Selected Entity</div>
-        <div id="actx-make-anim" class="context-entry hidden"><span class="icon">&#xeb0b;</span>Create Animation</div>
-        <div id="actx-make-tileset" class="context-entry hidden"><span class="icon">&#xeb0b;</span>Create Tileset</div>
-        <div id="actx-src-anim" class="context-entry hidden"><span class="icon">&#xeb0b;</span>New Animation from Source Image</div>
-        <div id="actx-src-tileset" class="context-entry hidden"><span class="icon">&#xeb0b;</span>New Tileset from Source Image</div>
-        <div id="actx-delete" class="context-entry destructive hidden"><span class="icon">&#xeb41;</span>Delete</div>
+        <div id="actx-edit" class="context-entry hidden"><span class="icon">&#xeb0a;</span><span>Open Editor</span></div>
+        <div id="actx-use" class="context-entry hidden"><span class="icon">&#xea5f;</span><span>Use on Selected Entity</span></div>
+        <div id="actx-make-anim" class="context-entry hidden"><span class="icon">&#xeb0b;</span><span>Create Animation</span></div>
+        <div id="actx-make-tileset" class="context-entry hidden"><span class="icon">&#xeb0b;</span><span>Create Tileset</span></div>
+        <div id="actx-src-anim" class="context-entry hidden"><span class="icon">&#xeb0b;</span><span>New Animation from Source Image</span></div>
+        <div id="actx-src-tileset" class="context-entry hidden"><span class="icon">&#xeb0b;</span><span>New Tileset from Source Image</span></div>
+        <div id="actx-delete" class="context-entry destructive hidden"><span class="icon">&#xeb41;</span><span>Delete</span></div>
     </div>
 
     <!-- Logic Board Object Type picker. Lives at the document root (not inside
