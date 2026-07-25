@@ -665,7 +665,10 @@
     top: -4dp;
     z-index: 210;
     min-width: 160dp;
-    margin-left: -4dp;
+    /* Positive gap so the flyout reads as its own detached panel — a
+       negative margin here previously pulled it back into the parent's
+       padding, fusing the two borders into one continuous shape. */
+    margin-left: 6dp;
     padding: 4dp;
     background-color: #1c1c1f;
     border: 1px #323236;
