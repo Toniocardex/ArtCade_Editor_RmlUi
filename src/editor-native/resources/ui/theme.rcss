@@ -95,8 +95,12 @@
                     Text is always inside a span.
    .drop-entry      Block row inside .drop-list; `.selected` marks the current
                     value, `.disabled` blocks the pick.
-   .panel-btn       Transparent-fill button; `.primary` promotes it to the
-                    accent CTA. 65 uses across 12 files — treat as public API.
+   .panel-btn       Transparent-fill button. 65 uses across 12 files — treat
+                    as public API. `.primary` promotes it to the accent CTA
+                    everywhere, not only inside `.editor-modal-actions` as it
+                    once did; `.primary:hover` is spelled out because
+                    `.panel-btn:hover` has equal specificity and would
+                    otherwise drag a primary button back to the grey hover.
    .tool-btn        Toolbar button on surface-raised; `.active` is a state,
                     `.primary` is the accent CTA.
    .prop-input      Inspector field on surface-sunken; `:focus` shows
@@ -190,6 +194,7 @@ scrollbarvertical sliderbar:active { background-color: #71717a; }
 .script-tab.active,
 .script-toolbar-field input,
 .shortcuts-search,
+.sw-base,
 .tile-palette-sheet,
 textarea#script-editor-textarea scrollbarvertical slidertrack {
     background-color: #131316;
@@ -220,6 +225,7 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 .script-editor-current-line,
 .script-editor-status,
 .script-editor-tabs,
+.sw-chrome,
 .tab,
 .tile-palette-dock-header {
     background-color: #18181b;
@@ -237,6 +243,7 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 .logic-key-search,
 .logic-variables-drawer,
 .prop-input:disabled,
+.sw-disabled,
 .tool-btn.disabled {
     background-color: #151517;
 }
@@ -266,6 +273,7 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 .menu-entry:hover,
 .menu-item:hover,
 .script-tab:hover,
+.sw-hover,
 .tab:hover,
 .tile-palette-dock-collapse-btn:hover,
 .tile-palette-dock-rail-sep,
@@ -297,6 +305,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .context-menu,
 .context-submenu,
 .create-dropdown,
+.gallery-menu,
 .grid-size-popover,
 .help-dialog-close:hover,
 .layer-group-header,
@@ -311,6 +320,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .scene-tabs,
 .sfx-macro-slider slidertrack,
 .shortcuts-tab.active,
+.sw-raised,
 .tile-palette-empty,
 .tool-btn,
 .tree-row:hover {
@@ -359,6 +369,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .sfx-macro-slider sliderbar:active,
 .sfx-macro-slider sliderprogress,
 .sfx-macro-slider:hover slidertrack,
+.sw-selected,
 .tab-menu:hover,
 .tab.active,
 .tool-btn.active,
@@ -406,6 +417,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .script-line-numbers,
 .shortcut-row:hover,
 .shortcuts-tab:hover,
+.sw-sunken,
 .vsplit {
     background-color: #0b0b0d;
 }
@@ -523,6 +535,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .create-dropdown,
 .drop-trigger:hover,
 .editor-modal,
+.gallery-menu,
 .grid-size-input,
 .grid-size-popover,
 .grid-size-preset,
@@ -622,6 +635,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .drop-list,
 .drop-trigger,
 .drop-trigger.disabled,
+.gallery-swatch,
 .header-btn.disabled,
 .help-dialog,
 .hierarchy-search-field,
@@ -631,6 +645,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-toolbar-search,
 .logic-variables-empty,
 .panel-btn.disabled,
+.panel-btn.primary.disabled,
 .prop-copy:hover,
 .prop-input,
 .prop-input:disabled,
@@ -708,6 +723,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .menu-entry.disabled .menu-entry-hint,
 .menu-entry.disabled:hover,
 .panel-btn.disabled,
+.panel-btn.primary.disabled,
 .prop-copy,
 .prop-input:disabled,
 .prop-subheading,
@@ -717,7 +733,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .row-shared-type,
 .script-line-numbers,
 .tool-btn.disabled,
-.toolbar-zoom.disabled {
+.toolbar-zoom.disabled,
+.tx-disabled {
     color: #52525b;
 }
 
@@ -800,6 +817,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .tool-btn:hover,
 .toolbar-tilemap-stamp .value,
 .toolbar-zoom:hover,
+.tx-primary,
 .viewport-empty-title {
     color: #d4d4d8;
 }
@@ -827,6 +845,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .drop-caret,
 .drop-entry,
 .editor-modal-copy,
+.gallery-caption,
 .grid-size-preset,
 .header-btn,
 .help-dialog-close,
@@ -901,6 +920,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .tree-row:hover .row-menu,
 .tree-row:hover .row-override-indicator,
 .tree-row:hover .row-shared-type,
+.tx-secondary,
 .viewport-empty-sub {
     color: #a1a1aa;
 }
@@ -995,7 +1015,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .tile-palette-dock-collapse-btn:hover,
 .tile-palette-dock-collapse-btn:hover .icon,
 .tree-row.selected .row-name,
-.tree-row:hover .row-name {
+.tree-row:hover .row-name,
+.tx-strong {
     color: #f4f4f5;
 }
 
@@ -1016,6 +1037,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .context-shortcut,
 .context-submenu-caret,
 .editor-modal-hint,
+.gallery-section-title,
 .grid-size-title,
 .hierarchy-empty-copy,
 .hierarchy-empty-icon,
@@ -1074,12 +1096,13 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .tree-row.layer-hidden .row-override-indicator,
 .tree-row.layer-hidden .row-shared-type,
 .tree-section,
+.tx-tertiary,
 .type-owned-note {
     color: #71717a;
 }
 
 /* accent */
-.editor-modal-actions .panel-btn.primary,
+.panel-btn.primary,
 .sfx-header-actions .primary {
     background: #2563eb;
 }
@@ -1096,6 +1119,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 /* accent */
 #btn-play-project,
 .logic-btn.primary,
+.panel-btn.primary,
 .script-restart-button,
 .sfx-batch-cta,
 .tool-btn.primary,
@@ -1106,7 +1130,9 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 /* accent-hover */
 #btn-play-project:hover,
 .logic-btn.primary:hover,
+.panel-btn.primary:hover,
 .script-restart-button:hover,
+.sfx-header-actions .primary:hover,
 .viewport-empty-btn:hover {
     background-color: #1d4ed8;
 }
@@ -1114,6 +1140,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 /* accent-hover */
 #btn-play-project:hover,
 .logic-btn.primary:hover,
+.panel-btn.primary:hover,
 .viewport-empty-btn:hover {
     border-color: #1d4ed8;
 }
@@ -1121,9 +1148,10 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 /* accent-on */
 #btn-play-project,
 .center-mode-tab.active,
-.editor-modal-actions .panel-btn.primary,
 .logic-btn.primary,
 .logic-btn.primary:hover,
+.panel-btn.primary,
+.panel-btn.primary:hover,
 .script-api-item.selected,
 .script-completion-item.active,
 .script-completion-item:hover,
@@ -1201,7 +1229,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .script-line-error,
 .sfx-browser-action.destructive:hover .icon,
 .sfx-modal-error,
-.status-health.error {
+.status-health.error,
+.tx-danger {
     color: #e5706b;
 }
 
@@ -1252,7 +1281,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .script-restart-banner,
 .sfx-browser-status.stale,
 .sfx-status.stale,
-.status-health.warning {
+.status-health.warning,
+.tx-warning {
     color: #d8b44a;
 }
 
@@ -1263,7 +1293,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 
 /* success-text */
 .sfx-browser-status.ready,
-.sfx-status.ready {
+.sfx-status.ready,
+.tx-success {
     color: #4f9b68;
 }
 

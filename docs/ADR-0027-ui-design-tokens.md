@@ -1,7 +1,7 @@
 # ADR-0027 — UI Design Tokens and Component Contracts
 
-**Status:** Accepted — phases 1–3 implemented (all stylesheets migrated,
-invariants enforced by test); phases 4–5 open  
+**Status:** Accepted — phases 1–4 implemented (all stylesheets migrated,
+invariants enforced by test, components under visual regression); phase 5 open  
 **Date:** 2026-07-25  
 **Scope:** `src/editor-native/resources/ui/*.rcss` (4182 lines), the colour and
 spacing values they declare, the contracts of shared component classes, and the
@@ -232,7 +232,7 @@ independently revertible.
 | 1 | Role vocabulary + scale into `theme.rcss`; migrate one stylesheet (`controls.rcss`, the largest and the source of both bugs) | Live screenshots match pre-migration for every touched surface |
 | 2 | Migrate the remaining sheets, one commit each | Same, per sheet |
 | 3 | Enforcement test | Suite green with zero literals outside the token layer — **done**; spacing enforcement withdrawn, see below |
-| 4 | Component gallery + reference capture | Reference image reviewed and committed |
+| 4 | Component gallery + reference capture | Reference image reviewed and committed — **done** |
 | 5 | Second theme (light or high-contrast) | Only when a real need exists — not preventive |
 
 Phases 1–4 are justified by defects already shipped. Phase 5 is explicitly
@@ -382,10 +382,68 @@ Spacing therefore stays unenforced, and the scale above should be treated as
 own phase, with its own visual verification — the same discipline the colour
 phases used.
 
+## Phase 4 — implemented
+
+`componentGalleryMarkup()` (`src/editor-native/ui/component_gallery.cpp`)
+renders every contracted component in every state on one page: the surface
+elevation ramp, the text roles, and `tool-btn` / `panel-btn` / `menu-entry` /
+`context-entry` / `drop-entry` / `prop-input` in normal, hover, active,
+selected, primary and disabled. `--shot-gallery` injects it into the live shell
+— not into a copy — so it exercises the real cascade, and
+`applyGalleryForcedStates()` drives `SetPseudoClass` so hover and focus appear
+in a capture that has no mouse.
+
+`scripts/check_ui_gallery.py` renders it and diffs against
+`tests/reference/ui-gallery.png` (`--update` to accept a change). Each specimen
+carries a caption, so a failure's bounding box names the component that moved
+rather than pointing at a coordinate.
+
+**It detects the exact defect class this ADR exists for.** Re-introducing the
+migration's own bug — dropping `.tool-btn.disabled` from its role group —
+produces `FAIL 1363 pixels differ, bounding box y 51–346`, covering the toolbar
+and the tool-btn row. The phase-3 token test cannot see that: it checks where
+colours live, not that a selector kept the one it had.
+
+Wired into `scripts\build.bat --test`. The capture is a real GPU render, so the
+reference is machine- and DPI-specific; a tolerance of 200 pixels absorbs
+driver quantisation, and the reference must be regenerated when the editor is
+built on different hardware.
+
+### `.panel-btn.primary` promoted, and what that exposed
+
+`.primary` now reaches the accent on every `.panel-btn`, not only inside
+`.editor-modal-actions`: Generate Audio Asset, Create Generated SFX and the
+sprite-animation Confirm/Slice actions render as CTAs, which is what the class
+name always claimed. `.panel-btn.primary:hover` is spelled out explicitly
+because `.panel-btn:hover` has equal specificity and, sitting in a later sheet,
+would otherwise drag a primary button back to the grey hover.
+
+Verifying it surfaced a second defect: a **disabled** primary kept its accent
+border and white label while losing its fill — half-enabled. Cause is a
+three-way tie at (0,2,0): `.panel-btn.disabled` (controls.rcss, later sheet)
+won the background, while `.panel-btn.primary` (theme.rcss, later *rule*) won
+border and text. Resolved with `.panel-btn.primary.disabled` at (0,3,0), and
+pinned in the gallery as its own specimen so it cannot drift back.
+
+Worth recording for the next migration: `background-color: transparent` never
+moved to the token layer, because the migration matched colour *literals* and
+`transparent` is a keyword. Those leftovers are what create these ties.
+
+### A gap the gallery found immediately
+
+`.panel-btn.primary` renders as a plain button: the accent only applies to
+`.editor-modal-actions .panel-btn.primary`, so the class is inert at its six
+other call sites (Generate Audio Asset, Create Generated SFX, the
+sprite-animation Confirm/Slice actions). Pre-existing, not caused by the
+migration — but this ADR had documented the contract as "`.primary` promotes it
+to the accent CTA", which was simply untrue. The contract now states the gap.
+Promoting it globally would turn six buttons blue: a visual decision, left
+deliberate rather than folded into tooling work.
+
 ### Not yet done
 
-The component gallery and visual regression (phase 4) and any second theme
-(phase 5).
+Phase 5 (a second theme), and the spacing scale, which §Correction above
+withdrew.
 
 ## Verification
 

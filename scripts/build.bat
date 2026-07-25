@@ -100,6 +100,13 @@ if "!DO_TEST!"=="1" (
     if errorlevel 1 ( popd >nul & echo [FAIL] sfx_synthesizer_test failed. & exit /b 1 )
     "!BUILD_DIR!\tests\ui_stylesheet_tokens_test.exe"
     if errorlevel 1 ( popd >nul & echo [FAIL] ui_stylesheet_tokens_test failed. & exit /b 1 )
+    rem ADR-0027 phase 4: renders the component gallery and diffs it against the
+    rem committed reference. Needs Python + Pillow, and a real GPU render — the
+    rem reference is machine-specific, so regenerate it (--update) if the editor
+    rem is built on different hardware or at a different DPI.
+    echo [editor] Checking the component gallery against its reference...
+    python "%ROOT%\scripts\check_ui_gallery.py"
+    if errorlevel 1 ( popd >nul & echo [FAIL] UI gallery differs from its reference. & exit /b 1 )
     echo [editor] Building + running logic_board_editor_test...
     "%CMAKE_EXE%" --build "!BUILD_DIR!" --target logic_board_editor_test
     if errorlevel 1 ( popd >nul & echo [FAIL] Logic Board test build failed. & exit /b 1 )

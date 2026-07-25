@@ -9,6 +9,7 @@
     <link type="text/rcss" href="logic_board.rcss"/>
     <link type="text/rcss" href="script_editor.rcss"/>
     <link type="text/rcss" href="sfx_editor.rcss"/>
+    <link type="text/rcss" href="gallery.rcss"/>
 </head>
 <body>
     <div id="menubar">

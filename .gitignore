@@ -27,3 +27,8 @@ vendor/artcade-runtime/build*/
 
 # ADR-0019: shipping player binary (refreshed via scripts/refresh-export-templates.bat)
 src/editor-native/resources/export-templates/**/game.exe
+
+# Phase-4 visual regression artefacts (the reference itself is committed)
+tests/reference/ui-gallery.actual.png
+tests/reference/ui-gallery.diff.png
+ui-gallery.capture.png

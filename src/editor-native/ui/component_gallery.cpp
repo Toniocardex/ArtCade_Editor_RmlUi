@@ -63,7 +63,11 @@ std::string componentGalleryMarkup() {
         + specimen("hover", "<button class=\"panel-btn\" data-force=\"hover\">Add Layer</button>")
         + specimen("active", "<button class=\"panel-btn active\">Add Layer</button>")
         + specimen("primary", "<button class=\"panel-btn primary\">Create Scene</button>")
-        + specimen("disabled", "<button class=\"panel-btn disabled\">Add Layer</button>"));
+        + specimen("disabled", "<button class=\"panel-btn disabled\">Add Layer</button>")
+        // A disabled primary used to keep its accent border and white label —
+        // half-enabled. Pinned here so it cannot drift back.
+        + specimen("primary disabled",
+                   "<button class=\"panel-btn primary disabled\">Create Scene</button>"));
 
     // -- menu-entry: the class whose contract broke in 805d596. Both the bare
     //    text form and the .with-shortcut form must render their label. --

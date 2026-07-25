@@ -50,6 +50,7 @@
 #include "editor-native/model/tilemap_stroke_preview.h"
 #include "editor-native/model/tilemap_validation.h"
 #include "editor-native/model/tileset_slicing.h"
+#include "editor-native/ui/component_gallery.h"
 #include "editor-native/ui/editor_ui.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view.h"
@@ -213,6 +214,7 @@ int EditorApp::run(int argc, char** argv) {
     bool shotEscape = false;    // route one Escape press before the shot (tool-reset check)
     bool shotDeselect = false;  // click the Inspector breadcrumb before the shot
     std::string shotAssetMenu;  // "kind|id": open the Assets row menu on that asset
+    bool shotGallery = false;   // ADR-0027 phase 4: render the component specimen sheet
     int shotWidth = 0, shotHeight = 0;  // >0: force a viewport size for responsive UI shots
     bool lifecycleSmoke = false; // hidden, self-checking bind/detach/shutdown run
     for (int i = 1; i < argc; ++i) {
@@ -248,6 +250,7 @@ int EditorApp::run(int argc, char** argv) {
         else if (std::strcmp(argv[i], "--shot-deselect") == 0) shotDeselect = true;
         else if (std::strcmp(argv[i], "--shot-asset-menu") == 0 && i + 1 < argc)
             shotAssetMenu = argv[i + 1];
+        else if (std::strcmp(argv[i], "--shot-gallery") == 0) shotGallery = true;
         else if (std::strcmp(argv[i], "--shot-size") == 0 && i + 1 < argc) {
             if (const char* x = std::strchr(argv[i + 1], 'x')) {
                 shotWidth = std::atoi(argv[i + 1]);
@@ -1181,6 +1184,15 @@ int EditorApp::run(int argc, char** argv) {
                 else
                     coordinator.logError("shot-save failed");
             }
+        }
+    }
+    // ADR-0027 phase 4: the specimen sheet replaces the workspace so it
+    // inherits the live stylesheet cascade instead of a copy of it.
+    if (!shotPath.empty() && shotGallery) {
+        if (Rml::Element* workspace = host.document()->GetElementById("workspace")) {
+            workspace->SetInnerRML(componentGalleryMarkup());
+            host.document()->UpdateDocument();
+            applyGalleryForcedStates(host.document());
         }
     }
     if (!shotPath.empty() && shotLogic) {
