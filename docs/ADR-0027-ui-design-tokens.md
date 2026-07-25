@@ -1,6 +1,7 @@
 # ADR-0027 — UI Design Tokens and Component Contracts
 
-**Status:** Proposed — awaiting approval before any RCSS change  
+**Status:** Accepted — phase 1 implemented (theme.rcss + controls.rcss);
+phases 2–5 open  
 **Date:** 2026-07-25  
 **Scope:** `src/editor-native/resources/ui/*.rcss` (4182 lines), the colour and
 spacing values they declare, the contracts of shared component classes, and the
@@ -253,6 +254,61 @@ have to change to accommodate it later.
   per-sheet commits with visual verification at each step.
 - Not addressed by this ADR: icon sizing, motion/transition durations, and the
   RML markup structure. They stay as they are.
+
+## Phase 1 — implemented
+
+`theme.rcss` (77 → 567 lines) is now the sole holder of colour, and
+`controls.rcss` (1212 → 1064 lines) declares **zero** colour literals: the 225
+declarations it carried became 34 role groups. 21 distinct values are declared
+where controls.rcss alone had used ~80.
+
+Migration was scripted rather than hand-edited, and the script **aborts on any
+colour it cannot classify** instead of guessing — it stopped twice, on 9 and
+then 4 unmapped values, each of which was classified deliberately. Two
+verifications back the result: no rule lost a non-colour property (checked
+programmatically against the pre-migration file — 77 rules disappeared, all of
+them colour-only state rules), and RmlUi parses the sheets with no warnings.
+
+### Deviation from this ADR: the accent value
+
+The ADR named `#3b82f6` as the accent. Measuring it during implementation
+showed **white text on `#3b82f6` is 3.68:1 — below the 4.5 AA threshold**, and
+the primary CTA is exactly where that matters. The CTA fill therefore moved one
+step down the blue ramp:
+
+| | fill | white text on it |
+|---|---|---|
+| was | `#3b82f6` | 3.68 ✗ |
+| now | `#2563eb` | 5.17 ✓ |
+| hover | `#1d4ed8` | 6.70 ✓ |
+
+`#3b82f6` is retained in the palette as `brand`, reserved for the wordmark and
+brand marks (its only remaining consumer, `.about-brand`, migrates in phase 2).
+This is a brand-adjacent change and is called out so it can be reverted by
+decision rather than by accident.
+
+### Accent policy as implemented
+
+Blue survives on `#btn-play-project` and `.tool-btn.primary` only. Everything
+that used to be blue — selected rows, active tabs and tools, focus rings, the
+selection marker, open dropdown triggers — is now `surface-selected`,
+`border-focus` or `text-strong`. Focus rings measure 3.4–4.1:1 against the
+surfaces they sit on, meeting the 3:1 that WCAG 1.4.11 asks of control
+boundaries.
+
+Resting control borders (`border-subtle`, 1.1:1 on raised) deliberately do not
+meet 3:1: those controls are identified by their surface fill — inputs sit on
+`surface-sunken`, two steps below their container — and the border is
+decorative. Recorded here rather than left as an implicit claim.
+
+### Not yet done
+
+`panels.rcss`, `layout.rcss`, `dialogs.rcss`, `logic_board.rcss`,
+`script_editor.rcss` and `sfx_editor.rcss` still declare their own colours, so
+until phase 2 the app shows a seam: the Create Scene button and the Logic
+Board, Script and SFX editors keep the old blue-accented selection. The
+enforcement test (phase 3) is deliberately not added yet — it would fail on
+those six sheets by design.
 
 ## Verification
 

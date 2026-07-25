@@ -1,15 +1,106 @@
-/* theme.rcss — ArtCade Studio dark theme (zinc + blue accent).
-   Flat surfaces, low radius, single-accent selection. Palette mirrors the
-   ArtCade web style guide and the native UI mockup.
+/* =============================================================================
+   theme.rcss — ArtCade Studio design system (ADR-0027, phase 1)
 
-   Units: lengths use `dp` (density-independent pixels) so the whole UI scales
-   crisply with the display's DPI. Only intentional hairlines/separators keep
-   `px` (a 1px physical line stays 1px at any scale). At 100% scaling dp == px.
+   THIS FILE IS THE ONLY PLACE A COLOUR VALUE MAY APPEAR.
+   Component stylesheets (controls/panels/layout/dialogs/…) own structure —
+   layout, size, spacing, transitions — and declare no colour at all. A role is
+   expressed here by listing its consumers, because RCSS has no CSS variables
+   (RmlUi 6.1 supports @decorator/@media/@spritesheet/@keyframes only, there is
+   no var()). Adding a component means adding its selector to the role group it
+   belongs to, never re-declaring a value next to the component.
 
-   Typography: Inter is the UI-wide default (menus, panels, buttons, labels,
-   tree rows) per the font guidelines — JetBrains Mono is reserved for content
-   where fixed-width alignment matters: Console log lines and the pointer
-   world-coordinate readout (see panels.rcss / controls.rcss). */
+   Why: before this file existed the eight stylesheets held 822 colour literals
+   for 163 distinct values — 71 different dark greys — and two shipped bugs came
+   straight out of it (see ADR-0027 §Context).
+
+   Units: `dp` everywhere so the UI scales with display DPI; only intentional
+   hairlines keep `px`. Typography is governed separately by
+   ARTCADE_RMLUI_FONT_GUIDELINES_FOR_CLAUDE.md.
+
+   -----------------------------------------------------------------------------
+   PALETTE — dark zinc, one accent
+   -----------------------------------------------------------------------------
+   Neutrals are the zinc scale the project already leaned on (#18181b, #27272a,
+   #3f3f46, #52525b, #71717a, #a1a1aa, #d4d4d8, #f4f4f5 were already 195 of the
+   existing literals); the blue-tinted grey family that had grown alongside it
+   is retired.
+
+   SURFACES                      elevation, dark -> light
+     surface-sunken    #0b0b0d   text inputs, code areas, value fields
+     surface-base      #131316   panel bodies, console, status bar
+     surface-chrome    #18181b   menubar, toolbar, tabs, panel headers
+     surface-raised    #1f1f23   menus, dropdowns, popovers, buttons
+     surface-hover     #27272a   any hovered interactive row
+     surface-selected  #2f2f36   selected / active row
+     surface-disabled  #151517   disabled control fill
+
+   BORDERS
+     border-subtle     #27272a   dividers, resting control outlines
+     border-strong     #3f3f46   popover and menu outlines, hover outlines
+     border-focus      #71717a   keyboard focus ring, selected outline
+
+   TEXT — measured contrast (WCAG 2.1) on surface-raised / surface-base
+     text-strong       #f4f4f5   14.9 / 16.9   titles, selected rows
+     text-primary      #d4d4d8   11.1 / 12.5   body default
+     text-secondary    #a1a1aa    6.4 /  7.2   labels, metadata          AA
+     text-tertiary     #71717a    3.4 /  3.8   eyebrow labels only       *
+     text-disabled     #52525b    2.1 /  2.4   disabled controls         **
+
+     *  below the 4.5 AA threshold for body text: permitted only for the
+        uppercase/tracked eyebrow labels and non-essential decoration it is
+        used on, which qualify as large text (>= 3.0).
+     ** disabled controls are exempt from WCAG contrast requirements.
+
+   ACCENT — primary calls to action only
+     accent            #2563eb   CTA fill (white text = 5.17, AA)
+     accent-hover      #1d4ed8   CTA hover  (white text = 6.70)
+     accent-on         #ffffff   text/icon on an accent fill
+     brand             #3b82f6   wordmark and brand marks only
+
+     The former CTA fill was the brand blue #3b82f6, but white text on it
+     measures 3.68 — below AA. The fill moved one step down the blue ramp to
+     #2563eb; the brand tint itself is unchanged and stays reserved for brand
+     marks. Selection, active state, focus and links are NOT accent: they are
+     expressed with surface-selected / border-focus / text-strong, so the blue
+     means exactly one thing in the product.
+
+   SEMANTIC
+     danger-text       #e5706b   danger-text-hi  #f0918c (hover)
+     danger-surface    #2a1f20   danger-border   #7f3b38
+     warning-text      #d8b44a   warning-surface #241f13
+     success-text      #4f9b68
+
+   -----------------------------------------------------------------------------
+   SCALE
+   -----------------------------------------------------------------------------
+   Spacing (padding/margin/gap):  2 · 4 · 6 · 8 · 12 · 16 · 24 dp
+   Radius:                        2 (default) · 4 · 8 dp
+   A value outside the scale needs a comment saying why, exactly like a magic
+   number in C++.
+
+   -----------------------------------------------------------------------------
+   COMPONENT CONTRACTS
+   -----------------------------------------------------------------------------
+   Shared classes state what they guarantee, so a change made for one consumer
+   cannot silently break the others (the failure behind commit 805d596).
+
+   .menu-entry      Block layout. Accepts a bare text node as its label, which
+                    is how File/Edit/View, the Create dropdown and the context
+                    menus author it. A row that needs a right-aligned second
+                    column opts into `.with-shortcut` (flex) and MUST wrap its
+                    text in .menu-entry-label / .menu-entry-shortcut spans —
+                    RmlUi flex containers do not lay out bare text children.
+   .context-entry   Flex row: icon + label + optional .context-shortcut.
+                    Text is always inside a span.
+   .drop-entry      Block row inside .drop-list; `.selected` marks the current
+                    value, `.disabled` blocks the pick.
+   .panel-btn       Transparent-fill button; `.primary` promotes it to the
+                    accent CTA. 65 uses across 12 files — treat as public API.
+   .tool-btn        Toolbar button on surface-raised; `.active` is a state,
+                    `.primary` is the accent CTA.
+   .prop-input      Inspector field on surface-sunken; `:focus` shows
+                    border-focus, `:disabled` uses surface-disabled.
+   ============================================================================= */
 
 body {
     font-family: Inter;
@@ -18,8 +109,7 @@ body {
     color: #d4d4d8;
 }
 
-/* Section / panel eyebrow labels — tracked uppercase. Bright enough to read as
-   real headers, not separators (UI audit: weak panel hierarchy). */
+/* Section / panel eyebrow labels — tracked uppercase, large-text contrast. */
 .panel-header {
     font-size: 10dp;
     font-weight: 700;
@@ -28,11 +118,8 @@ body {
     color: #a1a1aa;
 }
 
-.accent { color: #3b82f6; }
-
-/* Icon glyphs (Tabler Icons, PUA codepoints). Size tracks the surrounding text
-   (a touch larger); colour inherits. Always normal weight — the icon font has
-   a single face. */
+/* Icon glyphs (Tabler Icons, PUA codepoints). Size tracks the surrounding text;
+   colour inherits. Always normal weight — the icon font has a single face. */
 .icon {
     font-family: tabler-icons;
     font-weight: normal;
@@ -42,29 +129,28 @@ body {
 }
 /* Hierarchy row type icon — muted, slightly smaller gap. */
 .row-icon {
-    color: #6b7280;
+    color: #71717a;
     font-size: 1.25em;
     margin-right: 8dp;
 }
 /* Trailing dropdown-indicator caret (Tabler icon), after a label — e.g.
    "Create [caret]", a scene tab, a hierarchy row. Never raw Unicode: Inter's
-   Latin-only subset has no glyph for the arrow shapes, so the icon font is
-   the only reliable source (see the audit's "no Unicode icons" rule). */
+   Latin-only subset has no glyph for the arrow shapes. */
 .icon-caret {
     font-family: tabler-icons;
     font-weight: normal;
     font-size: 1em;
     margin-left: 4dp;
 }
-.tree-row.selected .row-icon { color: #93b4f5; }
+.tree-row.selected .row-icon { color: #f4f4f5; }
 /* Start-scene star marker. */
-.ico-start { color: #eab308; }
+.ico-start { color: #d8b44a; }
 
 /* Scrollable areas */
 .tree, .console, .inspector { overflow-y: auto; }
 
 scrollbarvertical { width: 10dp; }
-scrollbarvertical slidertrack { background-color: #111113; }
+scrollbarvertical slidertrack { background-color: #0b0b0d; }
 scrollbarvertical sliderbar {
     background-color: #27272a;
     border-radius: 3dp;
@@ -74,4 +160,408 @@ scrollbarvertical sliderbar {
     transition: background-color 0.1s;
 }
 scrollbarvertical sliderbar:hover  { background-color: #3f3f46; }
-scrollbarvertical sliderbar:active { background-color: #3b82f6; }
+scrollbarvertical sliderbar:active { background-color: #71717a; }
+
+/* =============================================================================
+   ROLE GROUPS — every colour the component sheets used to declare.
+   Grouped by role, then by property. Generated from the phase-1 migration and
+   maintained by hand from here on: add a selector to its role, never a value
+   to a component.
+   ============================================================================= */
+
+/* surface-chrome */
+.tab {
+    background-color: #18181b;
+}
+
+/* surface-disabled */
+#btn-grid-size.disabled,
+.asset-option.disabled,
+.drop-trigger.disabled,
+.prop-input:disabled {
+    background-color: #151517;
+}
+
+/* surface-hover */
+.add-entry:hover,
+.asset-option:hover,
+.context-entry:hover,
+.drop-entry:hover,
+.layer-btn:hover,
+.layer-group-header:hover,
+.menu-entry:hover,
+.menu-item:hover,
+.tab:hover,
+.tool-btn:hover,
+.toolbar-zoom:hover {
+    background-color: #27272a;
+}
+
+/* surface-raised */
+.add-list,
+.asset-option,
+.color-reset:hover,
+.context-menu,
+.context-submenu,
+.create-dropdown,
+.grid-size-popover,
+.layer-group-header,
+.layer-row:hover,
+.menu-dropdown,
+.scene-tabs,
+.tool-btn,
+.tree-row:hover {
+    background-color: #1f1f23;
+}
+
+/* surface-selected */
+#btn-grid-size.grid-size-nav:hover,
+.add-component-btn.open,
+.asset-option.selected,
+.drop-entry.selected,
+.drop-trigger.open,
+.inspector-opacity-slider sliderbar:active,
+.inspector-opacity-slider sliderprogress,
+.layer-group-header.active,
+.layer-row.active,
+.panel-btn.active,
+.panel-btn:active,
+.prop-input.inspector-reveal-highlight,
+.row-menu:hover,
+.tab.active,
+.tool-btn.active,
+.tool-btn:active,
+.tree-row.selected {
+    background-color: #2f2f36;
+}
+
+/* surface-sunken */
+.color-field,
+.drop-list,
+.drop-trigger,
+.grid-size-input,
+.layer-rename-input,
+.prop-input,
+.prop-start-badge,
+.row-name-input {
+    background-color: #0b0b0d;
+}
+
+/* border-focus */
+#btn-grid-size.grid-size-nav,
+#btn-grid-size.grid-size-nav:hover,
+.add-component-btn.open,
+.add-component-btn:hover,
+.asset-option.selected,
+.drop-trigger.open,
+.grid-size-input:focus,
+.grid-size-preset:hover,
+.inspector-opacity-slider sliderbar:active,
+.inspector-opacity-slider:focus,
+.layer-rename-input,
+.panel-btn.active,
+.panel-btn:active,
+.panel-btn:hover,
+.prop-input.inspector-reveal-highlight,
+.prop-input:focus,
+.row-name-input,
+.tab.active,
+.tool-btn.active,
+.tool-btn:active {
+    border-color: #71717a;
+}
+
+/* border-focus */
+.layer-group-header.active,
+.tree-row.selected {
+    border-left-color: #71717a;
+}
+
+/* border-strong */
+.inspector-opacity-slider:hover slidertrack,
+.menu-separator,
+.tool-sep {
+    background-color: #3f3f46;
+}
+
+/* border-strong */
+.add-component-btn,
+.add-list,
+.asset-option:hover,
+.color-field:hover,
+.context-menu,
+.context-submenu,
+.create-dropdown,
+.drop-trigger:hover,
+.grid-size-input,
+.grid-size-popover,
+.grid-size-preset,
+.menu-dropdown,
+.panel-btn,
+.prop-input:hover,
+.tab:hover,
+.tool-btn:hover {
+    border-color: #3f3f46;
+}
+
+/* border-subtle */
+.inspector-opacity-slider slidertrack {
+    background-color: #27272a;
+}
+
+/* border-subtle */
+.inspector-scene-context,
+.scene-tabs {
+    border-bottom-color: #27272a;
+}
+
+/* border-subtle */
+#btn-grid-size.disabled,
+.add-component-btn.disabled,
+.asset-option,
+.asset-option.disabled,
+.color-field,
+.drop-list,
+.drop-trigger,
+.drop-trigger.disabled,
+.panel-btn.disabled,
+.prop-copy:hover,
+.prop-input,
+.prop-input:disabled,
+.prop-start-badge,
+.tab,
+.tool-btn {
+    border-color: #27272a;
+}
+
+/* border-subtle */
+.color-reset {
+    border-left-color: #27272a;
+}
+
+/* text-disabled */
+#btn-grid-size.disabled,
+.add-component-btn.disabled,
+.asset-option.disabled,
+.color-reset,
+.color-reset:disabled,
+.context-submenu .context-entry.disabled,
+.context-submenu .context-entry.disabled:hover,
+.drop-entry.disabled,
+.drop-entry.disabled:hover,
+.drop-trigger.disabled,
+.drop-trigger.disabled .drop-caret,
+.inspector-scene-context .context-kind,
+.layer-btn.disabled,
+.layer-btn.disabled:hover,
+.layer-count,
+.layer-group-header.hidden .layer-eye,
+.layer-row.hidden .layer-eye,
+.menu-entry.disabled,
+.menu-entry.disabled .menu-entry-hint,
+.menu-entry.disabled:hover,
+.panel-btn.disabled,
+.prop-copy,
+.prop-input:disabled,
+.prop-subheading,
+.row-indicator-spacer,
+.toolbar-zoom.disabled {
+    color: #52525b;
+}
+
+/* text-primary */
+.inspector-opacity-slider sliderbar {
+    background-color: #d4d4d8;
+}
+
+/* text-primary */
+.add-component-btn.open,
+.add-entry:hover,
+.asset-option.selected,
+.asset-option:hover,
+.color-reset:hover,
+.context-entry:hover,
+.drop-entry.selected,
+.drop-entry:hover,
+.drop-trigger,
+.inspector-scene-context,
+.inspector-scene-context .context-name,
+.layer-btn:hover,
+.layer-group-header.active,
+.layer-group-header:hover,
+.layer-lock:hover,
+.layer-rename-input,
+.layer-row.active,
+.menu-entry:hover,
+.menu-item:hover,
+.panel-btn.active,
+.panel-btn:active,
+.prop-copy:hover,
+.prop-input,
+.prop-start-badge,
+.row-menu:hover,
+.status-health:hover,
+.tab.active,
+.tab:hover,
+.tool-btn.active,
+.tool-btn:active,
+.tool-btn:hover,
+.toolbar-tilemap-stamp .value,
+.toolbar-zoom:hover {
+    color: #d4d4d8;
+}
+
+/* text-secondary */
+.add-component-btn,
+.add-entry,
+.asset-option,
+.context-entry,
+.drop-caret,
+.drop-entry,
+.grid-size-preset,
+.hierarchy-empty-title,
+.layer-eye,
+.layer-group-header,
+.layer-lock,
+.layer-row,
+.menu-entry,
+.menu-item,
+.panel-btn,
+.row-icon,
+.row-name,
+.status-coords,
+.status-health,
+.status-project,
+.status-project.dirty,
+.tab,
+.tool-btn,
+.toolbar-tilemap-stamp,
+.toolbar-zoom,
+.tree-row,
+.tree-row.selected .row-menu,
+.tree-row.selected .row-shared-type {
+    color: #a1a1aa;
+}
+
+/* text-strong */
+.inspector-opacity-slider sliderbar:hover {
+    background-color: #f4f4f5;
+}
+
+/* text-strong */
+#btn-grid-size.grid-size-nav,
+#btn-grid-size.grid-size-nav:hover,
+.add-component-btn:hover,
+.brand,
+.context-submenu .context-entry.selected,
+.drop-mark,
+.grid-size-input,
+.grid-size-preset:hover,
+.layer-active-dot,
+.menu-entry.active,
+.panel-btn:hover,
+.row-name-input,
+.tree-row.selected .row-name {
+    color: #f4f4f5;
+}
+
+/* text-tertiary */
+.context-shortcut,
+.context-submenu-caret,
+.grid-size-title,
+.hierarchy-empty-copy,
+.hierarchy-empty-icon,
+.inspector-scene-context .context-separator,
+.layer-btn,
+.layer-chevron,
+.layer-group-header.hidden,
+.layer-remove,
+.layer-row.hidden,
+.menu-entry-hint,
+.menu-entry-shortcut,
+.menu-section,
+.prop-meta-value,
+.row-menu,
+.status-context,
+.tree-empty,
+.tree-row.layer-hidden .row-shared-type,
+.tree-section {
+    color: #71717a;
+}
+
+/* accent */
+#btn-play-project,
+.tool-btn.primary {
+    background-color: #2563eb;
+}
+
+/* accent */
+#btn-play-project,
+.tool-btn.primary {
+    border-color: #2563eb;
+}
+
+/* accent-hover */
+#btn-play-project:hover {
+    background-color: #1d4ed8;
+}
+
+/* accent-hover */
+#btn-play-project:hover {
+    border-color: #1d4ed8;
+}
+
+/* accent-on */
+#btn-play-project,
+.tool-btn.primary {
+    color: #ffffff;
+}
+
+/* danger-border */
+#btn-stop:hover {
+    border-color: #7f3b38;
+}
+
+/* danger-surface */
+#btn-stop:hover,
+.context-entry.destructive:hover,
+.layer-remove:hover {
+    background-color: #2a1f20;
+}
+
+/* danger-text */
+.status-health.error .status-dot {
+    background-color: #e5706b;
+}
+
+/* danger-text */
+#btn-stop,
+.context-entry.destructive:hover,
+.layer-remove:hover,
+.layer-rename-error,
+.status-health.error {
+    color: #e5706b;
+}
+
+/* danger-text-hi */
+#btn-stop:hover {
+    color: #f0918c;
+}
+
+/* warning-text */
+.status-health.warning .status-dot {
+    background-color: #d8b44a;
+}
+
+/* warning-text */
+.layer-lock.locked,
+.prop-start-badge .icon,
+.status-health.warning {
+    color: #d8b44a;
+}
+
+/* success-text */
+.status-dot {
+    background-color: #4f9b68;
+}
+
