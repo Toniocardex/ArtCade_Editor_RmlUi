@@ -223,12 +223,21 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 .tab,
 .tile-palette-dock-header {
     background-color: #18181b;
-}/* surface-disabled */
+}
+
+/* surface-disabled */
 #btn-grid-size.disabled,
+#btn-grid-snap.disabled,
+#btn-grid-visible.disabled,
+#btn-play-project.disabled,
+#btn-play-scene.disabled,
+#btn-stop.disabled,
+.asset-option.disabled,
 .drop-trigger.disabled,
 .logic-key-search,
 .logic-variables-drawer,
-.prop-input:disabled {
+.prop-input:disabled,
+.tool-btn.disabled {
     background-color: #151517;
 }
 
@@ -241,10 +250,14 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 .sfx-more-entry:hover,
 .sfx-preset:hover {
     background: #27272a;
-}/* surface-hover */
+}
+
+/* surface-hover */
 .add-entry:hover,
+.asset-option:hover,
 .center-mode-tab.active,
 .comp-help:focus,
+.comp-help:hover,
 .console-collapse-btn:hover,
 .context-entry:hover,
 .drop-entry:hover,
@@ -269,9 +282,12 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .sfx-choice,
 .sfx-preset {
     background: #1f1f23;
-}/* surface-raised */
+}
+
+/* surface-raised */
 .add-list,
 .asset-count,
+.asset-option,
 .asset-row:hover,
 .assets .asset-group-title:hover,
 .assets .asset-import-trigger,
@@ -302,15 +318,19 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* surface-selected */
+.sfx-batch-bar-fill,
 .sfx-browser-create-entry:hover,
 .sfx-browser-row.selected,
 .sfx-inline-action:hover,
 .sfx-preset-divider,
 .sfx-preset.active {
     background: #2f2f36;
-}/* surface-selected */
+}
+
+/* surface-selected */
 #btn-grid-size.grid-size-nav:hover,
 .add-component-btn.open,
+.asset-option.selected,
 .console-toggle.active,
 .drop-entry.selected,
 .drop-trigger.open,
@@ -325,6 +345,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-more-trigger.open,
 .logic-variable-row button.logic-variable-value.active,
 .logic-variables-toggle.active,
+.logic-variables-toggle:hover,
 .panel-btn.active,
 .panel-btn:active,
 .prop-input.inspector-reveal-highlight,
@@ -333,10 +354,12 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .script-api-insert-btn:hover,
 .script-api-item.selected,
 .script-completion-item.active,
+.script-completion-item:hover,
 .script-tab-close:hover,
 .sfx-macro-slider sliderbar:active,
 .sfx-macro-slider sliderprogress,
 .sfx-macro-slider:hover slidertrack,
+.tab-menu:hover,
 .tab.active,
 .tool-btn.active,
 .tool-btn:active,
@@ -367,10 +390,15 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .hsplit,
 .layer-rename-input,
 .logic-code,
+.logic-key-capture,
 .logic-key-result,
 .logic-key-search input,
+.logic-key-search-cancel,
+.logic-key-search-toggle,
 .logic-variable-description,
 .logic-variable-row button.logic-variable-value,
+.logic-variable-row input.logic-variable-key,
+.logic-variable-row input.logic-variable-value,
 .prop-input,
 .prop-start-badge,
 .row-name-input,
@@ -390,15 +418,19 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 /* border-focus */
 .center-mode-tab.active {
     border-bottom-color: #71717a;
-}/* border-focus */
+}
+
+/* border-focus */
 #btn-grid-size.grid-size-nav,
 #btn-grid-size.grid-size-nav:hover,
 .add-component-btn.open,
 .add-component-btn:hover,
+.asset-option.selected,
 .assets-search-field:focus,
 .center-mode-tab:focus,
 .comp-badge.override,
 .comp-help:focus,
+.comp-help:hover,
 .console-search-field:focus,
 .console-toggle.active,
 .drop-trigger.open,
@@ -413,16 +445,19 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-btn:hover,
 .logic-icon-btn:hover,
 .logic-key-capture.capturing,
+.logic-key-capture:hover,
 .logic-key-result.selected,
+.logic-key-result:hover,
 .logic-key-search input:focus,
 .logic-key-search-cancel:hover,
-.logic-key-result:hover,
+.logic-key-search-toggle:hover,
 .logic-more-trigger.open,
 .logic-rule.logic-rule-focus,
 .logic-toolbar-search:focus,
 .logic-variable-row button.logic-variable-value.active,
 .logic-variable-row input:focus,
 .logic-variables-toggle.active,
+.logic-variables-toggle:hover,
 .panel-btn.active,
 .panel-btn:active,
 .panel-btn:hover,
@@ -467,9 +502,12 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 /* border-strong */
 .sfx-editor-header {
     border-bottom-color: #3f3f46;
-}/* border-strong */
+}
+
+/* border-strong */
 .add-component-btn,
 .add-list,
+.asset-option:hover,
 .assets .asset-import-trigger,
 .assets-search-field:hover,
 .color-field:hover,
@@ -493,13 +531,18 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-add-rule-footer,
 .logic-btn,
 .logic-icon-btn,
+.logic-key-capture,
 .logic-key-result,
 .logic-key-search,
 .logic-key-search input,
+.logic-key-search-cancel,
+.logic-key-search-toggle,
 .logic-more-trigger,
 .logic-more-trigger:hover,
 .logic-variable-description,
 .logic-variable-row button.logic-variable-value,
+.logic-variable-row input.logic-variable-key,
+.logic-variable-row input.logic-variable-value,
 .logic-variable-type .drop-trigger,
 .logic-variables-toggle,
 .menu-dropdown,
@@ -560,10 +603,19 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .shortcuts-toolbar,
 .tile-palette-dock-header {
     border-bottom-color: #27272a;
-}/* border-subtle */
+}
+
+/* border-subtle */
 #btn-grid-size.disabled,
+#btn-grid-snap.disabled,
+#btn-grid-visible.disabled,
+#btn-play-project.disabled,
+#btn-play-scene.disabled,
+#btn-stop.disabled,
 #viewport,
 .add-component-btn.disabled,
+.asset-option,
+.asset-option.disabled,
 .assets-search-field,
 .color-field,
 .console-search-field,
@@ -589,7 +641,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .tab,
 .tile-palette-empty,
 .tile-palette-sheet,
-.tool-btn {
+.tool-btn,
+.tool-btn.disabled {
     border-color: #27272a;
 }
 
@@ -617,13 +670,23 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 #tile-palette-dock,
 .help-dialog-footer,
 .logic-board-panel.compact .logic-rule-col.actions-col,
+.logic-board-panel.compact .logic-rule-col.conditions-col,
 .script-api-detail,
 .script-editor-status {
     border-top-color: #27272a;
-}/* text-disabled */
+}
+
+/* text-disabled */
 #btn-grid-size.disabled,
+#btn-grid-snap.disabled,
+#btn-grid-visible.disabled,
+#btn-play-project.disabled,
+#btn-play-scene.disabled,
+#btn-stop.disabled,
 .add-component-btn.disabled,
+.asset-option.disabled,
 .color-reset,
+.color-reset.disabled,
 .color-reset:disabled,
 .comp-caret,
 .comp-remove.disabled,
@@ -649,7 +712,11 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .prop-input:disabled,
 .prop-subheading,
 .prop-unit,
+.row-indicator-spacer,
+.row-override-indicator,
+.row-shared-type,
 .script-line-numbers,
+.tool-btn.disabled,
 .toolbar-zoom.disabled {
     color: #52525b;
 }
@@ -657,11 +724,15 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 /* text-primary */
 .inspector-opacity-slider sliderbar {
     background-color: #d4d4d8;
-}/* text-primary */
+}
+
+/* text-primary */
 .about-meta-value,
 .add-component-btn.open,
 .add-entry:hover,
 .asset-import-title,
+.asset-option.selected,
+.asset-option:hover,
 .assets-search-field,
 .color-reset:hover,
 .comp-toggle:hover,
@@ -684,12 +755,17 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-board-panel,
 .logic-catalog-name,
 .logic-code,
+.logic-key-capture,
 .logic-key-result,
+.logic-key-search-cancel,
+.logic-key-search-toggle,
 .logic-more-trigger:hover,
 .logic-toolbar-search,
 .logic-variable-description,
 .logic-variable-row button.logic-variable-value,
 .logic-variable-row button.logic-variable-value.active,
+.logic-variable-row input.logic-variable-key,
+.logic-variable-row input.logic-variable-value,
 .logic-variables-collapse:hover,
 .menu-entry:hover,
 .menu-item:hover,
@@ -713,6 +789,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .shortcuts-search,
 .shortcuts-tab:hover,
 .status-health:hover,
+.tab-menu:hover,
 .tab.active,
 .tab:hover,
 .tile-palette-dock-status-selection .value,
@@ -725,7 +802,9 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .toolbar-zoom:hover,
 .viewport-empty-title {
     color: #d4d4d8;
-}/* text-secondary */
+}
+
+/* text-secondary */
 .about-tagline,
 .about-version,
 .add-component-btn,
@@ -734,6 +813,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .asset-group-caret,
 .asset-ico,
 .asset-name,
+.asset-option,
 .assets .asset-group-title:hover,
 .assets-filter-empty,
 .center-mode-tab,
@@ -761,7 +841,6 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-add-rule-footer,
 .logic-block-label,
 .logic-btn,
-.logic-icon-btn,
 .logic-catalog-category,
 .logic-catalog-description,
 .logic-col-empty,
@@ -769,8 +848,9 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-diagnostic.warning,
 .logic-execution-clause,
 .logic-execution-label,
-.logic-key-search-toggle,
+.logic-icon-btn,
 .logic-key-search-cancel,
+.logic-key-search-toggle,
 .logic-more-trigger,
 .logic-muted,
 .logic-owner,
@@ -816,7 +896,11 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .toolbar-zoom,
 .tree-row,
 .tree-row.selected .row-menu,
+.tree-row.selected .row-override-indicator,
 .tree-row.selected .row-shared-type,
+.tree-row:hover .row-menu,
+.tree-row:hover .row-override-indicator,
+.tree-row:hover .row-shared-type,
 .viewport-empty-sub {
     color: #a1a1aa;
 }
@@ -838,6 +922,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .center-mode-tab:hover,
 .comp-badge.override,
 .comp-help:focus,
+.comp-help:hover,
 .console-collapse-btn:hover,
 .console-collapse-btn:hover .icon,
 .console-source-link,
@@ -852,17 +937,22 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .inspector-breadcrumb:hover,
 .layer-active-dot,
 .logic-add-rule-footer:hover,
-.logic-btn:hover, .logic-icon-btn:hover,
+.logic-btn:hover,
 .logic-empty-title,
+.logic-icon-btn:hover,
 .logic-key-capture.capturing,
+.logic-key-capture:hover,
 .logic-key-result.selected,
+.logic-key-result:hover,
 .logic-key-search input,
-.logic-key-search-cancel:hover, .logic-key-result:hover,
+.logic-key-search-cancel:hover,
+.logic-key-search-toggle:hover,
 .logic-more-trigger.open,
 .logic-rule-title,
 .logic-title-prefix,
 .logic-variables-title,
 .logic-variables-toggle.active,
+.logic-variables-toggle:hover,
 .menu-entry.active,
 .panel-btn:hover,
 .row-name-input,
@@ -904,7 +994,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .shortcuts-tab.active,
 .tile-palette-dock-collapse-btn:hover,
 .tile-palette-dock-collapse-btn:hover .icon,
-.tree-row.selected .row-name {
+.tree-row.selected .row-name,
+.tree-row:hover .row-name {
     color: #f4f4f5;
 }
 
@@ -974,9 +1065,13 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .shortcut-section,
 .shortcuts-empty,
 .status-context,
+.tab-menu,
 .tile-palette-dock-header .icon,
 .tile-palette-dock-status-meta,
 .tree-empty,
+.tree-row.layer-hidden .row-icon,
+.tree-row.layer-hidden .row-name,
+.tree-row.layer-hidden .row-override-indicator,
 .tree-row.layer-hidden .row-shared-type,
 .tree-section,
 .type-owned-note {
@@ -1031,6 +1126,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-btn.primary:hover,
 .script-api-item.selected,
 .script-completion-item.active,
+.script-completion-item:hover,
 .script-restart-button,
 .sfx-header-actions .primary,
 .tool-btn.primary,
