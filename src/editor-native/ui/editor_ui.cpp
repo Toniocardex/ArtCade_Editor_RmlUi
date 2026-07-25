@@ -2116,6 +2116,13 @@ void EditorUi::toggleLogicMoreMenu() {
     Rml::Element* menu = document_->GetElementById("logic-more-menu");
     if (!trigger || !menu) return;
     hideContextMenus();
+    // Stamp on open (same contract as logic-type-menu): .context-entry is
+    // display:flex and RmlUi will not lay out a bare text node (ADR-0027).
+    menu->SetInnerRML(
+        "<div id=\"logic-more-remove\" class=\"context-entry destructive\" "
+        "data-action=\"remove-logic-board\">"
+        "<span class=\"icon\">&#xeb41;</span>"
+        "<span>Remove Logic Board</span></div>");
     const Rml::Vector2f offset = trigger->GetAbsoluteOffset();
     menu->SetProperty("left", std::to_string(static_cast<int>(offset.x)) + "px");
     menu->SetProperty("top",

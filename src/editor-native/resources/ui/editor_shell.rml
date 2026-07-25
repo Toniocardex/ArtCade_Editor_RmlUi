@@ -383,7 +383,9 @@
          entry) so, unlike the Object Type menu, it doesn't need to be
          stamped in on open. -->
     <div id="logic-more-menu" class="context-menu hidden">
-        <div id="logic-more-remove" class="context-entry destructive" data-action="remove-logic-board">Remove Logic Board</div>
+        <!-- Label must be an element child: .context-entry is display:flex and
+             RmlUi does not lay out bare text nodes (ADR-0027 / 805d596). -->
+        <div id="logic-more-remove" class="context-entry destructive" data-action="remove-logic-board"><span class="icon">&#xeb41;</span><span>Remove Logic Board</span></div>
     </div>
 
     <!-- Shared themed confirm (unsaved, delete, tileset, remove-controller, …). -->
