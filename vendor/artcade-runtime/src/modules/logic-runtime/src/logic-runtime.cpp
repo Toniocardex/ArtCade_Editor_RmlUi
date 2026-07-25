@@ -58,6 +58,7 @@ const std::unordered_set<std::string>& supportedFeatures() {
         "collision.enter",
         "collision.exit",
         "collision.other_type",
+        "collision.destroy_other",
         "entity.destroy",
         "animation.play_clip",
         "animation.stop",
@@ -338,6 +339,10 @@ struct LogicRuntime::Impl {
         bool otherIsObjectType(EntityId other, const std::string& objectTypeId) {
             return impl && other != INVALID_ENTITY && !objectTypeId.empty()
                 && impl->host.isObjectType(other, objectTypeId);
+        }
+        void destroyOther(EntityId other) {
+            if (!impl || other == INVALID_ENTITY || !impl->host.requestDestroy(other))
+                throw sol::error("destroy_other failed");
         }
         /**
          * Rising-edge execution gate for the complete WHEN expression.
@@ -640,6 +645,7 @@ bool LogicRuntime::initialize(std::string* error) {
             "scene_go_to", &Impl::ContextProxy::sceneGoTo,
             "is_key_down", &Impl::ContextProxy::isKeyDown,
             "other_is_object_type", &Impl::ContextProxy::otherIsObjectType,
+            "destroy_other", &Impl::ContextProxy::destroyOther,
             "should_execute", &Impl::ContextProxy::shouldExecute);
 
         sol::table logic = lua.create_named_table("logic");

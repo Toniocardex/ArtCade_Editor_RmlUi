@@ -29,6 +29,7 @@
 | 2F. Tempo e messaggi | In corso | Timer ripetuto e Wait completati; messaggi e payload restano backlog dedicato. |
 | 2F.0. Timer authoring | Completata | `event.every_seconds` e `flow.wait` hanno proprietà generiche validate e lifetime nello scope Play. |
 | 2G. Scene actions | Completata | `scene.restart` e `scene.go_to` (ADR-0025): richiesta differita last-wins nell'host, commit a dispatch depth 0, reinstall scope su transizione (parità game.exe) e PlaySession multi-scena materializzata a Start Play. |
+| 2C.1. Destroy Other | Completata | `collision.destroy_other` (ADR-0026): action EventOther-scoped, disponibile solo sotto trigger di collisione (availability+`LB_INCOMPATIBLE_BLOCK`), destroy differito riusato con scope cleanup. |
 
 ### Aggiornamenti trasversali completati
 

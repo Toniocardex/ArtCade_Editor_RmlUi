@@ -44,6 +44,7 @@ inline constexpr const char* kTopDownMove = "topdown.move";
 inline constexpr const char* kCollisionEnter = "collision.enter";
 inline constexpr const char* kCollisionExit = "collision.exit";
 inline constexpr const char* kOtherIsObjectType = "collision.other_is_object_type";
+inline constexpr const char* kDestroyOther = "collision.destroy_other";
 inline constexpr const char* kDestroySelf = "entity.destroy_self";
 inline constexpr const char* kAnimationPlayClip = "animation.play_clip";
 inline constexpr const char* kAnimationStop = "animation.stop";

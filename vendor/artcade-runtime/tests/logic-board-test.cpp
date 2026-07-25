@@ -1415,6 +1415,87 @@ static void testSceneActions() {
     // the program up front (same contract testPlaySoundAction locks in).
 }
 
+static void testDestroyOtherAction() {
+    // Registry: Action, category=collision, feature-gated, EventOther-scoped,
+    // no properties.
+    const LogicBlockDescriptor* descriptor = findDescriptor(kDestroyOther);
+    CHECK(descriptor != nullptr);
+    if (descriptor) {
+        CHECK(descriptor->kind == BlockKind::Action);
+        CHECK(descriptor->categoryId == "collision");
+        CHECK(descriptor->requiredFeature == "collision.destroy_other");
+        CHECK(descriptor->properties.empty());
+        CHECK(descriptor->requiredContext.size() == 1
+              && descriptor->requiredContext[0] == LogicContextCapability::EventOther);
+    }
+
+    EntityDef owner;
+    owner.name = "Hero";
+    owner.className = "Hero";
+
+    // Availability mirrors Other Is Object Type: collision triggers provide
+    // EventOther; anything else greys the entry out with a reason.
+    const LogicBlockDescriptor* collisionTrigger = findDescriptor(kCollisionEnter);
+    const LogicBlockDescriptor* keyTrigger = findDescriptor(kKeyPressed);
+    CHECK(blockAvailability(owner, *descriptor, collisionTrigger).compatible);
+    const LogicBlockAvailability underKey = blockAvailability(owner, *descriptor, keyTrigger);
+    CHECK(!underKey.compatible);
+    CHECK(!underKey.reason.empty());
+
+    const auto makeBoardWith = [](const LogicBlockTypeId& triggerId) {
+        LogicBoardDef board;
+        board.id = "logic:Hero";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        rule.trigger = makeDefaultBlock(triggerId, BlockKind::Trigger);
+        rule.actions = {makeDefaultBlock(kDestroyOther, BlockKind::Action)};
+        board.rules.push_back(rule);
+        return board;
+    };
+
+    // Valid placement compiles to the deferred context call + feature gate.
+    {
+        const LogicBoardDef board = makeBoardWith(kCollisionEnter);
+        CHECK(validateBoard("Hero", board, &owner).empty());
+        LogicCompileResult compiled = compileBoard("Hero", board, &owner);
+        CHECK(compiled.ok());
+        CHECK(compiled.programs[0].source.find("context:destroy_other(other)")
+              != std::string::npos);
+        const auto& features = compiled.programs[0].requiredFeatures;
+        CHECK(std::find(features.begin(), features.end(), "collision.destroy_other")
+              != features.end());
+    }
+
+    // Invalid placement (no EventOther): semantic LB_INCOMPATIBLE_BLOCK,
+    // compile blocked; StructuralCommit stays loadable (ADR-0013).
+    {
+        const LogicBoardDef board = makeBoardWith(kKeyPressed);
+        CHECK(validateBoard("Hero", board, &owner,
+                            nullptr, LogicValidationPurpose::StructuralCommit).empty());
+        const auto diagnostics = validateBoard("Hero", board, &owner);
+        CHECK(std::any_of(diagnostics.begin(), diagnostics.end(),
+            [](const LogicDiagnostic& d) { return d.code == "LB_INCOMPATIBLE_BLOCK"; }));
+        CHECK(!compileBoard("Hero", board, &owner).ok());
+    }
+
+    // Runtime binding: the collided entity is destroyed exactly once, and the
+    // owner itself is untouched.
+    {
+        LogicCompileResult compiled = compileBoard("Hero", makeBoardWith(kCollisionEnter), &owner);
+        CHECK(compiled.ok());
+        Host host;
+        LogicRuntime runtime(host);
+        std::string error;
+        CHECK(runtime.loadPrograms(compiled.programs, &error));
+        CHECK(runtime.install("Hero", 1, &error).has_value());
+        runtime.beginFrame();
+        runtime.dispatchCollisionEnter(1, 42);
+        CHECK(std::count(host.calls.begin(), host.calls.end(),
+                         std::string("destroy:42")) == 1);
+        CHECK(std::count(host.calls.begin(), host.calls.end(),
+                         std::string("destroy:1")) == 0);
+    }
+}
+
 static void testCombinedGameplaySmoke() {
     ProjectDoc project;
     EntityDef hero;
@@ -2228,6 +2309,7 @@ int main() {
     testConditionOperators();
     testPlaySoundAction();
     testSceneActions();
+    testDestroyOtherAction();
     testCombinedGameplaySmoke();
     testP1EverySecondsAndTick();
     testP1StateAndWaitAndVelocity();

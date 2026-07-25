@@ -489,6 +489,11 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
         lua << "      context.self:platformer_jump()\n";
     } else if (action.typeId == kDestroySelf) {
         lua << "      context.self:destroy_self()\n";
+    } else if (action.typeId == kDestroyOther) {
+        // `other` is the collision callback's parameter; validation restricts
+        // this action to triggers that provide EventOther, so it is always in
+        // scope here (Wait continuations capture it as an upvalue).
+        lua << "      context:destroy_other(other)\n";
     } else if (action.typeId == kAnimationPlayClip) {
         const LogicPropertyDef* asset = findProperty(action, "animationAssetId");
         const LogicPropertyDef* clip = findProperty(action, "clipId");
@@ -759,6 +764,12 @@ const std::vector<LogicBlockDescriptor>& registry() {
             BlockKind::Condition,
             {{"objectTypeId", LogicValueKind::String, LogicStringValue{}, "Object Type"}},
             {}, {LogicContextCapability::EventOther}, {}, "collision.other_type", false, 30},
+        {kDestroyOther, "collision", "Destroy Other",
+            "Removes the collided entity (Other) from the runtime world after "
+            "event dispatch. Requires a collision event.",
+            BlockKind::Action, {}, {}, {LogicContextCapability::EventOther}, {},
+            "collision.destroy_other", false, 40,
+            {"delete", "remove", "kill", "collect", "pickup", "other"}},
         {kAnimationPlayClip, "animation", "Play Clip", "Plays an animation clip on Self.",
             BlockKind::Action,
             {{"animationAssetId", LogicValueKind::Asset, LogicAssetReference{}, "Animation"},

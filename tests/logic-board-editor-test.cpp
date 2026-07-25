@@ -2107,6 +2107,59 @@ static void testSceneRestartRestoresAuthoredLayoutAndRefiresOnStart() {
     CHECK(coordinator.stopPlaying().ok);
 }
 
+// ADR-0026: the collect loop authored on the COLLECTOR's board only — the
+// coin needs no board of its own.
+static void testDestroyOtherCollectsPickup() {
+    ProjectDoc data = makeProjectData();
+    data.objectTypes.at("Hero").boxCollider2D =
+        BoxCollider2DComponent{{0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Trigger};
+    EntityDef coin;
+    coin.name = "Coin";
+    coin.className = "Coin";
+    coin.boxCollider2D = BoxCollider2DComponent{
+        {0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Trigger};
+    coin.spriteRenderer = SpriteRendererComponent{{}, true};
+    data.objectTypes.emplace("Coin", coin);
+    SceneInstanceDef coinInstance;
+    coinInstance.id = 2;
+    coinInstance.objectTypeId = "Coin";
+    coinInstance.instanceName = "Coin 1";
+    coinInstance.layerId = "layer-1";
+    coinInstance.transform.position = {5.f, 6.f}; // overlaps Hero from frame one
+    data.scenes.at("scene-1").instances.push_back(coinInstance);
+    data.scenes.at("scene-1").entityIds.push_back(2);
+
+    EditorCoordinator coordinator{std::move(data)};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& empty = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
+    rule.trigger = Logic::makeDefaultBlock(Logic::kCollisionEnter, Logic::BlockKind::Trigger);
+    rule.trigger.properties[0].value = LogicStringValue{"Coin"};
+    rule.actions[0] = Logic::makeDefaultBlock(Logic::kDestroyOther, Logic::BlockKind::Action);
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
+
+    // Picker availability mirrors the trigger's provided context.
+    const Logic::LogicBlockDescriptor* descriptor = Logic::findDescriptor(Logic::kDestroyOther);
+    CHECK(descriptor != nullptr);
+    CHECK(Logic::blockAvailability(*coordinator.document().findObjectType("Hero"), *descriptor,
+                                   Logic::findDescriptor(Logic::kCollisionEnter)).compatible);
+    CHECK(!Logic::blockAvailability(*coordinator.document().findObjectType("Hero"), *descriptor,
+                                    Logic::findDescriptor(Logic::kKeyPressed)).compatible);
+
+    CHECK(coordinator.playCurrentScene().ok);
+    RuntimeInputSnapshot none;
+    coordinator.tickRuntime(none, 1.f / 60.f);
+    // Destroy Other rides the same deferred queue as Destroy Self: removal is
+    // applied by the next fixed-step flush, never mid-dispatch.
+    coordinator.tickRuntime(none, 1.f / 60.f);
+    CHECK(!findRenderable(*coordinator.playSession(), 2).has_value());
+    CHECK(findRenderable(*coordinator.playSession(), 1).has_value());
+    CHECK(findRenderable(*coordinator.playSession(), 1)->visibleInGame);
+    // Authoring untouched: the coin instance still exists in the document.
+    CHECK(coordinator.document().findInstanceInScene("scene-1", 2) != nullptr);
+    CHECK(coordinator.stopPlaying().ok);
+}
+
 int main() {
     testCommandsAndPersistence();
     testIncompatibleBoardRecovery();
@@ -2138,6 +2191,7 @@ int main() {
     testSceneActionValidation();
     testSceneGoToSwitchesSceneAndFiresOnStart();
     testSceneRestartRestoresAuthoredLayoutAndRefiresOnStart();
+    testDestroyOtherCollectsPickup();
     std::cout << "logic-board-editor-test: " << passed << " passed, "
               << failed << " failed\n";
     return failed == 0 ? 0 : 1;
