@@ -435,7 +435,18 @@ struct LogicRuntime::Impl {
             intervalSeconds, 0.f, std::move(callback), true});
     }
 
-    bool callProtected(sol::protected_function& callback, EntityId owner,
+    /**
+     * By value, deliberately: the argument is normally an element of
+     * `subscriptions` / `delayedCallbacks`, and a callback in flight can grow
+     * those vectors reentrantly. Spawn Object is the real path - the action
+     * calls the host, which installs a Logic scope for the new entity, whose
+     * program registers handlers, which push_back here. A reallocation would
+     * then destroy the sol::protected_function currently being called through.
+     * The copy is a second Lua registry reference, so the handle in flight
+     * stays owned by this frame no matter what the callback does to the
+     * containers.
+     */
+    bool callProtected(sol::protected_function callback, EntityId owner,
                        const std::string& ruleId,
                        std::optional<EntityId> other = std::nullopt) {
         if (!enabled) return true;

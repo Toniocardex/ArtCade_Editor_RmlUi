@@ -175,6 +175,12 @@ struct Host final : ILogicRuntimeHost {
     EntityId nextSpawnId = 99;
     bool failSpawn = false;
     std::vector<EntityId> destroyedSpawns;
+    // Opt-in: give the spawned entity its own Logic scope, the way
+    // GameplaySession::installLogicScopeForEntity does at runtime. Off by
+    // default so every other test keeps the inert spawn stub.
+    bool installSpawnedScopes = false;
+    EntityId nextSpawnedScopeId = 100;
+    int spawnInstalls = 0;
     EntityId spawnObjectType(EntityId owner, const ObjectTypeId& objectTypeId,
                              float x, float y) override {
         calls.push_back("spawn:" + std::to_string(owner) + ":" + objectTypeId + ":"
@@ -185,6 +191,15 @@ struct Host final : ILogicRuntimeHost {
             destroyedSpawns.push_back(nextSpawnId);
             calls.push_back("spawn_rollback:" + std::to_string(nextSpawnId));
             return INVALID_ENTITY;
+        }
+        if (installSpawnedScopes) {
+            if (!runtime) return INVALID_ENTITY;
+            const EntityId spawned = nextSpawnedScopeId++;
+            std::string error;
+            if (!runtime->install(objectTypeId, spawned, &error)) return INVALID_ENTITY;
+            ++spawnInstalls;
+            runtime->dispatchStartForOwner(spawned);
+            return spawned;
         }
         return nextSpawnId;
     }
@@ -1796,6 +1811,59 @@ static void testP1SpawnInstallFailure() {
     CHECK(!runtime.diagnostics().empty());
 }
 
+/**
+ * Spawning an Object Type that carries a Logic Board installs a scope for the
+ * new entity from *inside* the action that spawned it, and that install
+ * registers the new entity's own subscriptions. The reentrant push_back used
+ * to reallocate the vector holding the callback currently being called
+ * through, which crashed the editor on the first key press of a board whose
+ * only action spawned its own Object Type (the minimal repro: one entity, one
+ * subscription, so the very first spawn hits the reallocation).
+ */
+static void testSpawnOfOwnObjectTypeReentrantInstall() {
+    LogicBoardDef board;
+    board.id = "logic:Cloner";
+    LogicRuleDef rule = makeDefaultRule("clone");
+    rule.trigger = {kKeyPressed, {{"key", LogicKey::Space}}};
+    LogicBlockDef spawn = makeDefaultBlock(kSpawnObject, BlockKind::Action);
+    for (LogicPropertyDef& p : spawn.properties) {
+        // The spawned type is the board's own type: a clone of itself.
+        if (p.key == "objectTypeId") p.value = LogicStringValue{"Hero"};
+        else if (p.key == "position") p.value = Vec2{5.f, 6.f};
+    }
+    rule.actions = {spawn};
+    board.rules.push_back(rule);
+
+    ProjectDoc project;
+    EntityDef hero;
+    hero.name = "Hero";
+    project.objectTypes["Hero"] = hero;
+
+    LogicCompileResult compiled = compileBoard("Hero", board, &hero, &project);
+    CHECK(compiled.ok());
+
+    Host host;
+    host.installSpawnedScopes = true;
+    LogicRuntime runtime(host);
+    host.runtime = &runtime;
+    std::string error;
+    CHECK(runtime.loadPrograms(compiled.programs, &error));
+    CHECK(runtime.install("Hero", 1, &error).has_value());
+
+    // Each press doubles the population, so this crosses several vector
+    // reallocations - one press alone already reproduced the crash.
+    for (int frame = 0; frame < 3; ++frame) {
+        runtime.beginFrame();
+        runtime.dispatchKeyPressed(LogicKey::Space);
+    }
+    // 1 -> 2 -> 4 -> 8 entities: 1 + 2 + 4 = 7 spawns, every one installed.
+    CHECK(host.spawnInstalls == 7);
+    CHECK(std::count_if(host.calls.begin(), host.calls.end(),
+        [](const std::string& c) { return c.rfind("spawn:", 0) == 0; }) == 7);
+    // No callback was disabled by an error, so the board is still live.
+    CHECK(runtime.diagnostics().empty());
+}
+
 static void testEntityTransformActions() {
     LogicBoardDef board;
     board.id = "logic:Transform";
@@ -2316,6 +2384,7 @@ int main() {
     testStateVariableAndToggle();
     testP1KeyDownCondition();
     testP1SpawnInstallFailure();
+    testSpawnOfOwnObjectTypeReentrantInstall();
     testEntityTransformActions();
     testManualTransformActions();
     testOncePerActivationExecutionMode();
