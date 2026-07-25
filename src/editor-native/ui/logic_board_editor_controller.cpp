@@ -286,7 +286,7 @@ bool LogicBoardEditorController::handleAction(
         || action == "set-logic-key" || action == "add-logic-action-type"
         || action == "remove-logic-action" || action == "move-logic-action-up"
         || action == "move-logic-action-down" || action == "change-logic-action"
-        || action == "toggle-logic-visible" || action == "commit-logic-position-x"
+        || action == "set-logic-visible" || action == "commit-logic-position-x"
         || action == "repair-logic-disable-rules"
         || action == "repair-logic-remove-actions"
         || action == "repair-logic-remove-rules"
@@ -307,7 +307,7 @@ bool LogicBoardEditorController::handleAction(
         || action == "toggle-logic-condition-negated"
         || action == "pick-logic-property" || action == "pick-logic-key-binding"
         || action == "commit-logic-property"
-        || action == "toggle-logic-property"
+        || action == "set-logic-property-bool"
         || action == "commit-logic-property-component";
     if (coordinator_.isPlaying() && authoringAction) return true;
 
@@ -435,7 +435,7 @@ bool LogicBoardEditorController::handleAction(
 
     if (action == "pick-logic-property" || action == "pick-logic-key-binding"
         || action == "commit-logic-property"
-        || action == "toggle-logic-property"
+        || action == "set-logic-property-bool"
         || action == "commit-logic-property-component") {
         const std::optional<PropertyAddress> address = parsePropertyAddress(arg);
         if (!address) {
@@ -459,10 +459,10 @@ bool LogicBoardEditorController::handleAction(
             return true;
         }
         const LogicPropertyDef* current = Logic::findProperty(*block, address->key);
-        if (action == "toggle-logic-property") {
-            const bool oldValue = current && std::get_if<bool>(&current->value)
-                ? std::get<bool>(current->value) : false;
-            executeProperty(*address, !oldValue);
+        if (action == "set-logic-property-bool") {
+            // The control sends the value it stands for, so re-picking the
+            // current option is a no-op rather than a flip.
+            executeProperty(*address, value == "true");
             return true;
         }
         if (action == "commit-logic-property-component") {
@@ -603,7 +603,7 @@ bool LogicBoardEditorController::handleAction(
         coordinator_.apply(AddLogicActionTypeIntent{objectTypeId, arg, value});
     } else if (action == "remove-logic-action" || action == "move-logic-action-up"
                || action == "move-logic-action-down" || action == "change-logic-action"
-               || action == "toggle-logic-visible" || action == "commit-logic-position-x"
+               || action == "set-logic-visible" || action == "commit-logic-position-x"
                || action == "commit-logic-position-y" || action == "commit-logic-offset-x"
                || action == "commit-logic-offset-y" || action == "set-logic-animation-asset"
                || action == "set-logic-animation-clip"
@@ -624,12 +624,10 @@ bool LogicBoardEditorController::handleAction(
         } else if (action == "change-logic-action") {
             coordinator_.apply(ChangeLogicActionTypeIntent{
                 objectTypeId, ruleId, index, value});
-        } else if (action == "toggle-logic-visible") {
-            bool visible = true;
-            if (const LogicPropertyDef* p = Logic::findProperty(rule->actions[index], "visible"))
-                if (const auto* current = std::get_if<bool>(&p->value)) visible = *current;
+        } else if (action == "set-logic-visible") {
             coordinator_.execute(SetLogicPropertyCommand{
-                objectTypeId, ruleId, LogicPropertyTarget::Action, index, "visible", !visible});
+                objectTypeId, ruleId, LogicPropertyTarget::Action, index, "visible",
+                value == "true"});
         } else if (action == "commit-logic-position-x" || action == "commit-logic-position-y") {
             const std::optional<float> parsed = parseNumberField(value);
             if (!parsed) {

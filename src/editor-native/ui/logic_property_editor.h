@@ -31,6 +31,18 @@ std::string encodeLogicPropertyAddress(
     const LogicPropertyAddress& address, const std::string& propertyKey);
 
 /**
+ * The Logic Board's boolean control: both options rendered, the current one
+ * selected. A single button printing only the current value reads as a label —
+ * nothing about it says the state can be changed. Each option *sets* its value
+ * rather than toggling, so clicking the selected one is a no-op instead of
+ * flipping it.
+ *
+ * @p action receives the option's value as data-value ("true"/"false").
+ */
+std::string renderLogicBooleanChoice(
+    const std::string& action, const std::string& arg, bool value, bool disabled);
+
+/**
  * Descriptor-driven read-only projection of every editable property in a block.
  * Composite animation asset/clip is intentionally left to the existing atomic
  * renderer; all scalar, Vec2 and reference types use this path.

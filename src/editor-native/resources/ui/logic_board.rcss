@@ -290,6 +290,36 @@
 .logic-key-result { min-width: 34dp; }
 .logic-key-empty {  font-size: 11dp; padding: 4dp; }
 .logic-btn.disabled, .logic-icon-btn.disabled { opacity: 0.42; }
+
+/* Boolean value control. It replaces a single button that printed only the
+   current value: with one label on screen there was nothing to say the state
+   could be changed at all, and the bespoke Set Visible copy did not even mark
+   itself active, so On and Off looked identical. Both options are now visible
+   inside one bordered group — a choice, not two independent buttons — and the
+   current one is selected. */
+.logic-toggle {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 1dp;
+
+    border-width: 1px;
+    border-radius: 3dp;
+}
+.logic-toggle-option {
+    box-sizing: border-box;
+    min-width: 38dp;
+    padding: 3dp 10dp;
+
+    background-color: transparent;
+    border-width: 0;
+    border-radius: 2dp;
+
+    font-size: 11dp;
+    text-align: center;
+    transition: background-color 0.1s, color 0.1s;
+}
+.logic-toggle-option.disabled { opacity: 0.42; }
 /* Sits inside .logic-col-footer now (padded by the footer itself), so no
    margin of its own is needed — unlike the old bare-child-of-.logic-rule
    placement this replaced. */

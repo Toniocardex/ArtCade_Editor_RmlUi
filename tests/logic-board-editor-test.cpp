@@ -815,6 +815,64 @@ static void testIsVisibleEventAndMoveBy() {
     CHECK(coordinator.stopPlaying().ok);
 }
 
+/**
+ * The boolean control renders both options and each one *sets* its value, so
+ * picking the option that is already current must be a no-op. The toggle it
+ * replaced flipped on every click, which under a two-option control would have
+ * meant clicking "On" while On turned the value Off.
+ */
+static void testBooleanPropertySetsRatherThanToggles() {
+    EditorCoordinator coordinator{makeProjectData()};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& initial =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(initial));
+    rule.actions[0] = {Logic::kSetVisible,
+                       {{"target", LogicEntityReference{}}, {"visible", true}}};
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
+    CHECK(coordinator.apply(OpenLogicBoardIntent{"Hero"}).ok);
+    LogicBoardEditorController controller{coordinator, nullptr};
+
+    const auto visibleNow = [&] {
+        const LogicBoardDef& board =
+            *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+        return std::get<bool>(
+            Logic::findProperty(board.rules[0].actions[0], "visible")->value);
+    };
+    const std::string actionArg = rule.id + "|0";
+
+    CHECK(visibleNow());
+    // Re-picking the current option leaves it alone...
+    CHECK(controller.handleAction("set-logic-visible", actionArg, "true", {}));
+    CHECK(visibleNow());
+    // ...and picking the other one sets it, from either direction.
+    CHECK(controller.handleAction("set-logic-visible", actionArg, "false", {}));
+    CHECK(!visibleNow());
+    CHECK(controller.handleAction("set-logic-visible", actionArg, "false", {}));
+    CHECK(!visibleNow());
+    CHECK(controller.handleAction("set-logic-visible", actionArg, "true", {}));
+    CHECK(visibleNow());
+    CHECK(coordinator.undo().ok);
+    CHECK(!visibleNow());
+
+    // Same contract on the descriptor-driven path: the Is Visible condition's
+    // `expected` flag goes through set-logic-property-bool.
+    CHECK(controller.handleAction(
+        "add-logic-condition-type", rule.id, Logic::kIsVisible, {}));
+    const std::string propertyArg = rule.id + "|c|0|expected";
+    const auto expectedNow = [&] {
+        const LogicBoardDef& board =
+            *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+        return std::get<bool>(
+            Logic::findProperty(board.rules[0].conditions[0].block, "expected")->value);
+    };
+    CHECK(expectedNow());
+    CHECK(controller.handleAction("set-logic-property-bool", propertyArg, "true", {}));
+    CHECK(expectedNow());
+    CHECK(controller.handleAction("set-logic-property-bool", propertyArg, "false", {}));
+    CHECK(!expectedNow());
+}
+
 static void testTopDownMovementViaLogicInput() {
     auto makeCoordinator = [](bool fourDirections) {
         ProjectDoc document = makeProjectData();
@@ -2170,6 +2228,7 @@ int main() {
     testIsGroundedEventRunsOnTick();
     testIsFallingEventTrueWhileDescendingFalseWhenGroundedOrRising();
     testIsVisibleEventAndMoveBy();
+    testBooleanPropertySetsRatherThanToggles();
     testTopDownMovementViaLogicInput();
     testFlipHorizontalProjectsToSceneView();
     testPlayRuntimeIsolation();

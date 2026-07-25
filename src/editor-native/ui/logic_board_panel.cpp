@@ -774,10 +774,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 if (const LogicPropertyDef* p = property(action, "visible"))
                     if (const auto* v = std::get_if<bool>(&p->value)) visible = *v;
                 html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Self · visible</span>"
-                        "<button class=\"logic-btn";
-                if (playing) html += " disabled";
-                html += "\" data-action=\"toggle-logic-visible\" data-arg=\"" + escapeRml(arg) + "\">"
-                     + std::string(visible ? "On" : "Off") + "</button></div>";
+                     + renderLogicBooleanChoice("set-logic-visible", arg, visible, playing)
+                     + "</div>";
             } else if (action.typeId == Logic::kSetPosition || action.typeId == Logic::kTranslateBy) {
                 Vec2 value{};
                 const char* propertyKey = action.typeId == Logic::kTranslateBy ? "offset" : "position";

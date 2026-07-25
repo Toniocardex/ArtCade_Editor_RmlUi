@@ -16,9 +16,12 @@ std::string specimen(const std::string& caption, const std::string& markup) {
          + "<div class=\"gallery-caption\">" + caption + "</div></div>";
 }
 
+// Wrapped, not two loose siblings: the sheet lays its sections out in columns,
+// and a title has to travel with the row it names.
 std::string section(const std::string& title, const std::string& cells) {
-    return "<div class=\"gallery-section-title\">" + title + "</div>"
-           "<div class=\"gallery-row\">" + cells + "</div>";
+    return "<div class=\"gallery-section\">"
+           "<div class=\"gallery-section-title\">" + title + "</div>"
+           "<div class=\"gallery-row\">" + cells + "</div></div>";
 }
 
 /** A flat colour chip, for the roles that are surfaces rather than controls. */
@@ -138,6 +141,32 @@ std::string componentGalleryMarkup() {
         + specimen("hover", "<input type=\"text\" class=\"prop-input\" data-force=\"hover\" value=\"256\"/>")
         + specimen("focus", "<input type=\"text\" class=\"prop-input\" data-force=\"focus\" value=\"256\"/>")
         + specimen("disabled", "<input type=\"text\" class=\"prop-input\" disabled=\"disabled\" value=\"256\"/>"));
+
+    // -- logic-value-input: the same field inside a rule card. It shipped for
+    //    a long time with no fill and no border, so a Position value read as
+    //    static text. Pinned so it cannot fall back to invisible. --
+    html += section("logic-value-input",
+        specimen("normal", "<input type=\"text\" class=\"logic-value-input\" value=\"64\"/>")
+        + specimen("hover", "<input type=\"text\" class=\"logic-value-input\" data-force=\"hover\" value=\"64\"/>")
+        + specimen("focus", "<input type=\"text\" class=\"logic-value-input\" data-force=\"focus\" value=\"64\"/>")
+        + specimen("disabled", "<input type=\"text\" class=\"logic-value-input\" disabled=\"disabled\" value=\"64\"/>"));
+
+    // -- logic-toggle: the boolean value control. Both options must stay
+    //    visible and the selected one must be distinguishable — the single
+    //    button it replaced printed one label and looked inert. --
+    html += section("logic-toggle",
+        specimen("on", "<div class=\"logic-toggle\">"
+                       "<button class=\"logic-toggle-option selected\">On</button>"
+                       "<button class=\"logic-toggle-option\">Off</button></div>")
+        + specimen("off", "<div class=\"logic-toggle\">"
+                          "<button class=\"logic-toggle-option\">On</button>"
+                          "<button class=\"logic-toggle-option selected\">Off</button></div>")
+        + specimen("hover", "<div class=\"logic-toggle\">"
+                            "<button class=\"logic-toggle-option selected\">On</button>"
+                            "<button class=\"logic-toggle-option\" data-force=\"hover\">Off</button></div>")
+        + specimen("disabled", "<div class=\"logic-toggle\">"
+                               "<button class=\"logic-toggle-option selected disabled\">On</button>"
+                               "<button class=\"logic-toggle-option disabled\">Off</button></div>"));
 
     html += "</div>";
     return html;

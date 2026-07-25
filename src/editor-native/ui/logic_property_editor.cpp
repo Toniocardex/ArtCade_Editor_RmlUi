@@ -80,7 +80,26 @@ bool keyMatchesSearch(const std::string& name, const std::string& query) {
     return normalized.find(needle) != std::string::npos;
 }
 
+std::string booleanOption(const char* label, const char* optionValue, bool selected,
+                          const std::string& action, const std::string& arg,
+                          bool disabled) {
+    std::string html = "<button class=\"logic-toggle-option";
+    if (selected) html += " selected";
+    if (disabled) html += " disabled";
+    html += "\" data-action=\"" + action + "\" data-arg=\"" + escapeRml(arg)
+          + "\" data-value=\"" + optionValue + "\">" + label + "</button>";
+    return html;
+}
+
 } // namespace
+
+std::string renderLogicBooleanChoice(
+    const std::string& action, const std::string& arg, bool value, bool disabled) {
+    return "<div class=\"logic-toggle\">"
+         + booleanOption("On", "true", value, action, arg, disabled)
+         + booleanOption("Off", "false", !value, action, arg, disabled)
+         + "</div>";
+}
 
 std::string encodeLogicPropertyAddress(
     const LogicPropertyAddress& address, const std::string& propertyKey) {
@@ -111,11 +130,8 @@ std::string renderLogicProperties(
         if (property.valueKind == Logic::LogicValueKind::Bool) {
             const bool value = current && std::get_if<bool>(&current->value)
                 ? std::get<bool>(current->value) : false;
-            html += "<button class=\"logic-btn";
-            if (value) html += " active";
-            if (playing) html += " disabled";
-            html += "\" data-action=\"toggle-logic-property\" data-arg=\""
-                  + escapeRml(encoded) + "\">" + (value ? "On" : "Off") + "</button>";
+            html += renderLogicBooleanChoice(
+                "set-logic-property-bool", encoded, value, playing);
         } else if (property.valueKind == Logic::LogicValueKind::Number
                    || property.valueKind == Logic::LogicValueKind::Integer) {
             double value = 0.0;

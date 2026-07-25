@@ -105,6 +105,11 @@
                     `.primary` is the accent CTA.
    .prop-input      Inspector field on surface-sunken; `:focus` shows
                     border-focus, `:disabled` uses surface-disabled.
+   .logic-toggle    Boolean value control: `.logic-toggle-option` per choice,
+                    `.selected` marks the current one. Both options stay on
+                    screen — a control that prints only its current value does
+                    not read as changeable. Selection is surface-selected, not
+                    accent: this is a value, not a call to action.
    .logic-value-input
                     The same field inside a Logic Board rule card (Position
                     X/Y, Volume, Speed, any Number property). Same roles and
@@ -276,6 +281,7 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 .drop-entry:hover,
 .layer-btn:hover,
 .layer-group-header:hover,
+.logic-toggle-option:hover,
 .menu-entry:hover,
 .menu-item:hover,
 .script-tab:hover,
@@ -359,6 +365,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .log.selected,
 .logic-key-capture.capturing,
 .logic-more-trigger.open,
+.logic-toggle-option.selected,
 .logic-variable-row button.logic-variable-value.active,
 .logic-variables-toggle.active,
 .logic-variables-toggle:hover,
@@ -412,6 +419,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-key-search input,
 .logic-key-search-cancel,
 .logic-key-search-toggle,
+.logic-toggle,
 .logic-value-input,
 .logic-variable-description,
 .logic-variable-row button.logic-variable-value,
@@ -651,6 +659,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-block,
 .logic-empty,
 .logic-rule,
+.logic-toggle,
 .logic-toolbar-search,
 .logic-value-input,
 .logic-value-input:disabled,
@@ -887,6 +896,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-muted,
 .logic-owner,
 .logic-rule-head:hover .logic-rule-caret,
+.logic-toggle-option,
 .logic-variables-toggle,
 .menu-entry,
 .menu-item,
@@ -983,6 +993,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-more-trigger.open,
 .logic-rule-title,
 .logic-title-prefix,
+.logic-toggle-option.selected,
+.logic-toggle-option:hover,
 .logic-variables-title,
 .logic-variables-toggle.active,
 .logic-variables-toggle:hover,
