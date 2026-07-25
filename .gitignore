@@ -13,6 +13,10 @@ _deps/
 Thumbs.db
 Desktop.ini
 
+# Python bytecode cache (e.g. vendor/artcade-runtime/tools)
+__pycache__/
+*.pyc
+
 # Local test capture noise
 script_test_out.txt
 *_test_out.txt
