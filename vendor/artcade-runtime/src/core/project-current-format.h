@@ -14,7 +14,7 @@ inline constexpr int kCurrentProjectFormatVersion = 10;
  * Validates the current JSON document contract before any parser consumes it.
  * @param root          decoded project.json root object.
  * @param error_message receives a user-facing rejection reason on failure.
- * @returns true only for a complete formatVersion 9 ProjectDoc document.
+ * @returns true only for a complete kCurrentProjectFormatVersion ProjectDoc document.
  */
 bool validate_current_project_json(const nlohmann::json &root, std::string &error_message);
 
