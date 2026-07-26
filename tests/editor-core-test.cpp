@@ -15,6 +15,7 @@
 #include "editor-native/app/asset_import.h"
 #include "editor-native/app/project_file.h"
 #include "editor-native/app/project_load.h"
+#include "editor-native/app/recent_projects_store.h"
 #include "editor-native/app/project_script_file_service.h"
 #include "editor-native/app/script_syntax_validator.h"
 #include "editor-native/app/script_asset_workflow.h"
@@ -6355,6 +6356,64 @@ int main() {
         CHECK(!oneWay.execute(AddLinearMoverCommand{"Hero"}).ok);
         CHECK(!oneWay.execute(AddTopDownControllerCommand{"Hero"}).ok);
         CHECK(!oneWay.execute(AddPlatformerControllerCommand{"Hero"}).ok);
+    }
+
+    // ========================================================================
+    // ADR-0030 — RecentProjectsStore (app-local MRU; no ProjectDocument)
+    // ========================================================================
+    {
+        RecentProjectsStore store;
+        store.touch(R"(C:\Games\Alpha\Alpha.artcade-project)", 100);
+        store.touch(R"(D:\Beta\Beta.artcade-project)", 200);
+        store.touch(R"(C:/Games/Alpha/Alpha.artcade-project)", 300); // dedupe + front
+        CHECK(store.entries().size() == 2);
+        CHECK(store.entries()[0].path == R"(C:/Games/Alpha/Alpha.artcade-project)");
+        CHECK(store.entries()[0].lastOpenedUtc == 300);
+        CHECK(store.entries()[0].displayName == "Alpha");
+        CHECK(store.entries()[1].displayName == "Beta");
+
+        for (int i = 0; i < 12; ++i) {
+            store.touch("P" + std::to_string(i) + ".artcade-project", 1000 + i);
+        }
+        CHECK(store.entries().size() == RecentProjectsStore::kMaxEntries);
+        CHECK(store.entries().front().path == "P11.artcade-project");
+        CHECK(store.entries().back().path == "P2.artcade-project");
+
+        store.remove("P11.artcade-project");
+        CHECK(store.entries().size() == RecentProjectsStore::kMaxEntries - 1);
+        CHECK(store.entries().front().path == "P10.artcade-project");
+        store.remove("missing.artcade-project"); // no-op
+        CHECK(store.entries().size() == RecentProjectsStore::kMaxEntries - 1);
+
+        const std::string json = store.toJson();
+        RecentProjectsStore roundtrip;
+        CHECK(roundtrip.fromJson(json));
+        CHECK(roundtrip.entries().size() == store.entries().size());
+        for (std::size_t i = 0; i < store.entries().size(); ++i) {
+            CHECK(roundtrip.entries()[i].path == store.entries()[i].path);
+            CHECK(roundtrip.entries()[i].displayName == store.entries()[i].displayName);
+            CHECK(roundtrip.entries()[i].lastOpenedUtc == store.entries()[i].lastOpenedUtc);
+        }
+
+        RecentProjectsStore bad;
+        CHECK(!bad.fromJson("{not-json"));
+        CHECK(bad.entries().empty());
+        CHECK(bad.fromJson(R"({"version":1,"projects":[{"path":""},{"nope":1},
+            {"path":"ok.artcade-project","displayName":"Ok","lastOpenedUtc":9}]})"));
+        CHECK(bad.entries().size() == 1);
+        CHECK(bad.entries()[0].path == "ok.artcade-project");
+        CHECK(bad.entries()[0].displayName == "Ok");
+        CHECK(bad.entries()[0].lastOpenedUtc == 9);
+
+        // Store mutations never touch ProjectDocument dirty/revision.
+        EditorCoordinator c{makeDoc()};
+        const auto rev = c.document().revision();
+        const bool dirty = c.document().isDirty();
+        RecentProjectsStore isolated;
+        isolated.touch("x.artcade-project", 1);
+        isolated.remove("x.artcade-project");
+        CHECK(c.document().revision() == rev);
+        CHECK(c.document().isDirty() == dirty);
     }
 
     return reportAndExit("editor-core-test");

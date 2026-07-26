@@ -4,6 +4,7 @@
 #include "editor-native/commands/domain_change.h"
 #include "editor-native/commands/editor_invalidation.h"
 #include "editor-native/app/pending_edit.h"
+#include "editor-native/app/recent_projects_store.h"
 #include "editor-native/app/shortcuts/editor_action.h"
 #include "editor-native/app/unsaved_guard.h"
 #include "editor-native/app/sfx_batch.h"
@@ -96,6 +97,14 @@ public:
                                 ProjectFileRequest save,
                                 ProjectFileRequest saveAs);
     void setExportWindowsHandler(ProjectFileRequest exportWindows);
+    // ADR-0030: recent-projects hub actions (presentation only).
+    using RecentProjectPathRequest = std::function<void(const std::filesystem::path&)>;
+    using RecentProjectsStoreQuery = std::function<const RecentProjectsStore*()>;
+    void setRecentProjectsHandlers(RecentProjectPathRequest openRecent,
+                                   RecentProjectPathRequest removeRecent,
+                                   RecentProjectsStoreQuery queryStore);
+    // Rebuild the empty-hub recent list when visible (after MRU touch/remove).
+    void refreshViewportEmptyHub();
     void setPlayHandlers(ProjectFileRequest playProject,
                          ProjectFileRequest playCurrentScene);
     // Import copies a file into the project via the canonical importAsset
@@ -382,6 +391,9 @@ private:
     ProjectFileRequest                  saveProjectRequest_;
     ProjectFileRequest                  saveProjectAsRequest_;
     ProjectFileRequest                  exportWindowsRequest_;
+    RecentProjectPathRequest            openRecentProjectRequest_;
+    RecentProjectPathRequest            removeRecentProjectRequest_;
+    RecentProjectsStoreQuery            recentProjectsQuery_;
     ProjectFileRequest                  playProjectRequest_;
     ProjectFileRequest                  playCurrentSceneRequest_;
     ImportAssetRequest                  importAssetRequest_;

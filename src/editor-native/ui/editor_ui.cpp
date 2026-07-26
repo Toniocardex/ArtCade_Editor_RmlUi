@@ -59,6 +59,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <chrono>
+#include <filesystem>
 #include <limits>
 #include <optional>
 #include <random>
@@ -828,6 +829,51 @@ void EditorUi::setProjectFileHandlers(ProjectFileRequest newProject,
 
 void EditorUi::setExportWindowsHandler(ProjectFileRequest exportWindows) {
     exportWindowsRequest_ = std::move(exportWindows);
+}
+
+void EditorUi::setRecentProjectsHandlers(RecentProjectPathRequest openRecent,
+                                         RecentProjectPathRequest removeRecent,
+                                         RecentProjectsStoreQuery queryStore) {
+    openRecentProjectRequest_ = std::move(openRecent);
+    removeRecentProjectRequest_ = std::move(removeRecent);
+    recentProjectsQuery_ = std::move(queryStore);
+}
+
+void EditorUi::refreshViewportEmptyHub() {
+    if (!document_) return;
+    Rml::Element* list = document_->GetElementById("viewport-recent-list");
+    if (!list) return;
+
+    const RecentProjectsStore* store =
+        recentProjectsQuery_ ? recentProjectsQuery_() : nullptr;
+    if (!store || store->entries().empty()) {
+        list->SetInnerRML(
+            "<div class=\"viewport-recent-empty\"><span>No recent projects</span></div>");
+        return;
+    }
+
+    std::string html;
+    for (const RecentProjectEntry& entry : store->entries()) {
+        std::error_code ec;
+        const bool missing = !std::filesystem::exists(entry.path, ec) || static_cast<bool>(ec);
+        html += "<div class=\"viewport-recent-row\" data-action=\"open-recent-project\" data-arg=\"";
+        html += escapeRml(entry.path);
+        html += "\" title=\"";
+        html += escapeRml(entry.path);
+        html += "\"><div class=\"viewport-recent-main\"><span class=\"viewport-recent-name\">";
+        html += escapeRml(entry.displayName);
+        if (missing) {
+            html += "<span class=\"viewport-recent-missing\"> missing</span>";
+        }
+        html += "</span><span class=\"viewport-recent-path\">";
+        html += escapeRml(entry.path);
+        html += "</span></div>"
+                "<button class=\"viewport-recent-remove\" data-action=\"remove-recent-project\" "
+                "data-arg=\"";
+        html += escapeRml(entry.path);
+        html += "\" title=\"Remove from recent\"><span>×</span></button></div>";
+    }
+    list->SetInnerRML(html);
 }
 
 void EditorUi::setPlayHandlers(ProjectFileRequest playProject,
@@ -2355,7 +2401,9 @@ void EditorUi::refreshToolbar() {
 
     // Central Scene View empty state: shown only when no scene exists to edit.
     if (Rml::Element* empty = document_->GetElementById("viewport-empty")) {
-        empty->SetClass("hidden", hasScene || playing || !sceneWorkspace);
+        const bool showEmpty = !hasScene && !playing && sceneWorkspace;
+        empty->SetClass("hidden", !showEmpty);
+        if (showEmpty) refreshViewportEmptyHub();
     }
 
     const EditorSceneViewState& view = coordinator_.sceneView(currentViewSceneId());
@@ -3847,13 +3895,18 @@ bool EditorUi::handleConsoleAction(const std::string& action, const std::string&
 
 bool EditorUi::handleProjectFileAction(const std::string& action, const std::string& arg,
                                        const std::string& value) {
-    (void)arg;
     if (action == "commit-project-name") {
         if (!value.empty()) coordinator_.execute(RenameProjectCommand{value});
     } else if (action == "new-project") {
         if (newProjectRequest_) newProjectRequest_();
     } else if (action == "open-project") {
         if (openProjectRequest_) openProjectRequest_();
+    } else if (action == "open-recent-project") {
+        if (openRecentProjectRequest_ && !arg.empty())
+            openRecentProjectRequest_(std::filesystem::path{arg});
+    } else if (action == "remove-recent-project") {
+        if (removeRecentProjectRequest_ && !arg.empty())
+            removeRecentProjectRequest_(std::filesystem::path{arg});
     } else if (action == "save-project") {
         if (saveProjectRequest_) saveProjectRequest_();
     } else if (action == "save-project-as") {

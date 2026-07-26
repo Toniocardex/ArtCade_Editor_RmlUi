@@ -6,6 +6,7 @@
 #include "editor-native/app/project_file.h"
 #include "editor-native/app/project_load.h"
 #include "editor-native/app/project_script_file_service.h"
+#include "editor-native/app/recent_projects_persistence.h"
 #include "editor-native/app/script_asset_workflow.h"
 #include "editor-native/app/script_syntax_validator.h"
 #include "editor-native/app/unsaved_guard.h"
@@ -16,6 +17,7 @@
 #include <raylib.h>
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <iterator>
 #include <optional>
@@ -47,6 +49,19 @@ std::filesystem::path suggestedProjectSavePath(const ProjectDoc& doc) {
     }
     if (stem.empty()) stem = "Untitled";
     return std::filesystem::path(stem + ".artcade-project");
+}
+
+std::int64_t utcNowSeconds() {
+    return std::chrono::duration_cast<std::chrono::seconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
+
+std::filesystem::path normalizeRecentPath(std::filesystem::path path) {
+    std::error_code ec;
+    std::filesystem::path absolute = std::filesystem::absolute(path, ec);
+    if (!ec) path = std::move(absolute);
+    return path.lexically_normal();
 }
 
 bool copyConfinedProjectTree(const std::filesystem::path& previousRoot,
@@ -149,6 +164,44 @@ void ProjectSessionController::bindUi() {
         [this]() { return importAssetOfKind(AssetKind::Image); });
 }
 
+void ProjectSessionController::setRecentProjectsStore(RecentProjectsStore* store) {
+    recentProjects_ = store;
+}
+
+void ProjectSessionController::setRecentProjectsChangedHandler(
+    std::function<void()> onChanged) {
+    recentProjectsChanged_ = std::move(onChanged);
+}
+
+void ProjectSessionController::persistRecentProjectsBestEffort() {
+    if (!recentProjects_) return;
+    const RecentProjectsPersistResult saved = saveRecentProjects(*recentProjects_);
+    if (!saved.ok) {
+        coordinator_.logWarning(
+            "Could not save recent projects list"
+            + (saved.message.empty() ? std::string{} : (": " + saved.message)));
+    }
+}
+
+void ProjectSessionController::touchRecentProject(const std::filesystem::path& path) {
+    if (!recentProjects_ || path.empty()) return;
+    const std::filesystem::path normalized = normalizeRecentPath(path);
+    recentProjects_->touch(normalized.string(), utcNowSeconds());
+    persistRecentProjectsBestEffort();
+    if (recentProjectsChanged_) recentProjectsChanged_();
+}
+
+void ProjectSessionController::noteSuccessfulProjectPath(const std::filesystem::path& path) {
+    touchRecentProject(path);
+}
+
+void ProjectSessionController::removeRecentProject(const std::filesystem::path& path) {
+    if (!recentProjects_ || path.empty()) return;
+    recentProjects_->remove(path.string());
+    persistRecentProjectsBestEffort();
+    if (recentProjectsChanged_) recentProjectsChanged_();
+}
+
 std::filesystem::path ProjectSessionController::assetRoot(
     const std::filesystem::path& fallback) const {
     return currentProjectPath_.empty() ? fallback : currentProjectPath_.parent_path();
@@ -219,6 +272,7 @@ bool ProjectSessionController::saveTo(const std::filesystem::path& path) {
     if (currentProjectPath_ != destination) setCurrentProjectPath(destination);
     else refreshWindowTitle();
     coordinator_.logInfo("Saved " + destination.string());
+    touchRecentProject(destination);
     return true;
 }
 
@@ -291,7 +345,20 @@ void ProjectSessionController::requestNewProject() {
         textureCache_.clear();
         setCurrentProjectPath(created.destination);
         coordinator_.logInfo("New project");
+        touchRecentProject(created.destination);
     });
+}
+
+void ProjectSessionController::openProjectPathGuarded(const std::filesystem::path& path) {
+    const ProjectLoadResult result = loadProjectFromFile(coordinator_, path);
+    if (!result.ok) {
+        coordinator_.logError("Open failed: " + result.error.message);
+        return;
+    }
+    textureCache_.clear();
+    setCurrentProjectPath(path);
+    coordinator_.logInfo("Opened " + path.filename().string());
+    touchRecentProject(path);
 }
 
 void ProjectSessionController::requestOpenProject() {
@@ -303,14 +370,25 @@ void ProjectSessionController::requestOpenProject() {
         if (!proceed) return;
         const std::optional<std::filesystem::path> picked = openProjectFileDialog();
         if (!picked) return;
-        const ProjectLoadResult result = loadProjectFromFile(coordinator_, *picked);
-        if (!result.ok) {
-            coordinator_.logError("Open failed: " + result.error.message);
-            return;
-        }
-        textureCache_.clear();
-        setCurrentProjectPath(*picked);
-        coordinator_.logInfo("Opened " + picked->filename().string());
+        openProjectPathGuarded(*picked);
+    });
+}
+
+void ProjectSessionController::requestOpenProjectAt(const std::filesystem::path& path) {
+    if (path.empty()) return;
+    if (coordinator_.isPlaying()) {
+        coordinator_.logWarning("Stop Play before opening another project");
+        return;
+    }
+    const std::filesystem::path normalized = normalizeRecentPath(path);
+    std::error_code ec;
+    if (!std::filesystem::exists(normalized, ec) || ec) {
+        coordinator_.logError("Recent project not found: " + normalized.string());
+        return;
+    }
+    resolveUnsavedChanges([this, normalized](bool proceed) {
+        if (!proceed) return;
+        openProjectPathGuarded(normalized);
     });
 }
 

@@ -292,6 +292,8 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 .tile-palette-dock-rail-sep,
 .tool-btn:hover,
 .toolbar-zoom:hover,
+.viewport-recent-remove:hover,
+.viewport-recent-row:hover,
 textarea#script-editor-textarea scrollbarvertical sliderbar {
     background-color: #27272a;
 }
@@ -336,7 +338,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .sw-raised,
 .tile-palette-empty,
 .tool-btn,
-.tree-row:hover {
+.tree-row:hover,
+.viewport-recent-row {
     background-color: #1f1f23;
 }
 
@@ -602,6 +605,12 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
     border-color: #3f3f46;
 }
 
+/* viewport-recent-row hover outline */
+.viewport-empty-btn-secondary:hover,
+.viewport-recent-row:hover {
+    border-color: #3f3f46;
+}
+
 /* border-strong */
 .sfx-editor-browser {
     border-right-color: #3f3f46;
@@ -633,7 +642,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .shortcut-row,
 .shortcuts-tabs,
 .shortcuts-toolbar,
-.tile-palette-dock-header {
+.tile-palette-dock-header,
+.viewport-recent-header {
     border-bottom-color: #27272a;
 }
 
@@ -680,7 +690,9 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .tile-palette-empty,
 .tile-palette-sheet,
 .tool-btn,
-.tool-btn.disabled {
+.tool-btn.disabled,
+.viewport-empty-btn-secondary,
+.viewport-recent-row {
     border-color: #27272a;
 }
 
@@ -948,7 +960,10 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .tree-row:hover .row-override-indicator,
 .tree-row:hover .row-shared-type,
 .tx-secondary,
-.viewport-empty-sub {
+.viewport-empty-btn-secondary,
+.viewport-empty-sub,
+.viewport-recent-empty,
+.viewport-recent-path {
     color: #a1a1aa;
 }
 
@@ -1005,6 +1020,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-variables-toggle:hover,
 .menu-entry.active,
 .panel-btn:hover,
+.viewport-empty-btn-secondary:hover,
 .row-name-input,
 .script-api-detail-name,
 .script-api-insert-btn,
@@ -1046,7 +1062,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .tile-palette-dock-collapse-btn:hover .icon,
 .tree-row.selected .row-name,
 .tree-row:hover .row-name,
-.tx-strong {
+.tx-strong,
+.viewport-recent-name {
     color: #f4f4f5;
 }
 
@@ -1097,6 +1114,9 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .menu-section,
 .prop-meta-value,
 .row-menu,
+.viewport-recent-header,
+.viewport-recent-missing,
+.viewport-recent-remove,
 .script-api-detail-label,
 .script-attachment-action.disabled,
 .script-editor-empty,
@@ -1318,7 +1338,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .sfx-browser-status.stale,
 .sfx-status.stale,
 .status-health.warning,
-.tx-warning {
+.tx-warning,
+.viewport-recent-missing {
     color: #d8b44a;
 }
 

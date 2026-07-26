@@ -227,7 +227,7 @@
 }
 
 /* Scene View empty state — centred guidance instead of a bare corner note.
-   Sits over the transparent viewport (raylib backdrop behind). */
+   Sits over the transparent viewport (raylib backdrop behind). ADR-0030 hub. */
 .viewport-empty {
     position: absolute;
     top: 0;
@@ -238,33 +238,119 @@
     align-items: center;
     justify-content: center;
 }
-.viewport-empty-box { display: block; text-align: center; }
+.viewport-empty-box {
+    display: block;
+    text-align: center;
+    max-width: 480dp;
+    width: 90%;
+}
 .viewport-empty-title {
     display: block;
     font-size: 17dp;
     font-weight: 600;
-
     margin-bottom: 7dp;
 }
 .viewport-empty-sub {
     display: block;
     font-size: 12dp;
-
     margin-bottom: 18dp;
 }
-.viewport-empty-btn {
-    display: inline-block;
+.viewport-empty-actions {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    gap: 10dp;
+    margin-bottom: 22dp;
+}
+.viewport-empty-btn,
+.viewport-empty-btn-secondary {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 6dp;
     height: 32dp;
     line-height: 32dp;
-    padding: 0 20dp;
-
+    padding: 0 16dp;
     border-width: 1px;
     border-radius: 2dp;
-
     font-size: 13dp;
     font-weight: 600;
     white-space: nowrap;
     transition: background-color 0.1s, border-color 0.1s;
+}
+.viewport-recent {
+    display: block;
+    text-align: left;
+    width: 100%;
+}
+.viewport-recent-header {
+    display: block;
+    font-size: 10dp;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding-bottom: 6dp;
+    margin-bottom: 6dp;
+    border-bottom-width: 1px;
+}
+.viewport-recent-list {
+    display: block;
+    max-height: 220dp;
+    overflow-y: auto;
+}
+.viewport-recent-empty {
+    display: block;
+    font-size: 11dp;
+    padding: 8dp 2dp;
+}
+.viewport-recent-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8dp;
+    padding: 8dp 8dp;
+    margin-bottom: 2dp;
+    border-width: 1px;
+    border-radius: 2dp;
+}
+.viewport-recent-main {
+    display: block;
+    flex: 1;
+    min-width: 0;
+}
+.viewport-recent-name {
+    display: block;
+    font-size: 13dp;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow-x: hidden;
+}
+.viewport-recent-path {
+    display: block;
+    font-size: 11dp;
+    margin-top: 2dp;
+    white-space: nowrap;
+    overflow-x: hidden;
+}
+.viewport-recent-missing {
+    display: inline-block;
+    font-size: 10dp;
+    font-weight: 600;
+    margin-left: 6dp;
+}
+.viewport-recent-remove {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 24dp;
+    height: 24dp;
+    flex-shrink: 0;
+    border-width: 0;
+    border-radius: 2dp;
+    font-size: 14dp;
 }
 
 /* Console error/warning tally in the header: reads the log's health without

@@ -22,6 +22,8 @@
 #include "editor-native/app/new_project_transaction.h"
 #include "editor-native/app/project_file.h"
 #include "editor-native/app/project_session_controller.h"
+#include "editor-native/app/recent_projects_persistence.h"
+#include "editor-native/app/recent_projects_store.h"
 #include "editor-native/app/rml_host.h"
 #include "editor-native/app/scene_view_interaction.h"
 #include "editor-native/app/shortcuts/editor_action_catalog.h"
@@ -399,7 +401,25 @@ int EditorApp::run(int argc, char** argv) {
     std::optional<Vec2> pendingContextSpawn;
 
     ProjectSessionController projectSession{coordinator, ui, textureCache};
+    RecentProjectsStore recentProjects;
+    {
+        const RecentProjectsPersistResult loaded = loadRecentProjects(recentProjects);
+        if (!loaded.ok && !loaded.message.empty()) {
+            coordinator.logWarning("Recent projects: " + loaded.message);
+        }
+    }
+    projectSession.setRecentProjectsStore(&recentProjects);
+    projectSession.setRecentProjectsChangedHandler(
+        [&ui]() { ui.refreshViewportEmptyHub(); });
     projectSession.bindUi();
+    ui.setRecentProjectsHandlers(
+        [&projectSession](const std::filesystem::path& path) {
+            projectSession.requestOpenProjectAt(path);
+        },
+        [&projectSession](const std::filesystem::path& path) {
+            projectSession.removeRecentProject(path);
+        },
+        [&recentProjects]() -> const RecentProjectsStore* { return &recentProjects; });
     projectSession.setExportTemplatesRoot(editorResourceRoot() / "export-templates");
     ui.setExportTemplatesRoot(editorResourceRoot() / "export-templates");
 
@@ -1022,6 +1042,7 @@ int EditorApp::run(int argc, char** argv) {
         } else {
             textureCache.clear();
             projectSession.setCurrentProjectPath(projectPath);
+            projectSession.noteSuccessfulProjectPath(projectPath);
             if (shotAnimation) {
                 const auto& animations = coordinator.document().data().spriteAnimationAssets;
                 if (!animations.empty()) {
