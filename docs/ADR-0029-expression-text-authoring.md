@@ -157,12 +157,26 @@ is not mistaken for the state of the world:
 | `Code` style, parser, round-trip test, completion vocabulary | Done (`ea062e8`) |
 | The value field as the editor: typing, completions, inline errors | Done (`2cf5770`) — **on `entity.set_position.position` only** |
 | Modal, node tree, palette, Apply/Cancel draft removed | Done (`cb607e3`) |
-| The other 12 parameters in the policy table | **Not started** |
+| The other 13 parameters in the policy table | **Not started** |
 | Logic Board schema 5, project format 12 | **Not started** |
 
 Every parameter except Set Position still renders the plain numeric field. That
 is correct behaviour for `LiteralOnly`, so nothing is broken — but the table
 above describes an intent for those rows, not shipped behaviour.
+
+The 13 split into two kinds of work. Four are Vec2 — `translate_by.offset`,
+`set_scale.scale`, `spawn.position`, `set_velocity.velocity` — which already
+store `LogicVec2Value` structurally, so they need only the policy flipped and
+codegen taught to compile a non-literal instead of skipping it. Nine are
+scalars — `set_rotation.degrees`, `rotate_by.degrees`, `state.set.value`,
+`state.add.amount`, `state.subtract.amount`, `state.compare.value`,
+`wait.seconds`, `set_playback_speed.speed`, `play_sound.volume` — which store
+`NumberExpression` since slice 4, and additionally need the editor's Number
+field to accept text the way Set Position's does.
+
+Three of the nine carry a static range check (volume, playback speed, and the
+excluded timer interval); the rule for those is in the section above and is the
+only part of the remainder that is a decision rather than a repetition.
 
 The remaining work is one indivisible migration, not a flag: `LogicValue` has a
 `double` arm and no `NumberExpression` arm, so scalar properties are
