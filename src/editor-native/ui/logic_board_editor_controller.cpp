@@ -235,6 +235,11 @@ bool LogicBoardEditorController::handleAction(
     }
     if (action == "commit-logic-expression") {
         if (coordinator_.isPlaying()) return true;
+        // A blur emitted while the panel is rebuilding is the rebuild
+        // destroying the field, not the author leaving it. Committing there
+        // clears the focus state the rebuild is rendering — the completion
+        // list would open and immediately cancel itself.
+        if (panel_.isRebuilding()) return true;
         commitExpressionField(arg, value);
         return true;
     }

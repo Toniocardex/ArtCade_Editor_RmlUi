@@ -307,12 +307,25 @@ public:
         // narrows the completion list.
         if (action == "edit-logic-expression") {
             if (type == "focus") {
-                ui_.handleAction("focus-logic-expression", arg, {});
+                // Deferred to processFrame, never handled inline: opening the
+                // completion list rebuilds the panel, and `Element::Focus()`
+                // keeps using `this` after `Context::OnFocusChange` returns
+                // (it clears the focus chain and walks the parents). Rebuilding
+                // the DOM inside the dispatch frees the element underneath it —
+                // an access violation, not a repaint glitch. RmlUi guards the
+                // dispatch loop itself with observer pointers; it does not
+                // guard the caller.
+                ui_.pendingExpressionFocus_ = arg;
                 return;
             }
             if (type == "change") {
-                ui_.handleAction("draft-logic-expression", arg,
-                                 formValue(actionElement, event));
+                // Deferred for the same reason as focus above: narrowing the
+                // list rebuilds the panel, and the element being rebuilt is the
+                // one RmlUi's text widget is still inside. Collapsing several
+                // changes in one frame to the last value is correct — the field
+                // holds the latest text either way.
+                ui_.pendingExpressionDraft_ =
+                    std::pair<std::string, std::string>{arg, formValue(actionElement, event)};
                 return;
             }
             if (type == "blur") {
@@ -629,6 +642,19 @@ void EditorUi::detach() {
 
 void EditorUi::processFrame() {
     if (!listener_ || !document_) return;
+    // ADR-0029: the expression field's focus, moved out of RmlUi's focus
+    // dispatch (see the listener). Runs before the invalidation sweep so the
+    // completion list is part of this frame's paint, not the next one.
+    if (pendingExpressionFocus_) {
+        const std::string address = *pendingExpressionFocus_;
+        pendingExpressionFocus_.reset();
+        handleAction("focus-logic-expression", address, {});
+    }
+    if (pendingExpressionDraft_) {
+        const auto [address, text] = *pendingExpressionDraft_;
+        pendingExpressionDraft_.reset();
+        handleAction("draft-logic-expression", address, text);
+    }
     scriptEditor_.processFrame();
     applyInvalidations(coordinator_.consumeInvalidations());
     if (generatedSfxRefreshPending_) {

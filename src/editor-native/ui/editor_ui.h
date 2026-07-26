@@ -442,6 +442,14 @@ private:
         int           y = 0;
     };
     std::optional<PendingAssetMenu>     pendingAssetMenu_;
+    // ADR-0029: address of the expression field that just took focus, applied
+    // on the next processFrame. Opening the completion list rebuilds the Logic
+    // Board markup, which frees the very element RmlUi is still using to finish
+    // Element::Focus() — so the focus event records the intent and returns.
+    std::optional<std::string>          pendingExpressionFocus_;
+    // Same deferral for the typed draft (address, text): narrowing the list
+    // rebuilds the panel from inside RmlUi's text-widget event handling.
+    std::optional<std::pair<std::string, std::string>> pendingExpressionDraft_;
     bool                                logicTypeMenuVisible_ = false;
     bool                                logicMoreMenuVisible_ = false;
     struct PendingEditorConfirm {

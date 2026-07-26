@@ -79,6 +79,15 @@ public:
         expressionDraftText_.clear();
         expressionErrorMessage_.clear();
     }
+    /**
+     * True while the panel is replacing its own markup. RmlUi blurs the
+     * element it is about to destroy, so a rebuild that happens to contain the
+     * focused expression field emits a blur that looks exactly like the author
+     * moving away from it. Committing on that blur clears the field state the
+     * rebuild was rendering, which cancels the very completion list the focus
+     * had just opened. Callers acting on blur must ignore it while this holds.
+     */
+    bool isRebuilding() const { return rebuilding_; }
     const std::string& expressionFocusAddress() const { return expressionFocusAddress_; }
     const std::string& expressionDraftText() const { return expressionDraftText_; }
     const std::string& expressionErrorMessage() const { return expressionErrorMessage_; }
@@ -162,6 +171,16 @@ private:
     mutable std::string expressionFocusAddress_;
     mutable std::string expressionDraftText_;
     mutable std::string expressionErrorMessage_;
+    // Set when a rebuild replaced the focused expression field; consumed by
+    // restoreAfterLayout(). Re-focusing inside render() does not survive:
+    // Context::Update() afterwards processes the removal of the element that
+    // held focus and hands it to the surviving ancestor, undoing the call.
+    mutable bool expressionFocusRestorePending_ = false;
+    // True only while SetInnerRML is replacing the panel's markup. Destroying
+    // the focused element makes RmlUi emit a blur for it, which is
+    // indistinguishable at the router from the author leaving the field — see
+    // isRebuilding().
+    mutable bool rebuilding_ = false;
     mutable bool variablesDrawerOpen_ = false;
     mutable std::optional<LogicBoardTab> lastTab_;
     mutable LogicRuleId pendingRevealRuleId_;

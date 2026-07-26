@@ -174,8 +174,11 @@ FetchContent_Declare(rmlui
     GIT_SHALLOW    TRUE)
 FetchContent_MakeAvailable(rmlui)
 
+# The UI layer minus main.cpp, so a test can link the real EditorUi listener:
+# the event router lives in editor_ui.cpp, and an executable cannot be linked
+# into a test. Only the entry point is excluded; everything else is shared,
+# compiled once as an object library.
 set(ARTCADE_EDITOR_NATIVE_SOURCES
-    editor-native/app/main.cpp
     editor-native/app/editor_app.cpp
     editor-native/app/generated_sfx_generation_preflight.cpp
     editor-native/app/generated_sfx_generation_service.cpp
@@ -228,8 +231,31 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/ui/console_panel.cpp
     editor-native/ui/assets_panel.cpp
 )
+add_library(artcade-editor-ui OBJECT
+    ${ARTCADE_EDITOR_NATIVE_SOURCES}
+)
+target_include_directories(artcade-editor-ui PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${ARTCADE_RUNTIME_DIR}/src
+    ${rmlui_SOURCE_DIR}/Backends
+)
+target_compile_definitions(artcade-editor-ui PUBLIC
+    RMLUI_GL3_CUSTOM_LOADER="external/glad.h"
+)
+target_link_libraries(artcade-editor-ui PUBLIC
+    artcade-editor-core
+    ArtCade::SfxRaylib
+    raylib
+    RmlUi::Core
+    RmlUi::Debugger
+)
 if(WIN32)
-    list(APPEND ARTCADE_EDITOR_NATIVE_SOURCES editor-native/artcade_editor_native.rc)
+    target_link_libraries(artcade-editor-ui PUBLIC comdlg32 ole32 shell32)
+endif()
+
+set(ARTCADE_EDITOR_NATIVE_ENTRY editor-native/app/main.cpp)
+if(WIN32)
+    list(APPEND ARTCADE_EDITOR_NATIVE_ENTRY editor-native/artcade_editor_native.rc)
     # The Windows resource compiler does not reliably report the icon file as a
     # dependency, so track it explicitly. This makes icon-only updates rebuild
     # the executable instead of merely copying the runtime PNG resource.
@@ -238,7 +264,7 @@ if(WIN32)
 endif()
 
 add_executable(artcade-editor-native
-    ${ARTCADE_EDITOR_NATIVE_SOURCES}
+    ${ARTCADE_EDITOR_NATIVE_ENTRY}
 )
 if(WIN32)
     set_target_properties(artcade-editor-native PROPERTIES
@@ -247,24 +273,7 @@ if(WIN32)
         target_link_options(artcade-editor-native PRIVATE /ENTRY:mainCRTStartup)
     endif()
 endif()
-target_include_directories(artcade-editor-native PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${ARTCADE_RUNTIME_DIR}/src
-    ${rmlui_SOURCE_DIR}/Backends
-)
-target_compile_definitions(artcade-editor-native PRIVATE
-    RMLUI_GL3_CUSTOM_LOADER="external/glad.h"
-)
-target_link_libraries(artcade-editor-native PRIVATE
-    artcade-editor-core
-    ArtCade::SfxRaylib
-    raylib
-    RmlUi::Core
-    RmlUi::Debugger
-)
-if(WIN32)
-    target_link_libraries(artcade-editor-native PRIVATE comdlg32 ole32 shell32)
-endif()
+target_link_libraries(artcade-editor-native PRIVATE artcade-editor-ui)
 
 file(GLOB_RECURSE ARTCADE_EDITOR_RESOURCE_FILES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/editor-native/resources/*)

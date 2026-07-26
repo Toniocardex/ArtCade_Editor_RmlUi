@@ -114,6 +114,13 @@ if "!DO_TEST!"=="1" (
     if errorlevel 1 ( popd >nul & echo [FAIL] Logic Board test build failed. & exit /b 1 )
     "!BUILD_DIR!\tests\logic_board_editor_test.exe"
     if errorlevel 1 ( popd >nul & echo [FAIL] logic_board_editor_test failed. & exit /b 1 )
+    rem ADR-0029: drives a real RmlUi focus event through EditorUi's listener,
+    rem so it links the editor UI objects rather than editor-core alone.
+    echo [editor] Building + running logic_expression_focus_routing_test...
+    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target logic_expression_focus_routing_test
+    if errorlevel 1 ( popd >nul & echo [FAIL] Expression focus test build failed. & exit /b 1 )
+    "!BUILD_DIR!\tests\logic_expression_focus_routing_test.exe"
+    if errorlevel 1 ( popd >nul & echo [FAIL] logic_expression_focus_routing_test failed. & exit /b 1 )
 )
 popd >nul
 

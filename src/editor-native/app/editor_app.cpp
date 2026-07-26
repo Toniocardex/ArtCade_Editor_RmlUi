@@ -110,6 +110,23 @@ namespace ArtCade::EditorNative {
 
 namespace {
 
+// Screenshot harness only: the elements carrying an attribute value, so a
+// capture can drive a control the way the user does (focus it) instead of
+// invoking the action it would have emitted.
+std::vector<Rml::Element*> findElementsByAttribute(
+    Rml::Element* root, const char* attribute, const std::string& value) {
+    std::vector<Rml::Element*> found;
+    if (!root) return found;
+    if (root->GetAttribute<Rml::String>(attribute, Rml::String()) == value)
+        found.push_back(root);
+    for (int i = 0; i < root->GetNumChildren(); ++i) {
+        std::vector<Rml::Element*> child =
+            findElementsByAttribute(root->GetChild(i), attribute, value);
+        found.insert(found.end(), child.begin(), child.end());
+    }
+    return found;
+}
+
 // Padding (px) kept clear on every edge when a scene is fit to the viewport.
 // Shared by the Scene Inspector's Fit View action and Play's own from-
 // scratch camera (see fitActiveScene and the playSession render branch
@@ -1246,13 +1263,28 @@ int EditorApp::run(int argc, char** argv) {
         // ADR-0029: focus an expression field so the in-flow completion list is
         // in the capture. Hover and focus states are otherwise invisible to the
         // headless harness, and this list is the whole discovery surface.
+        // Focus the element rather than calling the action: dispatching
+        // `focus-logic-expression` by hand skips the router, which is exactly
+        // where the list stopped being reachable — a harness that shortcuts the
+        // event photographs a state the application could not produce.
         if (!shotExpression.empty()) {
             ui.processFrame();
-            ui.handleAction("focus-logic-expression", shotExpression, "");
+            host.context()->Update();
+            ui.restoreAfterRmlLayout();
+            for (Rml::Element* field :
+                 findElementsByAttribute(host.document(), "data-arg", shotExpression)) {
+                if (field->GetAttribute<Rml::String>("data-action", Rml::String())
+                    != "edit-logic-expression") continue;
+                field->Focus();
+                break;
+            }
+            ui.processFrame();
+            host.context()->Update();
+            ui.restoreAfterRmlLayout();
             if (!shotExpressionText.empty()) {
+                host.context()->ProcessKeyDown(Rml::Input::KI_A, Rml::Input::KM_CTRL);
+                host.context()->ProcessTextInput(Rml::String(shotExpressionText));
                 ui.processFrame();
-                ui.handleAction("draft-logic-expression", shotExpression,
-                                shotExpressionText);
             }
         }
     }

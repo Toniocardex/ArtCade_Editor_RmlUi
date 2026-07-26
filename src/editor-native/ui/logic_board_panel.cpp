@@ -459,7 +459,12 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     html += "</div>"; // .logic-head
     if (variablesDrawerOpen_) html += variablesDrawer(coordinator, playing, openDropdownId_);
     const auto render = [&]() {
+        // Destroying the focused field makes RmlUi blur it synchronously; the
+        // flag is what tells the blur handler this is our own rebuild and not
+        // the author leaving the field (see isRebuilding()).
+        rebuilding_ = true;
         root->SetInnerRML(html);
+        rebuilding_ = false;
         // See restoreAfterLayout(): the new scroll container only has a valid
         // range after the application's single Context::Update() this frame.
         scrollRestorePending_ = true;
@@ -467,15 +472,13 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             if (Rml::Element* input = document->GetElementById("logic-key-search-input"))
                 input->Focus(true);
         }
-        // ADR-0029: same reason as the line above. Focusing an expression field
-        // calls refresh(), and SetInnerRML destroys the very element that holds
-        // the caret — so without this the field comes back empty and unfocused
-        // and its completion list renders for an element the user is no longer
-        // in. The id exists on the focused field only.
-        if (!expressionFocusAddress_.empty()) {
-            if (Rml::Element* input = document->GetElementById("logic-expression-input"))
-                input->Focus(true);
-        }
+        // ADR-0029: focusing an expression field rebuilds the panel, and
+        // SetInnerRML destroys the very element that holds the caret. Restoring
+        // it here does not stick — the Context::Update() that follows processes
+        // the old element's removal and moves focus to the surviving ancestor,
+        // so the field would come back visible but dead to typing. The restore
+        // is deferred to restoreAfterLayout(), which runs after that update.
+        expressionFocusRestorePending_ = !expressionFocusAddress_.empty();
         syncResponsiveClass(document);
     };
 
@@ -977,6 +980,14 @@ void LogicBoardPanel::restoreAfterLayout(Rml::ElementDocument* document,
         if (Rml::Element* scroll = document->GetElementById("logic-scroll"))
             scroll->SetScrollTop(scrollTop_);
         scrollRestorePending_ = false;
+    }
+
+    // ADR-0029: put the caret back in the expression field the author is in.
+    // The id exists on the focused field only, so this can only ever target it.
+    if (expressionFocusRestorePending_) {
+        expressionFocusRestorePending_ = false;
+        if (Rml::Element* input = document->GetElementById("logic-expression-input"))
+            input->Focus(true);
     }
 
     if (pendingRevealRuleId_.empty()) return;

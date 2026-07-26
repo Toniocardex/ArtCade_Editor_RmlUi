@@ -86,6 +86,18 @@ if(MSVC)
     target_link_options(logic_board_editor_test PRIVATE /STACK:16777216)
 endif()
 
+# ADR-0029: the expression field's focus path, exercised through the real
+# RmlUi listener. Links the editor UI object library because the router under
+# test lives in editor_ui.cpp — a handleAction() call cannot reach it.
+artcade_test(logic_expression_focus_routing_test
+    logic-expression-focus-routing-test.cpp
+    artcade-editor-ui)
+target_compile_definitions(logic_expression_focus_routing_test PRIVATE
+    ARTCADE_UI_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/src/editor-native/resources/ui")
+if(MSVC)
+    target_link_options(logic_expression_focus_routing_test PRIVATE /STACK:16777216)
+endif()
+
 artcade_test(sfx_synthesizer_test
     ${CMAKE_SOURCE_DIR}/vendor/artcade-runtime/src/modules/sfx/tests/sfx_tests.cpp
     ArtCade::Sfx)
