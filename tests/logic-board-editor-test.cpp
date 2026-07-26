@@ -2505,15 +2505,26 @@ static void testSetLogicNumberExpressionCommand() {
         CHECK(y.has_value() && *y == 20.0);
     }
 
-    // LiteralOnly Vec2 (Move By) rejects dynamic expressions.
+    // Move By accepts expressions since ADR-0029. Set Scale is the LiteralOnly
+    // Vec2 that still rejects them: its positivity constraint can only be
+    // decided against a literal, which is the ADR's rule for such a check.
     LogicRuleDef move = Logic::makeDefaultRule("rule-move");
     move.trigger = {Logic::kOnStart, {}};
     move.actions[0] = Logic::makeDefaultBlock(Logic::kTranslateBy, Logic::BlockKind::Action);
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", move, 1}).ok);
     LogicNumberExpressionAddress moveAddress{
         "Hero", "rule-move", 0, "offset", LogicNumericComponent::X};
+    CHECK(coordinator.execute(
+        SetLogicNumberExpressionCommand{moveAddress, addX}).ok);
+
+    LogicRuleDef scaled = Logic::makeDefaultRule("rule-scale");
+    scaled.trigger = {Logic::kOnStart, {}};
+    scaled.actions[0] = Logic::makeDefaultBlock(Logic::kSetScale, Logic::BlockKind::Action);
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", scaled, 2}).ok);
+    LogicNumberExpressionAddress scaleAddress{
+        "Hero", "rule-scale", 0, "scale", LogicNumericComponent::X};
     const auto rejected = coordinator.execute(
-        SetLogicNumberExpressionCommand{moveAddress, addX});
+        SetLogicNumberExpressionCommand{scaleAddress, addX});
     CHECK(!rejected.ok);
 }
 
@@ -2553,7 +2564,7 @@ static void testSetPositionPropertyEditorIsATypedField() {
 
     // Move By remains LiteralOnly — no fx affordance.
     LogicRuleDef move = Logic::makeDefaultRule("rule-move");
-    move.actions[0] = Logic::makeDefaultBlock(Logic::kTranslateBy, Logic::BlockKind::Action);
+    move.actions[0] = Logic::makeDefaultBlock(Logic::kSetScale, Logic::BlockKind::Action);
     const std::string moveMarkup = renderLogicProperties(
         coordinator.document(), nullptr, move.actions[0],
         LogicPropertyAddress{move.id, LogicPropertyTarget::Action, 0},

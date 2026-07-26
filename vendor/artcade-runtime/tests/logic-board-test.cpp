@@ -901,7 +901,8 @@ static void testIsVisibleAsEvent() {
     CHECK(compiled.requiresTick);
     CHECK(compiled.programs[0].source.find("on_update") != std::string::npos);
     CHECK(compiled.programs[0].source.find("is_visible() == true") != std::string::npos);
-    CHECK(compiled.programs[0].source.find("translate(5") != std::string::npos);
+    CHECK(compiled.programs[0].source.find("translate(_x, _y)") != std::string::npos);
+    CHECK(compiled.programs[0].source.find("local _x = 5") != std::string::npos);
 
     Host host;
     host.visible[1] = true;
@@ -2003,10 +2004,11 @@ static void testEntityTransformActions() {
 
     LogicCompileResult compiled = compileBoard("Hero", board);
     CHECK(compiled.ok());
-    CHECK(compiled.programs[0].source.find("translate(3") != std::string::npos);
+    CHECK(compiled.programs[0].source.find("translate(_x, _y)") != std::string::npos);
+    CHECK(compiled.programs[0].source.find("local _x = 3") != std::string::npos);
     CHECK(compiled.programs[0].source.find("set_rotation(") != std::string::npos);
     CHECK(compiled.programs[0].source.find("rotate_by(") != std::string::npos);
-    CHECK(compiled.programs[0].source.find("set_scale(2") != std::string::npos);
+    CHECK(compiled.programs[0].source.find("set_scale(_x, _y)") != std::string::npos);
 
     Host host;
     LogicRuntime runtime(host);

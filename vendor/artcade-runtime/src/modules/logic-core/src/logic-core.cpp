@@ -64,6 +64,28 @@ std::optional<double> literalNumberOf(const LogicPropertyDef* property) {
     return std::nullopt;
 }
 
+/**
+ * Emit a two-component call whose operands may be dynamic: evaluate both, then
+ * guard on finiteness and rate-limit the complaint. Set Position had this
+ * inline; every Vec2 action needs the same shape, and a second hand-written
+ * copy of a runtime guard is how one of them ends up missing the check.
+ */
+void emitGuardedVec2(std::ostringstream& lua, const LogicVec2Value& value,
+                     const std::string& diagnosticKey, const std::string& call) {
+    const CompiledNumberExpression compiledX = compileNumberExpressionToLua(value.x);
+    const CompiledNumberExpression compiledY = compileNumberExpressionToLua(value.y);
+    lua << "      do\n";
+    lua << "        local _x = " << (compiledX.ok ? compiledX.luaSource : "0") << "\n";
+    lua << "        local _y = " << (compiledY.ok ? compiledY.luaSource : "0") << "\n";
+    lua << "        if logic.number.is_finite(_x) and logic.number.is_finite(_y) then\n";
+    lua << "          " << call << "\n";
+    lua << "        else\n";
+    lua << "          logic.diagnostics.expression_once(\""
+        << escapeLua(diagnosticKey) << "\")\n";
+    lua << "        end\n";
+    lua << "      end\n";
+}
+
 LogicValueKind kindOf(const LogicValue& value) {
     if (std::holds_alternative<bool>(value)) return LogicValueKind::Bool;
     if (std::holds_alternative<int64_t>(value)) return LogicValueKind::Integer;
@@ -478,26 +500,17 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
     } else if (action.typeId == kSetPosition) {
         const LogicPropertyDef* p = findProperty(action, "position");
         const LogicVec2Value& value = std::get<LogicVec2Value>(p->value);
-        const CompiledNumberExpression compiledX = compileNumberExpressionToLua(value.x);
-        const CompiledNumberExpression compiledY = compileNumberExpressionToLua(value.y);
-        const std::string diagnosticKey = boardId + ":" + ruleId + ":"
-            + std::to_string(actionIndex) + ":position";
-        lua << "      do\n";
-        lua << "        local _x = " << (compiledX.ok ? compiledX.luaSource : "0") << "\n";
-        lua << "        local _y = " << (compiledY.ok ? compiledY.luaSource : "0") << "\n";
-        lua << "        if logic.number.is_finite(_x) and logic.number.is_finite(_y) then\n";
-        lua << "          context.self:set_position(_x, _y)\n";
-        lua << "        else\n";
-        lua << "          logic.diagnostics.expression_once(\""
-            << escapeLua(diagnosticKey) << "\")\n";
-        lua << "        end\n";
-        lua << "      end\n";
+        emitGuardedVec2(lua, value,
+                        boardId + ":" + ruleId + ":" + std::to_string(actionIndex)
+                            + ":position",
+                        "context.self:set_position(_x, _y)");
     } else if (action.typeId == kTranslateBy) {
         const LogicPropertyDef* p = findProperty(action, "offset");
         const LogicVec2Value& value = std::get<LogicVec2Value>(p->value);
-        if (const std::optional<Vec2> lit = literalVec2Value(value)) {
-            lua << "      context.self:translate(" << lit->x << ", " << lit->y << ")\n";
-        }
+        emitGuardedVec2(lua, value,
+                        boardId + ":" + ruleId + ":" + std::to_string(actionIndex)
+                            + ":offset",
+                        "context.self:translate(_x, _y)");
     } else if (action.typeId == kSetRotation) {
         const LogicPropertyDef* p = findProperty(action, "degrees");
         const double degrees = literalNumberOf(p).value_or(0.0);
@@ -512,15 +525,17 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
     } else if (action.typeId == kSetScale) {
         const LogicPropertyDef* p = findProperty(action, "scale");
         const LogicVec2Value& value = std::get<LogicVec2Value>(p->value);
-        if (const std::optional<Vec2> lit = literalVec2Value(value)) {
-            lua << "      context.self:set_scale(" << lit->x << ", " << lit->y << ")\n";
-        }
+        emitGuardedVec2(lua, value,
+                        boardId + ":" + ruleId + ":" + std::to_string(actionIndex)
+                            + ":scale",
+                        "context.self:set_scale(_x, _y)");
     } else if (action.typeId == kSetVelocity) {
         const LogicPropertyDef* p = findProperty(action, "velocity");
         const LogicVec2Value& value = std::get<LogicVec2Value>(p->value);
-        if (const std::optional<Vec2> lit = literalVec2Value(value)) {
-            lua << "      context.self:set_velocity(" << lit->x << ", " << lit->y << ")\n";
-        }
+        emitGuardedVec2(lua, value,
+                        boardId + ":" + ruleId + ":" + std::to_string(actionIndex)
+                            + ":velocity",
+                        "context.self:set_velocity(_x, _y)");
     } else if (action.typeId == kSpawnObject) {
         const LogicPropertyDef* typeProp = findProperty(action, "objectTypeId");
         const LogicPropertyDef* posProp = findProperty(action, "position");
@@ -744,7 +759,8 @@ const std::vector<LogicBlockDescriptor>& registry() {
             {"teleport", "coords"}},
         {kTranslateBy, "entity", "Move By", "Adds an offset to Self's current world position.",
             BlockKind::Action,
-            {{"offset", LogicValueKind::Vec2, LogicVec2Value{}, "Offset"}},
+            {expressionVec2Property("offset", LogicVec2Value{}, "Offset",
+                                    NumericExpressionPolicy::PerComponentNumberExpression)},
             {}, {LogicContextCapability::Self}, {}, "entity.transform", false, 30,
             {"translate", "offset", "nudge"}},
         {kSetRotation, "entity", "Set Rotation", "Sets Self's absolute rotation in degrees.",
@@ -773,7 +789,8 @@ const std::vector<LogicBlockDescriptor>& registry() {
             {"delete", "remove", "kill"}},
         {kSetVelocity, "physics", "Set Velocity", "Sets Self's linear velocity.",
             BlockKind::Action,
-            {{"velocity", LogicValueKind::Vec2, LogicVec2Value{}, "Velocity"}},
+            {expressionVec2Property("velocity", LogicVec2Value{}, "Velocity",
+                                    NumericExpressionPolicy::PerComponentNumberExpression)},
             {}, {LogicContextCapability::Self}, {}, "physics.set_velocity", false, 10,
             {"speed", "motion"}},
         {kIsGrounded, "platformer", "Is Grounded", "Checks whether Self is touching valid ground.",
