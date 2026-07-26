@@ -102,6 +102,25 @@ std::string attribute(Rml::Element* element, const char* name) {
     return element ? element->GetAttribute<Rml::String>(name, Rml::String()) : std::string();
 }
 
+/**
+ * Is the pointer resting on a completion entry of the expression field?
+ *
+ * The hover element is the only thing available at blur time that says where
+ * the focus is going: RmlUi's blur event carries no target, and the click that
+ * would tell us has not been delivered yet.
+ */
+bool pointerIsOnExpressionCompletion(Rml::Element* field) {
+    Rml::Context* context = field ? field->GetContext() : nullptr;
+    if (!context) return false;
+    for (Rml::Element* e = context->GetHoverElement(); e; e = e->GetParentNode()) {
+        if (e->GetAttribute<Rml::String>("data-action", Rml::String())
+            == "pick-logic-expression-completion") {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::string formValue(Rml::Element* element, Rml::Event& event) {
     if (auto* control = rmlui_dynamic_cast<Rml::ElementFormControl*>(element))
         return control->GetValue();
@@ -329,6 +348,15 @@ public:
                 return;
             }
             if (type == "blur") {
+                // Clicking a completion blurs the field before the click is
+                // delivered: RmlUi moves focus on mouse *down*, the click
+                // arrives on mouse *up*. Committing in between rebuilds the
+                // panel and destroys the entry being clicked, so the pick is
+                // never dispatched — the list just closes under the pointer.
+                // A blur towards this field's own list is not the author
+                // leaving the field, so it commits nothing and lets the click
+                // through.
+                if (pointerIsOnExpressionCompletion(actionElement)) return;
                 ui_.handleAction("commit-logic-expression", arg,
                                  formValue(actionElement, event));
                 return;

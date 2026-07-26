@@ -234,6 +234,43 @@ void testFocusOpensTheCompletionList(Rml::Context& context, Rml::ElementDocument
     // (7) Still no authoring mutation: the draft never reaches the document.
     CHECK(coordinator.document().revision() == revisionBefore);
     CHECK(coordinator.canUndo() == undoBefore);
+
+    // Picking `random(` with the mouse. Clicking a list entry moves RmlUi's
+    // focus off the field, so the field blurs *before* the click is delivered —
+    // and a blur that commits tears down the list the click was aimed at.
+    Rml::Element* entry = nullptr;
+    for (Rml::Element* candidate :
+         [&] {
+             std::vector<Rml::Element*> all;
+             collectByClass(&document, "logic-expression-completion", all);
+             return all;
+         }()) {
+        if (attributeOf(candidate, "data-value") == "random(") entry = candidate;
+    }
+    CHECK(entry != nullptr);
+    if (!entry) return;
+
+    const Rml::Vector2f centre =
+        entry->GetAbsoluteOffset(Rml::BoxArea::Border)
+        + Rml::Vector2f(entry->GetClientWidth() * 0.5f, entry->GetClientHeight() * 0.5f);
+    context.ProcessMouseMove(static_cast<int>(centre.x), static_cast<int>(centre.y), 0);
+    context.ProcessMouseButtonDown(0, 0);
+    frame(context, ui);
+    context.ProcessMouseButtonUp(0, 0);
+    frame(context, ui);
+
+    Rml::Element* picked = document.GetElementById("logic-expression-input");
+    CHECK(picked != nullptr);
+    CHECK(attributeOf(picked, "value") == "random(");
+    // The caret goes back into the field, so the next argument can be typed
+    // without clicking back in.
+    CHECK(context.GetFocusElement() == picked);
+    // The list stays open on the newly inserted token, so the next argument can
+    // be picked without clicking back into the field.
+    CHECK(hasClass(&document, "logic-expression-completions"));
+    // Still a draft: inserting a completion is not a commit.
+    CHECK(coordinator.document().revision() == revisionBefore);
+    CHECK(coordinator.canUndo() == undoBefore);
 }
 
 // ----------------------------------------------------------------------------
