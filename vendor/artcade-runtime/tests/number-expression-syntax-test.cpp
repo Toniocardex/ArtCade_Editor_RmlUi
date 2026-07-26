@@ -275,6 +275,28 @@ void testCompletionsCoverTheGrammar() {
     }
 }
 
+/**
+ * The token rule decides what a completion replaces, which is why it lives with
+ * the parser instead of being re-derived in the editor. An empty prefix means
+ * "not typing a name yet" — the caller shows the whole vocabulary, which is the
+ * ADR's requirement that the list be reachable without knowing what to type.
+ */
+void testCompletionTokenRule() {
+    CHECK(numberExpressionTokenPrefix("") == "");
+    CHECK(numberExpressionTokenPrefix("ra") == "ra");
+    CHECK(numberExpressionTokenPrefix("clamp(self.") == "self.");
+    CHECK(numberExpressionTokenPrefix("random(0, ") == "");
+    CHECK(numberExpressionTokenPrefix("$sc") == "$sc");
+    CHECK(numberExpressionTokenPrefix("1 + ab") == "ab");
+
+    CHECK(applyNumberExpressionCompletion("cl", "clamp(") == "clamp(");
+    CHECK(applyNumberExpressionCompletion("random(0, sc", "scene.width")
+          == "random(0, scene.width");
+    CHECK(applyNumberExpressionCompletion("", "self.x") == "self.x");
+    // Nothing typed yet: the completion is appended, not swallowing an operator.
+    CHECK(applyNumberExpressionCompletion("1 + ", "self.x") == "1 + self.x");
+}
+
 } // namespace
 
 int main() {
@@ -283,6 +305,7 @@ int main() {
     testRejects();
     testLimits();
     testCompletionsCoverTheGrammar();
+    testCompletionTokenRule();
     std::cout << "number-expression-syntax-test: " << passed << " passed, "
               << failed << " failed\n";
     return failed == 0 ? 0 : 1;

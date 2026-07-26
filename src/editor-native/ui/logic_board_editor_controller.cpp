@@ -45,21 +45,6 @@ struct PropertyAddress {
     std::string component;
 };
 
-/** Replace the token the caret is on, so picking `clamp(` after `cl` does not
-    produce `clclamp(`. Mirrors trailingFragment in logic_property_editor. */
-std::string applyExpressionCompletion(const std::string& current,
-                                      const std::string& insert) {
-    std::size_t start = current.size();
-    while (start > 0) {
-        const char c = current[start - 1];
-        const bool part = std::isalnum(static_cast<unsigned char>(c)) != 0
-            || c == '_' || c == '.' || c == '$' || c == '\'';
-        if (!part) break;
-        --start;
-    }
-    return current.substr(0, start) + insert;
-}
-
 std::optional<PropertyAddress> parsePropertyAddress(const std::string& encoded) {
     const std::vector<std::string> parts = splitPipe(encoded);
     if (parts.size() != 4 && parts.size() != 5) return std::nullopt;
@@ -246,7 +231,7 @@ bool LogicBoardEditorController::handleAction(
     if (action == "pick-logic-expression-completion") {
         const std::string current = panel_.expressionDraftText();
         panel_.setExpressionDraft(document_, coordinator_, arg,
-                                  applyExpressionCompletion(current, value));
+                                  Logic::applyNumberExpressionCompletion(current, value));
         return true;
     }
     if (action == "commit-logic-expression") {

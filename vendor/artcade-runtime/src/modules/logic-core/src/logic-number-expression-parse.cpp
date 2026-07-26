@@ -317,6 +317,22 @@ NumberExpressionParseResult parseNumberExpression(const std::string& text) {
     return Parser{text}.run();
 }
 
+std::string numberExpressionTokenPrefix(const std::string& text) {
+    std::size_t start = text.size();
+    while (start > 0) {
+        const char c = text[start - 1];
+        const bool partOfName = isIdentifierChar(c) || c == '.' || c == '$' || c == '\'';
+        if (!partOfName) break;
+        --start;
+    }
+    return text.substr(start);
+}
+
+std::string applyNumberExpressionCompletion(const std::string& text,
+                                            const std::string& insert) {
+    return text.substr(0, text.size() - numberExpressionTokenPrefix(text).size()) + insert;
+}
+
 const std::vector<NumberExpressionCompletion>& numberExpressionCompletions() {
     static const std::vector<NumberExpressionCompletion> entries{
         {"self.x", "self.x", "This object's world X"},

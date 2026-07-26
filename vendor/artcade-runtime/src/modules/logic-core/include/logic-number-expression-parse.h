@@ -51,4 +51,20 @@ struct NumberExpressionCompletion {
 /** Context values and functions. Project variables are the editor's to add. */
 const std::vector<NumberExpressionCompletion>& numberExpressionCompletions();
 
+/**
+ * The partial token at the end of @p text — what the author is midway through
+ * typing, so `clamp(self.` yields `self.` and the list narrows to it.
+ *
+ * Which characters can belong to a name is grammar, so it lives here with the
+ * parser rather than being re-derived by the editor: two copies of this rule
+ * drift, and the one that drifts is the one that decides what a completion
+ * replaces.
+ */
+std::string numberExpressionTokenPrefix(const std::string& text);
+
+/** Replace that trailing token with @p insert, so `cl` + `clamp(` is not
+ *  `clclamp(`. The inverse half of numberExpressionTokenPrefix. */
+std::string applyNumberExpressionCompletion(const std::string& text,
+                                            const std::string& insert);
+
 } // namespace ArtCade::Logic

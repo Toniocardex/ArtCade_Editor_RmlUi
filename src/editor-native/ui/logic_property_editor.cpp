@@ -83,23 +83,6 @@ bool keyMatchesSearch(const std::string& name, const std::string& query) {
     return normalized.find(needle) != std::string::npos;
 }
 
-/**
- * The token the caret is sitting on: everything back to the last character that
- * cannot be part of a name. `clamp(self.` yields `self.`, so the list narrows
- * to the property the author is halfway through.
- */
-std::string trailingFragment(const std::string& text) {
-    std::size_t start = text.size();
-    while (start > 0) {
-        const char c = text[start - 1];
-        const bool part = std::isalnum(static_cast<unsigned char>(c)) != 0
-            || c == '_' || c == '.' || c == '$' || c == '\'';
-        if (!part) break;
-        --start;
-    }
-    return text.substr(start);
-}
-
 bool completionMatches(const std::string& candidate, const std::string& fragment) {
     if (fragment.empty()) return true;
     std::string a = candidate;
@@ -121,7 +104,7 @@ bool completionMatches(const std::string& candidate, const std::string& fragment
 std::string renderLogicExpressionCompletions(
     const ProjectDocument& document, const EntityDef* owner,
     const std::string& address, const std::string& text) {
-    const std::string fragment = trailingFragment(text);
+    const std::string fragment = Logic::numberExpressionTokenPrefix(text);
 
     struct Entry { std::string insert; std::string label; std::string summary; };
     std::vector<Entry> matches;
@@ -277,10 +260,11 @@ std::string renderLogicProperties(
                           + escapeRml(expressionField.errorMessage) + "</span></div>";
                 }
                 if (focused && !playing) {
+                    // The draft only — never `shown`. Filtering by the value
+                    // already in the field made focusing a plain `160` match
+                    // nothing, which is the opposite of a discovery surface.
                     html += renderLogicExpressionCompletions(
-                        document, owner, axisAddress,
-                        expressionField.draftText.empty()
-                            ? shown : expressionField.draftText);
+                        document, owner, axisAddress, expressionField.draftText);
                 }
             };
             emitAxis("X", "x", value.x, litX);

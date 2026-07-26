@@ -2501,6 +2501,19 @@ static void testSetPositionPropertyEditorIsATypedField() {
     // LiteralOnly keeps the plain numeric field, not the expression one.
     CHECK(moveMarkup.find("logic-expression-input") == std::string::npos);
     CHECK(moveMarkup.find("commit-logic-property-component") != std::string::npos);
+
+    // ADR-0029: the completion list opens on focus and must be reachable
+    // without knowing what to type. Filtering by the value already in the
+    // field made focusing a plain number match nothing at all.
+    LogicExpressionFieldState focused;
+    focused.focusAddress = encodeLogicPropertyAddress(address, "position") + "|y";
+    const std::string focusedMarkup = renderLogicProperties(
+        coordinator.document(), nullptr, authored.rules[0].actions[0], address,
+        "", LogicKeyBindingEditorState{}, focused, /*playing=*/false);
+    CHECK(focusedMarkup.find("logic-expression-completions") != std::string::npos);
+    CHECK(focusedMarkup.find("random(min, max)") != std::string::npos);
+    CHECK(focusedMarkup.find("self.x") != std::string::npos);
+    CHECK(focusedMarkup.find("Nothing matches") == std::string::npos);
 }
 
 static void testSetLogicNumberExpressionCommandAcceptsGlobalVariable() {
