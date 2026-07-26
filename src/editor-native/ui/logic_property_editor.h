@@ -43,6 +43,22 @@ struct LogicExpressionFieldState {
 };
 
 /**
+ * The completion list's entries for @p draftText (ADR-0029).
+ *
+ * Exposed so a keystroke can replace this list alone. Rebuilding the whole
+ * panel to narrow it destroys the very field being typed into: the caret goes
+ * with it, so Backspace lands at offset 0 and deletes nothing, and RmlUi is
+ * left holding freed elements mid-dispatch.
+ */
+std::string renderLogicExpressionCompletionEntries(
+    const ProjectDocument& document, const EntityDef* owner,
+    const std::string& address, const std::string& draftText);
+
+/** Stable id of the container those entries live in, unique per document
+ *  because only the focused field renders one. */
+inline constexpr const char* kLogicExpressionCompletionsId = "logic-expression-completions";
+
+/**
  * The Logic Board's boolean control: both options rendered, the current one
  * selected. A single button printing only the current value reads as a label —
  * nothing about it says the state can be changed. Each option *sets* its value

@@ -101,7 +101,7 @@ bool completionMatches(const std::string& candidate, const std::string& fragment
  * scrolls and clips absolutely-positioned children, which is the same reason
  * the property dropdowns render in flow.
  */
-std::string renderLogicExpressionCompletions(
+std::string renderLogicExpressionCompletionsInner(
     const ProjectDocument& document, const EntityDef* owner,
     const std::string& address, const std::string& text) {
     const std::string fragment = Logic::numberExpressionTokenPrefix(text);
@@ -132,7 +132,7 @@ std::string renderLogicExpressionCompletions(
     addVariables(document.data().globalVariables, NumberVariableScope::Global,
                  "Project variable");
 
-    std::string html = "<div class=\"logic-expression-completions\">";
+    std::string html;
     if (matches.empty()) {
         html += "<span class=\"logic-expression-completion-empty\">"
                 "Nothing matches — type a number, or clear to start over</span>";
@@ -146,7 +146,7 @@ std::string renderLogicExpressionCompletions(
               + "</span><span class=\"logic-expression-completion-summary\">"
               + escapeRml(entry.summary) + "</span></button>";
     }
-    return html + "</div>";
+    return html;
 }
 
 std::string booleanOption(const char* label, const char* optionValue, bool selected,
@@ -161,6 +161,12 @@ std::string booleanOption(const char* label, const char* optionValue, bool selec
 }
 
 } // namespace
+
+std::string renderLogicExpressionCompletionEntries(
+    const ProjectDocument& document, const EntityDef* owner,
+    const std::string& address, const std::string& draftText) {
+    return renderLogicExpressionCompletionsInner(document, owner, address, draftText);
+}
 
 std::string renderLogicBooleanChoice(
     const std::string& action, const std::string& arg, bool value, bool disabled) {
@@ -284,8 +290,14 @@ std::string renderLogicProperties(
                     // The draft only — never `shown`. Filtering by the value
                     // already in the field made focusing a plain `160` match
                     // nothing, which is the opposite of a discovery surface.
-                    html += renderLogicExpressionCompletions(
-                        document, owner, axisAddress, expressionField.draftText);
+                    // The container carries a stable id so a keystroke can
+                    // replace its entries without rebuilding the field itself.
+                    html += std::string("<div id=\"")
+                          + kLogicExpressionCompletionsId
+                          + "\" class=\"logic-expression-completions\">"
+                          + renderLogicExpressionCompletionsInner(
+                                document, owner, axisAddress, expressionField.draftText)
+                          + "</div>";
                 }
             };
             emitAxis("X", "x", value.x, litX);

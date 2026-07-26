@@ -24,6 +24,15 @@ public:
     void detach();
     void refresh();
     void restoreAfterLayout();
+
+    /**
+     * True while the Logic Board is replacing its own markup. Callers reacting
+     * to a blur must ask at *event* time: destroying the focused field emits a
+     * blur that is indistinguishable from the author leaving it, and deferring
+     * the question to when the action runs answers it after the rebuild has
+     * finished — which is always "no".
+     */
+    bool isRebuilding() const { return panel_.isRebuilding(); }
     void toggleDropdown(const std::string& dropdownId);
     void closeDropdown();
     bool hasKeyCapture() const;

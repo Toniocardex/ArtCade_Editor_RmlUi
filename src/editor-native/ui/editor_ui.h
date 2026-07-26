@@ -450,6 +450,19 @@ private:
     // Same deferral for the typed draft (address, text): narrowing the list
     // rebuilds the panel from inside RmlUi's text-widget event handling.
     std::optional<std::pair<std::string, std::string>> pendingExpressionDraft_;
+    // ...and for the two ways an edit ends. Enter, Escape and blur all rebuild
+    // the panel, and all three arrive while RmlUi is still inside the element
+    // they would destroy — blur worst of all, since Context::OnFocusChange goes
+    // on to use both the old and the new focus after dispatching it. The value
+    // is captured at event time because the element is gone by the time this
+    // runs.
+    enum class PendingExpressionEnd { Commit, Cancel };
+    struct PendingExpressionEditEnd {
+        PendingExpressionEnd kind = PendingExpressionEnd::Commit;
+        std::string address;
+        std::string value;
+    };
+    std::optional<PendingExpressionEditEnd> pendingExpressionEnd_;
     bool                                logicTypeMenuVisible_ = false;
     bool                                logicMoreMenuVisible_ = false;
     struct PendingEditorConfirm {

@@ -1,0 +1,525 @@
+{
+  "activeSceneId": "scene-1",
+  "audioAssets": [],
+  "fontAssets": [],
+  "formatVersion": 11,
+  "generatedSfx": [],
+  "globalVariables": [
+    {
+      "description": "Coins collected",
+      "initialValue": 0.0,
+      "key": "score",
+      "type": "number"
+    }
+  ],
+  "imageAssets": [],
+  "mainScriptPath": "scripts/main.luac",
+  "objectTypes": [
+    {
+      "boxCollider2D": {
+        "enabled": true,
+        "mode": "trigger",
+        "offset": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "size": {
+          "x": 32.0,
+          "y": 32.0
+        }
+      },
+      "id": "Player",
+      "logicBoard": {
+        "apiVersion": 2,
+        "id": "logic:Player",
+        "rules": [
+          {
+            "actions": [
+              {
+                "properties": [
+                  {
+                    "key": "direction",
+                    "value": {
+                      "kind": "string",
+                      "value": "Right"
+                    }
+                  }
+                ],
+                "typeId": "topdown.move"
+              }
+            ],
+            "conditions": [
+              {
+                "block": {
+                  "properties": [
+                    {
+                      "key": "expected",
+                      "value": {
+                        "kind": "bool",
+                        "value": true
+                      }
+                    }
+                  ],
+                  "typeId": "entity.is_visible"
+                },
+                "join": "and",
+                "negated": false
+              }
+            ],
+            "enabled": true,
+            "executionMode": "every_occurrence",
+            "id": "rule-hide",
+            "name": "Hide on Space",
+            "trigger": {
+              "properties": [
+                {
+                  "key": "key",
+                  "value": {
+                    "kind": "key",
+                    "value": "D"
+                  }
+                }
+              ],
+              "typeId": "input.key_held"
+            }
+          },
+          {
+            "actions": [
+              {
+                "properties": [
+                  {
+                    "key": "direction",
+                    "value": {
+                      "kind": "string",
+                      "value": "Left"
+                    }
+                  }
+                ],
+                "typeId": "topdown.move"
+              }
+            ],
+            "conditions": [
+              {
+                "block": {
+                  "properties": [
+                    {
+                      "key": "expected",
+                      "value": {
+                        "kind": "bool",
+                        "value": true
+                      }
+                    }
+                  ],
+                  "typeId": "entity.is_visible"
+                },
+                "join": "and",
+                "negated": false
+              }
+            ],
+            "enabled": true,
+            "executionMode": "every_occurrence",
+            "id": "rule-1",
+            "name": "Hide on Space Copy",
+            "trigger": {
+              "properties": [
+                {
+                  "key": "key",
+                  "value": {
+                    "kind": "key",
+                    "value": "A"
+                  }
+                }
+              ],
+              "typeId": "input.key_held"
+            }
+          },
+          {
+            "actions": [
+              {
+                "properties": [
+                  {
+                    "key": "direction",
+                    "value": {
+                      "kind": "string",
+                      "value": "Up"
+                    }
+                  }
+                ],
+                "typeId": "topdown.move"
+              }
+            ],
+            "conditions": [
+              {
+                "block": {
+                  "properties": [
+                    {
+                      "key": "expected",
+                      "value": {
+                        "kind": "bool",
+                        "value": true
+                      }
+                    }
+                  ],
+                  "typeId": "entity.is_visible"
+                },
+                "join": "and",
+                "negated": false
+              }
+            ],
+            "enabled": true,
+            "executionMode": "every_occurrence",
+            "id": "rule-2",
+            "name": "Hide on Space Copy Copy",
+            "trigger": {
+              "properties": [
+                {
+                  "key": "key",
+                  "value": {
+                    "kind": "key",
+                    "value": "W"
+                  }
+                }
+              ],
+              "typeId": "input.key_held"
+            }
+          },
+          {
+            "actions": [
+              {
+                "properties": [
+                  {
+                    "key": "direction",
+                    "value": {
+                      "kind": "string",
+                      "value": "Down"
+                    }
+                  }
+                ],
+                "typeId": "topdown.move"
+              }
+            ],
+            "conditions": [
+              {
+                "block": {
+                  "properties": [
+                    {
+                      "key": "expected",
+                      "value": {
+                        "kind": "bool",
+                        "value": true
+                      }
+                    }
+                  ],
+                  "typeId": "entity.is_visible"
+                },
+                "join": "and",
+                "negated": false
+              }
+            ],
+            "enabled": true,
+            "executionMode": "every_occurrence",
+            "id": "rule-3",
+            "name": "Hide on Space Copy Copy Copy",
+            "trigger": {
+              "properties": [
+                {
+                  "key": "key",
+                  "value": {
+                    "kind": "key",
+                    "value": "S"
+                  }
+                }
+              ],
+              "typeId": "input.key_held"
+            }
+          },
+          {
+            "actions": [
+              {
+                "properties": [
+                  {
+                    "key": "target",
+                    "value": {
+                      "kind": "entity",
+                      "target": "self"
+                    }
+                  },
+                  {
+                    "key": "position",
+                    "value": {
+                      "kind": "vec2",
+                      "x": {
+                        "kind": "randomRange",
+                        "maximum": {
+                          "kind": "property",
+                          "property": "scene.worldWidth"
+                        },
+                        "minimum": 0.0
+                      },
+                      "y": 160.0
+                    }
+                  }
+                ],
+                "typeId": "entity.set_position"
+              },
+              {
+                "properties": [
+                  {
+                    "key": "offset",
+                    "value": {
+                      "kind": "vec2",
+                      "x": 4.0,
+                      "y": 0.0
+                    }
+                  }
+                ],
+                "typeId": "entity.translate_by"
+              },
+              {
+                "properties": [
+                  {
+                    "key": "velocity",
+                    "value": {
+                      "kind": "vec2",
+                      "x": 0.0,
+                      "y": -120.0
+                    }
+                  }
+                ],
+                "typeId": "physics.set_velocity"
+              }
+            ],
+            "conditions": [],
+            "enabled": true,
+            "executionMode": "every_occurrence",
+            "id": "rule-place",
+            "name": "Place randomly",
+            "trigger": {
+              "properties": [],
+              "typeId": "event.on_start"
+            }
+          },
+          {
+            "actions": [
+              {
+                "properties": [],
+                "typeId": "collision.destroy_other"
+              },
+              {
+                "properties": [
+                  {
+                    "key": "key",
+                    "value": {
+                      "id": "score",
+                      "kind": "variable"
+                    }
+                  },
+                  {
+                    "key": "amount",
+                    "value": {
+                      "kind": "number",
+                      "value": 1.0
+                    }
+                  }
+                ],
+                "typeId": "state.add"
+              }
+            ],
+            "conditions": [],
+            "enabled": true,
+            "executionMode": "every_occurrence",
+            "id": "rule-collect",
+            "name": "Collect coin",
+            "trigger": {
+              "properties": [
+                {
+                  "key": "objectTypeId",
+                  "value": {
+                    "kind": "string",
+                    "value": "Coin"
+                  }
+                }
+              ],
+              "typeId": "collision.enter"
+            }
+          }
+        ],
+        "schemaVersion": 4
+      },
+      "name": "Player",
+      "spritePresentation": {
+        "source": {
+          "kind": "none"
+        },
+        "visible": true
+      },
+      "topDownController": {
+        "acceleration": 1600.0,
+        "fourDirections": false,
+        "friction": 2200.0,
+        "maxSpeed": 260.0
+      },
+      "visible": true
+    },
+    {
+      "boxCollider2D": {
+        "enabled": true,
+        "mode": "trigger",
+        "offset": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "size": {
+          "x": 32.0,
+          "y": 32.0
+        }
+      },
+      "id": "Coin",
+      "logicBoard": {
+        "apiVersion": 2,
+        "id": "logic:Coin",
+        "rules": [],
+        "schemaVersion": 4
+      },
+      "name": "Coin",
+      "spritePresentation": {
+        "source": {
+          "kind": "none"
+        },
+        "visible": true
+      },
+      "visible": true
+    }
+  ],
+  "projectName": "ArtCade Visual Fixture",
+  "scenes": {
+    "scene-1": {
+      "backgroundColor": {
+        "a": 1.0,
+        "b": 0.1411764770746231,
+        "g": 0.11764705926179886,
+        "r": 0.11764705926179886
+      },
+      "cameraStart": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "defaultLayerId": "layer-main",
+      "id": "scene-1",
+      "instances": [
+        {
+          "id": 1,
+          "instanceName": "Player 1",
+          "layerId": "layer-main",
+          "objectTypeId": "Player",
+          "transform": {
+            "position": {
+              "x": 96.0,
+              "y": 160.0
+            },
+            "rotation": 0.0,
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            }
+          },
+          "visible": true
+        },
+        {
+          "id": 2,
+          "instanceName": "Coin 1",
+          "layerId": "layer-main",
+          "objectTypeId": "Coin",
+          "transform": {
+            "position": {
+              "x": 224.0,
+              "y": 160.0
+            },
+            "rotation": 0.0,
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            }
+          },
+          "visible": true
+        },
+        {
+          "id": 3,
+          "instanceName": "Coin 2",
+          "layerId": "layer-bg",
+          "objectTypeId": "Coin",
+          "transform": {
+            "position": {
+              "x": 320.0,
+              "y": 96.0
+            },
+            "rotation": 0.0,
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            }
+          },
+          "visible": true
+        }
+      ],
+      "layers": [
+        {
+          "id": "layer-bg",
+          "locked": true,
+          "name": "Background"
+        },
+        {
+          "id": "layer-main",
+          "locked": false,
+          "name": "Main"
+        }
+      ],
+      "name": "Level 1",
+      "viewportSize": {
+        "x": 512.0,
+        "y": 320.0
+      },
+      "worldSize": {
+        "x": 512.0,
+        "y": 320.0
+      }
+    },
+    "scene-2": {
+      "backgroundColor": {
+        "a": 1.0,
+        "b": 0.1411764770746231,
+        "g": 0.11764705926179886,
+        "r": 0.11764705926179886
+      },
+      "cameraStart": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "defaultLayerId": "layer-main-2",
+      "id": "scene-2",
+      "instances": [],
+      "layers": [
+        {
+          "id": "layer-main-2",
+          "locked": false,
+          "name": "Main"
+        }
+      ],
+      "name": "Level 2",
+      "viewportSize": {
+        "x": 512.0,
+        "y": 320.0
+      },
+      "worldSize": {
+        "x": 512.0,
+        "y": 320.0
+      }
+    }
+  },
+  "schemaVersion": 11,
+  "scriptAssets": [],
+  "spriteAnimationAssets": [],
+  "targetFPS": 60.0,
+  "tilesets": [],
+  "version": "2.0.0"
+}

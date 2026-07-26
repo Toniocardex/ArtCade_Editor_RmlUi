@@ -10,6 +10,8 @@
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/Context.h>
+#include <RmlUi/Core/Elements/ElementFormControl.h>
+#include <RmlUi/Core/Elements/ElementFormControlInput.h>
 
 #include <algorithm>
 #include <cctype>
@@ -459,6 +461,18 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     html += "</div>"; // .logic-head
     if (variablesDrawerOpen_) html += variablesDrawer(coordinator, playing, openDropdownId_);
     const auto render = [&]() {
+        // Where the author left the caret, captured before the markup that
+        // holds it is thrown away.
+        expressionCaretStart_ = -1;
+        expressionCaretEnd_ = -1;
+        if (Rml::Element* previous = document->GetElementById("logic-expression-input")) {
+            if (auto* input =
+                    rmlui_dynamic_cast<Rml::ElementFormControlInput*>(previous)) {
+                Rml::String selected;
+                input->GetSelection(&expressionCaretStart_, &expressionCaretEnd_,
+                                    &selected);
+            }
+        }
         // Destroying the focused field makes RmlUi blur it synchronously; the
         // flag is what tells the blur handler this is our own rebuild and not
         // the author leaving the field (see isRebuilding()).
@@ -986,8 +1000,20 @@ void LogicBoardPanel::restoreAfterLayout(Rml::ElementDocument* document,
     // The id exists on the focused field only, so this can only ever target it.
     if (expressionFocusRestorePending_) {
         expressionFocusRestorePending_ = false;
-        if (Rml::Element* input = document->GetElementById("logic-expression-input"))
+        if (Rml::Element* input = document->GetElementById("logic-expression-input")) {
             input->Focus(true);
+            if (auto* control = rmlui_dynamic_cast<Rml::ElementFormControlInput*>(input)) {
+                // A field opened for the first time has no captured caret; the
+                // end is where an author continues from, and it is the one
+                // position from which Backspace always does something.
+                const int end = static_cast<int>(control->GetValue().size());
+                const int start = expressionCaretStart_ < 0
+                    ? end : std::min(expressionCaretStart_, end);
+                const int stop = expressionCaretEnd_ < 0
+                    ? end : std::min(expressionCaretEnd_, end);
+                control->SetSelectionRange(start, stop);
+            }
+        }
     }
 
     if (pendingRevealRuleId_.empty()) return;
@@ -1079,7 +1105,39 @@ void LogicBoardPanel::setExpressionDraft(Rml::ElementDocument* document,
     // Typing clears the previous complaint; it is about text that no longer
     // exists. The next commit decides whether there is a new one.
     expressionErrorMessage_.clear();
-    refresh(document, coordinator);
+
+    // Narrow the list in place. A full refresh here would destroy the field
+    // being typed into on every keystroke: the caret goes with it, so
+    // Backspace lands at offset 0 and deletes nothing, Delete eats the wrong
+    // end, and RmlUi is left mid-dispatch inside a freed element.
+    Rml::Element* list =
+        document ? document->GetElementById(kLogicExpressionCompletionsId) : nullptr;
+    if (!list) {
+        // No list on screen yet (first draft after a full paint) — fall back.
+        refresh(document, coordinator);
+        return;
+    }
+    const EntityDef* owner = nullptr;
+    if (const auto& objectTypeId = coordinator.state().logicBoardEditor.objectTypeId)
+        owner = coordinator.document().findObjectType(*objectTypeId);
+    list->SetInnerRML(renderLogicExpressionCompletionEntries(
+        coordinator.document(), owner, address, expressionDraftText_));
+
+    // The field already holds what the author typed; only a completion picked
+    // from the list puts text there that the field does not have yet.
+    if (Rml::Element* input = document->GetElementById("logic-expression-input")) {
+        if (auto* control = rmlui_dynamic_cast<Rml::ElementFormControl*>(input)) {
+            if (control->GetValue() != expressionDraftText_) {
+                control->SetValue(expressionDraftText_);
+                if (auto* text_input =
+                        rmlui_dynamic_cast<Rml::ElementFormControlInput*>(input)) {
+                    const int end = static_cast<int>(expressionDraftText_.size());
+                    text_input->SetSelectionRange(end, end);
+                }
+                input->Focus(true);
+            }
+        }
+    }
 }
 
 void LogicBoardPanel::setExpressionFailure(Rml::ElementDocument* document,

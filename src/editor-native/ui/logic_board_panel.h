@@ -176,6 +176,12 @@ private:
     // Context::Update() afterwards processes the removal of the element that
     // held focus and hands it to the surviving ancestor, undoing the call.
     mutable bool expressionFocusRestorePending_ = false;
+    // Caret captured from the field the rebuild is about to destroy, so it can
+    // be put back where the author left it. Without this the caret returns at
+    // offset 0 and Backspace has nothing behind it — the field looks editable
+    // and refuses to delete. -1 means "no capture; place it at the end".
+    mutable int expressionCaretStart_ = -1;
+    mutable int expressionCaretEnd_ = -1;
     // True only while SetInnerRML is replacing the panel's markup. Destroying
     // the focused element makes RmlUi emit a blur for it, which is
     // indistinguishable at the router from the author leaving the field — see

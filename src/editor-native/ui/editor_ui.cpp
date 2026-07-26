@@ -356,20 +356,28 @@ public:
                 // A blur towards this field's own list is not the author
                 // leaving the field, so it commits nothing and lets the click
                 // through.
+                // Both questions are asked here, not when the deferred commit
+                // runs: by then the rebuild has finished and the pointer has
+                // moved on, so a blur the panel caused itself would commit a
+                // draft the author never finished.
+                if (ui_.logicBoardEditor_.isRebuilding()) return;
                 if (pointerIsOnExpressionCompletion(actionElement)) return;
-                ui_.handleAction("commit-logic-expression", arg,
-                                 formValue(actionElement, event));
+                ui_.pendingExpressionEnd_ = EditorUi::PendingExpressionEditEnd{
+                    EditorUi::PendingExpressionEnd::Commit, arg,
+                    formValue(actionElement, event)};
                 return;
             }
             if (type == "keydown") {
                 const int key = event.GetParameter<int>("key_identifier", 0);
                 if (key == Rml::Input::KI_RETURN || key == Rml::Input::KI_NUMPADENTER) {
-                    ui_.handleAction("commit-logic-expression", arg,
-                                     formValue(actionElement, event));
+                    ui_.pendingExpressionEnd_ = EditorUi::PendingExpressionEditEnd{
+                        EditorUi::PendingExpressionEnd::Commit, arg,
+                        formValue(actionElement, event)};
                     event.StopPropagation();
                 } else if (key == Rml::Input::KI_ESCAPE) {
                     // Abandon the draft; the field redraws from the document.
-                    ui_.handleAction("cancel-logic-expression", arg, {});
+                    ui_.pendingExpressionEnd_ = EditorUi::PendingExpressionEditEnd{
+                        EditorUi::PendingExpressionEnd::Cancel, arg, {}};
                     event.StopPropagation();
                 }
                 return;
@@ -673,6 +681,16 @@ void EditorUi::processFrame() {
     // ADR-0029: the expression field's focus, moved out of RmlUi's focus
     // dispatch (see the listener). Runs before the invalidation sweep so the
     // completion list is part of this frame's paint, not the next one.
+    // Ending an edit runs before starting the next one: clicking from X to Y
+    // blurs X and focuses Y in the same dispatch, and the commit belongs to the
+    // field being left.
+    if (pendingExpressionEnd_) {
+        const PendingExpressionEditEnd pending = *pendingExpressionEnd_;
+        pendingExpressionEnd_.reset();
+        handleAction(pending.kind == PendingExpressionEnd::Commit
+                         ? "commit-logic-expression" : "cancel-logic-expression",
+                     pending.address, pending.value);
+    }
     if (pendingExpressionFocus_) {
         const std::string address = *pendingExpressionFocus_;
         pendingExpressionFocus_.reset();

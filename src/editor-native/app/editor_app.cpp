@@ -1284,7 +1284,18 @@ int EditorApp::run(int argc, char** argv) {
             ui.processFrame();
             host.context()->Update();
             ui.restoreAfterRmlLayout();
-            if (!shotExpressionText.empty()) {
+            // "<backspace>N" deletes N characters from the caret instead of
+            // replacing the text, so a capture can show that editing an
+            // existing expression actually removes characters.
+            if (shotExpressionText.rfind("<backspace>", 0) == 0) {
+                const int count = std::atoi(shotExpressionText.c_str() + 11);
+                for (int n = 0; n < count; ++n) {
+                    host.context()->ProcessKeyDown(Rml::Input::KI_BACK, 0);
+                    ui.processFrame();
+                    host.context()->Update();
+                    ui.restoreAfterRmlLayout();
+                }
+            } else if (!shotExpressionText.empty()) {
                 host.context()->ProcessKeyDown(Rml::Input::KI_A, Rml::Input::KM_CTRL);
                 host.context()->ProcessTextInput(Rml::String(shotExpressionText));
                 ui.processFrame();

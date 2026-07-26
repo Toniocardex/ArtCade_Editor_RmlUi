@@ -15,8 +15,12 @@
 // ============================================================================
 
 #include "editor-native/app/editor_coordinator.h"
+#include "editor-native/commands/logic_expression_commands.h"
 #include "editor-native/ui/editor_ui.h"
+#include "editor-native/ui/logic_property_editor.h"
 #include "logic-core.h"
+#include "logic-number-expression-format.h"
+#include "logic-number-expression-parse.h"
 
 #include <RmlUi/Core.h>
 
@@ -274,6 +278,81 @@ void testFocusOpensTheCompletionList(Rml::Context& context, Rml::ElementDocument
 }
 
 // ----------------------------------------------------------------------------
+// Editing an expression that is already there: the caret must survive the
+// rebuild each keystroke triggers, or Backspace lands at offset 0 and does
+// nothing, and Delete eats the wrong end.
+// ----------------------------------------------------------------------------
+void testEditingAnExistingExpression(Rml::Context& context, Rml::ElementDocument& document,
+                                     EditorCoordinator& coordinator, EditorUi& ui) {
+    const LogicBoardDef& board =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicPropertyAddress address{
+        board.rules[0].id, LogicPropertyTarget::Action, 0};
+    const std::string axis = encodeLogicPropertyAddress(address, "position") + "|x";
+
+    // Abandon whatever draft the previous case left behind, so this one starts
+    // from the document rather than from a half-typed field.
+    context.ProcessKeyDown(Rml::Input::KI_ESCAPE, 0);
+    frame(context, ui);
+
+    // Put a real expression in the field, the way an author would have.
+    LogicNumberExpressionAddress target;
+    target.objectTypeId = "Hero";
+    target.ruleId = board.rules[0].id;
+    target.actionIndex = 0;
+    target.parameterId = "position";
+    target.component = LogicNumericComponent::X;
+    CHECK(coordinator.execute(SetLogicNumberExpressionCommand{
+        target, Logic::parseNumberExpression("random(0, 100)").value}).ok);
+    frame(context, ui);
+
+    Rml::Element* field = nullptr;
+    {
+        std::vector<Rml::Element*> inputs;
+        collectByClass(&document, "logic-expression-input", inputs);
+        for (Rml::Element* input : inputs)
+            if (attributeOf(input, "data-arg") == axis) field = input;
+    }
+    CHECK(field != nullptr);
+    if (!field) return;
+    CHECK(attributeOf(field, "value") == "random(0, 100)");
+
+    CHECK(field->Focus());
+    frame(context, ui);
+
+    // The caret starts where RmlUi puts it on focus; move it to the end so the
+    // gesture is unambiguous, then delete backwards.
+    Rml::Element* live = document.GetElementById("logic-expression-input");
+    CHECK(live != nullptr);
+    if (!live) return;
+    for (int i = 0; i < 6; ++i) {
+        context.ProcessKeyDown(Rml::Input::KI_BACK, 0);
+        frame(context, ui);
+    }
+
+    live = document.GetElementById("logic-expression-input");
+    CHECK(live != nullptr);
+    // Six backspaces from the end of `random(0, 100)`.
+    CHECK(attributeOf(live, "value") == "random(0");
+
+    // And clearing the field really clears it: an empty draft is the author
+    // starting over, not the absence of a draft.
+    context.ProcessKeyDown(Rml::Input::KI_A, Rml::Input::KM_CTRL);
+    context.ProcessKeyDown(Rml::Input::KI_BACK, 0);
+    frame(context, ui);
+    live = document.GetElementById("logic-expression-input");
+    CHECK(live != nullptr);
+    CHECK(attributeOf(live, "value").empty());
+    // Emptying the field is still only a draft — nothing reaches the document.
+    CHECK(Logic::formatNumberExpression(
+              std::get<LogicVec2Value>(
+                  Logic::findProperty(
+                      coordinator.document().data().objectTypes.at("Hero")
+                          .logicBoard->rules[0].actions[0], "position")->value).x,
+              Logic::NumberExpressionFormatStyle::Code) == "random(0, 100)");
+}
+
+// ----------------------------------------------------------------------------
 // Non-regression: the generic focus baseline still works for `commit-` fields.
 // Narrowing that block must not cost the Escape-restore it exists for.
 // ----------------------------------------------------------------------------
@@ -322,6 +401,20 @@ int main() {
         return 1;
     }
 
+    // Real fonts, not a fontless context: caret movement (End, Home, arrows)
+    // asks the text widget for line metrics, and a widget with no font has no
+    // lines to measure. Without these the harness would be measuring a
+    // different program than the one that ships.
+    const std::filesystem::path fonts =
+        std::filesystem::path(ARTCADE_UI_RESOURCE_DIR).parent_path() / "fonts" / "inter";
+    for (const char* face : {"Inter-Regular.ttf", "Inter-Medium.ttf",
+                             "Inter-SemiBold.ttf", "Inter-Bold.ttf"}) {
+        if (!Rml::LoadFontFace((fonts / face).string())) {
+            std::cerr << "FAIL LoadFontFace " << face << "\n";
+            ++failed;
+        }
+    }
+
     const std::filesystem::path shell =
         std::filesystem::path(ARTCADE_UI_RESOURCE_DIR) / "editor_shell.rml";
     Rml::ElementDocument* document = context->LoadDocument(shell.string());
@@ -341,6 +434,7 @@ int main() {
     // Scene workspace first: the grid field lives in the Scene toolbar.
     testCommitFieldKeepsItsFocusBaseline(*context, *document);
     testFocusOpensTheCompletionList(*context, *document, coordinator, ui);
+    testEditingAnExistingExpression(*context, *document, coordinator, ui);
 
     // Controllers are detached before the documents they observe, and the
     // documents before the context (Constitution AC-LIFE-001).
