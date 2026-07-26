@@ -467,6 +467,15 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             if (Rml::Element* input = document->GetElementById("logic-key-search-input"))
                 input->Focus(true);
         }
+        // ADR-0029: same reason as the line above. Focusing an expression field
+        // calls refresh(), and SetInnerRML destroys the very element that holds
+        // the caret — so without this the field comes back empty and unfocused
+        // and its completion list renders for an element the user is no longer
+        // in. The id exists on the focused field only.
+        if (!expressionFocusAddress_.empty()) {
+            if (Rml::Element* input = document->GetElementById("logic-expression-input"))
+                input->Focus(true);
+        }
         syncResponsiveClass(document);
     };
 

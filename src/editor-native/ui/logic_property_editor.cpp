@@ -265,7 +265,12 @@ std::string renderLogicProperties(
                     ? expressionField.draftText
                     : Logic::formatNumberExpression(
                           expr, Logic::NumberExpressionFormatStyle::Code);
-                html += "<input type=\"text\" class=\"logic-value-input logic-expression-input";
+                // A stable id on the focused field only, so refresh() can put
+                // the caret back after it rebuilds the panel — the same
+                // mechanism logic-key-search-input already relies on.
+                html += "<input type=\"text\"";
+                if (focused) html += " id=\"logic-expression-input\"";
+                html += " class=\"logic-value-input logic-expression-input";
                 if (hasError) html += " invalid";
                 html += "\" data-action=\"edit-logic-expression\" data-arg=\""
                       + escapeRml(axisAddress) + "\" value=\"" + escapeRml(shown) + "\"";
