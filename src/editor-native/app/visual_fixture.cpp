@@ -61,7 +61,8 @@ LogicRuleDef makeCollectRule() {
         Logic::makeDefaultBlock(Logic::kDestroyOther, Logic::BlockKind::Action);
     rule.actions.push_back(LogicBlockDef{
         Logic::kStateAdd,
-        {{"key", LogicVariableReference{"score"}}, {"amount", 1.0}}});
+        {{"key", LogicVariableReference{"score"}},
+         {"amount", NumberExpression::literal(1.0)}}});
     return rule;
 }
 

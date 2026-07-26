@@ -410,8 +410,8 @@ static void testConditionControllerAndGenericProperties() {
         "commit-logic-property", rule.id + "|t|0|seconds", "2.5", {}));
     const LogicBoardDef* board =
         &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
-    CHECK(std::get<double>(
-        Logic::findProperty(board->rules[0].trigger, "seconds")->value) == 2.5);
+    CHECK(literalNumberValue(std::get<NumberExpression>(
+        Logic::findProperty(board->rules[0].trigger, "seconds")->value)) == 2.5);
 
     CHECK(controller.handleAction(
         "add-logic-condition-type", rule.id, Logic::kStateCompare, {}));
@@ -427,8 +427,8 @@ static void testConditionControllerAndGenericProperties() {
         board->rules[0].conditions[0].block, "key")->value).id == "score");
     CHECK(std::get<LogicStringValue>(Logic::findProperty(
         board->rules[0].conditions[0].block, "op")->value).value == ">=");
-    CHECK(std::get<double>(Logic::findProperty(
-        board->rules[0].conditions[0].block, "value")->value) == 10.0);
+    CHECK(literalNumberValue(std::get<NumberExpression>(Logic::findProperty(
+        board->rules[0].conditions[0].block, "value")->value)) == 10.0);
 
     CHECK(controller.handleAction(
         "add-logic-condition-type", rule.id, Logic::kKeyDown, {}));
@@ -472,8 +472,8 @@ static void testConditionControllerAndGenericProperties() {
     CHECK(controller.handleAction(
         "commit-logic-property", rule.id + "|a|0|value", "42", {}));
     board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
-    CHECK(std::get<double>(
-        Logic::findProperty(board->rules[0].actions[0], "value")->value) == 42.0);
+    CHECK(literalNumberValue(std::get<NumberExpression>(
+        Logic::findProperty(board->rules[0].actions[0], "value")->value)) == 42.0);
 
     CHECK(controller.handleAction(
         "change-logic-action", rule.id + "|0", Logic::kStateAdd, {}));
@@ -1317,7 +1317,7 @@ static void testAnimationActions() {
     play.properties[1].value = LogicStringValue{"run"};
     LogicBlockDef speed = Logic::makeDefaultBlock(
         Logic::kAnimationSetPlaybackSpeed, Logic::BlockKind::Action);
-    speed.properties[0].value = 2.0;
+    speed.properties[0].value = NumberExpression::literal(2.0);
     start.actions.push_back(play);
     start.actions.push_back(speed);
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", start, 0}).ok);
@@ -1428,7 +1428,8 @@ static void testPlaySoundAction() {
         "Hero", start.id, LogicPropertyTarget::Action, 0,
         "audioAssetId", LogicAssetReference{"jump.wav"}}).ok);
     CHECK(coordinator.execute(SetLogicPropertyCommand{
-        "Hero", start.id, LogicPropertyTarget::Action, 0, "volume", 0.5}).ok);
+        "Hero", start.id, LogicPropertyTarget::Action, 0, "volume",
+        NumberExpression::literal(0.5)}).ok);
 
     const auto compiled = Logic::compileProjectLogic(coordinator.document().data());
     CHECK(compiled.ok());
@@ -1442,11 +1443,13 @@ static void testPlaySoundAction() {
     CHECK(coordinator.stopPlaying().ok);
 
     CHECK(coordinator.execute(SetLogicPropertyCommand{
-        "Hero", start.id, LogicPropertyTarget::Action, 0, "volume", 0.9}).ok);
+        "Hero", start.id, LogicPropertyTarget::Action, 0, "volume",
+        NumberExpression::literal(0.9)}).ok);
     CHECK(coordinator.undo().ok);
     const LogicBlockDef& undone = coordinator.document().data().objectTypes.at("Hero")
         .logicBoard->rules[0].actions[0];
-    CHECK(std::get<double>(Logic::findProperty(undone, "volume")->value) == 0.5);
+    CHECK(literalNumberValue(std::get<NumberExpression>(
+        Logic::findProperty(undone, "volume")->value)) == 0.5);
 }
 
 static void testPlaySoundCanBeSelectedBeforeImportingAudio() {
@@ -1485,9 +1488,9 @@ static void testPlaySoundCanBeSelectedBeforeImportingAudio() {
     // locally reinterprets the core diagnostic policy.
     CHECK(controller.handleAction(
         "commit-logic-audio-volume", start.id + "|0", "0.4", {}));
-    CHECK(std::abs(std::get<double>(Logic::findProperty(
+    CHECK(std::abs(literalNumberValue(std::get<NumberExpression>(Logic::findProperty(
         coordinator.document().data().objectTypes.at("Hero").logicBoard
-            ->rules[0].actions[0], "volume")->value) - 0.4) < 1e-6);
+            ->rules[0].actions[0], "volume")->value)).value_or(0.0) - 0.4) < 1e-6);
 
     // Drafts are real authoring states: Save/Load preserves them, while the
     // executable validator above continues to block Play.
@@ -1504,8 +1507,8 @@ static void testPlaySoundCanBeSelectedBeforeImportingAudio() {
     CHECK(reloadedDraft.typeId == Logic::kAudioPlaySound);
     CHECK(std::get<LogicAssetReference>(
         Logic::findProperty(reloadedDraft, "audioAssetId")->value).id.empty());
-    CHECK(std::abs(std::get<double>(
-        Logic::findProperty(reloadedDraft, "volume")->value) - 0.4) < 1e-6);
+    CHECK(std::abs(literalNumberValue(std::get<NumberExpression>(
+        Logic::findProperty(reloadedDraft, "volume")->value)).value_or(0.0) - 0.4) < 1e-6);
 
     // Complete the same loaded draft through normal authoring Commands, then
     // Save and Play successfully.
@@ -1615,7 +1618,7 @@ static void testPlaySoundActionValidation() {
     LogicRuleDef volumeRule = Logic::makeDefaultRule("rule-1");
     volumeRule.actions[0] = Logic::makeDefaultBlock(Logic::kAudioPlaySound, Logic::BlockKind::Action);
     volumeRule.actions[0].properties[0].value = LogicAssetReference{"jump.wav"};
-    volumeRule.actions[0].properties[1].value = 1.5;
+    volumeRule.actions[0].properties[1].value = NumberExpression::literal(1.5);
     volumeBoard.rules.push_back(volumeRule);
     badVolume.objectTypes.at("Hero").logicBoard = volumeBoard;
     CHECK(ProjectValidator::validate(ProjectDocument{badVolume}).ok);

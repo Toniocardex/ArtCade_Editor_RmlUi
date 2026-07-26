@@ -207,7 +207,11 @@ std::string renderLogicProperties(
                    || property.valueKind == Logic::LogicValueKind::Integer) {
             double value = 0.0;
             if (current) {
-                if (const auto* numberValue = std::get_if<double>(&current->value)) value = *numberValue;
+                // ADR-0029: a Number property holds a NumberExpression. This
+                // branch renders the literal field, so a dynamic value simply
+                // has no literal to show — the expression field handles those.
+                if (const auto* expr = std::get_if<NumberExpression>(&current->value))
+                    value = literalNumberValue(*expr).value_or(0.0);
                 else if (const auto* integerValue = std::get_if<int64_t>(&current->value))
                     value = static_cast<double>(*integerValue);
             }

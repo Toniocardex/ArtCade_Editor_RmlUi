@@ -88,11 +88,10 @@ struct LogicEntityReference {
 using LogicValue = std::variant<
     bool,
     int64_t,
-    double,
-    // ADR-0029: a scalar property that opts into expressions stores this
-    // *always*, literal or not, exactly as a Vec2 property always stores
-    // LogicVec2Value. The descriptor's policy decides which arm a property
-    // uses, so there is never a choice to make at read time.
+    // ADR-0029: every Number-kind property stores this — there is no `double`
+    // arm, exactly as there is no `Vec2` arm beside LogicVec2Value. One
+    // representation means no read site ever has to ask which arm it is
+    // looking at, and the policy alone decides whether a value may be dynamic.
     NumberExpression,
     LogicStringValue,
     LogicVec2Value,
