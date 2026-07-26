@@ -11,9 +11,19 @@
 // The flex set is read from the .rcss rather than hard-coded: a panel that
 // becomes flex tomorrow is covered without anyone remembering to update a list.
 //
-// Scope: the authored .rml documents. Markup that C++ stamps in with
-// SetInnerRML is not visible here; the component gallery
-// (--shot-gallery / component_gallery.cpp) is where those are eyeballed.
+// Scope: the authored .rml documents, plus the markup the editor builds in C++
+// and stamps in with SetInnerRML — which is most of the Logic Board, Assets and
+// Inspector menus, and five times the markup the .rml hold. All three
+// recurrences so far happened to land in .rml, but nothing makes the C++ side
+// safer; it was simply uncovered.
+//
+// Blind spot, stated rather than papered over: C++ markup is concatenation, and
+// an interpolated expression is opaque to a static scan — `+ dropdownTrigger(…)
+// +` yields an element while `+ label +` would yield text, and the two are
+// indistinguishable here. Interpolations are therefore treated as neither text
+// nor markup, so this catches literal labels (the shape every past regression
+// took) with no false positives and no whitelist, and does not pretend to cover
+// the interpolated ones. Those render through the component gallery.
 
 #include <algorithm>
 #include <cctype>
@@ -42,8 +52,13 @@ std::string readFile(const std::filesystem::path& path) {
 
 bool isSpace(char c) { return std::isspace(static_cast<unsigned char>(c)) != 0; }
 
+// Stands in for an interpolated C++ expression. It cannot occur in real markup,
+// and carries no verdict: a run made only of these is not a label.
+constexpr char kOpaque = '\x01';
+
 bool isBlank(const std::string& text) {
-    return std::all_of(text.begin(), text.end(), [](char c) { return isSpace(c); });
+    return std::all_of(text.begin(), text.end(),
+                       [](char c) { return isSpace(c) || c == kOpaque; });
 }
 
 std::string stripRcssComments(const std::string& text) {
@@ -217,6 +232,75 @@ std::vector<Violation> scanDocument(const std::string& doc, const FlexSelectors&
     return hits;
 }
 
+/**
+ * Runs of concatenated C++ string literals, each interpolated expression
+ * collapsed to a single kOpaque.
+ *
+ * Anything inside parentheses is part of a call, so its literals belong to that
+ * expression and must not be spliced into the surrounding markup — without that
+ * depth rule `dropdownTriggerMarkup("Choose Sound", …)` would read as the text
+ * "Choose Sound" sitting inside the flex row that consumes its result.
+ */
+std::vector<std::string> collectMarkupRuns(const std::string& cpp) {
+    std::vector<std::string> runs;
+    std::string current;
+    int depth = 0;
+    bool opaquePending = false;
+    const auto flush = [&] {
+        if (current.find('<') != std::string::npos) runs.push_back(current);
+        current.clear();
+        opaquePending = false;
+    };
+    std::size_t i = 0;
+    while (i < cpp.size()) {
+        const char c = cpp[i];
+        if (c == '/' && i + 1 < cpp.size() && cpp[i + 1] == '/') {
+            while (i < cpp.size() && cpp[i] != '\n') ++i;
+            continue;
+        }
+        if (c == '/' && i + 1 < cpp.size() && cpp[i + 1] == '*') {
+            const std::size_t end = cpp.find("*/", i + 2);
+            i = (end == std::string::npos) ? cpp.size() : end + 2;
+            continue;
+        }
+        if (c == '\'') {  // char literal: never markup, and may hold a quote
+            i += (i + 1 < cpp.size() && cpp[i + 1] == '\\') ? 4 : 3;
+            continue;
+        }
+        if (c == '"') {
+            const bool keep = depth == 0;
+            if (keep && opaquePending) {
+                current += kOpaque;
+                opaquePending = false;
+            }
+            ++i;
+            while (i < cpp.size() && cpp[i] != '"') {
+                if (cpp[i] == '\\' && i + 1 < cpp.size()) {
+                    // Only \" and \\ carry into markup; \n and friends are
+                    // formatting, which is whitespace here.
+                    if (keep) current += (cpp[i + 1] == '"' || cpp[i + 1] == '\\')
+                                       ? cpp[i + 1] : ' ';
+                    i += 2;
+                    continue;
+                }
+                if (keep) current += cpp[i];
+                ++i;
+            }
+            ++i;
+            if (!keep) opaquePending = true;
+            continue;
+        }
+        if (c == '(') { ++depth; opaquePending = !current.empty(); ++i; continue; }
+        if (c == ')') { if (depth > 0) --depth; ++i; continue; }
+        if (depth == 0 && (c == ';' || c == '{' || c == '}')) { flush(); ++i; continue; }
+        if (isSpace(c) || c == '+') { ++i; continue; }
+        if (!current.empty()) opaquePending = true;
+        ++i;
+    }
+    flush();
+    return runs;
+}
+
 } // namespace
 
 int main() {
@@ -252,6 +336,32 @@ int main() {
     }
     CHECK(documents >= 3);
 
+    // Same invariant over the markup the editor builds in C++.
+    int sources = 0;
+    int markupRuns = 0;
+    for (const auto& entry :
+         std::filesystem::recursive_directory_iterator{
+             std::filesystem::path{ARTCADE_UI_SOURCE_DIR}}) {
+        const std::filesystem::path& path = entry.path();
+        if (path.extension() != ".cpp" && path.extension() != ".h") continue;
+        ++sources;
+        const std::string name = path.filename().string();
+        for (const std::string& run : collectMarkupRuns(readFile(path))) {
+            ++markupRuns;
+            for (const Violation& hit : scanDocument(run, flex)) {
+                ++failed;
+                std::cerr << "FAIL " << name << " bare text \"" << hit.text
+                          << "\" inside flex " << hit.owner
+                          << " — RmlUi lays out no anonymous flex item, so this "
+                             "label is invisible; wrap it in a <span>\n";
+            }
+        }
+    }
+    CHECK(sources >= 20);
+    // A reconstructor that silently stopped finding markup would turn this half
+    // of the suite into a no-op that still reports success.
+    CHECK(markupRuns >= 200);
+
     // A scanner that cannot fail enforces nothing: exercise both verdicts on
     // the exact shapes the real regressions took.
     FlexSelectors fixture;
@@ -274,6 +384,56 @@ int main() {
     // An attribute holding '>' must not be mistaken for the end of the tag.
     CHECK(scanDocument("<div class=\"context-entry\" title=\"a > b\"><span>Ok</span></div>",
                        fixture).empty());
+
+    // The C++ reconstructor gets the same treatment, on the shapes the panels
+    // actually contain.
+    const auto violationsIn = [&](const std::string& source) {
+        std::size_t total = 0;
+        for (const std::string& run : collectMarkupRuns(source))
+            total += scanDocument(run, fixture).size();
+        return total;
+    };
+    // A table rather than inline CHECK arguments: CHECK stringifies what it is
+    // given, and a raw string full of quotes does not survive that intact.
+    struct CppCase { const char* label; const char* source; std::size_t expected; };
+    const CppCase cppCases[] = {
+        {"literal label in a flex row",
+         R"CPP(html += "<div class=\"context-entry\"><span class=\"icon\">x</span>Delete</div>";)CPP",
+         1},
+        {"label wrapped in a span",
+         R"CPP(html += "<div class=\"context-entry\"><span class=\"icon\">x</span><span>Delete</span></div>";)CPP",
+         0},
+        // Interpolation is opaque, and a call's own arguments must not be
+        // spliced into the surrounding row as if they were its text.
+        {"call result interpolated",
+         R"CPP(html += "<div class=\"context-entry\">" + trigger("Choose Sound", id) + "</div>";)CPP",
+         0},
+        {"variable interpolated",
+         R"CPP(html += "<div class=\"context-entry\">" + label + "</div>";)CPP",
+         0},
+        // A quote inside a comment or a char literal must not desynchronise the
+        // lexer and swallow the markup that follows.
+        {"apostrophe in a comment",
+         "// don't touch this\n"
+         R"CPP(html += "<div class=\"context-entry\"><span>Ok</span></div>";)CPP",
+         0},
+        {"quote as a char literal",
+         "if (c == '\"') ++i;\n"
+         R"CPP(html += "<div class=\"context-entry\">Delete</div>";)CPP",
+         1},
+    };
+    for (const CppCase& one : cppCases) {
+        const std::size_t got = violationsIn(one.source);
+        if (got == one.expected) { ++passed; continue; }
+        ++failed;
+        std::cerr << "FAIL C++ scan self-test [" << one.label << "]: expected "
+                  << one.expected << " violation(s), got " << got << "\n";
+    }
+    // Escapes must come back as real markup, not as escaped source text.
+    const std::vector<std::string> rebuilt = collectMarkupRuns(
+        R"CPP(html += "<div class=\"logic-inline\">";)CPP");
+    CHECK(rebuilt.size() == 1);
+    CHECK(!rebuilt.empty() && rebuilt[0] == "<div class=\"logic-inline\">");
 
     std::cout << "ui-markup-flex-text-test: " << passed << " passed, "
               << failed << " failed\n";
