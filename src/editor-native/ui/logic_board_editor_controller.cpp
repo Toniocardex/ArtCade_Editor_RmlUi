@@ -342,16 +342,15 @@ bool LogicBoardEditorController::handleAction(
         || action == "remove-logic-rule"
         || action == "move-logic-rule-up" || action == "move-logic-rule-down"
         || action == "toggle-logic-rule" || action == "change-logic-trigger"
-        || action == "set-logic-key" || action == "add-logic-action-type"
+        || action == "add-logic-action-type"
         || action == "remove-logic-action" || action == "move-logic-action-up"
         || action == "move-logic-action-down" || action == "change-logic-action"
-        || action == "set-logic-visible" || action == "commit-logic-position-x"
+        || action == "set-logic-visible"
         || action == "repair-logic-disable-rules"
         || action == "repair-logic-remove-actions"
         || action == "repair-logic-remove-rules"
         || action == "focus-logic-diagnostic"
-        || action == "commit-logic-position-y" || action == "commit-logic-offset-x"
-        || action == "commit-logic-offset-y" || action == "set-logic-animation-asset"
+        || action == "set-logic-animation-asset"
         || action == "set-logic-animation-clip" || action == "commit-logic-animation-speed"
         || action == "set-logic-audio-asset" || action == "commit-logic-audio-volume"
         || action == "set-logic-event-collision-object-type"
@@ -646,11 +645,6 @@ bool LogicBoardEditorController::handleAction(
             coordinator_.execute(SetLogicRuleExecutionModeCommand{objectTypeId, arg, *mode});
     } else if (action == "change-logic-trigger") {
         coordinator_.apply(ChangeLogicTriggerTypeIntent{objectTypeId, arg, value});
-    } else if (action == "set-logic-key") {
-        if (const auto key = Logic::logicKeyFromName(value)) {
-            coordinator_.execute(SetLogicPropertyCommand{
-                objectTypeId, arg, LogicPropertyTarget::Trigger, 0, "key", *key});
-        }
     } else if (action == "set-logic-event-collision-object-type") {
         coordinator_.execute(SetLogicPropertyCommand{
             objectTypeId, arg, LogicPropertyTarget::Trigger, 0,
@@ -659,9 +653,8 @@ bool LogicBoardEditorController::handleAction(
         coordinator_.apply(AddLogicActionTypeIntent{objectTypeId, arg, value});
     } else if (action == "remove-logic-action" || action == "move-logic-action-up"
                || action == "move-logic-action-down" || action == "change-logic-action"
-               || action == "set-logic-visible" || action == "commit-logic-position-x"
-               || action == "commit-logic-position-y" || action == "commit-logic-offset-x"
-               || action == "commit-logic-offset-y" || action == "set-logic-animation-asset"
+               || action == "set-logic-visible"
+               || action == "set-logic-animation-asset"
                || action == "set-logic-animation-clip"
                || action == "commit-logic-animation-speed"
                || action == "set-logic-audio-asset" || action == "commit-logic-audio-volume") {
@@ -684,36 +677,6 @@ bool LogicBoardEditorController::handleAction(
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, ruleId, LogicPropertyTarget::Action, index, "visible",
                 value == "true"});
-        } else if (action == "commit-logic-position-x" || action == "commit-logic-position-y") {
-            const std::optional<float> parsed = parseNumberField(value);
-            if (!parsed) {
-                coordinator_.logError("Logic position must be a finite number");
-                return true;
-            }
-            LogicVec2Value position = LogicVec2Value::literal(0.0, 0.0);
-            if (const LogicPropertyDef* p = Logic::findProperty(rule->actions[index], "position"))
-                if (const auto* current = std::get_if<LogicVec2Value>(&p->value)) position = *current;
-            if (action == "commit-logic-position-x")
-                position.x = NumberExpression::literal(*parsed);
-            else
-                position.y = NumberExpression::literal(*parsed);
-            coordinator_.execute(SetLogicPropertyCommand{
-                objectTypeId, ruleId, LogicPropertyTarget::Action, index, "position", position});
-        } else if (action == "commit-logic-offset-x" || action == "commit-logic-offset-y") {
-            const std::optional<float> parsed = parseNumberField(value);
-            if (!parsed) {
-                coordinator_.logError("Logic offset must be a finite number");
-                return true;
-            }
-            LogicVec2Value offset = LogicVec2Value::literal(0.0, 0.0);
-            if (const LogicPropertyDef* p = Logic::findProperty(rule->actions[index], "offset"))
-                if (const auto* current = std::get_if<LogicVec2Value>(&p->value)) offset = *current;
-            if (action == "commit-logic-offset-x")
-                offset.x = NumberExpression::literal(*parsed);
-            else
-                offset.y = NumberExpression::literal(*parsed);
-            coordinator_.execute(SetLogicPropertyCommand{
-                objectTypeId, ruleId, LogicPropertyTarget::Action, index, "offset", offset});
         } else if (action == "set-logic-animation-asset") {
             const SpriteAnimationAssetDef* asset =
                 coordinator_.document().findSpriteAnimationAsset(value);

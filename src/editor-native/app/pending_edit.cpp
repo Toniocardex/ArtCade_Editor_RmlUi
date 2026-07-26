@@ -36,9 +36,12 @@ bool isNumericCommit(const std::string& action) {
         "commit-tileset-tile-width", "commit-tileset-tile-height",
         "commit-tileset-margin-x", "commit-tileset-margin-y",
         "commit-tileset-spacing-x", "commit-tileset-spacing-y",
-        "commit-logic-position-x", "commit-logic-position-y",
-        "commit-logic-offset-x", "commit-logic-offset-y",
+        // Vec2 LiteralOnly axes + animation/audio volume. Do not list
+        // commit-logic-property here: that action also commits free-text
+        // string properties.
+        "commit-logic-property-component",
         "commit-logic-animation-speed",
+        "commit-logic-audio-volume",
         "commit-sfx-field", "commit-sfx-macro",
     };
     return std::find(std::begin(actions), std::end(actions), action) != std::end(actions);

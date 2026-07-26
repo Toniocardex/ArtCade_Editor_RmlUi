@@ -2,7 +2,9 @@
 
 **Status:** Accepted  
 **Date:** 2026-07-26  
-**Scope:** Decision only. Future native RmlUi empty-scene hub and app-local recent-projects persistence; no implementation in this slice.  
+**Scope:** Native RmlUi empty-scene hub and app-local recent-projects
+persistence. Implemented in editor native sources; this ADR remains the
+behaviour authority.  
 **Gate classification:** Engineering Gates §3 — RmlUi UI surface plus platform preferences persistence.  
 **Related:** Architecture Constitution, Engineering Gates, ADR-0017, ADR-0027,
 [`LOGIC_BOARD_RULES_ROADMAP.md`](LOGIC_BOARD_RULES_ROADMAP.md),
@@ -390,9 +392,9 @@ It must reuse the normal unsaved guard, Play guard, load transaction, texture
 cache invalidation, current-path update, window title update, diagnostics, and
 replace semantics.
 
-## Future implementation acceptance criteria
+## Shipped acceptance criteria
 
-The later code slice is complete only when all of the following are testable:
+The empty-scene hub slice is complete when all of the following are testable:
 
 - `#viewport-empty` still appears only when there is no Scene, the editor is not
   playing, and the Scene workspace is active;
@@ -422,13 +424,15 @@ The later code slice is complete only when all of the following are testable:
 
 ## Document Definition of Done
 
-This documentation-only slice is complete when:
+This ADR is complete when:
 
-- this file exists as ADR-0030 with `Status: Accepted`;
-- ADR-0029 and earlier decisions remain unchanged;
+- this file exists as ADR-0030 with `Status: Accepted` and Scope reflecting the
+  shipped native hub;
+- behaviour for MRU touch/remove, missing-path auto-remove on open, inspection
+  errors, Play hiding, and revision-gated refresh is recorded;
+- ADR-0029 and earlier decisions remain unchanged except where this document
+  explicitly extends empty-workspace UX;
 - `LOGIC_BOARD_RULES_ROADMAP.md` links to this decision without treating it as a
   Logic Board implementation slice;
-- the document classifies the future work as RmlUi UI plus platform preferences;
 - authority, failure paths, Play behavior, targeted refresh, testable acceptance
-  criteria, and explicit exclusions are recorded;
-- no source, RML, RCSS, CMake, or test implementation is changed in this slice.
+  criteria, and explicit exclusions are recorded.

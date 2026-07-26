@@ -1,6 +1,7 @@
 # ADR-0029 — Number Expressions Are Authored As Text
 
-**Status:** Proposed
+**Status:** Accepted — authoring UI shipped; scalar `NumberExpression` disk
+migration still remaining (see Implementation status)
 **Date:** 2026-07-26
 **Scope:** Canonical expression syntax, parser, the value field as the editor,
 per-descriptor expression policy
@@ -170,24 +171,16 @@ is not mistaken for the state of the world:
 | Part | State |
 |---|---|
 | `Code` style, parser, round-trip test, completion vocabulary | Done (`ea062e8`) |
-| The value field as the editor: typing, completions, inline errors | Done (`2cf5770`) — **on `entity.set_position.position` only** |
+| The value field as the editor: typing, completions, inline errors | Done (`2cf5770`) on Set Position; generic property editor reused by later Vec2 flips |
 | Modal, node tree, palette, Apply/Cancel draft removed | Done (`cb607e3`) |
-| The other 13 parameters in the policy table | **Not started** |
+| Vec2 policy + codegen: `translate_by.offset`, `set_velocity.velocity` | Done (`14b1c18`) — expression field via generic property editor |
+| Vec2 still `LiteralOnly`: `set_scale.scale`, `spawn.position` | Unchanged (correct for LiteralOnly) |
+| Nine scalar Number parameters (policy / editor / disk arm) | **Not started** — needs schema 5 / format 12 migration |
 | Logic Board schema 5, project format 12 | **Not started** |
 
-Every parameter except Set Position still renders the plain numeric field. That
-is correct behaviour for `LiteralOnly`, so nothing is broken — but the table
-above describes an intent for those rows, not shipped behaviour.
-
-The 13 split into two kinds of work. Four are Vec2 — `translate_by.offset`,
-`set_scale.scale`, `spawn.position`, `set_velocity.velocity` — which already
-store `LogicVec2Value` structurally, so they need only the policy flipped and
-codegen taught to compile a non-literal instead of skipping it. Nine are
-scalars — `set_rotation.degrees`, `rotate_by.degrees`, `state.set.value`,
-`state.add.amount`, `state.subtract.amount`, `state.compare.value`,
-`wait.seconds`, `set_playback_speed.speed`, `play_sound.volume` — which store
-`NumberExpression` since slice 4, and additionally need the editor's Number
-field to accept text the way Set Position's does.
+Set Position, Move By, and Set Velocity offer the expression text field.
+Set Scale and Spawn keep plain numeric axes. The nine scalars still need the
+indivisible `LogicValue` NumberExpression arm + schema bump described below.
 
 Three of the nine carry a static range check (volume, playback speed, and the
 excluded timer interval); the rule for those is in the section above and is the

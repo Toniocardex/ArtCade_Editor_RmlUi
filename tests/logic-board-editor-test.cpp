@@ -2562,17 +2562,16 @@ static void testSetPositionPropertyEditorIsATypedField() {
     CHECK(markup.find(">Target<") == std::string::npos);
     CHECK(markup.find(">Position<") != std::string::npos);
 
-    // Move By remains LiteralOnly — no fx affordance.
-    LogicRuleDef move = Logic::makeDefaultRule("rule-move");
-    move.actions[0] = Logic::makeDefaultBlock(Logic::kSetScale, Logic::BlockKind::Action);
-    const std::string moveMarkup = renderLogicProperties(
-        coordinator.document(), nullptr, move.actions[0],
-        LogicPropertyAddress{move.id, LogicPropertyTarget::Action, 0},
+    // Set Scale stays LiteralOnly — plain numeric axes, no expression field.
+    LogicRuleDef scale = Logic::makeDefaultRule("rule-scale");
+    scale.actions[0] = Logic::makeDefaultBlock(Logic::kSetScale, Logic::BlockKind::Action);
+    const std::string scaleMarkup = renderLogicProperties(
+        coordinator.document(), nullptr, scale.actions[0],
+        LogicPropertyAddress{scale.id, LogicPropertyTarget::Action, 0},
         "", LogicKeyBindingEditorState{}, LogicExpressionFieldState{}, false);
-    CHECK(moveMarkup.find("open-number-expression-editor") == std::string::npos);
-    // LiteralOnly keeps the plain numeric field, not the expression one.
-    CHECK(moveMarkup.find("logic-expression-input") == std::string::npos);
-    CHECK(moveMarkup.find("commit-logic-property-component") != std::string::npos);
+    CHECK(scaleMarkup.find("open-number-expression-editor") == std::string::npos);
+    CHECK(scaleMarkup.find("logic-expression-input") == std::string::npos);
+    CHECK(scaleMarkup.find("commit-logic-property-component") != std::string::npos);
 
     // ADR-0029: the completion list opens on focus and must be reachable
     // without knowing what to type. Filtering by the value already in the

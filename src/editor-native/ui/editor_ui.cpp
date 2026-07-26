@@ -247,12 +247,19 @@ public:
         // "value" attribute cannot serve as the pre-edit reference for change
         // detection or Escape-restore: RmlUi's WidgetTextInput rewrites that
         // attribute on every keystroke, so it always equals the typed text.
+        // Stamped for every focus, so a rebuilt or abandoned field never leaves
+        // a stale baseline behind — but only *consumed* by the fields it
+        // belongs to. Returning on the event type alone hid every later focus
+        // branch: `focus-logic-expression` (ADR-0029) sat under this block and
+        // could not be reached, which took the expression field's completion
+        // list with it. The physical event type must not shadow the semantic
+        // action the element declares.
         if (type == "focus") {
             const bool commitField = action.rfind("commit-", 0) == 0;
             focusBaselineElement_ = commitField ? actionElement : nullptr;
             focusBaselineValue_ = commitField ? formValue(actionElement, event)
                                               : std::string();
-            return;
+            if (commitField) return;
         }
         if (action.empty()) return;
 
@@ -2759,8 +2766,6 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     }
     if (action == "select-logic-object-type") {
         hideContextMenus();   // then fall through to execute the pick
-    } else if (action == "set-logic-key") {
-        logicBoardEditor_.closeDropdown();   // then fall through to execute the pick
     }
 
     if (handleProjectFileAction(action, arg, value)) return;

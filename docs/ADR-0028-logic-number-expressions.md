@@ -44,10 +44,11 @@ LogicVec2Value { NumberExpression x; NumberExpression y; }
 `LogicVec2Value` only (never both `Vec2` and `LogicVec2Value`).
 
 `NumericExpressionPolicy` is appended at the end of `LogicPropertyDescriptor`
-(default `LiteralOnly`). Only `entity.set_position` / `position` uses
-`PerComponentNumberExpression`. Other Vec2 properties stay `LiteralOnly`,
-enforced by the shared validator for StructuralCommit, AuthoringDiagnostics,
-and Executable.
+(default `LiteralOnly`). At ADR-0028 acceptance only `entity.set_position` /
+`position` used `PerComponentNumberExpression`. Later flips (ADR-0029 / catalog
+updates) also enable Move By `offset` and Set Velocity `velocity`; Set Scale and
+Spawn remain `LiteralOnly` until those policies change. Enforcement is shared
+across StructuralCommit, AuthoringDiagnostics, and Executable.
 
 ### Versions
 

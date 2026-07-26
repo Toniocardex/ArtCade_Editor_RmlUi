@@ -224,7 +224,8 @@ const LogicPropertyDef* findProperty(const LogicBlockDef& block, const std::stri
 LogicBlockDef makeDefaultBlock(const LogicBlockTypeId& typeId, BlockKind expected);
 /**
  * Vec2 catalog property with an explicit NumericExpressionPolicy (ADR-0028).
- * Used for Set Position position; other Vec2 properties keep LiteralOnly default.
+ * Used for Set Position, Move By, and Set Velocity Vec2 axes that opt into
+ * PerComponentNumberExpression; LiteralOnly Vec2 properties keep plain axes.
  */
 [[nodiscard]] LogicPropertyDescriptor expressionVec2Property(
     std::string key,
