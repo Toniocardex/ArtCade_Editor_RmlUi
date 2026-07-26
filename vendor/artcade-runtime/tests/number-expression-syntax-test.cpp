@@ -175,13 +175,23 @@ void testAuthoredText() {
     CHECK(parses("self.x") == "self.x");
     CHECK(parses("$score") == "$score");
     CHECK(parses("$global.score") == "$global.score");
-    CHECK(parses("self.x + 10") == "(self.x + 10)");
+    // The field shows this text, so it carries only the parentheses the tree
+    // actually needs — the ones an author would have written themselves.
+    CHECK(parses("self.x + 10") == "self.x + 10");
     CHECK(parses("clamp(self.x + 10, 0, scene.width)")
-          == "clamp((self.x + 10), 0, scene.width)");
+          == "clamp(self.x + 10, 0, scene.width)");
     // Precedence must be real, not left-to-right.
-    CHECK(parses("1 + 2 * 3") == "(1 + (2 * 3))");
-    CHECK(parses("(1 + 2) * 3") == "((1 + 2) * 3)");
-    CHECK(parses("10 - 3 - 2") == "((10 - 3) - 2)");
+    CHECK(parses("1 + 2 * 3") == "1 + 2 * 3");
+    CHECK(parses("(1 + 2) * 3") == "(1 + 2) * 3");
+    CHECK(parses("10 - 3 - 2") == "10 - 3 - 2");
+    // Kept, because dropping them would change the tree: both operators are
+    // left-associative, so an equal-precedence child on the right is not free.
+    CHECK(parses("10 - (3 - 2)") == "10 - (3 - 2)");
+    CHECK(parses("100 / (5 / 2)") == "100 / (5 / 2)");
+    CHECK(parses("2 * (1 + 3)") == "2 * (1 + 3)");
+    CHECK(parses("(1 + 2) / 3") == "(1 + 2) / 3");
+    // Nesting keeps only the inner pair.
+    CHECK(parses("((self.x + 10) * 2)") == "(self.x + 10) * 2");
     // Redundant parentheses are the author's, and collapse into the same tree.
     CHECK(parses("((((5))))") == "5");
     CHECK(parses("1e3") == "1000");

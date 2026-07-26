@@ -426,8 +426,8 @@ void testEscapeRollsBackAndBlurCommits(Rml::Context& context, Rml::ElementDocume
     }
 
     // ---- Blur commits a valid draft ----------------------------------------
-    // The formatter parenthesises a top-level binary expression, so what comes
-    // back is `(self.x + 10)` — parse and format stay mutually inverse.
+    // The Code form carries only the parentheses the tree needs, so this comes
+    // back exactly as typed.
     typeIntoExpressionField(context, document, ui, axis, "self.x + 10");
     const uint64_t beforeBlur = coordinator.document().revision();
 
@@ -441,7 +441,7 @@ void testEscapeRollsBackAndBlurCommits(Rml::Context& context, Rml::ElementDocume
     CHECK(elsewhere->Focus());
     frame(context, ui);
 
-    CHECK(documentExpression(coordinator) == "(self.x + 10)");
+    CHECK(documentExpression(coordinator) == "self.x + 10");
     CHECK(coordinator.document().revision() != beforeBlur);
     CHECK(coordinator.canUndo());
     CHECK(!hasClass(&document, "logic-expression-completions"));
@@ -459,7 +459,7 @@ void testEscapeRollsBackAndBlurCommits(Rml::Context& context, Rml::ElementDocume
 
     // ADR-0029: "a parse failure shows an inline diagnostic under the field and
     // never discards what the author typed".
-    CHECK(documentExpression(coordinator) == "(self.x + 10)");
+    CHECK(documentExpression(coordinator) == "self.x + 10");
     CHECK(coordinator.document().revision() == beforeBadBlur);
     CHECK(hasClass(&document, "logic-expression-error"));
     {

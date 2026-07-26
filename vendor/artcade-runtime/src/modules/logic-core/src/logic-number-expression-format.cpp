@@ -41,16 +41,53 @@ const char* codePropertyName(NumberProperty property) {
     return "?";
 }
 
-std::string formatCode(const NumberExpression& expression);
+/**
+ * Binding strength, matching the grammar's `expr := term (('+'|'-') term)*`
+ * and `term := factor (('*'|'/') factor)*`.
+ *
+ * Everything else is self-delimiting — a literal, a name, or a call whose
+ * arguments sit inside its own parentheses — including unary negate, which is
+ * always written `-(x)`. Those never need wrapping, so they get the strongest
+ * binding.
+ */
+constexpr int kCodeAtomPrecedence = 3;
 
-std::string formatCodeChild(const NumberExpressionBox& box) {
+int codePrecedence(const NumberExpression& expression) {
+    if (const auto* binary = std::get_if<NumberBinaryExpression>(&expression.value())) {
+        switch (binary->operation) {
+        case NumberBinaryOperator::Add:
+        case NumberBinaryOperator::Subtract: return 1;
+        case NumberBinaryOperator::Multiply:
+        case NumberBinaryOperator::Divide: return 2;
+        // min/max are calls: `min(a, b)`, not an infix operator.
+        case NumberBinaryOperator::Minimum:
+        case NumberBinaryOperator::Maximum: break;
+        }
+    }
+    return kCodeAtomPrecedence;
+}
+
+/**
+ * @p minimumPrecedence is what the surrounding context requires: anything that
+ * binds more loosely has to be wrapped or the text would read back as a
+ * different tree. Parentheses the author did not need are noise — the field
+ * shows this text, so `self.x + 10` must come back as `self.x + 10`.
+ */
+std::string formatCode(const NumberExpression& expression, int minimumPrecedence);
+
+std::string formatCodeChild(const NumberExpressionBox& box, int minimumPrecedence) {
     // A null child cannot round-trip. Emitting `?` makes the text fail to
     // parse, which is honest; silently substituting 0 would rewrite the tree.
     if (!box) return "?";
-    return formatCode(*box);
+    return formatCode(*box, minimumPrecedence);
 }
 
-std::string formatCode(const NumberExpression& expression) {
+/** Argument position: a call's own parentheses already delimit it. */
+std::string formatCodeChild(const NumberExpressionBox& box) {
+    return formatCodeChild(box, 0);
+}
+
+std::string formatCode(const NumberExpression& expression, int minimumPrecedence) {
     return std::visit([&](const auto& node) -> std::string {
         using T = std::decay_t<decltype(node)>;
         std::ostringstream out;
@@ -92,10 +129,15 @@ std::string formatCode(const NumberExpression& expression) {
                     << formatCodeChild(node.right) << ")";
                 return out.str();
             }
-            // Fully parenthesised, so the tree shape survives without the
-            // parser and formatter having to agree on precedence.
-            out << "(" << formatCodeChild(node.left) << " " << op << " "
-                << formatCodeChild(node.right) << ")";
+            // Both operators are left-associative, so an equal-precedence
+            // child is safe on the left (`a - b - c` is `(a - b) - c` already)
+            // but not on the right: `a - (b - c)` keeps its parentheses or it
+            // reads back as a different tree.
+            const int precedence = codePrecedence(expression);
+            std::string text = formatCodeChild(node.left, precedence) + " " + op + " "
+                             + formatCodeChild(node.right, precedence + 1);
+            if (precedence < minimumPrecedence) text = "(" + text + ")";
+            out << text;
         } else if constexpr (std::is_same_v<T, NumberClampExpression>) {
             out << "clamp(" << formatCodeChild(node.value) << ", "
                 << formatCodeChild(node.minimum) << ", "
@@ -197,7 +239,8 @@ std::string formatNode(const NumberExpression& expression,
 
 std::string formatNumberExpression(const NumberExpression& expression,
                                    NumberExpressionFormatStyle style) {
-    if (style == NumberExpressionFormatStyle::Code) return formatCode(expression);
+    // Top level: nothing surrounds the expression, so nothing needs wrapping.
+    if (style == NumberExpressionFormatStyle::Code) return formatCode(expression, 0);
     return formatNode(expression, style);
 }
 
