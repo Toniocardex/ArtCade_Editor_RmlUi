@@ -1,6 +1,6 @@
 # ADR-0031 — Object Variables authoring (Slice A)
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-07-26
 **Scope:** authoring surface and mutation path for `ObjectType.localVariables`
 (definitions) and `SceneInstanceDef.localVariableOverrides` (value overrides);
@@ -34,11 +34,24 @@ rule is the contract; the Inspector must present it, not restate it.
 Four findings from the code changed the shape of this slice.
 
 **1. There is no authoring path for object variables — at all.**
-`commands/` contains only `global_variable_commands.{h,cpp}`. The runtime reads
-local variables, number expressions resolve `NumberVariableScope::Local`
-(`logic_property_editor.cpp:130`), Text/Gauge bindings accept
-`TextBindingScope::Local` — but no editor Command can create one. This is the
-functional void the slice closes.
+At HEAD, `commands/` contains only `global_variable_commands.{h,cpp}`. The
+runtime reads local variables, number expressions resolve
+`NumberVariableScope::Local` (`logic_property_editor.cpp:130`), Text/Gauge
+bindings accept `TextBindingScope::Local` — but no editor Command can create
+one.
+
+The Text/Gauge work in progress adds `local_variable_commands.{h,cpp}`
+(uncommitted at the time of writing) with `RenameObjectTypeLocalVariable`,
+`RemoveObjectTypeLocalVariable`, `SetObjectTypeLocalVariableType` and a
+reference counter. Those exist so a rename can follow Text/Gauge `bindKey`s,
+not as an authoring surface: there is no Add, no initial value, no
+description, and no instance-override command. The void stands.
+
+They do introduce a third naming convention. **Decision: one family,
+`ObjectVariable…`**, matching `AddGlobalVariableCommand` /
+`SetGlobalVariableInitialValueCommand`. A1.1 absorbs the three WIP commands
+into that family rather than leaving `Global…`, `ObjectTypeLocalVariable…`
+and `ObjectVariable…` side by side.
 
 **2. The editor drops both fields on load and save.**
 `model/project_io.cpp` reads and writes `globalVariables` only. Its hand-rolled
@@ -50,15 +63,19 @@ fields the first time the editor saves it. Slice A is therefore **domain +
 persistence**, not domain alone.
 
 **3. Reference counting is blind to number expressions.**
-`global_variable_commands.cpp:86` counts `LogicVariableReference` property
-values plus Text/Gauge bindings. It never walks `NumberVariableExpression`
-(`core/logic-number-expression.h:74`), and `variableId` appears nowhere under
-`src/editor-native`. Consequences today, for **project** variables:
+At HEAD the walker visits `LogicVariableReference` property values and nothing
+else; the Text/Gauge extension of `referencesIn` lives in the same uncommitted
+work in progress as finding 1, so the committed baseline A1.0 starts from is
+the narrower one. Neither version walks `NumberVariableExpression`
+(`core/logic-number-expression.h:74`) — `variableId` appears nowhere under
+`src/editor-native`. The same restricted traversal also backs the type-change
+compatibility check. Consequences today, for **project** variables:
 
 - `$Score` used only inside an expression counts as 0 references, so Delete is
   offered and accepted, leaving a dangling node;
-- Rename rewrites property references and bindings but not the expression node,
-  which then names a variable that no longer exists.
+- Rename rewrites property references — and, in the work in progress, bindings
+  — but never the expression node, which then names a variable that no longer
+  exists.
 
 An object-variable delete guard copied from that code would be decorative:
 expressions are the *primary* consumer of local number variables. The walk must
@@ -96,6 +113,24 @@ Field and JSON names stay `localVariables` / `localVariableOverrides`: they are
 the v10 contract shared with the runtime. Lexicon is a presentation decision.
 
 ### A1 — domain, Commands, persistence (no UI)
+
+A1 stays one architectural unit but ships as two ordered commits, so the
+behaviour change to an already-released feature is legible in history rather
+than buried inside a new feature:
+
+```text
+A1.0  shared variable reference walk
+      + GlobalVariableCommands migrated onto it
+      + regression test for the expression-only reference
+
+A1.1  ObjectVariableCommands
+      + override lifecycle (rename / delete / retype)
+      + persistence of definitions and overrides
+```
+
+A1.0 changes what the shipped Delete does: a project variable used only inside
+an expression was accepted before and is refused after. That belongs in its own
+commit description.
 
 Names mirror the existing global family exactly, including
 `InitialValue` (the field is `GameVariableDefinition::initialValue`; "default
@@ -149,22 +184,52 @@ Text/Gauge bindings with `TextBindingScope::Local` owned by that type ·
 **the override map keys on every instance of the type**. The last one is easy to
 forget and produces orphan overrides that survive save/load.
 
-**Shared reference walk.** Introduce one module (`model/variable_references.*`)
-exposing count / rename / type-compatibility over *all four* reference kinds,
-parameterised by scope and owner — the same shape
-`presentation_variable_refs.h` already uses
-(`TextBindingScope`, `const ObjectTypeId*`). `global_variable_commands.cpp`
-switches to it. This closes finding 3 for project variables as a side effect;
-it is in scope because an object-variable delete guard cannot be correct
-without it, and a second half-correct walker is the worse outcome.
+**Shared reference walk.** One module (`model/variable_references.*`) exposes
+count / rename / type-compatibility, parameterised by scope and owner — the
+same shape `presentation_variable_refs.h` already uses (`TextBindingScope`,
+`const ObjectTypeId*`). `global_variable_commands.cpp` switches to it. This
+closes finding 3 for project variables as a side effect; it is in scope
+because an object-variable delete guard cannot be correct without it, and a
+second half-correct walker is the worse outcome.
+
+Its contract covers exactly four reference kinds:
+
+```text
+LogicVariableReference          (block property values)
+NumberVariableExpression        (recursively)
+TextComponent.bindKey
+GaugeComponent.bindKey
+```
+
+*Recursively* is the load-bearing word: an expression node can sit under
+unary, binary, clamp, lerp and random-range operators, and inside either
+component of a `LogicVec2Value`. Inspecting the root node, or only `.x` / `.y`,
+finds nothing in the cases that matter.
+
+The AST recursion is written **once**: reuse a `logic-core` visitor if one
+fits, otherwise add one small shared traversal there and let count, rename,
+type compatibility and future diagnostics all consume it. Pure functions —
+no `VariableReferenceManager`, no cache, no registry.
+
+**Overrides are not references.** `localVariableOverrides` is state dependent
+on a definition, not a use of it, so it never blocks a delete. It is renamed
+with the key, removed on delete, removed on an incompatible type change, and
+captured for undo in each case.
+
+**Expressions pin the type to Number.** A `NumberVariableExpression` node can
+only mean a Number, so a single expression node referencing the key blocks
+`Number → Boolean` and `Number → String`. This falls out of the shared
+type-compatibility query and applies to both variable families.
 
 **Persistence.** Read and write `objectTypes[].localVariables` and
 `scenes[].instances[].localVariableOverrides` in `project_io.cpp`, matching the
 key names and value encoding the runtime already parses
-(`entity-json.cpp:262-278`). No `formatVersion` bump: the keys are part of the
-v10 contract, the canonical validator does not reject them, and older editors
-simply ignored them. Overrides whose key is not defined on the type are dropped
-on read, exactly as the runtime does.
+(`entity-json.cpp:262-278`). The keys belong to the contract introduced with
+format v10; the editor's current schema is **11**
+(`project_io.cpp:50`, `project-current-format.h:11`) and is **not**
+incremented — the canonical validator does not reject the keys, and editors
+that ignored them wrote valid documents. Overrides whose key is not defined on
+the type are dropped on read, exactly as the runtime does.
 
 **Redo trap.** Per the known pattern in this codebase, any new validation added
 to `apply()` must be gated on the captured state (`captured_` / `removed_` and
@@ -261,7 +326,8 @@ navigation UI (the *counter* is in scope, the navigation is not) ·
 - Rename: property references, expression nodes, Text/Gauge bindings, and
   override map keys all rewritten — one test asserting the override map
   specifically.
-- Type change: incompatible overrides dropped and restored by undo.
+- Type change: blocked away from Number while any expression node references
+  the key; incompatible overrides dropped and restored by undo.
 - Delete: blocked while referenced (including an expression-only reference —
   the regression test for finding 3), overrides removed and restored by undo.
 - Persistence round-trip: definitions and overrides survive save → load; a
@@ -271,6 +337,19 @@ navigation UI (the *counter* is in scope, the navigation is not) ·
 - Suites: `editor-core-test`, `logic-board-editor-test`, runtime `ctest`.
 - `tests/reference/visual-fixture.artcade` re-baselined if the writer's output
   changes for fixtures that carry these fields.
+
+## Implementation status
+
+- **Slice 0 — done** (`e9f3050`): the Logic Board header button reads
+  `Project Variables (N)`. Label only; the tooltip and drawer title already
+  said Project Variables. No second Object Variables button, no
+  `Manage Object Variables…`, no combined count.
+- **A1.0 / A1.1 — not started.**
+- **A2 — not started**; blocked on A1.
+- The `Create compatible variable` button in
+  `logic_property_editor.cpp:401` still routes to the Project Variables
+  drawer. It becomes the typed contextual creation of Slice B; Slice 0
+  deliberately left it alone.
 
 ## Consequences
 
