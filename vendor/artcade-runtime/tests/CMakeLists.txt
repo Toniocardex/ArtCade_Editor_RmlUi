@@ -31,10 +31,9 @@ artcade_test(variable_manager_test
     artcade-variable-manager)
 
 add_executable(text_value_formatter_test
-    text_value_formatter_test.cpp
-    ${ARTCADE_RUNTIME_ROOT}/src/app/render/text_value_formatter.cpp)
+    text_value_formatter_test.cpp)
 target_include_directories(text_value_formatter_test PRIVATE ${ARTCADE_RUNTIME_ROOT}/src)
-target_link_libraries(text_value_formatter_test PRIVATE artcade-variable-manager)
+target_link_libraries(text_value_formatter_test PRIVATE artcade-core artcade-variable-manager)
 add_test(NAME text_value_formatter_test COMMAND text_value_formatter_test)
 
 artcade_test(sprite_pivot_test

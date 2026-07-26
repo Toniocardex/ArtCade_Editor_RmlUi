@@ -6,8 +6,10 @@
 #include "editor-native/commands/linear_mover_commands.h"
 #include "editor-native/commands/auto_destroy_commands.h"
 #include "editor-native/commands/camera_target_commands.h"
+#include "editor-native/commands/gauge_component_commands.h"
 #include "editor-native/commands/platformer_controller_commands.h"
 #include "editor-native/commands/sprite_presentation_commands.h"
+#include "editor-native/commands/text_component_commands.h"
 #include "editor-native/commands/tilemap_commands.h"
 #include "editor-native/commands/top_down_controller_commands.h"
 #include "editor-native/model/scene_frame_snapshot.h"
@@ -368,6 +370,69 @@ EditorOperationResult setAutoDestroyLifespan(EditorCoordinator& coordinator, flo
         return fail(coordinator, "No selected object type");
     }
     return coordinator.execute(SetAutoDestroyLifespanCommand{objectTypeId, lifespan});
+}
+
+EditorOperationResult addTextComponent(EditorCoordinator& coordinator) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
+        return fail(coordinator, "No selected object type");
+    }
+    TextComponent text;
+    text.text = "Text";
+    text.size = 24;
+    text.color = {1.f, 1.f, 1.f, 1.f};
+    text.align = "top-left";
+    text.bindScope = "global";
+    text.format = "text";
+    return coordinator.execute(
+        SetObjectTypeTextComponentCommand{objectTypeId, std::move(text)});
+}
+
+EditorOperationResult removeTextComponent(EditorCoordinator& coordinator) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
+        return fail(coordinator, "No selected object type");
+    }
+    return coordinator.execute(
+        SetObjectTypeTextComponentCommand{objectTypeId, std::nullopt});
+}
+
+EditorOperationResult setTextComponent(EditorCoordinator& coordinator, TextComponent next) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
+        return fail(coordinator, "No selected object type");
+    }
+    return coordinator.execute(
+        SetObjectTypeTextComponentCommand{objectTypeId, std::move(next)});
+}
+
+EditorOperationResult addGaugeComponent(EditorCoordinator& coordinator) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
+        return fail(coordinator, "No selected object type");
+    }
+    GaugeComponent gauge;
+    gauge.bindScope = "global";
+    return coordinator.execute(
+        SetObjectTypeGaugeComponentCommand{objectTypeId, std::move(gauge)});
+}
+
+EditorOperationResult removeGaugeComponent(EditorCoordinator& coordinator) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
+        return fail(coordinator, "No selected object type");
+    }
+    return coordinator.execute(
+        SetObjectTypeGaugeComponentCommand{objectTypeId, std::nullopt});
+}
+
+EditorOperationResult setGaugeComponent(EditorCoordinator& coordinator, GaugeComponent next) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId)) {
+        return fail(coordinator, "No selected object type");
+    }
+    return coordinator.execute(
+        SetObjectTypeGaugeComponentCommand{objectTypeId, std::move(next)});
 }
 
 EditorOperationResult addCameraTarget(EditorCoordinator& coordinator) {

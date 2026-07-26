@@ -2,9 +2,12 @@
 
 #include "editor-native/model/authored_transform.h"
 #include "editor-native/model/play_session.h"
+#include "editor-native/model/presentation_variable_refs.h"
 #include "editor-native/model/project_document.h"
 #include "editor-native/model/sprite_render_view.h"
+#include "editor-native/model/text_layout_math.h"
 #include "editor-native/model/tilemap_render_view.h"
+#include "core/text-component-format.h"
 
 // RU-03: the runtime's own SceneFrameSnapshot/RenderableEntitySnapshot
 // (distinct type from ArtCade::EditorNative::SceneFrameSnapshot above,
@@ -139,6 +142,51 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
                     selected});
             }
         }
+        const EntityDef* type = document.findObjectType(inst.objectTypeId);
+        if (type && type->text
+            && (!type->text->text.empty() || !type->text->bindKey.empty())) {
+            const std::optional<GameVariableValue> bound =
+                resolveEffectiveBoundInitialValue(
+                    document.data(), inst, *type, type->text->bindKey, type->text->bindScope);
+            SceneFrameText entry;
+            entry.entityId = inst.id;
+            entry.displayText = resolveTextDisplay(*type->text, bound);
+            entry.anchorPosition = Vec2{
+                inst.transform.position.x + type->text->offsetX,
+                inst.transform.position.y + type->text->offsetY,
+            };
+            entry.align = type->text->align;
+            entry.size = type->text->size;
+            entry.color = type->text->color;
+            entry.screenSpace = type->text->screenSpace;
+            entry.layerOpacity = 1.f;
+            snapshot.texts.push_back(std::move(entry));
+        }
+        if (type && type->gauge && type->gauge->width > 0.f && type->gauge->height > 0.f) {
+            float value = type->gauge->maxValue;
+            if (const std::optional<GameVariableValue> bound =
+                    resolveEffectiveBoundInitialValue(document.data(), inst, *type,
+                                                     type->gauge->bindKey,
+                                                     type->gauge->bindScope)) {
+                if (const auto* number = std::get_if<double>(&*bound)) {
+                    value = static_cast<float>(*number);
+                }
+            }
+            float ratio = type->gauge->maxValue > 0.f ? value / type->gauge->maxValue : 0.f;
+            ratio = std::clamp(ratio, 0.f, 1.f);
+            snapshot.gauges.push_back(SceneFrameGauge{
+                inst.id,
+                Vec2{inst.transform.position.x + type->gauge->offsetX,
+                     inst.transform.position.y + type->gauge->offsetY},
+                type->gauge->width,
+                type->gauge->height,
+                type->gauge->fillColor,
+                type->gauge->bgColor,
+                ratio,
+                type->gauge->direction,
+                type->gauge->screenSpace,
+            });
+        }
         visible.insert(inst.id);
     };
 
@@ -252,6 +300,35 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const PlaySession& session) {
                 xf.rotationRadians});
             emitSprite(*rend, bounds, xf.rotationRadians);
             if (showTilemap) emitTilemap(*tilemap, rend->transform.position);
+            if (rend->text) {
+                SceneFrameText entry;
+                entry.entityId = rend->id;
+                entry.displayText = rend->text->text; // already resolved
+                entry.anchorPosition = Vec2{
+                    rend->transform.position.x + rend->text->offsetX,
+                    rend->transform.position.y + rend->text->offsetY,
+                };
+                entry.align = rend->text->align;
+                entry.size = rend->text->size;
+                entry.color = rend->text->color;
+                entry.screenSpace = rend->text->screenSpace;
+                entry.layerOpacity = 1.f;
+                snapshot.texts.push_back(std::move(entry));
+            }
+            if (rend->gauge) {
+                snapshot.gauges.push_back(SceneFrameGauge{
+                    rend->id,
+                    Vec2{rend->transform.position.x + rend->gauge->offsetX,
+                         rend->transform.position.y + rend->gauge->offsetY},
+                    rend->gauge->width,
+                    rend->gauge->height,
+                    rend->gauge->fillColor,
+                    rend->gauge->bgColor,
+                    rend->gaugeRatio,
+                    rend->gauge->direction,
+                    rend->gauge->screenSpace,
+                });
+            }
         } else {
             // Tilemap-only (no sprite renderable): draw cells, never the Edit
             // placeholder box.
@@ -291,6 +368,10 @@ bool rectContains(const SceneFrameRect& r, Vec2 p) {
 } // namespace
 
 EntityId pickEntityAt(const SceneFrameSnapshot& frame, Vec2 worldPoint) {
+    return pickEntityAt(frame, ScenePickPoint{worldPoint, worldPoint});
+}
+
+EntityId pickEntityAt(const SceneFrameSnapshot& frame, ScenePickPoint point) {
     // frame.entities is the single authority for visual (and therefore pick)
     // order - already back-to-front by scene layer via
     // ProjectDocument::instancesInRenderOrder, the exact same sequence
@@ -302,7 +383,7 @@ EntityId pickEntityAt(const SceneFrameSnapshot& frame, Vec2 worldPoint) {
             if (sprite.entityId != id) continue;
             if (sprite.visible
                 && transformContainsPoint(
-                    visualFromRect(sprite.destination, sprite.rotationRadians), worldPoint)) {
+                    visualFromRect(sprite.destination, sprite.rotationRadians), point.world)) {
                 return id;
             }
             break;   // one SpriteRenderer per entity
@@ -312,9 +393,31 @@ EntityId pickEntityAt(const SceneFrameSnapshot& frame, Vec2 worldPoint) {
             if (tilemap.entityId != id) continue;
             hasPopulatedTilemap = !tilemap.cells.empty();
             for (const SceneFrameTilemapCell& cell : tilemap.cells) {
-                if (rectContains(cell.destination, worldPoint)) return id;
+                if (rectContains(cell.destination, point.world)) return id;
             }
             break;   // one Tilemap component per entity
+        }
+        bool hasWorldText = false;
+        for (const SceneFrameText& text : frame.texts) {
+            if (text.entityId != id) continue;
+            const TextVisualLayout layout = estimateSceneFrameTextLayout(text);
+            if (text.screenSpace) {
+                if (rectContains(layout.bounds, point.viewport)) return id;
+            } else {
+                hasWorldText = true;
+                if (rectContains(layout.bounds, point.world)) return id;
+            }
+        }
+        for (const SceneFrameGauge& gauge : frame.gauges) {
+            if (gauge.entityId != id) continue;
+            const SceneFrameRect bounds{
+                gauge.anchorPosition.x, gauge.anchorPosition.y, gauge.width, gauge.height};
+            if (gauge.screenSpace) {
+                if (rectContains(bounds, point.viewport)) return id;
+            } else {
+                hasWorldText = true;
+                if (rectContains(bounds, point.world)) return id;
+            }
         }
         // A populated Tilemap's hit area is exactly its painted cells, just
         // checked above - a click inside the entity's placeholder box but
@@ -323,6 +426,18 @@ EntityId pickEntityAt(const SceneFrameSnapshot& frame, Vec2 worldPoint) {
         // back to the placeholder, or the placeholder would stay a second,
         // disconnected hit target over content that already owns the area.
         if (hasPopulatedTilemap) continue;
+        if (hasWorldText) {
+            // Text/gauge-only (or with invisible sprite): do not fall back to
+            // the 32×32 placeholder when presentation visuals exist.
+            bool hasVisibleSprite = false;
+            for (const SceneFrameSprite& sprite : frame.sprites) {
+                if (sprite.entityId == id && sprite.visible && !sprite.assetId.empty()) {
+                    hasVisibleSprite = true;
+                    break;
+                }
+            }
+            if (!hasVisibleSprite) continue;
+        }
         // Placeholder body + a short band above for the on-screen name chip.
         // Always available as fallback so invisible sprites / empty tilemaps
         // (still drawn as placeholders) remain pickable.
@@ -331,7 +446,7 @@ EntityId pickEntityAt(const SceneFrameSnapshot& frame, Vec2 worldPoint) {
         hitBounds.y -= kLabelBandWu;
         hitBounds.height += kLabelBandWu;
         if (transformContainsPoint(
-                visualFromRect(hitBounds, it->rotationRadians), worldPoint)) {
+                visualFromRect(hitBounds, it->rotationRadians), point.world)) {
             return id;
         }
     }
@@ -353,6 +468,18 @@ void applyDragPreviewOffset(SceneFrameSnapshot& snapshot, EntityId entity, Vec2 
         for (SceneFrameTilemapCell& cell : tm.cells) {
             cell.destination.x += delta.x;
             cell.destination.y += delta.y;
+        }
+    }
+    for (SceneFrameText& text : snapshot.texts) {
+        if (text.entityId == entity && !text.screenSpace) {
+            text.anchorPosition.x += delta.x;
+            text.anchorPosition.y += delta.y;
+        }
+    }
+    for (SceneFrameGauge& gauge : snapshot.gauges) {
+        if (gauge.entityId == entity && !gauge.screenSpace) {
+            gauge.anchorPosition.x += delta.x;
+            gauge.anchorPosition.y += delta.y;
         }
     }
 }
@@ -378,6 +505,20 @@ std::optional<WorldRect> editorBoundsForEntity(const SceneFrameSnapshot& frame,
             if (!finiteRect(rect)) continue;
             bounds = bounds ? unite(*bounds, rect) : rect;
         }
+    }
+    for (const SceneFrameText& text : frame.texts) {
+        if (text.entityId != entityId || text.screenSpace) continue;
+        const TextVisualLayout layout = estimateSceneFrameTextLayout(text);
+        const WorldRect rect = toWorldRect(layout.bounds);
+        if (!finiteRect(rect)) continue;
+        bounds = bounds ? unite(*bounds, rect) : rect;
+    }
+    for (const SceneFrameGauge& gauge : frame.gauges) {
+        if (gauge.entityId != entityId || gauge.screenSpace) continue;
+        const WorldRect rect{
+            gauge.anchorPosition.x, gauge.anchorPosition.y, gauge.width, gauge.height};
+        if (!finiteRect(rect)) continue;
+        bounds = bounds ? unite(*bounds, rect) : rect;
     }
     if (bounds) return bounds;
 

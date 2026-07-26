@@ -103,6 +103,8 @@ set(LUA_INCLUDE_DIR           ${CMAKE_CURRENT_SOURCE_DIR}/libs/lua)
 # ============================================================================
 add_library(artcade-core STATIC
     src/core/logic-number-expression.cpp
+    src/core/color-hex.cpp
+    src/core/text-component-format.cpp
 )
 target_include_directories(artcade-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core
@@ -224,6 +226,7 @@ if(ARTCADE_HAS_RAYLIB AND ARTCADE_HAS_LUA)
     target_include_directories(artcade-gameplay-session PRIVATE
         libs/lua-5.4/src)
     target_link_libraries(artcade-gameplay-session PUBLIC
+        artcade-core
         artcade-world
         artcade-scene-system
         artcade-runtime-entity-gateway

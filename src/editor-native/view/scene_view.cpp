@@ -3,6 +3,7 @@
 #include "editor-native/model/authored_transform.h"
 #include "editor-native/model/tilemap_render_view.h"
 #include "editor-native/view/scene_grid.h"
+#include "editor-native/view/text_visual_layout.h"
 #include "editor-native/view/texture_cache.h"
 
 #include <raylib.h>
@@ -107,6 +108,27 @@ bool hasVisibleTilemapCells(const SceneFrameSnapshot& frame, EntityId entityId) 
         if (tilemap.entityId == entityId && !tilemap.cells.empty()) return true;
     }
     return false;
+}
+
+bool hasTextVisual(const SceneFrameSnapshot& frame, EntityId entityId) {
+    for (const SceneFrameText& text : frame.texts) {
+        if (text.entityId == entityId && !text.displayText.empty()) return true;
+    }
+    return false;
+}
+
+bool hasGaugeVisual(const SceneFrameSnapshot& frame, EntityId entityId) {
+    for (const SceneFrameGauge& gauge : frame.gauges) {
+        if (gauge.entityId == entityId && gauge.width > 0.f && gauge.height > 0.f) return true;
+    }
+    return false;
+}
+
+bool hasPresentationVisual(const SceneFrameSnapshot& frame, EntityId entityId) {
+    return hasVisibleSprite(frame, entityId)
+        || hasVisibleTilemapCells(frame, entityId)
+        || hasTextVisual(frame, entityId)
+        || hasGaugeVisual(frame, entityId);
 }
 
 // Unrotated AABB spanning every painted cell of an entity's Tilemap - built
@@ -266,7 +288,9 @@ void SceneView::render(const SceneFrameSnapshot& frame,
     for (const SceneFrameEntity& entity : frame.entities) {
         const bool hasSprite = hasVisibleSprite(frame, entity.entityId);
         const bool hasTilemap = hasVisibleTilemapCells(frame, entity.entityId);
-        if (!hasSprite && !hasTilemap) {
+        const bool hasText = hasTextVisual(frame, entity.entityId);
+        const bool hasGauge = hasGaugeVisual(frame, entity.entityId);
+        if (!hasSprite && !hasTilemap && !hasText && !hasGauge) {
             const SceneFrameTransform2D xf = visualOf(entity.bounds, entity.rotationRadians);
             const float degrees = entity.rotationRadians * kRadToDeg;
             const Vector2 origin{entity.bounds.width * 0.5f, entity.bounds.height * 0.5f};
@@ -311,6 +335,30 @@ void SceneView::render(const SceneFrameSnapshot& frame,
                 }
                 break;   // one SpriteRenderer per entity
             }
+        }
+        for (const SceneFrameGauge& gauge : frame.gauges) {
+            if (gauge.entityId != entity.entityId || gauge.screenSpace) continue;
+            const Rectangle bg{
+                gauge.anchorPosition.x, gauge.anchorPosition.y, gauge.width, gauge.height};
+            DrawRectangleRec(bg, toColor(gauge.bgColor));
+            if (gauge.direction == "vertical") {
+                const float fh = gauge.height * gauge.ratio;
+                DrawRectangleRec(
+                    Rectangle{bg.x, bg.y + (gauge.height - fh), gauge.width, fh},
+                    toColor(gauge.fillColor));
+            } else {
+                DrawRectangleRec(
+                    Rectangle{bg.x, bg.y, gauge.width * gauge.ratio, gauge.height},
+                    toColor(gauge.fillColor));
+            }
+        }
+        for (const SceneFrameText& text : frame.texts) {
+            if (text.entityId != entity.entityId || text.screenSpace) continue;
+            const TextVisualLayout layout = layoutSceneFrameText(text, canvasFont);
+            Vec4 color = text.color;
+            color.a *= text.layerOpacity;
+            drawCanvasText(canvasFont, text.displayText, layout.drawPosition.x,
+                           layout.drawPosition.y, static_cast<float>(text.size), toColor(color));
         }
     }
 
@@ -382,8 +430,37 @@ void SceneView::render(const SceneFrameSnapshot& frame,
     EndMode2D();
     }
 
-    // The scene-name chip is a viewport-space overlay, not clipped to the scene.
+    // HUD (screenSpace) text/gauge — viewport space, after world pass.
     BeginScissorMode(rect.x, rect.y, rect.width, rect.height);
+    for (const SceneFrameGauge& gauge : frame.gauges) {
+        if (!gauge.screenSpace) continue;
+        const float x = static_cast<float>(rect.x) + gauge.anchorPosition.x;
+        const float y = static_cast<float>(rect.y) + gauge.anchorPosition.y;
+        DrawRectangleRec(Rectangle{x, y, gauge.width, gauge.height}, toColor(gauge.bgColor));
+        if (gauge.direction == "vertical") {
+            const float fh = gauge.height * gauge.ratio;
+            DrawRectangleRec(Rectangle{x, y + (gauge.height - fh), gauge.width, fh},
+                             toColor(gauge.fillColor));
+        } else {
+            DrawRectangleRec(Rectangle{x, y, gauge.width * gauge.ratio, gauge.height},
+                             toColor(gauge.fillColor));
+        }
+    }
+    for (const SceneFrameText& text : frame.texts) {
+        if (!text.screenSpace) continue;
+        SceneFrameText viewportText = text;
+        viewportText.anchorPosition = Vec2{
+            static_cast<float>(rect.x) + text.anchorPosition.x,
+            static_cast<float>(rect.y) + text.anchorPosition.y,
+        };
+        const TextVisualLayout layout = layoutSceneFrameText(viewportText, canvasFont);
+        Vec4 color = text.color;
+        color.a *= text.layerOpacity;
+        drawCanvasText(canvasFont, text.displayText, layout.drawPosition.x,
+                       layout.drawPosition.y, static_cast<float>(text.size), toColor(color));
+    }
+
+    // The scene-name chip is a viewport-space overlay, not clipped to the scene.
     // Scene name — subtle rounded chip in the top-left corner of the viewport.
     for (const SceneFrameEntity& entity : frame.entities) {
         if (!entity.selected) continue;
@@ -403,7 +480,7 @@ void SceneView::render(const SceneFrameSnapshot& frame,
     // Placeholder entities carry no artwork: a name above the box says what the
     // rectangle is instead of leaving an anonymous shape (UI audit 7.3).
     for (const SceneFrameEntity& entity : frame.entities) {
-        if (hasVisibleSprite(frame, entity.entityId) || hasVisibleTilemapCells(frame, entity.entityId)) {
+        if (hasPresentationVisual(frame, entity.entityId)) {
             continue;
         }
         if (entity.name.empty()) continue;

@@ -221,7 +221,11 @@ void routeViewportPickDrag(EditorCoordinator& coordinator, const SceneViewportPr
                                        /*rmlPopupOpen*/ false};
         if (shouldViewportReceiveInput(ctx)) {
             const Vec2 world = screenToWorld(cam, mouse);
-            EntityId picked = pickEntityAt(frame, world);
+            const Vec2 viewport{
+                mouse.x - static_cast<float>(projection.visibleRect.x),
+                mouse.y - static_cast<float>(projection.visibleRect.y),
+            };
+            EntityId picked = pickEntityAt(frame, ScenePickPoint{world, viewport});
             // Locked layers stay non-pickable in the Scene View (Hierarchy can
             // still select them). Other layers are selectable here too: the
             // SelectEntityIntent below switches activeLayerId to match, same as
@@ -280,6 +284,12 @@ void routeViewportContextMenu(EditorCoordinator& coordinator, EditorUi& ui,
          || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
         && !contextMenuHit) {
         ui.hideContextMenus();
+        // Inspector in-flow dropdowns only when the click is in the Scene View;
+        // dismissing on every shell click would collapse Binding→Variable in the
+        // same frame the Binding pick opens it.
+        if (rect.contains(GetMouseX(), GetMouseY())) {
+            ui.dismissInspectorTransientMenus();
+        }
     }
 
     // A paint tool owns the viewport's right-click too (Eraser's right-click

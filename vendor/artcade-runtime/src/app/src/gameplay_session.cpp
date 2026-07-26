@@ -24,11 +24,13 @@
 #include "../../world/include/world.h"
 #include "../render/scene_frame_snapshot.h"
 #include "../render/text_value_formatter.h"
+#include "../../core/text-component-format.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <iostream>
+#include <optional>
 #include <unordered_map>
 
 namespace ArtCade {
@@ -931,22 +933,18 @@ SceneFrameSnapshot GameplaySession::buildFrameSnapshot(SceneFrameSnapshot snapsh
         TextComponent text{};
         if (entityGateway_->getText(item.id, text)
             && (!text.text.empty() || !text.bindKey.empty())) {
-            std::string display = text.text;
-            const bool hasBoundValue = !text.bindKey.empty()
-                && (text.bindScope == "local"
+            std::optional<GameVariableValue> boundValue;
+            if (!text.bindKey.empty()) {
+                const bool hasBoundValue = text.bindScope == "local"
                     ? variableManager_->entityExists(item.id, text.bindKey)
-                    : variableManager_->exists(text.bindKey));
-            if (hasBoundValue) {
-                const auto boundValue = text.bindScope == "local"
-                    ? variableManager_->getEntity(item.id, text.bindKey)
-                    : variableManager_->get(text.bindKey);
-                display = text.prefix
-                    + AppRender::formatTextValue(boundValue, text.format, text.digits)
-                    + text.suffix;
-            } else if (!text.bindKey.empty()) {
-                display = text.prefix + text.text + text.suffix;
+                    : variableManager_->exists(text.bindKey);
+                if (hasBoundValue) {
+                    boundValue = text.bindScope == "local"
+                        ? variableManager_->getEntity(item.id, text.bindKey)
+                        : variableManager_->get(text.bindKey);
+                }
             }
-            text.text = display;
+            text.text = resolveTextDisplay(text, boundValue);
             entry.text = std::move(text);
         }
 

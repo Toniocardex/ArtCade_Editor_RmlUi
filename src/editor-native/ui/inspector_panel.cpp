@@ -11,6 +11,7 @@
 #include "editor-native/model/sprite_render_view.h"
 #include "editor-native/ui/editor_ui.h"
 #include "editor-native/ui/ui_markup.h"
+#include "core/text-component-format.h"
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -168,7 +169,7 @@ bool knownSection(std::string_view id) {
         "project", "general", "appearance", "world-bounds", "game-view", "layers", "diagnostics",
         "identity", "transform", "sprite", "sprite-renderer", "sprite-animator",
         "tilemap", "camera-target", "scripts", "box-collider", "linear-mover", "top-down-controller",
-        "platformer-controller",
+        "platformer-controller", "auto-destroy", "text", "gauge",
     };
     for (std::string_view known : ids) if (known == id) return true;
     return false;
@@ -184,7 +185,14 @@ bool isEntityDropdown(std::string_view dropdownId) {
         || dropdownId == "sprite-default-clip"
         || dropdownId == "animator-default-clip"
         || dropdownId == "tilemap-tileset"
-        || dropdownId == "script-attach";
+        || dropdownId == "script-attach"
+        || dropdownId == "text-binding"
+        || dropdownId == "text-variable"
+        || dropdownId == "text-format"
+        || dropdownId == "text-align"
+        || dropdownId == "gauge-binding"
+        || dropdownId == "gauge-variable"
+        || dropdownId == "gauge-direction";
 }
 
 std::string truncateDisplayName(const std::string& name, std::size_t maxChars) {
@@ -294,6 +302,14 @@ void InspectorPanel::toggleDropdown(Rml::ElementDocument* document,
                                     const EditorCoordinator& coordinator,
                                     const std::string& dropdownId) {
     openDropdownId_ = (openDropdownId_ == dropdownId) ? std::string() : dropdownId;
+    refresh(document, coordinator);
+}
+
+void InspectorPanel::dismissTransientMenus(Rml::ElementDocument* document,
+                                           const EditorCoordinator& coordinator) {
+    if (!addMenuOpen_ && openDropdownId_.empty()) return;
+    addMenuOpen_ = false;
+    openDropdownId_.clear();
     refresh(document, coordinator);
 }
 
@@ -1364,6 +1380,294 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         html += "<div class=\"type-owned-note\">0 disables automatic expiry.</div>";
     }
 
+    // -- Text (object-type owned) --------------------------------------------
+    const TextComponent* textComp = (type && type->text) ? &*type->text : nullptr;
+    if (textComp) {
+        html += header("text", isSectionCollapsed("text"),
+                       "&#xea95;", "Text", "OBJECT TYPE", "", "remove-text", playing);
+        html += typeOwnedLockNote;
+        html += field("Text", "commit-text-static", textComp->text, playing);
+        html += field("Prefix", "commit-text-prefix", textComp->prefix, playing);
+        html += field("Suffix", "commit-text-suffix", textComp->suffix, playing);
+
+        const bool bindingLocal = textComp->bindScope == "local";
+        // Global with empty key shares storage with None; while the Variable
+        // list is open after a Global pick, surface the choice as Global.
+        const bool pickingGlobalVariable = !bindingLocal
+            && textComp->bindKey.empty()
+            && openDropdownId_ == "text-variable";
+        const bool bindingNone =
+            textComp->bindKey.empty() && !bindingLocal && !pickingGlobalVariable;
+        const bool bindingGlobal = !bindingNone && !bindingLocal;
+        const std::string bindingLabel = bindingNone ? "None"
+            : (bindingLocal ? "Local" : "Global");
+        const bool bindingOpen = openDropdownId_ == "text-binding";
+        html += dropdownTrigger("Binding", "text-binding", bindingLabel, bindingOpen, playing);
+        if (bindingOpen && !playing) {
+            html += "<div class=\"drop-list\">";
+            html += "<div class=\"drop-entry";
+            if (bindingNone) html += " selected";
+            html += "\" data-action=\"";
+            html += bindingNone ? "toggle-inspector-dropdown\" data-arg=\"text-binding\""
+                                : "set-text-binding-none\"";
+            html += ">None</div>";
+            html += "<div class=\"drop-entry";
+            if (bindingGlobal) html += " selected";
+            html += "\" data-action=\"";
+            html += bindingGlobal ? "toggle-inspector-dropdown\" data-arg=\"text-binding\""
+                                  : "set-text-binding-global\"";
+            html += ">Global</div>";
+            html += "<div class=\"drop-entry";
+            if (bindingLocal) html += " selected";
+            html += "\" data-action=\"";
+            html += bindingLocal ? "toggle-inspector-dropdown\" data-arg=\"text-binding\""
+                                 : "set-text-binding-local\"";
+            html += ">Local</div>";
+            html += "</div>";
+        }
+
+        // Variable picker: Local (even unbound), bound Global, or Global handoff.
+        const bool showTextVariable =
+            !bindingNone || openDropdownId_ == "text-variable";
+        if (showTextVariable) {
+            const bool varOpen = openDropdownId_ == "text-variable";
+            const std::string varLabel =
+                textComp->bindKey.empty() ? "Choose Variable..." : textComp->bindKey;
+            html += dropdownTrigger("Variable", "text-variable", varLabel, varOpen, playing);
+            if (varOpen && !playing && type) {
+                html += "<div class=\"drop-list\">";
+                const auto& vars = textComp->bindScope == "local"
+                    ? type->localVariables
+                    : coordinator.document().data().globalVariables;
+                const auto format = textValueFormatFromString(textComp->format)
+                    .value_or(TextValueFormat::Text);
+                bool any = false;
+                for (const GameVariableDefinition& variable : vars) {
+                    if (!isTextFormatCompatibleWithVariableType(format, variable.type)) continue;
+                    any = true;
+                    const bool isCurrent = variable.key == textComp->bindKey;
+                    html += "<div class=\"drop-entry";
+                    if (isCurrent) html += " selected";
+                    html += "\" data-action=\"";
+                    if (isCurrent) {
+                        html += "toggle-inspector-dropdown\" data-arg=\"text-variable\"";
+                    } else {
+                        html += "set-text-variable\" data-arg=\"";
+                        html += escapeRml(variable.key);
+                        html += "\"";
+                    }
+                    html += ">";
+                    html += escapeRml(variable.key);
+                    html += "</div>";
+                }
+                if (!any) {
+                    html += "<div class=\"drop-entry disabled\">No compatible variables</div>";
+                }
+                html += "</div>";
+            }
+        }
+
+        const bool formatOpen = openDropdownId_ == "text-format";
+        html += dropdownTrigger("Format", "text-format", textComp->format, formatOpen, playing);
+        if (formatOpen && !playing) {
+            html += "<div class=\"drop-list\">";
+            const char* formats[] = {
+                "text", "integer", "padded", "time", "percent", "decimals"};
+            std::optional<GameVariableDefinition::Type> boundType;
+            if (!textComp->bindKey.empty() && type) {
+                const auto& vars = textComp->bindScope == "local"
+                    ? type->localVariables
+                    : coordinator.document().data().globalVariables;
+                for (const GameVariableDefinition& variable : vars) {
+                    if (variable.key == textComp->bindKey) {
+                        boundType = variable.type;
+                        break;
+                    }
+                }
+            }
+            for (const char* format : formats) {
+                const bool compatible = !boundType
+                    || isTextFormatCompatibleWithVariableType(format, *boundType);
+                const bool isCurrent = textComp->format == format;
+                html += "<div class=\"drop-entry";
+                if (isCurrent) html += " selected";
+                if (!compatible) html += " disabled";
+                html += "\"";
+                if (compatible) {
+                    html += " data-action=\"";
+                    if (isCurrent) {
+                        html += "toggle-inspector-dropdown\" data-arg=\"text-format\"";
+                    } else {
+                        html += "set-text-format\" data-arg=\"";
+                        html += format;
+                        html += "\"";
+                    }
+                } else {
+                    html += " title=\"Incompatible with bound variable type\"";
+                }
+                html += ">";
+                html += format;
+                html += "</div>";
+            }
+            html += "</div>";
+        }
+
+        if (textComp->format == "padded" || textComp->format == "decimals") {
+            html += field("Digits", "commit-text-digits",
+                          std::to_string(textComp->digits), playing);
+        }
+        html += field("Size", "commit-text-size", std::to_string(textComp->size), playing);
+        html += field("Color", "commit-text-color", formatColorHexRgb(textComp->color), playing);
+        html += "<div class=\"prop-row\"><span class=\"prop-label\">Font</span>"
+                "<span class=\"prop-readonly\">Default Font</span></div>";
+
+        const bool alignOpen = openDropdownId_ == "text-align";
+        html += dropdownTrigger("Anchor", "text-align", textComp->align, alignOpen, playing);
+        if (alignOpen && !playing) {
+            html += "<div class=\"drop-list\">";
+            const char* anchors[] = {
+                "top-left", "top-center", "top-right",
+                "middle-left", "center", "middle-right",
+                "bottom-left", "bottom-center", "bottom-right"};
+            for (const char* anchor : anchors) {
+                const bool isCurrent = textComp->align == anchor;
+                html += "<div class=\"drop-entry";
+                if (isCurrent) html += " selected";
+                html += "\" data-action=\"";
+                if (isCurrent) {
+                    html += "toggle-inspector-dropdown\" data-arg=\"text-align\"";
+                } else {
+                    html += "set-text-align\" data-arg=\"";
+                    html += anchor;
+                    html += "\"";
+                }
+                html += ">";
+                html += anchor;
+                html += "</div>";
+            }
+            html += "</div>";
+        }
+        html += field("Offset X", "commit-text-offset-x", num(textComp->offsetX), playing);
+        html += field("Offset Y", "commit-text-offset-y", num(textComp->offsetY), playing);
+        html += "<div class=\"prop-row\"><span class=\"prop-label\">HUD</span>"
+                "<div class=\"prop-toggle";
+        if (textComp->screenSpace) html += " on";
+        if (playing) html += " disabled";
+        html += "\" data-action=\"toggle-text-screen-space\"></div></div>";
+    }
+
+    // -- Gauge (object-type owned) -------------------------------------------
+    const GaugeComponent* gaugeComp = (type && type->gauge) ? &*type->gauge : nullptr;
+    if (gaugeComp) {
+        html += header("gauge", isSectionCollapsed("gauge"),
+                       "&#xea94;", "Gauge", "OBJECT TYPE", "", "remove-gauge", playing);
+        html += typeOwnedLockNote;
+        const bool gaugeBindingLocal = gaugeComp->bindScope == "local";
+        const bool pickingGaugeGlobalVariable = !gaugeBindingLocal
+            && gaugeComp->bindKey.empty()
+            && openDropdownId_ == "gauge-variable";
+        const bool gaugeBindingNone =
+            gaugeComp->bindKey.empty() && !gaugeBindingLocal && !pickingGaugeGlobalVariable;
+        const bool gaugeBindingGlobal = !gaugeBindingNone && !gaugeBindingLocal;
+        const std::string gaugeBindingLabel = gaugeBindingNone ? "None"
+            : (gaugeBindingLocal ? "Local" : "Global");
+        const bool gaugeBindingOpen = openDropdownId_ == "gauge-binding";
+        html += dropdownTrigger("Binding", "gauge-binding", gaugeBindingLabel,
+                                gaugeBindingOpen, playing);
+        if (gaugeBindingOpen && !playing) {
+            html += "<div class=\"drop-list\">";
+            html += "<div class=\"drop-entry";
+            if (gaugeBindingNone) html += " selected";
+            html += "\" data-action=\"";
+            html += gaugeBindingNone ? "toggle-inspector-dropdown\" data-arg=\"gauge-binding\""
+                                     : "set-gauge-binding-none\"";
+            html += ">None</div>";
+            html += "<div class=\"drop-entry";
+            if (gaugeBindingGlobal) html += " selected";
+            html += "\" data-action=\"";
+            html += gaugeBindingGlobal ? "toggle-inspector-dropdown\" data-arg=\"gauge-binding\""
+                                       : "set-gauge-binding-global\"";
+            html += ">Global</div>";
+            html += "<div class=\"drop-entry";
+            if (gaugeBindingLocal) html += " selected";
+            html += "\" data-action=\"";
+            html += gaugeBindingLocal ? "toggle-inspector-dropdown\" data-arg=\"gauge-binding\""
+                                      : "set-gauge-binding-local\"";
+            html += ">Local</div>";
+            html += "</div>";
+        }
+        const bool showGaugeVariable =
+            !gaugeBindingNone || openDropdownId_ == "gauge-variable";
+        if (showGaugeVariable) {
+            const bool varOpen = openDropdownId_ == "gauge-variable";
+            html += dropdownTrigger("Variable", "gauge-variable",
+                                    gaugeComp->bindKey.empty() ? "Choose Variable..."
+                                                               : gaugeComp->bindKey,
+                                    varOpen, playing);
+            if (varOpen && !playing && type) {
+                html += "<div class=\"drop-list\">";
+                const auto& vars = gaugeComp->bindScope == "local"
+                    ? type->localVariables
+                    : coordinator.document().data().globalVariables;
+                bool any = false;
+                for (const GameVariableDefinition& variable : vars) {
+                    if (!isGaugeCompatibleWithVariableType(variable.type)) continue;
+                    any = true;
+                    const bool isCurrent = variable.key == gaugeComp->bindKey;
+                    html += "<div class=\"drop-entry";
+                    if (isCurrent) html += " selected";
+                    html += "\" data-action=\"";
+                    if (isCurrent) {
+                        html += "toggle-inspector-dropdown\" data-arg=\"gauge-variable\"";
+                    } else {
+                        html += "set-gauge-variable\" data-arg=\"";
+                        html += escapeRml(variable.key);
+                        html += "\"";
+                    }
+                    html += ">";
+                    html += escapeRml(variable.key);
+                    html += "</div>";
+                }
+                if (!any) {
+                    html += "<div class=\"drop-entry disabled\">No Number variables</div>";
+                }
+                html += "</div>";
+            }
+        }
+        html += field("Max Value", "commit-gauge-max", num(gaugeComp->maxValue), playing);
+        html += field("Width", "commit-gauge-width", num(gaugeComp->width), playing);
+        html += field("Height", "commit-gauge-height", num(gaugeComp->height), playing);
+        html += field("Fill", "commit-gauge-fill", formatColorHexRgb(gaugeComp->fillColor), playing);
+        html += field("Background", "commit-gauge-bg", formatColorHexRgb(gaugeComp->bgColor), playing);
+        const bool dirOpen = openDropdownId_ == "gauge-direction";
+        html += dropdownTrigger("Direction", "gauge-direction", gaugeComp->direction,
+                                dirOpen, playing);
+        if (dirOpen && !playing) {
+            html += "<div class=\"drop-list\">";
+            const bool horiz = gaugeComp->direction == "horizontal";
+            html += "<div class=\"drop-entry";
+            if (horiz) html += " selected";
+            html += "\" data-action=\"";
+            html += horiz ? "toggle-inspector-dropdown\" data-arg=\"gauge-direction\""
+                          : "set-gauge-direction\" data-arg=\"horizontal\"";
+            html += ">horizontal</div>";
+            html += "<div class=\"drop-entry";
+            if (!horiz) html += " selected";
+            html += "\" data-action=\"";
+            html += !horiz ? "toggle-inspector-dropdown\" data-arg=\"gauge-direction\""
+                           : "set-gauge-direction\" data-arg=\"vertical\"";
+            html += ">vertical</div>";
+            html += "</div>";
+        }
+        html += field("Offset X", "commit-gauge-offset-x", num(gaugeComp->offsetX), playing);
+        html += field("Offset Y", "commit-gauge-offset-y", num(gaugeComp->offsetY), playing);
+        html += "<div class=\"prop-row\"><span class=\"prop-label\">HUD</span>"
+                "<div class=\"prop-toggle";
+        if (gaugeComp->screenSpace) html += " on";
+        if (playing) html += " disabled";
+        html += "\" data-action=\"toggle-gauge-screen-space\"></div></div>";
+    }
+
     html += kSectionsEnd;
 
     // -- Add Component menu (only addable components; one movement driver) -----
@@ -1386,6 +1690,8 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         {"Platformer Controller", "add-platformer", type && !hasDriver, true, ""},
         {"Linear Mover", "add-linear-mover", type && !hasDriver, true, ""},
         {"Auto Destroy", "add-auto-destroy", type && !autoDestroy, true, ""},
+        {"Text", "add-text", type && !textComp, true, ""},
+        {"Gauge", "add-gauge", type && !gaugeComp, true, ""},
         {"Camera Target", "add-camera-target",
             !instanceLocked && !inst->cameraTarget.has_value(), true, ""},
         // Instance-level like Sprite Renderer; needs at least one tileset to

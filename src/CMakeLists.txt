@@ -21,6 +21,7 @@ add_library(artcade-editor-core STATIC
     editor-native/model/box_collider_geometry.cpp
     editor-native/model/box_collider_view.cpp
     editor-native/model/scene_frame_snapshot.cpp
+    editor-native/model/text_layout_math.cpp
     editor-native/model/sprite_render_view.cpp
     editor-native/model/sprite_animation_references.cpp
     editor-native/model/logic_component_references.cpp
@@ -59,10 +60,14 @@ add_library(artcade-editor-core STATIC
     editor-native/commands/logic_board_commands.cpp
     editor-native/commands/logic_expression_commands.cpp
     editor-native/commands/global_variable_commands.cpp
+    editor-native/commands/local_variable_commands.cpp
+    editor-native/commands/text_component_commands.cpp
+    editor-native/commands/gauge_component_commands.cpp
     editor-native/commands/entity_commands.cpp
     editor-native/commands/scene_commands.cpp
     editor-native/commands/scene_layer_commands.cpp
     editor-native/commands/sprite_presentation_commands.cpp
+    editor-native/model/presentation_variable_refs.cpp
     editor-native/app/editor_coordinator.cpp
     editor-native/app/editor_coordinator_workspace.cpp
     editor-native/app/editor_coordinator_tilemap.cpp
@@ -207,6 +212,7 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/app/tile_palette_input.cpp
     editor-native/app/file_dialog.cpp
     editor-native/view/canvas_font.cpp
+    editor-native/view/text_visual_layout.cpp
     editor-native/view/texture_cache.cpp
     editor-native/view/tileset_empty_tiles.cpp
     editor-native/view/texture_request_catalog.cpp

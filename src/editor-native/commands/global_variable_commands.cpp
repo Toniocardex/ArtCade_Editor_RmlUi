@@ -1,5 +1,6 @@
 #include "editor-native/commands/global_variable_commands.h"
 
+#include "editor-native/model/presentation_variable_refs.h"
 #include "editor-native/model/project_document.h"
 #include "project-global-variables-format.h"
 #include "logic-core.h"
@@ -12,7 +13,8 @@ namespace ArtCade::EditorNative {
 namespace {
 
 constexpr EditorInvalidation kVariableInvalidation =
-    EditorInvalidation::LogicBoard | EditorInvalidation::Inspector;
+    EditorInvalidation::LogicBoard | EditorInvalidation::Inspector
+    | EditorInvalidation::Viewport;
 
 EditorOperationResult changed() {
     return EditorOperationResult::success(
@@ -68,7 +70,7 @@ void forEachBlock(const ProjectDoc& doc, Fn&& fn) {
     }
 }
 
-std::size_t referencesIn(const ProjectDoc& doc, const GameVariableId& key) {
+std::size_t logicReferencesIn(const ProjectDoc& doc, const GameVariableId& key) {
     std::size_t count = 0;
     forEachBlock(doc, [&](const LogicBlockDef& block) {
         for (const LogicPropertyDef& property : block.properties) {
@@ -81,6 +83,13 @@ std::size_t referencesIn(const ProjectDoc& doc, const GameVariableId& key) {
     return count;
 }
 
+std::size_t referencesIn(const ProjectDoc& doc, const GameVariableId& key) {
+    return logicReferencesIn(doc, key)
+        + countPresentationVariableReferences(
+              doc, TextBindingScope::Global, nullptr, key)
+              .total();
+}
+
 void renameReferences(ProjectDoc& doc, const GameVariableId& from, const GameVariableId& to) {
     forEachBlock(doc, [&](LogicBlockDef& block) {
         for (LogicPropertyDef& property : block.properties) {
@@ -90,6 +99,8 @@ void renameReferences(ProjectDoc& doc, const GameVariableId& from, const GameVar
             }
         }
     });
+    renamePresentationVariableReferences(
+        doc, TextBindingScope::Global, nullptr, from, to);
 }
 
 bool referencesRequireDifferentType(
@@ -104,7 +115,9 @@ bool referencesRequireDifferentType(
             if (ref && ref->id == key) { mismatch = true; return; }
         }
     });
-    return mismatch;
+    if (mismatch) return true;
+    return presentationReferencesRequireDifferentType(
+        doc, TextBindingScope::Global, nullptr, key, next);
 }
 
 bool sameValue(const GameVariableValue& a, const GameVariableValue& b) {
@@ -152,7 +165,7 @@ EditorOperationResult RemoveGlobalVariableCommand::apply(ProjectDocument& docume
     if (references != 0) {
         return EditorOperationResult::failure(
             "Cannot delete global variable \"" + key_ + "\": referenced by "
-            + std::to_string(references) + " Logic block(s)");
+            + std::to_string(references) + " Logic/Text/Gauge reference(s)");
     }
     ProjectDoc staged = document.data();
     const auto it = findVariable(staged, key_);
@@ -225,7 +238,8 @@ EditorOperationResult SetGlobalVariableTypeCommand::apply(ProjectDocument& docum
     if (it->type == next_) return EditorOperationResult::success(EditorInvalidation::None);
     if (referencesRequireDifferentType(staged, key_, next_))
         return EditorOperationResult::failure(
-            "Cannot change global variable type: referenced Logic blocks require the current type");
+            "Cannot change global variable type: referenced Logic/Text/Gauge "
+            "bindings require the current type");
     if (!previousType_) {
         previousType_ = it->type;
         previousValue_ = it->initialValue;

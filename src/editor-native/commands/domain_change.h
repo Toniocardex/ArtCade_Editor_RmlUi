@@ -37,6 +37,8 @@ enum class ComponentKind {
     CameraTarget,
     Tilemap,
     Scripts,
+    Text,
+    Gauge,
 };
 
 struct DomainChange {

@@ -225,6 +225,8 @@ public:
     void hideContextMenus();
     bool isContextMenuHit(int physicalX, int physicalY) const;
     bool hasOpenContextMenu() const;
+    // Collapse Inspector Add Component / value dropdowns (outside click / viewport).
+    void dismissInspectorTransientMenus();
 
     // Shared themed confirm modal (UI-local; Escape → Cancel).
     enum class ConfirmChoice { Cancel, Secondary, Primary };

@@ -58,6 +58,14 @@ EditorOperationResult addAutoDestroy(EditorCoordinator& coordinator);
 EditorOperationResult removeAutoDestroy(EditorCoordinator& coordinator);
 EditorOperationResult setAutoDestroyLifespan(EditorCoordinator& coordinator, float lifespan);
 
+EditorOperationResult addTextComponent(EditorCoordinator& coordinator);
+EditorOperationResult removeTextComponent(EditorCoordinator& coordinator);
+EditorOperationResult setTextComponent(EditorCoordinator& coordinator, TextComponent next);
+
+EditorOperationResult addGaugeComponent(EditorCoordinator& coordinator);
+EditorOperationResult removeGaugeComponent(EditorCoordinator& coordinator);
+EditorOperationResult setGaugeComponent(EditorCoordinator& coordinator, GaugeComponent next);
+
 EditorOperationResult addCameraTarget(EditorCoordinator& coordinator);
 EditorOperationResult removeCameraTarget(EditorCoordinator& coordinator);
 EditorOperationResult setCameraTargetOffset(EditorCoordinator& coordinator, Vec2 offset);

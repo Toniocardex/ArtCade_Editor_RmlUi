@@ -3,6 +3,7 @@
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/commands/entity_commands.h"
 #include "editor-native/model/authored_transform.h"
+#include "core/color-hex.h"
 
 #include <algorithm>
 #include <cmath>
@@ -60,47 +61,13 @@ const char* fieldLabel(InspectorTransformField field) {
 } // namespace
 
 std::string formatColorHexRgb(const Vec4& color) {
-    char buf[8];
-    std::snprintf(buf, sizeof(buf), "#%02X%02X%02X",
-                  channelToByte(color.r), channelToByte(color.g), channelToByte(color.b));
-    return buf;
+    return ArtCade::formatColorHexRgb(color);
 }
 
 std::optional<ColorRgb> parseColorHexRgb(const std::string& text) {
-    std::string hex = text;
-    if (!hex.empty() && hex.front() == '#') hex.erase(hex.begin());
-    if (hex.size() != 3 && hex.size() != 6) return std::nullopt;
-
-    const auto readByte = [&](std::size_t i) -> std::optional<int> {
-        const int hi = hexDigitValue(static_cast<unsigned char>(hex[i]));
-        const int lo = hexDigitValue(static_cast<unsigned char>(hex[i + 1]));
-        if (hi < 0 || lo < 0) return std::nullopt;
-        return (hi << 4) | lo;
-    };
-
-    int r = 0, g = 0, b = 0;
-    if (hex.size() == 3) {
-        const int rd = hexDigitValue(static_cast<unsigned char>(hex[0]));
-        const int gd = hexDigitValue(static_cast<unsigned char>(hex[1]));
-        const int bd = hexDigitValue(static_cast<unsigned char>(hex[2]));
-        if (rd < 0 || gd < 0 || bd < 0) return std::nullopt;
-        r = (rd << 4) | rd;
-        g = (gd << 4) | gd;
-        b = (bd << 4) | bd;
-    } else {
-        const auto rb = readByte(0);
-        const auto gb = readByte(2);
-        const auto bb = readByte(4);
-        if (!rb || !gb || !bb) return std::nullopt;
-        r = *rb;
-        g = *gb;
-        b = *bb;
-    }
-    return ColorRgb{
-        static_cast<float>(r) / 255.0f,
-        static_cast<float>(g) / 255.0f,
-        static_cast<float>(b) / 255.0f,
-    };
+    const auto parsed = ArtCade::parseColorHexRgb(text);
+    if (!parsed) return std::nullopt;
+    return ColorRgb{parsed->r, parsed->g, parsed->b};
 }
 
 bool incompleteColorHexBuffer(const std::string& text) {

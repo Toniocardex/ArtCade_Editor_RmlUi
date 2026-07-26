@@ -1,8 +1,10 @@
 #include "entity-json.h"
 
+#include "color-hex.h"
 #include "json-primitives.h"
 #include "physics-json.h"
 #include "sprite-json.h"
+#include "text-component-format.h"
 #include "../modules/logic-core/include/logic-core.h"
 
 #include <unordered_set>
@@ -29,28 +31,12 @@ bool read_variable_value(const nlohmann::json& raw,
     return false;
 }
 
-/** "#rrggbb" → Vec4 (alpha 1); falls back to white on malformed input. */
-Vec4 parse_hex_color(const std::string& hex) {
-    std::string h = hex;
-    if (!h.empty() && h[0] == '#') h = h.substr(1);
-    if (h.size() != 6) return {1.f, 1.f, 1.f, 1.f};
-    auto nibble = [](char c) -> int {
-        if (c >= '0' && c <= '9') return c - '0';
-        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-        return -1;
-    };
-    int v[6];
-    for (int i = 0; i < 6; ++i) {
-        v[i] = nibble(h[i]);
-        if (v[i] < 0) return {1.f, 1.f, 1.f, 1.f};
+/** "#rrggbb" → Vec4 (alpha 1). Callers must validate hex before accept. */
+Vec4 parse_hex_color_or_white(const std::string& hex) {
+    if (const auto parsed = ArtCade::parseColorHexRgb(hex)) {
+        return *parsed;
     }
-    return {
-        static_cast<float>(v[0] * 16 + v[1]) / 255.f,
-        static_cast<float>(v[2] * 16 + v[3]) / 255.f,
-        static_cast<float>(v[4] * 16 + v[5]) / 255.f,
-        1.f,
-    };
+    return {1.f, 1.f, 1.f, 1.f};
 }
 
 void read_optional_gameplay_components(const nlohmann::json& j, EntityDef& e) {
@@ -135,8 +121,14 @@ void read_optional_gameplay_components(const nlohmann::json& j, EntityDef& e) {
         tc.suffix      = t.value("suffix", "");
         tc.fontPath    = t.value("fontPath", "");
         tc.size        = t.value("size", 24);
-        tc.color       = parse_hex_color(t.value("colorHex", std::string("#ffffff")));
-        tc.align       = t.value("align", std::string("top-left"));
+        tc.color       = parse_hex_color_or_white(t.value("colorHex", std::string("#ffffff")));
+        tc.color.a     = 1.f;
+        // Canonicalize legacy horizontal-only align on read.
+        if (const auto anchor = textAnchorFromString(t.value("align", std::string("top-left")))) {
+            tc.align = textAnchorToString(*anchor);
+        } else {
+            tc.align = t.value("align", std::string("top-left"));
+        }
         tc.offsetX     = t.value("offsetX", 0.f);
         tc.offsetY     = t.value("offsetY", 0.f);
         tc.screenSpace = t.value("screenSpace", false);
@@ -150,8 +142,10 @@ void read_optional_gameplay_components(const nlohmann::json& j, EntityDef& e) {
         gc.maxValue    = g.value("maxValue", 100.f);
         gc.width       = g.value("width", 64.f);
         gc.height      = g.value("height", 8.f);
-        gc.fillColor   = parse_hex_color(g.value("fillColorHex", std::string("#3ad13a")));
-        gc.bgColor     = parse_hex_color(g.value("bgColorHex", std::string("#202020")));
+        gc.fillColor   = parse_hex_color_or_white(g.value("fillColorHex", std::string("#3ad13a")));
+        gc.fillColor.a = 1.f;
+        gc.bgColor     = parse_hex_color_or_white(g.value("bgColorHex", std::string("#202020")));
+        gc.bgColor.a   = 1.f;
         gc.direction   = g.value("direction", std::string("horizontal"));
         gc.offsetX     = g.value("offsetX", 0.f);
         gc.offsetY     = g.value("offsetY", -40.f);
@@ -413,6 +407,91 @@ bool read_object_type_logic_boards(const nlohmann::json& doc,
     } else {
         for (auto& [key, rawType] : rawTypes->items())
             if (!readBoard(key, rawType)) return false;
+    }
+    return true;
+}
+
+nlohmann::json textComponentToJson(const TextComponent& component) {
+    std::string align = component.align;
+    if (const auto anchor = textAnchorFromString(component.align)) {
+        align = textAnchorToString(*anchor);
+    }
+    return nlohmann::json{
+        {"text", component.text},
+        {"bindKey", component.bindKey},
+        {"bindScope", component.bindScope},
+        {"format", component.format},
+        {"digits", component.digits},
+        {"prefix", component.prefix},
+        {"suffix", component.suffix},
+        {"fontPath", component.fontPath},
+        {"size", component.size},
+        {"colorHex", ArtCade::formatColorHexRgb(component.color)},
+        {"align", align},
+        {"offsetX", component.offsetX},
+        {"offsetY", component.offsetY},
+        {"screenSpace", component.screenSpace},
+    };
+}
+
+nlohmann::json gaugeComponentToJson(const GaugeComponent& component) {
+    return nlohmann::json{
+        {"bindKey", component.bindKey},
+        {"bindScope", component.bindScope},
+        {"maxValue", component.maxValue},
+        {"width", component.width},
+        {"height", component.height},
+        {"fillColorHex", ArtCade::formatColorHexRgb(component.fillColor)},
+        {"bgColorHex", ArtCade::formatColorHexRgb(component.bgColor)},
+        {"direction", component.direction},
+        {"offsetX", component.offsetX},
+        {"offsetY", component.offsetY},
+        {"screenSpace", component.screenSpace},
+    };
+}
+
+bool validate_object_type_presentation_json(const nlohmann::json& doc,
+                                            std::string& error_message) {
+    if (!doc.contains("objectTypes")) return true;
+    const auto& raw = doc["objectTypes"];
+    const auto requireColor = [&](const nlohmann::json& object, const char* key,
+                                  const std::string& context) -> bool {
+        if (!object.contains(key)) return true;
+        if (!object[key].is_string()) {
+            error_message = context + " field \"" + key + "\" must be a string.";
+            return false;
+        }
+        if (!ArtCade::parseColorHexRgb(object[key].get<std::string>())) {
+            error_message = context + " has malformed " + key + " (expected #RRGGBB).";
+            return false;
+        }
+        return true;
+    };
+    const auto validateType = [&](const std::string& mapKey,
+                                  const nlohmann::json& rawType) -> bool {
+        if (!rawType.is_object()) return true;
+        const std::string typeId = rawType.value("id", mapKey);
+        const std::string context = "Object Type \"" + typeId + "\"";
+        if (rawType.contains("text") && rawType["text"].is_object()) {
+            if (!requireColor(rawType["text"], "colorHex", context)) return false;
+        }
+        if (rawType.contains("gauge") && rawType["gauge"].is_object()) {
+            if (!requireColor(rawType["gauge"], "fillColorHex", context)
+                || !requireColor(rawType["gauge"], "bgColorHex", context)) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    if (raw.is_array()) {
+        for (const auto& rawType : raw) {
+            if (!validateType({}, rawType)) return false;
+        }
+    } else if (raw.is_object()) {
+        for (auto& [key, rawType] : raw.items()) {
+            if (!validateType(key, rawType)) return false;
+        }
     }
     return true;
 }

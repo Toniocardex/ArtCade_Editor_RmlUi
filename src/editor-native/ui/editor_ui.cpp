@@ -280,7 +280,12 @@ public:
                                               : std::string();
             if (commitField) return;
         }
-        if (action.empty()) return;
+        if (action.empty()) {
+            // Click on non-action chrome (panel padding, labels, etc.): collapse
+            // Inspector in-flow menus the same way floating context menus dismiss.
+            if (type == "click") ui_.dismissInspectorTransientMenus();
+            return;
+        }
 
         // Asset / Hierarchy search: live workspace filter state (not authoring).
         // Escape clears the field. The input lives in a stable slot and is not
@@ -1431,6 +1436,10 @@ void EditorUi::hideContextMenus() {
     assetsContextMenuVisible_ = false;
     logicTypeMenuVisible_ = false;
     logicMoreMenuVisible_ = false;
+}
+
+void EditorUi::dismissInspectorTransientMenus() {
+    inspector_.dismissTransientMenus(document_, coordinator_);
 }
 
 bool EditorUi::isContextMenuHit(int physicalX, int physicalY) const {
@@ -2788,6 +2797,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         || action == "add-box-collider"
         || action == "add-linear-mover" || action == "add-top-down"
         || action == "add-platformer" || action == "add-auto-destroy"
+        || action == "add-text" || action == "add-gauge"
         || action == "add-camera-target"
         || action == "add-tilemap-component") {
         inspector_.closeAddMenu();   // then fall through to execute the add
@@ -2800,11 +2810,23 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         if (!coordinator_.isPlaying()) inspector_.toggleDropdown(document_, coordinator_, arg);
         return;
     }
-    if (action == "set-entity-layer" || action == "set-sprite-asset"
+    const bool inspectorDropdownPick =
+        action == "set-entity-layer" || action == "set-sprite-asset"
         || action == "set-sprite-animation" || action == "set-tilemap-tileset"
         || action == "set-animator-default-clip" || action == "attach-script"
-        || action == "set-scene-viewport-preset") {
+        || action == "set-scene-viewport-preset"
+        || action == "set-text-binding-none" || action == "set-text-binding-global"
+        || action == "set-text-binding-local" || action == "set-text-variable"
+        || action == "set-text-format" || action == "set-text-align"
+        || action == "set-gauge-binding-none" || action == "set-gauge-binding-global"
+        || action == "set-gauge-binding-local" || action == "set-gauge-variable"
+        || action == "set-gauge-direction";
+    if (inspectorDropdownPick) {
         inspector_.closeDropdowns();   // then fall through to execute the pick
+    } else if ((inspector_.hasOpenDropdown() || inspector_.hasOpenAddMenu())
+               && action != "toggle-add-component") {
+        // Unrelated Inspector / shell click: collapse open in-flow menus.
+        dismissInspectorTransientMenus();
     }
 
     // Logic Board's per-rule Key picker follows the same in-flow pattern as
@@ -3210,6 +3232,175 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
             coordinator_.logError("Auto Destroy lifetime is not a number");
         } else {
             setAutoDestroyLifespan(coordinator_, *parsed);
+        }
+    } else if (action == "add-text") {
+        addTextComponent(coordinator_);
+    } else if (action == "remove-text") {
+        removeTextComponent(coordinator_);
+    } else if (action == "add-gauge") {
+        addGaugeComponent(coordinator_);
+    } else if (action == "remove-gauge") {
+        removeGaugeComponent(coordinator_);
+    } else if (action == "set-text-binding-none" || action == "set-text-binding-global"
+               || action == "set-text-binding-local" || action == "set-text-variable"
+               || action == "set-text-format" || action == "set-text-align"
+               || action == "toggle-text-screen-space"
+               || action == "commit-text-static" || action == "commit-text-prefix"
+               || action == "commit-text-suffix" || action == "commit-text-digits"
+               || action == "commit-text-size" || action == "commit-text-color"
+               || action == "commit-text-offset-x" || action == "commit-text-offset-y") {
+        const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
+            coordinator_.state().activeSceneId, coordinator_.selection().primaryEntity);
+        const EntityDef* type = inst
+            ? coordinator_.document().findObjectType(inst->objectTypeId) : nullptr;
+        if (!type || !type->text) {
+            coordinator_.logError("Selected Object Type has no Text component");
+        } else {
+            TextComponent next = *type->text;
+            if (action == "set-text-binding-none") {
+                next.bindKey.clear();
+                next.bindScope = "global";
+            } else if (action == "set-text-binding-global") {
+                if (next.bindScope != "global") next.bindKey.clear();
+                next.bindScope = "global";
+            } else if (action == "set-text-binding-local") {
+                if (next.bindScope != "local") next.bindKey.clear();
+                next.bindScope = "local";
+            } else if (action == "set-text-variable") {
+                next.bindKey = arg;
+            } else if (action == "set-text-format") {
+                next.format = arg;
+            } else if (action == "set-text-align") {
+                next.align = arg;
+            } else if (action == "toggle-text-screen-space") {
+                next.screenSpace = !next.screenSpace;
+            } else if (action == "commit-text-static") {
+                next.text = value;
+            } else if (action == "commit-text-prefix") {
+                next.prefix = value;
+            } else if (action == "commit-text-suffix") {
+                next.suffix = value;
+            } else if (action == "commit-text-digits") {
+                const std::optional<float> parsed = parseNumberField(value);
+                if (!parsed) {
+                    coordinator_.logError("Text digits is not a number");
+                    return true;
+                }
+                next.digits = static_cast<int>(*parsed);
+            } else if (action == "commit-text-size") {
+                const std::optional<float> parsed = parseNumberField(value);
+                if (!parsed) {
+                    coordinator_.logError("Text size is not a number");
+                    return true;
+                }
+                next.size = static_cast<int>(*parsed);
+            } else if (action == "commit-text-color") {
+                const auto parsed = parseColorHexRgb(value);
+                if (!parsed) {
+                    coordinator_.logError("Text color must be #RRGGBB");
+                    return true;
+                }
+                next.color = {parsed->r, parsed->g, parsed->b, 1.f};
+            } else if (action == "commit-text-offset-x") {
+                const std::optional<float> parsed = parseNumberField(value);
+                if (!parsed) {
+                    coordinator_.logError("Text offset is not a number");
+                    return true;
+                }
+                next.offsetX = *parsed;
+            } else if (action == "commit-text-offset-y") {
+                const std::optional<float> parsed = parseNumberField(value);
+                if (!parsed) {
+                    coordinator_.logError("Text offset is not a number");
+                    return true;
+                }
+                next.offsetY = *parsed;
+            }
+            setTextComponent(coordinator_, std::move(next));
+            // Binding scope picks: open Variable when still unbound so Global/
+            // Local are immediately usable. Always refresh so no-op picks (e.g.
+            // Global while already None) still collapse the Binding list.
+            if (action == "set-text-binding-none" || action == "set-text-binding-global"
+                || action == "set-text-binding-local" || action == "set-text-variable"
+                || action == "set-text-format" || action == "set-text-align") {
+                if (action == "set-text-binding-global" || action == "set-text-binding-local") {
+                    const EntityDef* updated =
+                        coordinator_.document().findObjectType(inst->objectTypeId);
+                    if (updated && updated->text && updated->text->bindKey.empty()) {
+                        inspector_.setOpenDropdown("text-variable");
+                    }
+                }
+                inspector_.refresh(document_, coordinator_);
+            }
+        }
+    } else if (action == "set-gauge-binding-none" || action == "set-gauge-binding-global"
+               || action == "set-gauge-binding-local" || action == "set-gauge-variable"
+               || action == "set-gauge-direction" || action == "toggle-gauge-screen-space"
+               || action == "commit-gauge-max" || action == "commit-gauge-width"
+               || action == "commit-gauge-height" || action == "commit-gauge-fill"
+               || action == "commit-gauge-bg" || action == "commit-gauge-offset-x"
+               || action == "commit-gauge-offset-y") {
+        const SceneInstanceDef* inst = coordinator_.document().findInstanceInScene(
+            coordinator_.state().activeSceneId, coordinator_.selection().primaryEntity);
+        const EntityDef* type = inst
+            ? coordinator_.document().findObjectType(inst->objectTypeId) : nullptr;
+        if (!type || !type->gauge) {
+            coordinator_.logError("Selected Object Type has no Gauge component");
+        } else {
+            GaugeComponent next = *type->gauge;
+            if (action == "set-gauge-binding-none") {
+                next.bindKey.clear();
+                next.bindScope = "global";
+            } else if (action == "set-gauge-binding-global") {
+                if (next.bindScope != "global") next.bindKey.clear();
+                next.bindScope = "global";
+            } else if (action == "set-gauge-binding-local") {
+                if (next.bindScope != "local") next.bindKey.clear();
+                next.bindScope = "local";
+            } else if (action == "set-gauge-variable") {
+                next.bindKey = arg;
+            } else if (action == "set-gauge-direction") {
+                next.direction = arg;
+            } else if (action == "toggle-gauge-screen-space") {
+                next.screenSpace = !next.screenSpace;
+            } else if (action == "commit-gauge-max"
+                       || action == "commit-gauge-width"
+                       || action == "commit-gauge-height"
+                       || action == "commit-gauge-offset-x"
+                       || action == "commit-gauge-offset-y") {
+                const std::optional<float> parsed = parseNumberField(value);
+                if (!parsed) {
+                    coordinator_.logError("Gauge value is not a number");
+                    return true;
+                }
+                if (action == "commit-gauge-max") next.maxValue = *parsed;
+                else if (action == "commit-gauge-width") next.width = *parsed;
+                else if (action == "commit-gauge-height") next.height = *parsed;
+                else if (action == "commit-gauge-offset-x") next.offsetX = *parsed;
+                else next.offsetY = *parsed;
+            } else if (action == "commit-gauge-fill" || action == "commit-gauge-bg") {
+                const auto parsed = parseColorHexRgb(value);
+                if (!parsed) {
+                    coordinator_.logError("Gauge color must be #RRGGBB");
+                    return true;
+                }
+                Vec4 color{parsed->r, parsed->g, parsed->b, 1.f};
+                if (action == "commit-gauge-fill") next.fillColor = color;
+                else next.bgColor = color;
+            }
+            setGaugeComponent(coordinator_, std::move(next));
+            if (action == "set-gauge-binding-none" || action == "set-gauge-binding-global"
+                || action == "set-gauge-binding-local" || action == "set-gauge-variable"
+                || action == "set-gauge-direction") {
+                if (action == "set-gauge-binding-global" || action == "set-gauge-binding-local") {
+                    const EntityDef* updated =
+                        coordinator_.document().findObjectType(inst->objectTypeId);
+                    if (updated && updated->gauge && updated->gauge->bindKey.empty()) {
+                        inspector_.setOpenDropdown("gauge-variable");
+                    }
+                }
+                inspector_.refresh(document_, coordinator_);
+            }
         }
     } else if (action == "add-top-down") {
         addTopDownController(coordinator_);

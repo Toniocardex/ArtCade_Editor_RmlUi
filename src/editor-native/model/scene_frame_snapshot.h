@@ -60,6 +60,29 @@ struct SceneFrameTilemap {
     bool selected = false;
 };
 
+struct SceneFrameText {
+    EntityId entityId = INVALID_ENTITY;
+    std::string displayText;
+    Vec2 anchorPosition;
+    std::string align = "top-left";
+    int size = 24;
+    Vec4 color{1.f, 1.f, 1.f, 1.f};
+    bool screenSpace = false;
+    float layerOpacity = 1.f;
+};
+
+struct SceneFrameGauge {
+    EntityId entityId = INVALID_ENTITY;
+    Vec2 anchorPosition;
+    float width = 64.f;
+    float height = 8.f;
+    Vec4 fillColor{0.23f, 0.82f, 0.23f, 1.f};
+    Vec4 bgColor{0.13f, 0.13f, 0.13f, 1.f};
+    float ratio = 1.f;
+    std::string direction = "horizontal";
+    bool screenSpace = false;
+};
+
 struct SceneFrameSnapshot {
     SceneId sceneId;
     std::string sceneName;
@@ -70,12 +93,20 @@ struct SceneFrameSnapshot {
     std::vector<SceneFrameSprite> sprites;
     std::vector<SceneFrameCollider> colliders;
     std::vector<SceneFrameTilemap> tilemaps;
+    std::vector<SceneFrameText> texts;
+    std::vector<SceneFrameGauge> gauges;
 };
 
 enum class SceneContainment {
     Inside,
     PartiallyOutside,
     FullyOutside,
+};
+
+/** World + viewport pointers for mixed world/HUD picking. */
+struct ScenePickPoint {
+    Vec2 world;
+    Vec2 viewport;
 };
 
 // Edit projection. Entities/sprites are emitted in per-scene layer order
@@ -100,9 +131,11 @@ std::optional<Vec2> positionToBringBoundsInsideScene(const WorldRect& entityBoun
                                                      Vec2 currentPosition,
                                                      Vec2 sceneSize);
 
-// Topmost entity whose drawn representation contains the world point, or
-// INVALID_ENTITY. A sprite occludes a placeholder; later draw order wins. Pure
-// query on the frame — no document, no renderer.
+// Topmost entity whose drawn representation contains the point, or
+// INVALID_ENTITY. World visuals use @p point.world; HUD (screenSpace) texts
+// and gauges use @p point.viewport. Pure query on the frame — no document.
+EntityId pickEntityAt(const SceneFrameSnapshot& frame, ScenePickPoint point);
+/** Convenience: world-only pick (HUD texts/gauges ignored). */
 EntityId pickEntityAt(const SceneFrameSnapshot& frame, Vec2 worldPoint);
 
 // In-place local drag preview: offsets every drawn representation of

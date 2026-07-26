@@ -32,6 +32,13 @@ public:
     void toggleDropdown(Rml::ElementDocument* document, const EditorCoordinator& coordinator,
                         const std::string& dropdownId);
     void closeDropdowns() { openDropdownId_.clear(); }
+    // Open a value dropdown without toggling (e.g. Binding → Variable after a scope pick).
+    void setOpenDropdown(std::string dropdownId) { openDropdownId_ = std::move(dropdownId); }
+    bool hasOpenDropdown() const { return !openDropdownId_.empty(); }
+    bool hasOpenAddMenu() const { return addMenuOpen_; }
+    /** Close Add Component / value dropdowns and repaint when either was open. */
+    void dismissTransientMenus(Rml::ElementDocument* document,
+                               const EditorCoordinator& coordinator);
 
     // Session-local presentation state. The section id is accepted only from
     // the fixed Inspector catalog; toggling never mutates editor or project

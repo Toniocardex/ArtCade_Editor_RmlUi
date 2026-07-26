@@ -2,6 +2,7 @@
 
 #include "editor-native/model/project_io.h"
 #include "editor-native/model/sprite_render_view.h"
+#include "core/text-component-format.h"
 #include "project-current-format.h"
 
 #include <nlohmann/json.hpp>
@@ -99,6 +100,100 @@ std::optional<std::string> validatePlaySpriteReferences(const ProjectDocument& d
     return std::nullopt;
 }
 
+std::optional<std::string> validatePlayPresentationComponents(const ProjectDocument& document) {
+    for (const auto& [typeId, type] : document.data().objectTypes) {
+        if (type.text) {
+            std::string error;
+            if (!validateTextComponent(*type.text, error)) {
+                return "Object Type \"" + typeId + "\" Text: " + error;
+            }
+            if (!type.text->bindKey.empty()) {
+                if (type.text->bindScope == "global") {
+                    bool found = false;
+                    std::optional<GameVariableDefinition::Type> boundType;
+                    for (const GameVariableDefinition& variable :
+                         document.data().globalVariables) {
+                        if (variable.key == type.text->bindKey) {
+                            found = true;
+                            boundType = variable.type;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        return "Object Type \"" + typeId
+                             + "\" Text bindKey references a missing global variable";
+                    }
+                    if (!isTextFormatCompatibleWithVariableType(type.text->format, *boundType)) {
+                        return "Object Type \"" + typeId
+                             + "\" Text format is incompatible with bound global variable";
+                    }
+                } else if (type.text->bindScope == "local") {
+                    bool found = false;
+                    std::optional<GameVariableDefinition::Type> boundType;
+                    for (const GameVariableDefinition& variable : type.localVariables) {
+                        if (variable.key == type.text->bindKey) {
+                            found = true;
+                            boundType = variable.type;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        return "Object Type \"" + typeId
+                             + "\" Text bindKey references a missing local variable";
+                    }
+                    if (!isTextFormatCompatibleWithVariableType(type.text->format, *boundType)) {
+                        return "Object Type \"" + typeId
+                             + "\" Text format is incompatible with bound local variable";
+                    }
+                }
+            }
+        }
+        if (type.gauge) {
+            std::string error;
+            if (!validateGaugeComponent(*type.gauge, error)) {
+                return "Object Type \"" + typeId + "\" Gauge: " + error;
+            }
+            if (!type.gauge->bindKey.empty()) {
+                if (type.gauge->bindScope == "global") {
+                    bool found = false;
+                    for (const GameVariableDefinition& variable :
+                         document.data().globalVariables) {
+                        if (variable.key == type.gauge->bindKey) {
+                            found = true;
+                            if (!isGaugeCompatibleWithVariableType(variable.type)) {
+                                return "Object Type \"" + typeId
+                                     + "\" Gauge requires a Number global variable";
+                            }
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        return "Object Type \"" + typeId
+                             + "\" Gauge bindKey references a missing global variable";
+                    }
+                } else if (type.gauge->bindScope == "local") {
+                    bool found = false;
+                    for (const GameVariableDefinition& variable : type.localVariables) {
+                        if (variable.key == type.gauge->bindKey) {
+                            found = true;
+                            if (!isGaugeCompatibleWithVariableType(variable.type)) {
+                                return "Object Type \"" + typeId
+                                     + "\" Gauge requires a Number local variable";
+                            }
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        return "Object Type \"" + typeId
+                             + "\" Gauge bindKey references a missing local variable";
+                    }
+                }
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 RuntimeProjectPreflightResult prepareRuntimeProjectSnapshot(
@@ -108,6 +203,11 @@ RuntimeProjectPreflightResult prepareRuntimeProjectSnapshot(
     if (const auto spriteError = validatePlaySpriteReferences(document)) {
         result.diagnostics.push_back(makeExportError(
             ExportDiagnosticCode::InvalidAsset, *spriteError));
+        return result;
+    }
+    if (const auto presentationError = validatePlayPresentationComponents(document)) {
+        result.diagnostics.push_back(makeExportError(
+            ExportDiagnosticCode::RuntimeValidationFailed, *presentationError));
         return result;
     }
 

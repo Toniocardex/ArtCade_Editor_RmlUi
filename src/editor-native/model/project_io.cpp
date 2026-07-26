@@ -20,6 +20,7 @@
 #include "core/project-global-variables-format.h"
 #include "core/project-meta-json.h"
 #include "core/scene-json.h"
+#include "core/text-component-format.h"
 
 #include <nlohmann/json.hpp>
 
@@ -862,6 +863,12 @@ nlohmann::json objectTypeToJson(const std::string& id, const EntityDef& def) {
     if (def.logicBoard.has_value()) {
         json["logicBoard"] = Logic::logicBoardToJson(*def.logicBoard);
     }
+    if (def.text.has_value()) {
+        json["text"] = ProjectJson::textComponentToJson(*def.text);
+    }
+    if (def.gauge.has_value()) {
+        json["gauge"] = ProjectJson::gaugeComponentToJson(*def.gauge);
+    }
     return json;
 }
 
@@ -1300,6 +1307,9 @@ DeserializeResult deserializeCanonical(const nlohmann::json& root) {
     if (!ProjectJson::validate_current_project_json(root, error)) {
         return DeserializeResult::failure(error);
     }
+    if (!ProjectJson::validate_object_type_presentation_json(root, error)) {
+        return DeserializeResult::failure(error);
+    }
 
     ProjectDoc doc;
     ProjectJson::read_project_header(root, doc);
@@ -1339,6 +1349,14 @@ DeserializeResult deserializeCanonical(const nlohmann::json& root) {
             && !NumericValidation::isValid(*def.autoDestroy)) {
             return DeserializeResult::failure(
                 "AutoDestroy lifetime must be finite and >= 0");
+        }
+        if (def.text.has_value() && !validateTextComponent(*def.text, error)) {
+            return DeserializeResult::failure(
+                "Object Type \"" + objectTypeId + "\" Text: " + error);
+        }
+        if (def.gauge.has_value() && !validateGaugeComponent(*def.gauge, error)) {
+            return DeserializeResult::failure(
+                "Object Type \"" + objectTypeId + "\" Gauge: " + error);
         }
     }
     for (const auto& [sceneId, scene] : doc.scenes) {

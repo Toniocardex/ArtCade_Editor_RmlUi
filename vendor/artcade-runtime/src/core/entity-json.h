@@ -59,4 +59,14 @@ bool read_object_type_logic_boards(const nlohmann::json& doc,
                                    const ProjectDoc* project = nullptr,
                                    std::string* error = nullptr);
 
+nlohmann::json textComponentToJson(const TextComponent& component);
+nlohmann::json gaugeComponentToJson(const GaugeComponent& component);
+
+/**
+ * Validates optional text/gauge colorHex tokens on objectTypes before accept.
+ * Malformed hex is an explicit load failure (never silently coerced to white).
+ */
+bool validate_object_type_presentation_json(const nlohmann::json& doc,
+                                            std::string& error_message);
+
 } // namespace ArtCade::ProjectJson

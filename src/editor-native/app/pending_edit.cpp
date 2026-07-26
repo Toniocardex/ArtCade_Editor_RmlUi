@@ -28,6 +28,10 @@ bool isNumericCommit(const std::string& action) {
         "commit-auto-destroy-lifespan",
         "commit-camera-target-offset-x", "commit-camera-target-offset-y",
         "commit-camera-target-follow-speed",
+        "commit-text-digits", "commit-text-size",
+        "commit-text-offset-x", "commit-text-offset-y",
+        "commit-gauge-max", "commit-gauge-width", "commit-gauge-height",
+        "commit-gauge-offset-x", "commit-gauge-offset-y",
         "commit-scene-width", "commit-scene-height",
         "commit-tilemap-cell-width", "commit-tilemap-cell-height",
         "commit-grid-cell-size", "commit-animation-clip-fps",
@@ -97,7 +101,10 @@ PendingEditResult classifyPendingEdit(const std::string& action,
                                       const std::string& value) {
     if (action.rfind("commit-", 0) != 0) return {};
 
-    if (action == "commit-scene-background-hex") {
+    if (action == "commit-scene-background-hex"
+        || action == "commit-text-color"
+        || action == "commit-gauge-fill"
+        || action == "commit-gauge-bg") {
         if (incompleteColorHexBuffer(value)) {
             return failure(PendingEditStatus::Incomplete,
                            "Finish the focused color value before continuing");

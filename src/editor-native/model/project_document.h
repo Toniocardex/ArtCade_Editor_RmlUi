@@ -109,6 +109,11 @@ class SetTopDownControllerFourDirectionsCommand;
 class AddAutoDestroyCommand;
 class RemoveAutoDestroyCommand;
 class SetAutoDestroyLifespanCommand;
+class SetObjectTypeTextComponentCommand;
+class SetObjectTypeGaugeComponentCommand;
+class RenameObjectTypeLocalVariableCommand;
+class RemoveObjectTypeLocalVariableCommand;
+class SetObjectTypeLocalVariableTypeCommand;
 
 // =============================================================================
 // ProjectDocument — the single authoring authority of the native editor.
@@ -239,6 +244,11 @@ private:
     friend class AddAutoDestroyCommand;
     friend class RemoveAutoDestroyCommand;
     friend class SetAutoDestroyLifespanCommand;
+    friend class SetObjectTypeTextComponentCommand;
+    friend class SetObjectTypeGaugeComponentCommand;
+    friend class RenameObjectTypeLocalVariableCommand;
+    friend class RemoveObjectTypeLocalVariableCommand;
+    friend class SetObjectTypeLocalVariableTypeCommand;
     friend class AddCameraTargetCommand;
     friend class RemoveCameraTargetCommand;
     friend class SetCameraTargetOffsetCommand;
