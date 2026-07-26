@@ -856,7 +856,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             } else if (action.typeId == Logic::kAnimationSetPlaybackSpeed) {
                 double speed = 1.0;
                 if (const LogicPropertyDef* p = property(action, "speed"))
-                    if (const auto* v = std::get_if<double>(&p->value)) speed = *v;
+                    if (const auto* v = std::get_if<NumberExpression>(&p->value))
+                        speed = literalNumberValue(*v).value_or(1.0);
                 html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Self - speed</span>"
                         "<input type=\"text\" class=\"logic-value-input\""
                         " data-action=\"commit-logic-animation-speed\" data-arg=\""
@@ -910,7 +911,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
 
                 double volume = 1.0;
                 if (const LogicPropertyDef* p = property(action, "volume"))
-                    if (const auto* v = std::get_if<double>(&p->value)) volume = *v;
+                    if (const auto* v = std::get_if<NumberExpression>(&p->value))
+                        volume = literalNumberValue(*v).value_or(1.0);
                 html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Volume</span>"
                         "<input type=\"text\" class=\"logic-value-input\""
                         " data-action=\"commit-logic-audio-volume\" data-arg=\""

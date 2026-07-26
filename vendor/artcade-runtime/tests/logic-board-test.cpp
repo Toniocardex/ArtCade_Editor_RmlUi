@@ -1012,7 +1012,7 @@ static void testPlatformerMoveHorizontalDirection() {
     LogicBoardDef legacy;
     legacy.id = "logic:LegacyMove";
     LogicRuleDef legacyRule = makeDefaultRule("rule-1");
-    legacyRule.actions = {LogicBlockDef{kMoveHorizontal, {{"axis", -1.0}}}};
+    legacyRule.actions = {LogicBlockDef{kMoveHorizontal, {{"axis", NumberExpression::literal(-1.0)}}}};
     legacy.rules.push_back(legacyRule);
     LogicCompileResult legacyCompiled = compileBoard("Hero", legacy, &owner);
     CHECK(legacyCompiled.ok());
@@ -1035,7 +1035,7 @@ static LogicBlockDef makeStateCompareCondition(double value) {
     for (LogicPropertyDef& property : condition.properties) {
         if (property.key == "key") property.value = LogicVariableReference{"score"};
         else if (property.key == "op") property.value = LogicStringValue{">="};
-        else if (property.key == "value") property.value = value;
+        else if (property.key == "value") property.value = NumberExpression::literal(value);
     }
     return condition;
 }
@@ -1066,7 +1066,9 @@ static void testDescriptorSemanticMetadataConsistency() {
         case LogicValueKind::Integer:
             return std::holds_alternative<int64_t>(property.defaultValue);
         case LogicValueKind::Number:
-            return std::holds_alternative<double>(property.defaultValue);
+            // ADR-0029: there is no `double` arm any more — a Number property
+            // holds a NumberExpression whether or not it may be dynamic.
+            return std::holds_alternative<NumberExpression>(property.defaultValue);
         case LogicValueKind::String:
             return std::holds_alternative<LogicStringValue>(property.defaultValue);
         case LogicValueKind::Vec2:
@@ -1267,7 +1269,7 @@ static void testPlaySoundAction() {
         const auto volumeIt = std::find_if(descriptor->properties.begin(), descriptor->properties.end(),
             [](const LogicPropertyDescriptor& p) { return p.key == "volume"; });
         CHECK(volumeIt != descriptor->properties.end());
-        CHECK(volumeIt != descriptor->properties.end() && std::get<double>(volumeIt->defaultValue) == 1.0);
+        CHECK(volumeIt != descriptor->properties.end() && literalNumberValue(std::get<NumberExpression>(volumeIt->defaultValue)).value_or(0.0) == 1.0);
     }
 
     LogicBlockDef action = makeDefaultBlock(kAudioPlaySound, BlockKind::Action);
@@ -1292,7 +1294,7 @@ static void testPlaySoundAction() {
         LogicBlockDef play = makeDefaultBlock(kAudioPlaySound, BlockKind::Action);
         for (LogicPropertyDef& p : play.properties) {
             if (p.key == "audioAssetId") p.value = LogicAssetReference{assetId};
-            else if (p.key == "volume") p.value = volume;
+            else if (p.key == "volume") p.value = NumberExpression::literal(volume);
         }
         rule.actions = {play};
         board.rules.push_back(rule);
@@ -1607,7 +1609,7 @@ static void testCombinedGameplaySmoke() {
     for (LogicPropertyDef& property : playSound.properties) {
         if (property.key == "audioAssetId")
             property.value = LogicAssetReference{"jump-sound"};
-        else if (property.key == "volume") property.value = 0.8;
+        else if (property.key == "volume") property.value = NumberExpression::literal(0.8);
     }
     rule.actions = {
         makeDefaultBlock(kJump, BlockKind::Action),
@@ -1655,7 +1657,7 @@ static void testP1EverySecondsAndTick() {
     LogicRuleDef rule = makeDefaultRule("every");
     rule.trigger = makeDefaultBlock(kEverySeconds, BlockKind::Trigger);
     for (LogicPropertyDef& p : rule.trigger.properties) {
-        if (p.key == "seconds") p.value = 0.5;
+        if (p.key == "seconds") p.value = NumberExpression::literal(0.5);
     }
     rule.actions[0] = {kSetPosition,
         {{"target", LogicEntityReference{}}, {"position", LogicVec2Value::literal(1., 2.)}}};
@@ -1688,17 +1690,17 @@ static void testP1StateAndWaitAndVelocity() {
         LogicBlockDef set = makeDefaultBlock(kStateSet, BlockKind::Action);
         for (LogicPropertyDef& p : set.properties) {
             if (p.key == "key") p.value = LogicVariableReference{"score"};
-            else if (p.key == "value") p.value = 10.0;
+            else if (p.key == "value") p.value = NumberExpression::literal(10.0);
         }
         LogicBlockDef add = makeDefaultBlock(kStateAdd, BlockKind::Action);
         for (LogicPropertyDef& p : add.properties) {
             if (p.key == "key") p.value = LogicVariableReference{"score"};
-            else if (p.key == "amount") p.value = 3.0;
+            else if (p.key == "amount") p.value = NumberExpression::literal(3.0);
         }
         LogicBlockDef sub = makeDefaultBlock(kStateSubtract, BlockKind::Action);
         for (LogicPropertyDef& p : sub.properties) {
             if (p.key == "key") p.value = LogicVariableReference{"score"};
-            else if (p.key == "amount") p.value = 1.0;
+            else if (p.key == "amount") p.value = NumberExpression::literal(1.0);
         }
         rule.actions = {set, add, sub};
         board.rules.push_back(rule);
@@ -1726,7 +1728,7 @@ static void testP1StateAndWaitAndVelocity() {
         for (LogicPropertyDef& p : cond.properties) {
             if (p.key == "key") p.value = LogicVariableReference{"score"};
             else if (p.key == "op") p.value = LogicStringValue{">="};
-            else if (p.key == "value") p.value = 5.0;
+            else if (p.key == "value") p.value = NumberExpression::literal(5.0);
         }
         rule.conditions = {makeClause(cond)};
         rule.actions[0] = {kSetVisible,
@@ -1755,7 +1757,7 @@ static void testP1StateAndWaitAndVelocity() {
         LogicRuleDef rule = makeDefaultRule("wait");
         LogicBlockDef wait = makeDefaultBlock(kWait, BlockKind::Action);
         for (LogicPropertyDef& p : wait.properties) {
-            if (p.key == "seconds") p.value = 0.4;
+            if (p.key == "seconds") p.value = NumberExpression::literal(0.4);
         }
         LogicBlockDef pos = {kSetPosition,
             {{"target", LogicEntityReference{}}, {"position", LogicVec2Value::literal(9., 8.)}}};
@@ -1916,9 +1918,9 @@ static void testScalarExpressionValueSurvivesJson() {
     const auto* expression =
         property ? std::get_if<NumberExpression>(&property->value) : nullptr;
     CHECK(expression != nullptr);
-    // A literal double and an expression are different arms and must not be
-    // confused on the way back: the descriptor policy decides which is used.
-    CHECK(property && !std::holds_alternative<double>(property->value));
+    // There is one arm, so the claim worth making is about the value: this one
+    // is dynamic, and must not come back flattened to a literal.
+    CHECK(expression && !literalNumberValue(*expression).has_value());
     if (expression) {
         CHECK(formatNumberExpression(*expression, NumberExpressionFormatStyle::Code)
               == "random(0, scene.width)");
@@ -1980,11 +1982,11 @@ static void testEntityTransformActions() {
     }
     LogicBlockDef setRot = makeDefaultBlock(kSetRotation, BlockKind::Action);
     for (LogicPropertyDef& p : setRot.properties) {
-        if (p.key == "degrees") p.value = 90.0;
+        if (p.key == "degrees") p.value = NumberExpression::literal(90.0);
     }
     LogicBlockDef rotBy = makeDefaultBlock(kRotateBy, BlockKind::Action);
     for (LogicPropertyDef& p : rotBy.properties) {
-        if (p.key == "degrees") p.value = -45.0;
+        if (p.key == "degrees") p.value = NumberExpression::literal(-45.0);
     }
     LogicBlockDef setScale = makeDefaultBlock(kSetScale, BlockKind::Action);
     for (LogicPropertyDef& p : setScale.properties) {
@@ -2211,7 +2213,7 @@ static void testOncePerActivationExecutionMode() {
         for (LogicPropertyDef& p : compare.properties) {
             if (p.key == "key") p.value = LogicVariableReference{"points"};
             if (p.key == "op") p.value = LogicStringValue{">"};
-            if (p.key == "value") p.value = 0.0;
+            if (p.key == "value") p.value = NumberExpression::literal(0.0);
         }
         rule.conditions = {makeClause(compare)};
         rule.actions = {makeDefaultBlock(kJump, BlockKind::Action)};

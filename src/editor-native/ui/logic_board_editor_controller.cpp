@@ -584,7 +584,8 @@ bool LogicBoardEditorController::handleAction(
         case Logic::LogicValueKind::Number: {
             const std::optional<float> parsed = parseNumberField(value);
             if (!parsed) coordinator_.logError("Logic number must be finite");
-            else executeProperty(*address, static_cast<double>(*parsed));
+            else executeProperty(*address,
+                                 NumberExpression::literal(*parsed));
             break;
         }
         case Logic::LogicValueKind::String:
@@ -742,7 +743,7 @@ bool LogicBoardEditorController::handleAction(
             }
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, ruleId, LogicPropertyTarget::Action, index,
-                "speed", static_cast<double>(*parsed)});
+                "speed", NumberExpression::literal(*parsed)});
         } else if (action == "set-logic-audio-asset") {
             const AudioAssetDef* audio = coordinator_.document().findAudioAsset(value);
             if (!audio || audio->loadMode != AudioLoadMode::StaticSound) {
@@ -760,7 +761,7 @@ bool LogicBoardEditorController::handleAction(
             }
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, ruleId, LogicPropertyTarget::Action, index,
-                "volume", static_cast<double>(*parsed)});
+                "volume", NumberExpression::literal(*parsed)});
         }
     } else {
         return false;

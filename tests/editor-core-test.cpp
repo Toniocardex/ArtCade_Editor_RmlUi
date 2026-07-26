@@ -511,7 +511,7 @@ int main() {
         LogicBlockDef setScore{Logic::kStateSet, {}};
         setScore.properties.push_back(
             LogicPropertyDef{"key", LogicValue{LogicVariableReference{"score"}}});
-        setScore.properties.push_back(LogicPropertyDef{"value", LogicValue{1.0}});
+        setScore.properties.push_back(LogicPropertyDef{"value", LogicValue{NumberExpression::literal(1.0)}});
         rule.actions.push_back(std::move(setScore));
         board.rules.push_back(std::move(rule));
         hero.logicBoard = std::move(board);
