@@ -47,7 +47,14 @@ std::string conditionExpression(const LogicBlockDef& condition,
         const auto* comparison = operatorProperty
             ? std::get_if<LogicStringValue>(&operatorProperty->value)
             : nullptr;
-        const double value = valueProperty ? std::get<double>(valueProperty->value) : 0.0;
+        // ADR-0029: Number properties store a NumberExpression; a literal is
+        // what this comparison emits, and a dynamic value is rejected upstream
+        // by the LiteralOnly policy.
+        const auto* valueExpression = valueProperty
+            ? std::get_if<NumberExpression>(&valueProperty->value)
+            : nullptr;
+        const double value =
+            valueExpression ? literalNumberValue(*valueExpression).value_or(0.0) : 0.0;
         expression << "context:state_compare_number(\""
                    << escapeLua(key ? key->id : std::string{}) << "\", \""
                    << escapeLua(comparison ? comparison->value : std::string{"=="})

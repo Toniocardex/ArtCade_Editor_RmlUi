@@ -14,7 +14,14 @@ namespace {
 nlohmann::json valueToJson(const LogicValue& value) {
     if (const bool* v = std::get_if<bool>(&value)) return {{"kind", "bool"}, {"value", *v}};
     if (const int64_t* v = std::get_if<int64_t>(&value)) return {{"kind", "integer"}, {"value", *v}};
-    if (const double* v = std::get_if<double>(&value)) return {{"kind", "number"}, {"value", *v}};
+    if (const NumberExpression* v = std::get_if<NumberExpression>(&value)) {
+        // A literal still writes as `number`, so a board that uses no dynamic
+        // value serialises exactly as it did before ADR-0029 — the on-disk
+        // format only changes for the boards that actually gained something.
+        if (const std::optional<double> literal = literalNumberValue(*v))
+            return {{"kind", "number"}, {"value", *literal}};
+        return {{"kind", "expression"}, {"value", numberExpressionToJson(*v)}};
+    }
     if (const LogicStringValue* v = std::get_if<LogicStringValue>(&value))
         return {{"kind", "string"}, {"value", v->value}};
     if (const NumberExpression* v = std::get_if<NumberExpression>(&value))
@@ -50,7 +57,15 @@ bool valueFromJson(const nlohmann::json& json, LogicValue& out, std::string& err
         out = json["value"].get<int64_t>(); return true;
     }
     if (kind == "number" && json.contains("value") && json["value"].is_number()) {
-        out = json["value"].get<double>(); return true;
+        out = NumberExpression::literal(json["value"].get<double>()); return true;
+    }
+    if (kind == "expression" && json.contains("value")) {
+        NumberExpression expression;
+        if (!numberExpressionFromJson(json["value"], expression, error,
+                                      allowStructuredExpressions))
+            return false;
+        out = std::move(expression);
+        return true;
     }
     if (kind == "string" && json.contains("value") && json["value"].is_string()) {
         out = LogicStringValue{json["value"].get<std::string>()}; return true;
@@ -97,7 +112,7 @@ bool valueFromJson(const nlohmann::json& json, LogicValue& out, std::string& err
 LogicValueKind valueKind(const LogicValue& value) {
     if (std::holds_alternative<bool>(value)) return LogicValueKind::Bool;
     if (std::holds_alternative<int64_t>(value)) return LogicValueKind::Integer;
-    if (std::holds_alternative<double>(value)) return LogicValueKind::Number;
+    if (std::holds_alternative<NumberExpression>(value)) return LogicValueKind::Number;
     // An expression-valued scalar is still a Number to the descriptor: the
     // policy, not the kind, is what says it may be dynamic.
     if (std::holds_alternative<NumberExpression>(value)) return LogicValueKind::Number;
@@ -149,7 +164,7 @@ bool blockFromJson(const nlohmann::json& json, LogicBlockDef& out, std::string& 
             if (descriptor_property == descriptor->properties.end()) {
                 // ADR-0012 legacy Move Horizontal may still store numeric axis.
                 if (!(out.typeId == kMoveHorizontal && property.key == "axis"
-                      && std::holds_alternative<double>(property.value))) {
+                      && std::holds_alternative<NumberExpression>(property.value))) {
                     error = "Unknown Logic property: " + property.key; return false;
                 }
             } else if (valueKind(property.value) != descriptor_property->valueKind) {

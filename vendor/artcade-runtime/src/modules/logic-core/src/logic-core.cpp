@@ -52,10 +52,22 @@ LogicDiagnostic makeError(const ObjectTypeId& objectTypeId, const LogicBoardDef&
     return d;
 }
 
+/**
+ * The literal behind a Number property, or nullopt when it is dynamic.
+ * ADR-0029 made NumberExpression the only Number arm, so every reader goes
+ * through here instead of reaching for a `double` that no longer exists.
+ */
+std::optional<double> literalNumberOf(const LogicPropertyDef* property) {
+    if (!property) return std::nullopt;
+    if (const auto* expression = std::get_if<NumberExpression>(&property->value))
+        return literalNumberValue(*expression);
+    return std::nullopt;
+}
+
 LogicValueKind kindOf(const LogicValue& value) {
     if (std::holds_alternative<bool>(value)) return LogicValueKind::Bool;
     if (std::holds_alternative<int64_t>(value)) return LogicValueKind::Integer;
-    if (std::holds_alternative<double>(value)) return LogicValueKind::Number;
+    if (std::holds_alternative<NumberExpression>(value)) return LogicValueKind::Number;
     if (std::holds_alternative<LogicStringValue>(value)) return LogicValueKind::String;
     if (std::holds_alternative<LogicVec2Value>(value)) return LogicValueKind::Vec2;
     if (std::holds_alternative<LogicAssetReference>(value)) return LogicValueKind::Asset;
@@ -173,7 +185,8 @@ void validateBlock(const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
         // It is not in the catalog, but remains valid for compile/Play.
         if (it == descriptor->properties.end()) {
             if (block.typeId == kMoveHorizontal && property.key == "axis") {
-                if (const double* value = std::get_if<double>(&property.value)) {
+                if (const auto literal = literalNumberOf(&property)) {
+                    const double* value = &*literal;
                     if (!std::isfinite(*value)) {
                         out.push_back(makeError(objectTypeId, board, "LB_NON_FINITE",
                                                 "Number property must be finite", &rule, &block,
@@ -239,7 +252,8 @@ void validateBlock(const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
                 validateComponent(v->y);
             }
         }
-        if (const double* value = std::get_if<double>(&property.value)) {
+        if (const auto literal = literalNumberOf(&property)) {
+                    const double* value = &*literal;
             if (!std::isfinite(*value)) {
                 out.push_back(makeError(objectTypeId, board, "LB_NON_FINITE",
                                         "Number property must be finite", &rule, &block,
@@ -486,13 +500,13 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
         }
     } else if (action.typeId == kSetRotation) {
         const LogicPropertyDef* p = findProperty(action, "degrees");
-        const double degrees = std::get<double>(p->value);
+        const double degrees = literalNumberOf(p).value_or(0.0);
         // Authoring unit is degrees; runtime Transform stores radians.
         const double radians = degrees * 0.017453292519943295;
         lua << "      context.self:set_rotation(" << radians << ")\n";
     } else if (action.typeId == kRotateBy) {
         const LogicPropertyDef* p = findProperty(action, "degrees");
-        const double degrees = std::get<double>(p->value);
+        const double degrees = literalNumberOf(p).value_or(0.0);
         const double radians = degrees * 0.017453292519943295;
         lua << "      context.self:rotate_by(" << radians << ")\n";
     } else if (action.typeId == kSetScale) {
@@ -529,7 +543,7 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
         } else {
             // Legacy boards authored numeric axis in [-1, 1].
             const LogicPropertyDef* p = findProperty(action, "axis");
-            const double axis = p ? std::get<double>(p->value) : 0.0;
+            const double axis = literalNumberOf(p).value_or(0.0);
             lua << "      context.self:platformer_move(" << axis << ")\n";
         }
     } else if (action.typeId == kTopDownMove) {
@@ -563,12 +577,12 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
     } else if (action.typeId == kAnimationSetPlaybackSpeed) {
         const LogicPropertyDef* p = findProperty(action, "speed");
         lua << "      context.self:set_animation_playback_speed("
-            << std::get<double>(p->value) << ")\n";
+            << literalNumberOf(p).value_or(1.0) << ")\n";
     } else if (action.typeId == kAudioPlaySound) {
         const LogicPropertyDef* asset = findProperty(action, "audioAssetId");
         const LogicPropertyDef* volume = findProperty(action, "volume");
         const auto* assetRef = asset ? std::get_if<LogicAssetReference>(&asset->value) : nullptr;
-        const double volumeValue = volume ? std::get<double>(volume->value) : 1.0;
+        const double volumeValue = literalNumberOf(volume).value_or(1.0);
         lua << "      context.self:play_sound(\""
             << escapeLua(assetRef ? assetRef->id : std::string{}) << "\", "
             << volumeValue << ")\n";
@@ -583,14 +597,14 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
         const LogicPropertyDef* keyProp = findProperty(action, "key");
         const LogicPropertyDef* valueProp = findProperty(action, "value");
         const auto* key = keyProp ? std::get_if<LogicVariableReference>(&keyProp->value) : nullptr;
-        const double value = valueProp ? std::get<double>(valueProp->value) : 0.0;
+        const double value = literalNumberOf(valueProp).value_or(0.0);
         lua << "      context:state_set_number(\"" << escapeLua(key ? key->id : std::string{})
             << "\", " << value << ")\n";
     } else if (action.typeId == kStateAdd || action.typeId == kStateSubtract) {
         const LogicPropertyDef* keyProp = findProperty(action, "key");
         const LogicPropertyDef* amountProp = findProperty(action, "amount");
         const auto* key = keyProp ? std::get_if<LogicVariableReference>(&keyProp->value) : nullptr;
-        double amount = amountProp ? std::get<double>(amountProp->value) : 0.0;
+        double amount = literalNumberOf(amountProp).value_or(0.0);
         if (action.typeId == kStateSubtract) amount = -amount;
         lua << "      context:state_add_number(\"" << escapeLua(key ? key->id : std::string{})
             << "\", " << amount << ")\n";
@@ -611,7 +625,7 @@ void emitActions(std::ostringstream& lua, const std::vector<LogicBlockDef>& acti
         const LogicBlockDef& action = actions[i];
         if (action.typeId == kWait) {
             const LogicPropertyDef* secondsProp = findProperty(action, "seconds");
-            const double seconds = secondsProp ? std::get<double>(secondsProp->value) : 1.0;
+            const double seconds = literalNumberOf(secondsProp).value_or(1.0);
             if (const LogicBlockDescriptor* descriptor = findDescriptor(action.typeId))
                 if (!descriptor->requiredFeature.empty())
                     features.insert(descriptor->requiredFeature);
@@ -681,7 +695,7 @@ const std::vector<LogicBlockDescriptor>& registry() {
         {kEverySeconds, "system", "Every Second",
             "Runs on a repeating timer. Default interval is 1 second.",
             BlockKind::Trigger,
-            {{"seconds", LogicValueKind::Number, 1.0, "Seconds"}}, {}, {},
+            {{"seconds", LogicValueKind::Number, NumberExpression::literal(1.0), "Seconds"}}, {}, {},
             {LogicContextCapability::Self}, "event.every_seconds", true, 30, {"timer", "interval"}},
         {kKeyPressed, "input", "Key Pressed", "Runs when the selected key is pressed.",
             BlockKind::Trigger,
@@ -735,12 +749,12 @@ const std::vector<LogicBlockDescriptor>& registry() {
             {"translate", "offset", "nudge"}},
         {kSetRotation, "entity", "Set Rotation", "Sets Self's absolute rotation in degrees.",
             BlockKind::Action,
-            {{"degrees", LogicValueKind::Number, 0.0, "Degrees"}},
+            {{"degrees", LogicValueKind::Number, NumberExpression::literal(0.0), "Degrees"}},
             {}, {LogicContextCapability::Self}, {}, "entity.transform", false, 40,
             {"angle", "orient"}},
         {kRotateBy, "entity", "Rotate By", "Adds a relative rotation in degrees to Self.",
             BlockKind::Action,
-            {{"degrees", LogicValueKind::Number, 0.0, "Degrees"}},
+            {{"degrees", LogicValueKind::Number, NumberExpression::literal(0.0), "Degrees"}},
             {}, {LogicContextCapability::Self}, {}, "entity.transform", false, 50,
             {"turn", "spin"}},
         {kSetScale, "entity", "Set Scale", "Sets Self's runtime scale X/Y (positive only).",
@@ -840,7 +854,7 @@ const std::vector<LogicBlockDescriptor>& registry() {
         {kAnimationSetPlaybackSpeed, "animation", "Set Playback Speed",
             "Changes Self's runtime animation playback speed.",
             BlockKind::Action,
-            {{"speed", LogicValueKind::Number, 1.0, "Speed"}},
+            {{"speed", LogicValueKind::Number, NumberExpression::literal(1.0), "Speed"}},
             {LogicRequiredComponent::SpriteAnimator}, {LogicContextCapability::Self}, {},
             "animation.set_playback_speed", false, 30},
         {kAnimationStarted, "animation", "Animation Started", "Runs when Self begins playing a clip.",
@@ -853,7 +867,7 @@ const std::vector<LogicBlockDescriptor>& registry() {
         {kAudioPlaySound, "audio", "Play Sound", "Plays a short audio asset.",
             BlockKind::Action,
             {{"audioAssetId", LogicValueKind::Asset, LogicAssetReference{}, "Sound"},
-             {"volume", LogicValueKind::Number, 1.0, "Volume"}},
+             {"volume", LogicValueKind::Number, NumberExpression::literal(1.0), "Volume"}},
             {}, {LogicContextCapability::Self}, {}, "audio.play_sound", false, 10,
             {"sfx", "sound", "audio"}},
         {kSceneRestart, "scene", "Restart Scene",
@@ -870,29 +884,29 @@ const std::vector<LogicBlockDescriptor>& registry() {
             {"load", "change", "switch", "level", "next"}},
         {kWait, "flow", "Wait", "Waits, then continues with the following actions.",
             BlockKind::Action,
-            {{"seconds", LogicValueKind::Number, 1.0, "Seconds"}},
+            {{"seconds", LogicValueKind::Number, NumberExpression::literal(1.0), "Seconds"}},
             {}, {LogicContextCapability::Self}, {}, "flow.wait", true, 10, {"delay", "pause", "sleep"}},
         {kStateSet, "state", "Set Number", "Sets a project Number variable.",
             BlockKind::Action,
             {{"key", LogicValueKind::Variable, LogicVariableReference{}, "Variable"},
-             {"value", LogicValueKind::Number, 0.0, "Value"}},
+             {"value", LogicValueKind::Number, NumberExpression::literal(0.0), "Value"}},
             {}, {}, {}, "state.set_number", false, 10, {"variable", "score", "set"}},
         {kStateAdd, "state", "Add to Number", "Adds to a project Number variable.",
             BlockKind::Action,
             {{"key", LogicValueKind::Variable, LogicVariableReference{}, "Variable"},
-             {"amount", LogicValueKind::Number, 1.0, "Amount"}},
+             {"amount", LogicValueKind::Number, NumberExpression::literal(1.0), "Amount"}},
             {}, {}, {}, "state.add_number", false, 20, {"variable", "increment", "add"}},
         {kStateSubtract, "state", "Subtract from Number",
             "Subtracts from a project Number variable.",
             BlockKind::Action,
             {{"key", LogicValueKind::Variable, LogicVariableReference{}, "Variable"},
-             {"amount", LogicValueKind::Number, 1.0, "Amount"}},
+             {"amount", LogicValueKind::Number, NumberExpression::literal(1.0), "Amount"}},
             {}, {}, {}, "state.add_number", false, 30, {"variable", "decrement", "subtract"}},
         {kStateCompare, "state", "Compare Number", "Compares a project Number variable.",
             BlockKind::Condition,
             {{"key", LogicValueKind::Variable, LogicVariableReference{}, "Variable"},
              {"op", LogicValueKind::String, LogicStringValue{"=="}, "Operator"},
-             {"value", LogicValueKind::Number, 0.0, "Value"}},
+             {"value", LogicValueKind::Number, NumberExpression::literal(0.0), "Value"}},
             {}, {}, {LogicContextCapability::Self}, "state.compare_number", false, 40,
             {"variable", "equals", "compare"},
             LogicTriggerActivationKind::Level},
@@ -1275,7 +1289,7 @@ LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
             result.requiresTick = true;
         } else if (rule.trigger.typeId == kEverySeconds) {
             const LogicPropertyDef* seconds = findProperty(rule.trigger, "seconds");
-            const double interval = seconds ? std::get<double>(seconds->value) : 1.0;
+            const double interval = literalNumberOf(seconds).value_or(1.0);
             lua << "  context:on_every_seconds(\"" << escapeLua(rule.id) << "\", "
                 << interval << ", function()\n";
         } else if (rule.trigger.typeId == kAnimationStarted) {
