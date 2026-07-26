@@ -146,6 +146,32 @@ under this ADR cannot be read by a reader expecting schema 4.
 | Export template min / max | 12 / 12 |
 | Logic API | 2 (unchanged — no new runtime binding) |
 
+## Implementation status
+
+The decisions above are the target. What is actually in the code, so the table
+is not mistaken for the state of the world:
+
+| Part | State |
+|---|---|
+| `Code` style, parser, round-trip test, completion vocabulary | Done (`ea062e8`) |
+| The value field as the editor: typing, completions, inline errors | Done (`2cf5770`) — **on `entity.set_position.position` only** |
+| Modal, node tree, palette, Apply/Cancel draft removed | Done (`cb607e3`) |
+| The other 12 parameters in the policy table | **Not started** |
+| Logic Board schema 5, project format 12 | **Not started** |
+
+Every parameter except Set Position still renders the plain numeric field. That
+is correct behaviour for `LiteralOnly`, so nothing is broken — but the table
+above describes an intent for those rows, not shipped behaviour.
+
+The remaining work is one indivisible migration, not a flag: `LogicValue` has a
+`double` arm and no `NumberExpression` arm, so scalar properties are
+structurally unable to hold an expression today. Adding it changes what is
+written to disk, so the variant arm, the JSON codec, the schema 4→5 migration,
+the `LiteralOnly` enforcement, the eight codegen read sites and the format bump
+have to land together or saved projects read back wrong. It deserves its own
+pass, with the migration tested against real schema-4 files before anything
+ships.
+
 ## Consequences
 
 The `fx` button, the expression modal, the node tree and the type palette are
