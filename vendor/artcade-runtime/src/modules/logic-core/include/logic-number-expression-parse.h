@@ -67,4 +67,15 @@ std::string numberExpressionTokenPrefix(const std::string& text);
 std::string applyNumberExpressionCompletion(const std::string& text,
                                             const std::string& insert);
 
+/**
+ * How a variable is spelled in Code syntax: `$score`, `$global.score`, and
+ * `$'has spaces'` when the name is not a bare identifier.
+ *
+ * Callers that offer a variable to the author MUST build the token with this —
+ * a hand-written `"$" + name` is right until someone names a variable with a
+ * space, and then it inserts text that does not parse.
+ */
+std::string numberExpressionVariableToken(NumberVariableScope scope,
+                                          const std::string& variableId);
+
 } // namespace ArtCade::Logic

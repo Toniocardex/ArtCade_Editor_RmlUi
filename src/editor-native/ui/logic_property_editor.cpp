@@ -113,18 +113,24 @@ std::string renderLogicExpressionCompletions(
         if (completionMatches(entry.label, fragment))
             matches.push_back({entry.insert, entry.label, entry.summary});
     }
+    // The token comes from logic-core, never from string-concatenation here: a
+    // variable named with a space needs the quoted form, and a hand-built
+    // "$" + key would offer text that does not parse.
     const auto addVariables = [&](const std::vector<GameVariableDefinition>& source,
-                                  const char* prefix, const char* scopeName) {
+                                  NumberVariableScope scope, const char* scopeName) {
         for (const GameVariableDefinition& variable : source) {
             if (variable.type != GameVariableDefinition::Type::Number) continue;
             if (variable.key.empty()) continue;
-            const std::string token = std::string(prefix) + variable.key;
+            const std::string token =
+                Logic::numberExpressionVariableToken(scope, variable.key);
             if (!completionMatches(token, fragment)) continue;
             matches.push_back({token, token, scopeName});
         }
     };
-    if (owner) addVariables(owner->localVariables, "$", "Object variable");
-    addVariables(document.data().globalVariables, "$global.", "Project variable");
+    if (owner) addVariables(owner->localVariables, NumberVariableScope::Local,
+                            "Object variable");
+    addVariables(document.data().globalVariables, NumberVariableScope::Global,
+                 "Project variable");
 
     std::string html = "<div class=\"logic-expression-completions\">";
     if (matches.empty()) {

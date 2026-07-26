@@ -72,10 +72,11 @@ term     := factor (('*' | '/') factor)*
 factor   := '-' factor | primary
 primary  := number | context | variable | call | '(' expr ')'
 context  := 'self.x' | 'self.y' | 'scene.width' | 'scene.height' | 'delta'
-variable := '$' identifier                      -- Local scope
-          | '$global.' identifier               -- Global scope
-call     := name '(' expr (',' expr)* ')'
-name     := 'min' | 'max' | 'abs' | 'floor' | 'ceil' | 'round'
+variable := '$' varname                         -- Local scope
+          | '$global.' varname                  -- Global scope
+varname  := identifier | "'" any "'"            -- quoted when not an identifier
+call     := fn '(' expr (',' expr)* ')'
+fn       := 'min' | 'max' | 'abs' | 'floor' | 'ceil' | 'round'
           | 'clamp' | 'lerp' | 'random'
 ```
 

@@ -1,5 +1,6 @@
 #include "logic-number-expression-parse.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <string>
@@ -315,6 +316,22 @@ private:
 
 NumberExpressionParseResult parseNumberExpression(const std::string& text) {
     return Parser{text}.run();
+}
+
+std::string numberExpressionVariableToken(NumberVariableScope scope,
+                                          const std::string& variableId) {
+    std::string out = "$";
+    if (scope == NumberVariableScope::Global) out += "global.";
+    const bool bare = !variableId.empty()
+        && isIdentifierStart(variableId[0])
+        && std::all_of(variableId.begin() + 1, variableId.end(), isIdentifierChar);
+    if (bare) return out + variableId;
+    out += "'";
+    for (const char ch : variableId) {
+        if (ch == '\'' || ch == '\\') out += '\\';
+        out += ch;
+    }
+    return out + "'";
 }
 
 std::string numberExpressionTokenPrefix(const std::string& text) {

@@ -1,5 +1,7 @@
 #include "logic-number-expression-format.h"
 
+#include "logic-number-expression-parse.h"
+
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -26,30 +28,6 @@ std::string codeLiteral(double value) {
     std::ostringstream out;
     out << std::setprecision(17) << value;
     return out.str();
-}
-
-bool isCodeIdentifier(const std::string& name) {
-    if (name.empty()) return false;
-    const auto ok = [](unsigned char c, bool first) {
-        return std::isalpha(c) != 0 || c == '_' || (!first && std::isdigit(c) != 0);
-    };
-    if (!ok(static_cast<unsigned char>(name[0]), true)) return false;
-    for (std::size_t i = 1; i < name.size(); ++i)
-        if (!ok(static_cast<unsigned char>(name[i]), false)) return false;
-    return true;
-}
-
-/** `$score`, or `$'has spaces'` when the name is not a bare identifier. */
-std::string codeVariable(const NumberVariableExpression& node) {
-    std::string out = "$";
-    if (node.scope == NumberVariableScope::Global) out += "global.";
-    if (isCodeIdentifier(node.variableId)) return out + node.variableId;
-    out += "'";
-    for (const char c : node.variableId) {
-        if (c == '\'' || c == '\\') out += '\\';
-        out += c;
-    }
-    return out + "'";
 }
 
 const char* codePropertyName(NumberProperty property) {
@@ -81,7 +59,7 @@ std::string formatCode(const NumberExpression& expression) {
         } else if constexpr (std::is_same_v<T, NumberPropertyExpression>) {
             out << codePropertyName(node.property);
         } else if constexpr (std::is_same_v<T, NumberVariableExpression>) {
-            out << codeVariable(node);
+            out << numberExpressionVariableToken(node.scope, node.variableId);
         } else if constexpr (std::is_same_v<T, NumberUnaryExpression>) {
             switch (node.operation) {
             // Always parenthesised: `-5` parses as the literal -5, so an

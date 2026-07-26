@@ -297,6 +297,37 @@ void testCompletionTokenRule() {
     CHECK(applyNumberExpressionCompletion("1 + ", "self.x") == "1 + self.x");
 }
 
+/**
+ * Anything offered to the author has to be text they can actually commit. The
+ * editor used to build `"$" + key` by hand, which is correct until a variable
+ * is named with a space and the completion inserts something unparseable.
+ */
+void testVariableTokensAreAlwaysParseable() {
+    for (const char* name : {"score", "has spaces", "it's odd", "9lives", ""}) {
+        for (const NumberVariableScope scope :
+             {NumberVariableScope::Local, NumberVariableScope::Global}) {
+            const std::string token = numberExpressionVariableToken(scope, name);
+            if (std::string(name).empty()) {
+                // No name is not offerable; it just must not crash.
+                CHECK(!token.empty());
+                continue;
+            }
+            const NumberExpressionParseResult parsed = parseNumberExpression(token);
+            if (!parsed.ok) {
+                ++failed;
+                std::cerr << "FAIL variable token '" << token << "' does not parse — "
+                          << parsed.error.message << "\n";
+                continue;
+            }
+            const auto* node =
+                std::get_if<NumberVariableExpression>(&parsed.value.value());
+            if (node && node->scope == scope && node->variableId == name) { ++passed; continue; }
+            ++failed;
+            std::cerr << "FAIL variable token '" << token << "' round-tripped wrong\n";
+        }
+    }
+}
+
 } // namespace
 
 int main() {
@@ -306,6 +337,7 @@ int main() {
     testLimits();
     testCompletionsCoverTheGrammar();
     testCompletionTokenRule();
+    testVariableTokensAreAlwaysParseable();
     std::cout << "number-expression-syntax-test: " << passed << " passed, "
               << failed << " failed\n";
     return failed == 0 ? 0 : 1;
