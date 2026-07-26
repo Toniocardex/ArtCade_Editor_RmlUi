@@ -6,6 +6,7 @@ add_library(artcade-logic-core
     src/logic-number-expression-validation.cpp
     src/logic-number-expression-compiler.cpp
     src/logic-number-expression-format.cpp
+    src/logic-number-expression-parse.cpp
 )
 target_include_directories(artcade-logic-core PUBLIC include)
 target_link_libraries(artcade-logic-core PUBLIC artcade-core)

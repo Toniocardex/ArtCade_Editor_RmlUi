@@ -195,6 +195,11 @@ artcade_test(logic_board_test
     logic-board-test.cpp
     "artcade-logic-core;artcade-logic-runtime;artcade-lua-runtime")
 
+# ADR-0029: the Code syntax and its parser must stay mutual inverses.
+artcade_test(number_expression_syntax_test
+    number-expression-syntax-test.cpp
+    artcade-logic-core)
+
 artcade_test(camera_clamp_test
     camera-clamp-test.cpp
     artcade-world)
