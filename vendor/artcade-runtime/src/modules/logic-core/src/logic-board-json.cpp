@@ -17,6 +17,8 @@ nlohmann::json valueToJson(const LogicValue& value) {
     if (const double* v = std::get_if<double>(&value)) return {{"kind", "number"}, {"value", *v}};
     if (const LogicStringValue* v = std::get_if<LogicStringValue>(&value))
         return {{"kind", "string"}, {"value", v->value}};
+    if (const NumberExpression* v = std::get_if<NumberExpression>(&value))
+        return {{"kind", "expression"}, {"value", numberExpressionToJson(*v)}};
     if (const LogicVec2Value* v = std::get_if<LogicVec2Value>(&value))
         return {{"kind", "vec2"},
                 {"x", numberExpressionToJson(v->x)},
@@ -53,6 +55,14 @@ bool valueFromJson(const nlohmann::json& json, LogicValue& out, std::string& err
     if (kind == "string" && json.contains("value") && json["value"].is_string()) {
         out = LogicStringValue{json["value"].get<std::string>()}; return true;
     }
+    if (kind == "expression" && json.contains("value")) {
+        NumberExpression expression;
+        if (!numberExpressionFromJson(json["value"], expression, error,
+                                      allowStructuredExpressions))
+            return false;
+        out = std::move(expression);
+        return true;
+    }
     if (kind == "vec2" && json.contains("x") && json.contains("y")) {
         LogicVec2Value vec;
         if (!numberExpressionFromJson(json["x"], vec.x, error, allowStructuredExpressions))
@@ -88,6 +98,9 @@ LogicValueKind valueKind(const LogicValue& value) {
     if (std::holds_alternative<bool>(value)) return LogicValueKind::Bool;
     if (std::holds_alternative<int64_t>(value)) return LogicValueKind::Integer;
     if (std::holds_alternative<double>(value)) return LogicValueKind::Number;
+    // An expression-valued scalar is still a Number to the descriptor: the
+    // policy, not the kind, is what says it may be dynamic.
+    if (std::holds_alternative<NumberExpression>(value)) return LogicValueKind::Number;
     if (std::holds_alternative<LogicStringValue>(value)) return LogicValueKind::String;
     if (std::holds_alternative<LogicVec2Value>(value)) return LogicValueKind::Vec2;
     if (std::holds_alternative<LogicAssetReference>(value)) return LogicValueKind::Asset;

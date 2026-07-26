@@ -1,4 +1,5 @@
 #include "modules/logic-core/include/logic-core.h"
+#include "modules/logic-core/include/logic-number-expression-format.h"
 #include "modules/logic-runtime/include/logic-runtime.h"
 #include "modules/lua-runtime/include/lua-host.h"
 
@@ -1888,6 +1889,42 @@ static void testP1SpawnInstallFailure() {
  * only action spawned its own Object Type (the minimal repro: one entity, one
  * subscription, so the very first spawn hits the reallocation).
  */
+/**
+ * ADR-0029 slice 4, step 1: a scalar property can now hold a NumberExpression.
+ * Nothing opts into it yet, so this is the only thing exercising the codec —
+ * an untested serialisation path is how a format change corrupts saved work.
+ */
+static void testScalarExpressionValueSurvivesJson() {
+    LogicBoardDef board;
+    board.id = "logic:Scalar";
+    LogicRuleDef rule = makeDefaultRule("rule-scalar");
+    NumberRandomRangeExpression random;
+    random.minimum = boxNumberExpression(NumberExpression::literal(0.0));
+    random.maximum = boxNumberExpression(
+        NumberExpression{NumberPropertyExpression{NumberProperty::SceneWorldWidth}});
+    rule.actions[0] = {kSetRotation,
+                       {{"degrees", NumberExpression{std::move(random)}}}};
+    board.rules.push_back(std::move(rule));
+
+    const auto json = logicBoardToJson(board);
+    LogicBoardDef loaded;
+    CHECK(logicBoardFromJson(json, loaded).ok);
+    CHECK(logicBoardToJson(loaded) == json);
+
+    const LogicPropertyDef* property = findProperty(loaded.rules[0].actions[0], "degrees");
+    CHECK(property != nullptr);
+    const auto* expression =
+        property ? std::get_if<NumberExpression>(&property->value) : nullptr;
+    CHECK(expression != nullptr);
+    // A literal double and an expression are different arms and must not be
+    // confused on the way back: the descriptor policy decides which is used.
+    CHECK(property && !std::holds_alternative<double>(property->value));
+    if (expression) {
+        CHECK(formatNumberExpression(*expression, NumberExpressionFormatStyle::Code)
+              == "random(0, scene.width)");
+    }
+}
+
 static void testSpawnOfOwnObjectTypeReentrantInstall() {
     LogicBoardDef board;
     board.id = "logic:Cloner";
@@ -2453,6 +2490,7 @@ int main() {
     testStateVariableAndToggle();
     testP1KeyDownCondition();
     testP1SpawnInstallFailure();
+    testScalarExpressionValueSurvivesJson();
     testSpawnOfOwnObjectTypeReentrantInstall();
     testEntityTransformActions();
     testManualTransformActions();

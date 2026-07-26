@@ -89,6 +89,11 @@ using LogicValue = std::variant<
     bool,
     int64_t,
     double,
+    // ADR-0029: a scalar property that opts into expressions stores this
+    // *always*, literal or not, exactly as a Vec2 property always stores
+    // LogicVec2Value. The descriptor's policy decides which arm a property
+    // uses, so there is never a choice to make at read time.
+    NumberExpression,
     LogicStringValue,
     LogicVec2Value,
     LogicAssetReference,
