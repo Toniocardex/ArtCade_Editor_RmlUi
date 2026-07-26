@@ -448,7 +448,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     if (variablesDrawerOpen_) html += " active";
     html += "\" data-action=\"toggle-global-variables\" title=\""
           + std::string(variablesDrawerOpen_ ? "Hide Project Variables" : "Show Project Variables")
-          + "\">Variables ("
+          + "\">Project Variables ("
           + std::to_string(coordinator.document().data().globalVariables.size()) + ")</button>";
     html += "</div><span class=\"logic-owner\">OBJECT TYPE · ";
     if (selectedName.empty()) {
