@@ -214,7 +214,6 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/ui/help_dialog_controller.cpp
     editor-native/ui/logic_board_editor_controller.cpp
     editor-native/ui/logic_property_editor.cpp
-    editor-native/ui/number_expression_editor_controller.cpp
     editor-native/ui/script_editor_controller.cpp
     editor-native/ui/sprite_animation_editor_controller.cpp
     editor-native/ui/tileset_editor_controller.cpp

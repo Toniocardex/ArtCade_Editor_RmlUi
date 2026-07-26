@@ -15,7 +15,6 @@
 #include "editor-native/ui/inspector_panel.h"
 #include "editor-native/ui/tile_palette_dock_panel.h"
 #include "editor-native/ui/logic_board_editor_controller.h"
-#include "editor-native/ui/number_expression_editor_controller.h"
 #include "editor-native/ui/script_editor_controller.h"
 #include "editor-native/ui/sprite_animation_editor_controller.h"
 #include "editor-native/ui/tileset_editor_controller.h"
@@ -244,9 +243,6 @@ public:
     void setExportTemplatesRoot(std::filesystem::path root);
     void invokeStableEditorAction(const std::string& stableKey);
     void handleHelpTabKey(bool shift);
-    bool numberExpressionEditorOpen() const;
-    void cancelNumberExpressionEditor();
-    void handleNumberExpressionTabKey(bool shift);
 
     // Copies the selected Console message (full model text) to the clipboard via
     // raylib's SetClipboardText. The single entry point shared by the Copy button
@@ -356,9 +352,6 @@ private:
     // mechanism as toggleLogicTypeMenu, but the menu content is static (one
     // entry), so there's nothing to stamp in on open.
     void toggleLogicMoreMenu();
-    void openNumberExpressionEditor(const std::string& addressArg);
-    void applyNumberExpressionEditor();
-    void refreshNumberExpressionHost();
     // Applies EditorUiState.consoleVisible to the actual panel (Layout invalidation).
     void refreshLayout();
     // The scene the Scene View camera (zoom/pan) is currently showing: the
@@ -452,7 +445,6 @@ private:
     // Modal RML rebuild is deferred until the active event dispatch ends.
     bool                                generatedSfxRefreshPending_ = false;
     std::unique_ptr<HelpDialogController> helpDialog_;
-    NumberExpressionEditorController      numberExpressionEditor_;
     std::filesystem::path               exportTemplatesRoot_;
 };
 

@@ -10,7 +10,6 @@
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/ui/logic_board_editor_controller.h"
 #include "editor-native/ui/logic_property_editor.h"
-#include "editor-native/ui/number_expression_editor_controller.h"
 #include "app/render/scene_frame_snapshot.h"
 #include "logic-core.h"
 #include "logic-runtime.h"
@@ -2504,133 +2503,6 @@ static void testSetPositionPropertyEditorIsATypedField() {
     CHECK(moveMarkup.find("commit-logic-property-component") != std::string::npos);
 }
 
-static void testNumberExpressionEditorMarkup() {
-    NumberExpressionEditorController editor;
-    NumberExpressionEditorDraft draft;
-    draft.address = {"Hero", "rule-pos", 0, "position", LogicNumericComponent::X};
-    draft.title = "Set Position · Position.X <fx>";
-    GameVariableDefinition score;
-    score.key = "score";
-    score.type = GameVariableDefinition::Type::Number;
-    score.initialValue = 0.0;
-    GameVariableDefinition flag;
-    flag.key = "flag";
-    flag.type = GameVariableDefinition::Type::Boolean;
-    flag.initialValue = false;
-    draft.globalNumberVariables = {score, flag};
-    GameVariableDefinition hp;
-    hp.key = "hp";
-    hp.type = GameVariableDefinition::Type::Number;
-    hp.initialValue = 3.0;
-    draft.localNumberVariables = {hp};
-    draft.deltaSecondsAvailable = false;
-    NumberBinaryExpression binary;
-    binary.operation = NumberBinaryOperator::Add;
-    binary.left = boxNumberExpression(NumberExpression::literal(3.0));
-    binary.right = boxNumberExpression(NumberExpression{
-        NumberPropertyExpression{NumberProperty::SelfPositionX}});
-    draft.original = NumberExpression{std::move(binary)};
-    editor.open(std::move(draft));
-    editor.replaceAtPath("left", "literal");
-    editor.setLiteralAtPath("left", 7.5);
-    const std::string html = editor.renderMarkup(false);
-    CHECK(html.find("number-expression-modal") != std::string::npos);
-    CHECK(html.find("number-expression-header") != std::string::npos);
-    CHECK(html.find("number-expression-title\">Edit Number Expression</span>")
-          != std::string::npos);
-    CHECK(html.find("number-expression-subtitle\">Set Position · Position.X &lt;fx&gt;</span>")
-          != std::string::npos
-          || html.find("Position.X &lt;fx&gt;") != std::string::npos);
-    CHECK(html.find("data-action=\"number-expression-toggle-picker\"") != std::string::npos);
-    CHECK(html.find("data-action=\"commit-number-expression-literal\"") != std::string::npos);
-    CHECK(html.find("number-expression-child-label") != std::string::npos);
-    CHECK(html.find(">Left</span>") != std::string::npos || html.find(">Left<") != std::string::npos);
-    CHECK(html.find("<span>Apply</span>") != std::string::npos);
-    CHECK(html.find("<span>Cancel</span>") != std::string::npos);
-    CHECK(html.find("<span>Change</span>") != std::string::npos);
-    // Picker stays collapsed until Change is pressed.
-    CHECK(html.find("number-expression-pick-label\">Add</span>") == std::string::npos);
-    editor.togglePicker("left");
-    const std::string openPicker = editor.renderMarkup(false);
-    CHECK(openPicker.find("<span>Close</span>") != std::string::npos);
-    CHECK(openPicker.find("><span class=\"number-expression-pick-label\">Add</span>")
-          != std::string::npos);
-    CHECK(openPicker.find("number-expression-pick-label\">Global Variable</span>")
-          != std::string::npos);
-    CHECK(openPicker.find("number-expression-pick-label\">Local Variable</span>")
-          != std::string::npos);
-    CHECK(openPicker.find("number-expression-pick-label\">Delta Seconds</span>")
-          == std::string::npos);
-    CHECK(openPicker.find("number-expression-picker-category-label\">VALUE</span>")
-          != std::string::npos);
-    editor.closePicker();
-    CHECK(!editor.hasOpenPicker());
-    editor.close();
-    CHECK(!editor.isOpen());
-}
-
-static void testNumberExpressionVariablePickerContext() {
-    NumberExpressionEditorController editor;
-    NumberExpressionEditorDraft draft;
-    draft.address = {"Hero", "rule-pos", 0, "position", LogicNumericComponent::X};
-    draft.title = "Set Position · Position.X";
-    GameVariableDefinition targetX;
-    targetX.key = "TargetX";
-    targetX.type = GameVariableDefinition::Type::Number;
-    targetX.initialValue = 100.0;
-    GameVariableDefinition lives;
-    lives.key = "lives";
-    lives.type = GameVariableDefinition::Type::Number;
-    lives.initialValue = 3.0;
-    draft.globalNumberVariables = {targetX};
-    draft.localNumberVariables = {lives};
-    draft.deltaSecondsAvailable = true;
-    draft.original = NumberExpression::literal(0.0);
-    editor.open(std::move(draft));
-
-    const std::string collapsed = editor.renderMarkup(false);
-    CHECK(collapsed.find("number-expression-pick-label\">Delta Seconds</span>")
-          == std::string::npos);
-    editor.togglePicker("");
-    const std::string withPicker = editor.renderMarkup(false);
-    CHECK(withPicker.find("number-expression-pick-label\">Delta Seconds</span>")
-          != std::string::npos);
-    CHECK(withPicker.find("number-expression-pick-label\">Global Variable</span>")
-          != std::string::npos);
-
-    editor.replaceAtPath("", "var.global");
-    CHECK(!editor.hasOpenPicker());
-    CHECK(editor.draft()->edited.kind() == NumberExpressionKind::Variable);
-    const auto* global = std::get_if<NumberVariableExpression>(&editor.draft()->edited.value());
-    CHECK(global != nullptr);
-    CHECK(global->scope == NumberVariableScope::Global);
-    CHECK(global->variableId == "TargetX");
-    CHECK(editor.validation().ok);
-    const std::string withGlobal = editor.renderMarkup(false);
-    CHECK(withGlobal.find("data-action=\"number-expression-set-variable\"")
-          != std::string::npos);
-    CHECK(withGlobal.find("number-expression-variable-label\">TargetX</span>")
-          != std::string::npos);
-    CHECK(withGlobal.find("Global.TargetX") != std::string::npos
-          || withGlobal.find("Global.") != std::string::npos);
-
-    editor.replaceAtPath("", "var.local");
-    const auto* local = std::get_if<NumberVariableExpression>(&editor.draft()->edited.value());
-    CHECK(local != nullptr);
-    CHECK(local->scope == NumberVariableScope::Local);
-    CHECK(local->variableId == "lives");
-    CHECK(editor.validation().ok);
-
-    editor.setVariableAtPath("", NumberVariableScope::Global, "missing");
-    CHECK(!editor.validation().ok);
-    CHECK(!editor.canApply());
-
-    editor.setVariableAtPath("", NumberVariableScope::Global, "TargetX");
-    CHECK(editor.validation().ok);
-    CHECK(editor.canApply());
-    editor.close();
-}
-
 static void testSetLogicNumberExpressionCommandAcceptsGlobalVariable() {
     ProjectDoc project = makeProjectData();
     GameVariableDefinition targetX;
@@ -2726,8 +2598,6 @@ int main() {
     testCoordinatorProjectsLogicExpressionDiagnostics();
     testSetLogicNumberExpressionCommand();
     testSetPositionPropertyEditorIsATypedField();
-    testNumberExpressionEditorMarkup();
-    testNumberExpressionVariablePickerContext();
     testSetLogicNumberExpressionCommandAcceptsGlobalVariable();
     std::cout << "logic-board-editor-test: " << passed << " passed, "
               << failed << " failed\n";

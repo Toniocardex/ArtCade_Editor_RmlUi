@@ -7,7 +7,7 @@
     <link type="text/rcss" href="controls.rcss"/>
     <link type="text/rcss" href="dialogs.rcss"/>
     <link type="text/rcss" href="logic_board.rcss"/>
-    <link type="text/rcss" href="number_expression_editor.rcss"/>
+    <link type="text/rcss" href="logic_expression_field.rcss"/>
     <link type="text/rcss" href="script_editor.rcss"/>
     <link type="text/rcss" href="sfx_editor.rcss"/>
     <link type="text/rcss" href="gallery.rcss"/>
@@ -394,6 +394,5 @@
 
     <!-- Help host (Keyboard Shortcuts / About). Mutually exclusive pages. -->
     <div id="editor-help-modal" class="editor-modal-backdrop hidden"></div>
-    <div id="number-expression-host"></div>
 </body>
 </rml>

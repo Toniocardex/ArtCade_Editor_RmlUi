@@ -35,6 +35,12 @@ VIEWS = {
     "gallery": ["--shot-gallery"],
     "scene":   ["--shot-project", str(FIXTURE), "--shot-entity", "0"],
     "logic":   ["--shot-project", str(FIXTURE), "--shot-entity", "0", "--shot-logic"],
+    # ADR-0029: the completion list is the whole discovery surface now that the
+    # node palette is gone, and it only exists while a field has focus — which
+    # no static capture would otherwise reach.
+    "expression": ["--shot-project", str(FIXTURE), "--shot-entity", "0", "--shot-logic",
+                   "--shot-expression", "rule-place|a|0|position|x",
+                   "--shot-expression-text", "ra"],
 }
 
 # The capture is a real GPU render, so a handful of pixels may differ by a

@@ -206,6 +206,10 @@ int EditorApp::run(int argc, char** argv) {
     std::string shotSavePath;   // non-empty: save the project here via the real path
     int shotEntityIndex = -1;   // >= 0: select the Nth instance of the active scene
     std::string shotDropdown;   // non-empty: open this Inspector value dropdown
+    // non-empty: focus this Logic expression field, so the completion list
+    // renders in the capture (ADR-0029). Same action path a real focus takes.
+    std::string shotExpression;
+    std::string shotExpressionText;
     std::string shotSection;    // non-empty: toggle this Inspector section (e.g. "tilemap")
     std::string shotStamp;      // "c0,r0,c1,r1": select that palette region as a stamp
     float shotPaletteZoom = 0.f; // > 0: apply this palette zoom to the shot tileset
@@ -237,6 +241,10 @@ int EditorApp::run(int argc, char** argv) {
             shotEntityIndex = std::atoi(argv[i + 1]);
         else if (std::strcmp(argv[i], "--shot-dropdown") == 0 && i + 1 < argc)
             shotDropdown = argv[i + 1];
+        else if (std::strcmp(argv[i], "--shot-expression") == 0 && i + 1 < argc)
+            shotExpression = argv[i + 1];
+        else if (std::strcmp(argv[i], "--shot-expression-text") == 0 && i + 1 < argc)
+            shotExpressionText = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-section") == 0 && i + 1 < argc)
             shotSection = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-stamp") == 0 && i + 1 < argc)
@@ -1214,6 +1222,18 @@ int EditorApp::run(int argc, char** argv) {
     }
     if (!shotPath.empty() && shotLogic) {
         ui.handleAction("open-logic-workspace", "", "");
+        // ADR-0029: focus an expression field so the in-flow completion list is
+        // in the capture. Hover and focus states are otherwise invisible to the
+        // headless harness, and this list is the whole discovery surface.
+        if (!shotExpression.empty()) {
+            ui.processFrame();
+            ui.handleAction("focus-logic-expression", shotExpression, "");
+            if (!shotExpressionText.empty()) {
+                ui.processFrame();
+                ui.handleAction("draft-logic-expression", shotExpression,
+                                shotExpressionText);
+            }
+        }
     }
     if (!shotPath.empty() && shotScript) {
         ui.handleAction("open-script-workspace", "", "");
