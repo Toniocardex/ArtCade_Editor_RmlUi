@@ -1080,11 +1080,18 @@ void LogicBoardPanel::setExpressionDraft(Rml::ElementDocument* document,
     refresh(document, coordinator);
 }
 
-void LogicBoardPanel::setExpressionError(Rml::ElementDocument* document,
-                                         const EditorCoordinator& coordinator,
-                                         const std::string& address,
-                                         std::string message) {
+void LogicBoardPanel::setExpressionFailure(Rml::ElementDocument* document,
+                                           const EditorCoordinator& coordinator,
+                                           const std::string& address,
+                                           std::string text, std::string message) {
+    // One step, not setExpressionDraft + setExpressionError: the draft setter
+    // is guarded by focus while the error setter assigns it, so as two calls
+    // the author's text survived only because of the order they happened to be
+    // in — and was dropped outright if the commit arrived without focus. The
+    // ADR requires the typed text to survive a parse failure, so focus, draft
+    // and message move together.
     expressionFocusAddress_ = address;
+    expressionDraftText_ = std::move(text);
     expressionErrorMessage_ = std::move(message);
     refresh(document, coordinator);
 }

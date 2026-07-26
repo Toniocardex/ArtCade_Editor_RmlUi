@@ -12,6 +12,7 @@
 #include "editor-native/ui/logic_property_editor.h"
 #include "app/render/scene_frame_snapshot.h"
 #include "logic-core.h"
+#include "logic-number-expression-format.h"
 #include "logic-runtime.h"
 
 #include <cmath>
@@ -873,6 +874,63 @@ static void testBooleanPropertySetsRatherThanToggles() {
     CHECK(expectedNow());
     CHECK(controller.handleAction("set-logic-property-bool", propertyArg, "false", {}));
     CHECK(!expectedNow());
+}
+
+/**
+ * ADR-0029: "a parse failure shows an inline diagnostic under the field and
+ * never discards what the author typed". Retyping a formula from scratch
+ * because one paren was missing is the behaviour the clause exists to prevent.
+ */
+static void testInvalidExpressionKeepsTheTypedText() {
+    ProjectDoc project = makeProjectData();
+    LogicBoardDef board;
+    board.id = "logic:Hero";
+    LogicRuleDef rule = Logic::makeDefaultRule("rule-pos");
+    rule.trigger = {Logic::kOnStart, {}};
+    rule.actions[0] = Logic::makeDefaultBlock(Logic::kSetPosition, Logic::BlockKind::Action);
+    board.rules.push_back(std::move(rule));
+    project.objectTypes.at("Hero").logicBoard = std::move(board);
+    EditorCoordinator coordinator{std::move(project)};
+    CHECK(coordinator.apply(OpenLogicBoardIntent{"Hero"}).ok);
+    LogicBoardEditorController controller{coordinator, nullptr};
+
+    const LogicBoardDef& authored =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicPropertyAddress address{
+        authored.rules[0].id, LogicPropertyTarget::Action, 0};
+    const std::string axis = encodeLogicPropertyAddress(address, "position") + "|x";
+
+    // A valid expression commits.
+    CHECK(controller.handleAction("focus-logic-expression", axis, "", {}));
+    CHECK(controller.handleAction("commit-logic-expression", axis, "random(0, 100)", {}));
+    const auto positionOf = [&] {
+        const LogicBoardDef& now =
+            *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+        return std::get<LogicVec2Value>(
+            Logic::findProperty(now.rules[0].actions[0], "position")->value).x;
+    };
+    CHECK(Logic::formatNumberExpression(
+              positionOf(), Logic::NumberExpressionFormatStyle::Code) == "random(0, 100)");
+
+    // A broken one does not, and the document keeps the last good value.
+    CHECK(controller.handleAction("commit-logic-expression", axis, "random(0, 100", {}));
+    CHECK(Logic::formatNumberExpression(
+              positionOf(), Logic::NumberExpressionFormatStyle::Code) == "random(0, 100)");
+
+    // The rendered field still holds what was typed, with the reason beside it.
+    LogicExpressionFieldState broken;
+    broken.focusAddress = axis;
+    broken.draftText = "random(0, 100";
+    broken.errorMessage = "Expected ')'";
+    const std::string markup = renderLogicProperties(
+        coordinator.document(), nullptr,
+        coordinator.document().data().objectTypes.at("Hero")
+            .logicBoard->rules[0].actions[0],
+        address, "", LogicKeyBindingEditorState{}, broken, /*playing=*/false);
+    CHECK(markup.find("random(0, 100\"") != std::string::npos);
+    CHECK(markup.find("logic-expression-error") != std::string::npos);
+    CHECK(markup.find("Expected ')'") != std::string::npos);
+    CHECK(markup.find("logic-expression-input invalid") != std::string::npos);
 }
 
 static void testTopDownMovementViaLogicInput() {
@@ -2586,6 +2644,7 @@ int main() {
     testIsGroundedEventRunsOnTick();
     testIsFallingEventTrueWhileDescendingFalseWhenGroundedOrRising();
     testIsVisibleEventAndMoveBy();
+    testInvalidExpressionKeepsTheTypedText();
     testBooleanPropertySetsRatherThanToggles();
     testTopDownMovementViaLogicInput();
     testFlipHorizontalProjectsToSceneView();

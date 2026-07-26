@@ -151,9 +151,8 @@ void LogicBoardEditorController::commitExpressionField(const std::string& addres
     if (!result.ok) {
         // Keep the text and say what is wrong: retyping a formula from scratch
         // because one paren was missing is the behaviour worth avoiding.
-        panel_.setExpressionDraft(document_, coordinator_, address, text);
-        panel_.setExpressionError(document_, coordinator_, address,
-                                  result.error.message);
+        panel_.setExpressionFailure(document_, coordinator_, address, text,
+                                    result.error.message);
         return;
     }
     LogicNumberExpressionAddress target;

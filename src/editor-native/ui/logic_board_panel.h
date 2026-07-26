@@ -68,9 +68,12 @@ public:
     void setExpressionDraft(Rml::ElementDocument* document,
                             const EditorCoordinator& coordinator,
                             const std::string& address, std::string text);
-    void setExpressionError(Rml::ElementDocument* document,
-                            const EditorCoordinator& coordinator,
-                            const std::string& address, std::string message);
+    /** Focus, draft and message in one step — see the definition for why they
+        cannot be two calls. */
+    void setExpressionFailure(Rml::ElementDocument* document,
+                              const EditorCoordinator& coordinator,
+                              const std::string& address, std::string text,
+                              std::string message);
     void clearExpressionField() const {
         expressionFocusAddress_.clear();
         expressionDraftText_.clear();
@@ -78,6 +81,7 @@ public:
     }
     const std::string& expressionFocusAddress() const { return expressionFocusAddress_; }
     const std::string& expressionDraftText() const { return expressionDraftText_; }
+    const std::string& expressionErrorMessage() const { return expressionErrorMessage_; }
 
     void toggleVariablesDrawer(
         Rml::ElementDocument* document, const EditorCoordinator& coordinator);
