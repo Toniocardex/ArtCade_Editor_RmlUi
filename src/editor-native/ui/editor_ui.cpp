@@ -361,6 +361,14 @@ public:
                 // moved on, so a blur the panel caused itself would commit a
                 // draft the author never finished.
                 if (ui_.logicBoardEditor_.isRebuilding()) return;
+                // Hover is the right signal for a mouse-driven focus change:
+                // Context::ProcessMouseButtonDown focuses FindFocusElement(hover)
+                // *before* it dispatches mousedown, so the hovered element is
+                // the one about to take focus. It says nothing about a focus
+                // change made by keyboard or by code, though — Tab away with
+                // the pointer parked over the list and the commit is skipped.
+                // Narrow enough to live with; the alternative is knowing the
+                // incoming focus target, which the blur event does not carry.
                 if (pointerIsOnExpressionCompletion(actionElement)) return;
                 ui_.pendingExpressionEnd_ = EditorUi::PendingExpressionEditEnd{
                     EditorUi::PendingExpressionEnd::Commit, arg,

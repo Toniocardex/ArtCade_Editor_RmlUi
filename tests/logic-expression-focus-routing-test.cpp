@@ -353,6 +353,131 @@ void testEditingAnExistingExpression(Rml::Context& context, Rml::ElementDocument
 }
 
 // ----------------------------------------------------------------------------
+// How an edit ends (Engineering Gates §23): Escape rolls back, blur commits a
+// valid draft, and an invalid one is neither committed nor thrown away.
+// ----------------------------------------------------------------------------
+
+/** The Code form the document currently holds for Set Position X. */
+std::string documentExpression(const EditorCoordinator& coordinator) {
+    return Logic::formatNumberExpression(
+        std::get<LogicVec2Value>(
+            Logic::findProperty(
+                coordinator.document().data().objectTypes.at("Hero")
+                    .logicBoard->rules[0].actions[0], "position")->value).x,
+        Logic::NumberExpressionFormatStyle::Code);
+}
+
+/** Focuses the X field and replaces its text with @p text, leaving it focused. */
+void typeIntoExpressionField(Rml::Context& context, Rml::ElementDocument& document,
+                             EditorUi& ui, const std::string& axis,
+                             const std::string& text) {
+    std::vector<Rml::Element*> inputs;
+    collectByClass(&document, "logic-expression-input", inputs);
+    for (Rml::Element* input : inputs) {
+        if (attributeOf(input, "data-arg") != axis) continue;
+        CHECK(input->Focus());
+        break;
+    }
+    frame(context, ui);
+    context.ProcessKeyDown(Rml::Input::KI_A, Rml::Input::KM_CTRL);
+    context.ProcessTextInput(Rml::String(text));
+    frame(context, ui);
+}
+
+void testEscapeRollsBackAndBlurCommits(Rml::Context& context, Rml::ElementDocument& document,
+                                       EditorCoordinator& coordinator, EditorUi& ui) {
+    const LogicBoardDef& board =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicPropertyAddress address{
+        board.rules[0].id, LogicPropertyTarget::Action, 0};
+    const std::string axis = encodeLogicPropertyAddress(address, "position") + "|x";
+
+    // Start from a known document value, with nothing pending.
+    LogicNumberExpressionAddress target;
+    target.objectTypeId = "Hero";
+    target.ruleId = board.rules[0].id;
+    target.actionIndex = 0;
+    target.parameterId = "position";
+    target.component = LogicNumericComponent::X;
+    CHECK(coordinator.execute(SetLogicNumberExpressionCommand{
+        target, Logic::parseNumberExpression("random(0, 100)").value}).ok);
+    frame(context, ui);
+    CHECK(documentExpression(coordinator) == "random(0, 100)");
+
+    // ---- Escape abandons the draft -----------------------------------------
+    typeIntoExpressionField(context, document, ui, axis, "self.x");
+    CHECK(attributeOf(document.GetElementById("logic-expression-input"), "value")
+          == "self.x");
+    const uint64_t beforeEscape = coordinator.document().revision();
+
+    context.ProcessKeyDown(Rml::Input::KI_ESCAPE, 0);
+    frame(context, ui);
+
+    CHECK(documentExpression(coordinator) == "random(0, 100)");
+    CHECK(coordinator.document().revision() == beforeEscape);
+    // The field redraws from the document and the list closes with it.
+    CHECK(!hasClass(&document, "logic-expression-completions"));
+    {
+        std::vector<Rml::Element*> inputs;
+        collectByClass(&document, "logic-expression-input", inputs);
+        for (Rml::Element* input : inputs)
+            if (attributeOf(input, "data-arg") == axis)
+                CHECK(attributeOf(input, "value") == "random(0, 100)");
+    }
+
+    // ---- Blur commits a valid draft ----------------------------------------
+    // The formatter parenthesises a top-level binary expression, so what comes
+    // back is `(self.x + 10)` — parse and format stay mutually inverse.
+    typeIntoExpressionField(context, document, ui, axis, "self.x + 10");
+    const uint64_t beforeBlur = coordinator.document().revision();
+
+    // Clicking elsewhere moves the pointer with it. Leaving it parked over the
+    // completion list would look, to the blur handler, exactly like pressing an
+    // entry — which is the one case that must not commit.
+    context.ProcessMouseMove(5, 5, 0);
+    Rml::Element* elsewhere = document.GetElementById("logic-toolbar-search");
+    CHECK(elsewhere != nullptr);
+    if (!elsewhere) return;
+    CHECK(elsewhere->Focus());
+    frame(context, ui);
+
+    CHECK(documentExpression(coordinator) == "(self.x + 10)");
+    CHECK(coordinator.document().revision() != beforeBlur);
+    CHECK(coordinator.canUndo());
+    CHECK(!hasClass(&document, "logic-expression-completions"));
+
+    // ---- Blur on an invalid draft keeps the text and explains --------------
+    typeIntoExpressionField(context, document, ui, axis, "random(0,");
+    const uint64_t beforeBadBlur = coordinator.document().revision();
+
+    context.ProcessMouseMove(5, 5, 0);
+    elsewhere = document.GetElementById("logic-toolbar-search");
+    CHECK(elsewhere != nullptr);
+    if (!elsewhere) return;
+    CHECK(elsewhere->Focus());
+    frame(context, ui);
+
+    // ADR-0029: "a parse failure shows an inline diagnostic under the field and
+    // never discards what the author typed".
+    CHECK(documentExpression(coordinator) == "(self.x + 10)");
+    CHECK(coordinator.document().revision() == beforeBadBlur);
+    CHECK(hasClass(&document, "logic-expression-error"));
+    {
+        bool foundTypedText = false;
+        std::vector<Rml::Element*> inputs;
+        collectByClass(&document, "logic-expression-input", inputs);
+        for (Rml::Element* input : inputs)
+            if (attributeOf(input, "data-arg") == axis
+                && attributeOf(input, "value") == "random(0,") foundTypedText = true;
+        CHECK(foundTypedText);
+    }
+
+    // Leave the board clean for whatever runs next.
+    context.ProcessKeyDown(Rml::Input::KI_ESCAPE, 0);
+    frame(context, ui);
+}
+
+// ----------------------------------------------------------------------------
 // Non-regression: the generic focus baseline still works for `commit-` fields.
 // Narrowing that block must not cost the Escape-restore it exists for.
 // ----------------------------------------------------------------------------
@@ -435,6 +560,7 @@ int main() {
     testCommitFieldKeepsItsFocusBaseline(*context, *document);
     testFocusOpensTheCompletionList(*context, *document, coordinator, ui);
     testEditingAnExistingExpression(*context, *document, coordinator, ui);
+    testEscapeRollsBackAndBlurCommits(*context, *document, coordinator, ui);
 
     // Controllers are detached before the documents they observe, and the
     // documents before the context (Constitution AC-LIFE-001).
