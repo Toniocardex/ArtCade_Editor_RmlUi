@@ -68,6 +68,7 @@ add_library(artcade-editor-core STATIC
     editor-native/commands/scene_layer_commands.cpp
     editor-native/commands/sprite_presentation_commands.cpp
     editor-native/model/presentation_variable_refs.cpp
+    editor-native/model/variable_references.cpp
     editor-native/app/editor_coordinator.cpp
     editor-native/app/editor_coordinator_workspace.cpp
     editor-native/app/editor_coordinator_tilemap.cpp

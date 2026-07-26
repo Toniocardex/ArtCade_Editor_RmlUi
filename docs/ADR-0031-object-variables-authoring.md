@@ -344,7 +344,17 @@ navigation UI (the *counter* is in scope, the navigation is not) ·
   `Project Variables (N)`. Label only; the tooltip and drawer title already
   said Project Variables. No second Object Variables button, no
   `Manage Object Variables…`, no combined count.
-- **A1.0 / A1.1 — not started.**
+- **A1.0 — done.** `model/variable_references.*` is the single walk;
+  `forEachNumberVariableExpression` in `core/logic-number-expression.*` is the
+  single AST recursion. Both `global_variable_commands.cpp` and
+  `local_variable_commands.cpp` migrated — the object-scope commands landed
+  with their own presentation-only walk just before this slice, and leaving it
+  would have kept exactly the two walkers this decision exists to prevent.
+- **A1.1 — not started.** Two defects to fix there, found while migrating:
+  `RemoveObjectTypeLocalVariableCommand` and
+  `SetObjectTypeLocalVariableTypeCommand` both erase instance overrides in
+  `apply()` and neither restores them in `undo()`. Not yet observable, because
+  the editor still does not persist overrides (finding 2).
 - **A2 — not started**; blocked on A1.
 - The `Create compatible variable` button in
   `logic_property_editor.cpp:401` still routes to the Project Variables

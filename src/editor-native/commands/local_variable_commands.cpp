@@ -1,7 +1,7 @@
 #include "editor-native/commands/local_variable_commands.h"
 
-#include "editor-native/model/presentation_variable_refs.h"
 #include "editor-native/model/project_document.h"
+#include "editor-native/model/variable_references.h"
 
 #include <algorithm>
 #include <utility>
@@ -72,8 +72,8 @@ std::size_t countObjectTypeLocalVariableReferences(
     const ProjectDocument& document,
     const ObjectTypeId& objectTypeId,
     const GameVariableId& key) {
-    return countPresentationVariableReferences(
-               document.data(), TextBindingScope::Local, &objectTypeId, key)
+    return countVariableReferences(
+               document.data(), VariableScope::Object, &objectTypeId, key)
         .total();
 }
 
@@ -95,8 +95,8 @@ EditorOperationResult RenameObjectTypeLocalVariableCommand::apply(ProjectDocumen
     if (findLocal(typeIt->second, newKey_) != typeIt->second.localVariables.end())
         return EditorOperationResult::failure("Local variable key already exists");
     oldIt->key = newKey_;
-    renamePresentationVariableReferences(
-        staged, TextBindingScope::Local, &objectTypeId_, oldKey_, newKey_);
+    renameVariableReferences(
+        staged, VariableScope::Object, &objectTypeId_, oldKey_, newKey_);
     rewriteInstanceOverrides(staged, objectTypeId_, oldKey_, newKey_);
     document.commitStagedCommand(std::move(staged));
     return changed();
@@ -113,8 +113,8 @@ EditorOperationResult RenameObjectTypeLocalVariableCommand::undo(ProjectDocument
     if (findLocal(typeIt->second, oldKey_) != typeIt->second.localVariables.end())
         return EditorOperationResult::failure("Cannot undo: old key already exists");
     it->key = oldKey_;
-    renamePresentationVariableReferences(
-        staged, TextBindingScope::Local, &objectTypeId_, newKey_, oldKey_);
+    renameVariableReferences(
+        staged, VariableScope::Object, &objectTypeId_, newKey_, oldKey_);
     rewriteInstanceOverrides(staged, objectTypeId_, newKey_, oldKey_);
     document.commitStagedCommand(std::move(staged));
     return changed();
@@ -130,7 +130,7 @@ EditorOperationResult RemoveObjectTypeLocalVariableCommand::apply(ProjectDocumen
     if (references != 0) {
         return EditorOperationResult::failure(
             "Cannot delete local variable \"" + key_ + "\": referenced by "
-            + std::to_string(references) + " Text/Gauge binding(s)");
+            + std::to_string(references) + " Logic/Text/Gauge reference(s)");
     }
     ProjectDoc staged = document.data();
     const auto typeIt = staged.objectTypes.find(objectTypeId_);
@@ -178,10 +178,11 @@ EditorOperationResult SetObjectTypeLocalVariableTypeCommand::apply(ProjectDocume
     if (it == typeIt->second.localVariables.end())
         return EditorOperationResult::failure("Unknown local variable");
     if (it->type == next_) return EditorOperationResult::success(EditorInvalidation::None);
-    if (presentationReferencesRequireDifferentType(
-            staged, TextBindingScope::Local, &objectTypeId_, key_, next_)) {
+    if (variableReferencesRequireDifferentType(
+            staged, VariableScope::Object, &objectTypeId_, key_, next_)) {
         return EditorOperationResult::failure(
-            "Cannot change local variable type: Text/Gauge bindings require the current type");
+            "Cannot change local variable type: referenced Logic/Text/Gauge "
+            "references require the current type");
     }
     if (!previousType_) {
         previousType_ = it->type;

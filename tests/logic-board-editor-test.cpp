@@ -3,6 +3,7 @@
 #include "editor-native/commands/audio_asset_commands.h"
 #include "editor-native/commands/global_variable_commands.h"
 #include "editor-native/commands/logic_board_commands.h"
+#include "editor-native/commands/local_variable_commands.h"
 #include "editor-native/commands/logic_expression_commands.h"
 #include "editor-native/commands/top_down_controller_commands.h"
 #include "editor-native/model/logic_component_references.h"
@@ -2645,6 +2646,130 @@ static void testSetLogicNumberExpressionCommandAcceptsGlobalVariable() {
     CHECK(coordinator.stopPlaying().ok);
 }
 
+// ADR-0031 A1.0. A variable used only inside a number expression used to count
+// as unreferenced: Delete accepted it and Rename left the node naming a
+// variable that no longer existed. The node also sits two levels down, under
+// clamp and then a binary add, so a walk that only inspects the root finds it
+// just as absent.
+static const NumberVariableExpression* clampedAddVariable(const NumberExpression& root) {
+    const auto* clampNode = std::get_if<NumberClampExpression>(&root.value());
+    if (!clampNode || !clampNode->value) return nullptr;
+    const auto* addNode = std::get_if<NumberBinaryExpression>(&clampNode->value->value());
+    if (!addNode || !addNode->right) return nullptr;
+    return std::get_if<NumberVariableExpression>(&addNode->right->value());
+}
+
+static NumberExpression clampedAdd(NumberVariableScope scope, const std::string& variableId) {
+    NumberVariableExpression reference;
+    reference.scope = scope;
+    reference.variableId = variableId;
+    NumberBinaryExpression add;
+    add.operation = NumberBinaryOperator::Add;
+    add.left = boxNumberExpression(NumberExpression::literal(1.0));
+    add.right = boxNumberExpression(NumberExpression{reference});
+    NumberClampExpression clamp;
+    clamp.value = boxNumberExpression(NumberExpression{std::move(add)});
+    clamp.minimum = boxNumberExpression(NumberExpression::literal(0.0));
+    clamp.maximum = boxNumberExpression(NumberExpression::literal(100.0));
+    return NumberExpression{std::move(clamp)};
+}
+
+static const NumberExpression* positionComponent(const EditorCoordinator& coordinator,
+                                                 LogicNumericComponent component) {
+    const LogicPropertyDef* position = Logic::findProperty(
+        coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0].actions[0],
+        "position");
+    if (!position) return nullptr;
+    const auto* vec = std::get_if<LogicVec2Value>(&position->value);
+    if (!vec) return nullptr;
+    return component == LogicNumericComponent::X ? &vec->x : &vec->y;
+}
+
+static void testExpressionReferencesCountAsReferences() {
+    ProjectDoc project = makeProjectData();
+    GameVariableDefinition targetX;
+    targetX.key = "TargetX";
+    targetX.type = GameVariableDefinition::Type::Number;
+    targetX.initialValue = 40.0;
+    project.globalVariables.push_back(targetX);
+    GameVariableDefinition speed;
+    speed.key = "Speed";
+    speed.type = GameVariableDefinition::Type::Number;
+    speed.initialValue = 3.0;
+    project.objectTypes.at("Hero").localVariables.push_back(speed);
+    EditorCoordinator coordinator{std::move(project)};
+
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& board =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(board));
+    rule.trigger = {Logic::kOnStart, {}};
+    rule.actions[0] = {Logic::kSetPosition,
+        {{"target", LogicEntityReference{}},
+         {"position", LogicVec2Value::literal(0., 0.)}}};
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", std::move(rule), 0}).ok);
+    const LogicRuleId ruleId =
+        coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0].id;
+
+    const LogicNumberExpressionAddress xAddress{
+        "Hero", ruleId, 0, "position", LogicNumericComponent::X};
+    const LogicNumberExpressionAddress yAddress{
+        "Hero", ruleId, 0, "position", LogicNumericComponent::Y};
+    CHECK(coordinator.execute(SetLogicNumberExpressionCommand{
+        xAddress, clampedAdd(NumberVariableScope::Global, "TargetX")}).ok);
+    CHECK(coordinator.execute(SetLogicNumberExpressionCommand{
+        yAddress, clampedAdd(NumberVariableScope::Local, "Speed")}).ok);
+
+    // -- project scope --------------------------------------------------------
+    CHECK(countGlobalVariableReferences(coordinator.document(), "TargetX") == 1);
+
+    const uint64_t beforeBlocked = coordinator.document().revision();
+    CHECK(!coordinator.execute(RemoveGlobalVariableCommand{"TargetX"}).ok);
+    CHECK(!coordinator.execute(SetGlobalVariableTypeCommand{
+        "TargetX", GameVariableDefinition::Type::Boolean}).ok);
+    CHECK(coordinator.document().revision() == beforeBlocked);
+
+    CHECK(coordinator.execute(RenameGlobalVariableCommand{"TargetX", "GoalX"}).ok);
+    const NumberVariableExpression* renamed =
+        clampedAddVariable(*positionComponent(coordinator, LogicNumericComponent::X));
+    CHECK(renamed != nullptr);
+    CHECK(renamed && renamed->variableId == "GoalX");
+    CHECK(countGlobalVariableReferences(coordinator.document(), "TargetX") == 0);
+    CHECK(countGlobalVariableReferences(coordinator.document(), "GoalX") == 1);
+    CHECK(coordinator.undo().ok);
+    const NumberVariableExpression* restored =
+        clampedAddVariable(*positionComponent(coordinator, LogicNumericComponent::X));
+    CHECK(restored && restored->variableId == "TargetX");
+    CHECK(coordinator.redo().ok);
+
+    // -- object scope ---------------------------------------------------------
+    CHECK(countObjectTypeLocalVariableReferences(coordinator.document(), "Hero", "Speed") == 1);
+    // The two scopes never see each other: a local node named GoalX would be a
+    // different variable, and the project walk must not claim it.
+    CHECK(countObjectTypeLocalVariableReferences(coordinator.document(), "Hero", "GoalX") == 0);
+    CHECK(countGlobalVariableReferences(coordinator.document(), "Speed") == 0);
+
+    const uint64_t beforeLocalBlocked = coordinator.document().revision();
+    CHECK(!coordinator.execute(RemoveObjectTypeLocalVariableCommand{"Hero", "Speed"}).ok);
+    CHECK(!coordinator.execute(SetObjectTypeLocalVariableTypeCommand{
+        "Hero", "Speed", GameVariableDefinition::Type::String}).ok);
+    CHECK(coordinator.document().revision() == beforeLocalBlocked);
+
+    CHECK(coordinator.execute(
+        RenameObjectTypeLocalVariableCommand{"Hero", "Speed", "Velocity"}).ok);
+    const NumberVariableExpression* localRenamed =
+        clampedAddVariable(*positionComponent(coordinator, LogicNumericComponent::Y));
+    CHECK(localRenamed != nullptr);
+    CHECK(localRenamed && localRenamed->variableId == "Velocity");
+    CHECK(localRenamed && localRenamed->scope == NumberVariableScope::Local);
+    CHECK(countObjectTypeLocalVariableReferences(
+        coordinator.document(), "Hero", "Velocity") == 1);
+    CHECK(coordinator.undo().ok);
+    const NumberVariableExpression* localRestored =
+        clampedAddVariable(*positionComponent(coordinator, LogicNumericComponent::Y));
+    CHECK(localRestored && localRestored->variableId == "Speed");
+}
+
 int main() {
     testCommandsAndPersistence();
     testIncompatibleBoardRecovery();
@@ -2684,6 +2809,7 @@ int main() {
     testSetLogicNumberExpressionCommand();
     testSetPositionPropertyEditorIsATypedField();
     testSetLogicNumberExpressionCommandAcceptsGlobalVariable();
+    testExpressionReferencesCountAsReferences();
     std::cout << "logic-board-editor-test: " << passed << " passed, "
               << failed << " failed\n";
     return failed == 0 ? 0 : 1;

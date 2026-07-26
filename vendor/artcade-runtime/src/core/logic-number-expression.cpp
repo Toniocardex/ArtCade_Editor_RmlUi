@@ -53,6 +53,42 @@ NumberExpressionVariant cloneVariant(const NumberExpressionVariant& value) {
     }, value);
 }
 
+// One recursion for both the const and the mutable overload: `Expression` is
+// either `NumberExpression` or `const NumberExpression`, and the cast on the
+// way down restores the constness that unique_ptr::operator* drops.
+template <typename Expression, typename Visit>
+void visitVariables(Expression& expression, const Visit& visit) {
+    const auto descend = [&](const NumberExpressionBox& box) {
+        if (box) visitVariables(static_cast<Expression&>(*box), visit);
+    };
+    std::visit([&](auto& node) {
+        using T = std::decay_t<decltype(node)>;
+        if constexpr (std::is_same_v<T, NumberVariableExpression>) {
+            visit(node);
+        } else if constexpr (std::is_same_v<T, NumberLiteralExpression>
+                             || std::is_same_v<T, NumberPropertyExpression>) {
+            // leaves
+        } else if constexpr (std::is_same_v<T, NumberUnaryExpression>) {
+            descend(node.operand);
+        } else if constexpr (std::is_same_v<T, NumberBinaryExpression>) {
+            descend(node.left);
+            descend(node.right);
+        } else if constexpr (std::is_same_v<T, NumberClampExpression>) {
+            descend(node.value);
+            descend(node.minimum);
+            descend(node.maximum);
+        } else if constexpr (std::is_same_v<T, NumberLerpExpression>) {
+            descend(node.from);
+            descend(node.to);
+            descend(node.amount);
+        } else {
+            static_assert(std::is_same_v<T, NumberRandomRangeExpression>);
+            descend(node.minimum);
+            descend(node.maximum);
+        }
+    }, expression.value());
+}
+
 bool sameBox(const NumberExpressionBox& left, const NumberExpressionBox& right) {
     if (!left && !right) return true;
     if (!left || !right) return false;
@@ -89,6 +125,18 @@ NumberExpressionBox boxNumberExpression(NumberExpression expression) {
 
 NumberExpression cloneNumberExpression(const NumberExpression& expression) {
     return NumberExpression{expression};
+}
+
+void forEachNumberVariableExpression(
+    const NumberExpression& expression,
+    const std::function<void(const NumberVariableExpression&)>& visit) {
+    visitVariables(expression, visit);
+}
+
+void forEachNumberVariableExpression(
+    NumberExpression& expression,
+    const std::function<void(NumberVariableExpression&)>& visit) {
+    visitVariables(expression, visit);
 }
 
 bool sameNumberExpression(const NumberExpression& left, const NumberExpression& right) {

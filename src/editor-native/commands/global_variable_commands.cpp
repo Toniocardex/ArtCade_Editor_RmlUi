@@ -1,9 +1,8 @@
 #include "editor-native/commands/global_variable_commands.h"
 
-#include "editor-native/model/presentation_variable_refs.h"
 #include "editor-native/model/project_document.h"
+#include "editor-native/model/variable_references.h"
 #include "project-global-variables-format.h"
-#include "logic-core.h"
 
 #include <algorithm>
 #include <cmath>
@@ -44,80 +43,21 @@ GameVariableValue defaultValue(GameVariableDefinition::Type type) {
     return 0.0;
 }
 
-template <typename Fn>
-void forEachBlock(ProjectDoc& doc, Fn&& fn) {
-    for (auto& [unused, type] : doc.objectTypes) {
-        (void)unused;
-        if (!type.logicBoard) continue;
-        for (LogicRuleDef& rule : type.logicBoard->rules) {
-            fn(rule.trigger);
-            for (LogicConditionClause& clause : rule.conditions) fn(clause.block);
-            for (LogicBlockDef& action : rule.actions) fn(action);
-        }
-    }
-}
-
-template <typename Fn>
-void forEachBlock(const ProjectDoc& doc, Fn&& fn) {
-    for (const auto& [unused, type] : doc.objectTypes) {
-        (void)unused;
-        if (!type.logicBoard) continue;
-        for (const LogicRuleDef& rule : type.logicBoard->rules) {
-            fn(rule.trigger);
-            for (const LogicConditionClause& clause : rule.conditions) fn(clause.block);
-            for (const LogicBlockDef& action : rule.actions) fn(action);
-        }
-    }
-}
-
-std::size_t logicReferencesIn(const ProjectDoc& doc, const GameVariableId& key) {
-    std::size_t count = 0;
-    forEachBlock(doc, [&](const LogicBlockDef& block) {
-        for (const LogicPropertyDef& property : block.properties) {
-            if (const auto* ref = std::get_if<LogicVariableReference>(&property.value);
-                ref && ref->id == key) {
-                ++count;
-            }
-        }
-    });
-    return count;
-}
-
+// Project-scope views of the one reference walk (ADR-0031). This file owns no
+// traversal of its own: a variable used only inside a number expression has to
+// count here exactly as it counts for object variables.
 std::size_t referencesIn(const ProjectDoc& doc, const GameVariableId& key) {
-    return logicReferencesIn(doc, key)
-        + countPresentationVariableReferences(
-              doc, TextBindingScope::Global, nullptr, key)
-              .total();
+    return countVariableReferences(doc, VariableScope::Project, nullptr, key).total();
 }
 
 void renameReferences(ProjectDoc& doc, const GameVariableId& from, const GameVariableId& to) {
-    forEachBlock(doc, [&](LogicBlockDef& block) {
-        for (LogicPropertyDef& property : block.properties) {
-            if (auto* ref = std::get_if<LogicVariableReference>(&property.value);
-                ref && ref->id == from) {
-                ref->id = to;
-            }
-        }
-    });
-    renamePresentationVariableReferences(
-        doc, TextBindingScope::Global, nullptr, from, to);
+    renameVariableReferences(doc, VariableScope::Project, nullptr, from, to);
 }
 
 bool referencesRequireDifferentType(
     const ProjectDoc& doc, const GameVariableId& key, GameVariableDefinition::Type next) {
-    bool mismatch = false;
-    forEachBlock(doc, [&](const LogicBlockDef& block) {
-        if (mismatch) return;
-        const auto required = Logic::requiredVariableType(block.typeId);
-        if (!required || *required == next) return;
-        for (const LogicPropertyDef& property : block.properties) {
-            const auto* ref = std::get_if<LogicVariableReference>(&property.value);
-            if (ref && ref->id == key) { mismatch = true; return; }
-        }
-    });
-    if (mismatch) return true;
-    return presentationReferencesRequireDifferentType(
-        doc, TextBindingScope::Global, nullptr, key, next);
+    return variableReferencesRequireDifferentType(
+        doc, VariableScope::Project, nullptr, key, next);
 }
 
 bool sameValue(const GameVariableValue& a, const GameVariableValue& b) {

@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -140,6 +141,22 @@ private:
 
 NumberExpressionBox boxNumberExpression(NumberExpression expression);
 NumberExpression cloneNumberExpression(const NumberExpression& expression);
+
+/**
+ * Depth-first visit of every variable node in the tree, operands included.
+ *
+ * The one traversal of this AST that reference counting, rename and type
+ * checks share (ADR-0031). A variable can sit under unary, binary, clamp,
+ * lerp and random-range operators, so inspecting the root node finds nothing
+ * in the cases that matter; keeping the recursion here means a node type that
+ * gains children is handled once rather than in every caller.
+ */
+void forEachNumberVariableExpression(
+    const NumberExpression& expression,
+    const std::function<void(const NumberVariableExpression&)>& visit);
+void forEachNumberVariableExpression(
+    NumberExpression& expression,
+    const std::function<void(NumberVariableExpression&)>& visit);
 bool sameNumberExpression(const NumberExpression& left, const NumberExpression& right);
 bool isLiteralNumberExpression(const NumberExpression& expression);
 std::optional<double> literalNumberValue(const NumberExpression& expression);
