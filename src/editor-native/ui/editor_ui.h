@@ -103,7 +103,8 @@ public:
     void setRecentProjectsHandlers(RecentProjectPathRequest openRecent,
                                    RecentProjectPathRequest removeRecent,
                                    RecentProjectsStoreQuery queryStore);
-    // Rebuild the empty-hub recent list when visible (after MRU touch/remove).
+    // Rebuild the empty-hub recent list from the wired store (visibility,
+    // touch/remove, and preferences-attach boundaries).
     void refreshViewportEmptyHub();
     void setPlayHandlers(ProjectFileRequest playProject,
                          ProjectFileRequest playCurrentScene);
@@ -394,6 +395,11 @@ private:
     RecentProjectPathRequest            openRecentProjectRequest_;
     RecentProjectPathRequest            removeRecentProjectRequest_;
     RecentProjectsStoreQuery            recentProjectsQuery_;
+    // Fingerprint of the last hub recent list projected via SetInnerRML.
+    // RefreshToolbar runs often; rebuilding the list every time destroys the
+    // clicked button between mousedown and mouseup and drops the click.
+    std::string                         hubRecentFingerprint_;
+    bool                                viewportEmptyHubVisible_ = false;
     ProjectFileRequest                  playProjectRequest_;
     ProjectFileRequest                  playCurrentSceneRequest_;
     ImportAssetRequest                  importAssetRequest_;

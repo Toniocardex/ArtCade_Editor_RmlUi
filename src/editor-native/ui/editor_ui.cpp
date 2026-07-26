@@ -837,6 +837,11 @@ void EditorUi::setRecentProjectsHandlers(RecentProjectPathRequest openRecent,
     openRecentProjectRequest_ = std::move(openRecent);
     removeRecentProjectRequest_ = std::move(removeRecent);
     recentProjectsQuery_ = std::move(queryStore);
+    // Initial bind can paint the empty hub before preferences are wired.
+    // Rebuilding here is the preferences-load boundary refresh (ADR-0030),
+    // not a click-driven workaround.
+    hubRecentFingerprint_.clear();
+    refreshViewportEmptyHub();
 }
 
 void EditorUi::refreshViewportEmptyHub() {
@@ -846,33 +851,54 @@ void EditorUi::refreshViewportEmptyHub() {
 
     const RecentProjectsStore* store =
         recentProjectsQuery_ ? recentProjectsQuery_() : nullptr;
+
+    // Stable fingerprint so we skip SetInnerRML when the MRU is unchanged.
+    // RefreshToolbar runs often; replacing the list DOM every tick destroys the
+    // clicked button between mousedown and mouseup and drops the click.
+    std::string fingerprint;
+    std::string html;
     if (!store || store->entries().empty()) {
-        list->SetInnerRML(
-            "<div class=\"viewport-recent-empty\"><span>No recent projects</span></div>");
-        return;
+        fingerprint = "empty";
+        html = "<div class=\"viewport-recent-empty\"><span>No recent projects</span></div>";
+    } else {
+        // data-arg is a stable list index (not a filesystem path): Windows paths
+        // with backslashes are unsafe in RML attributes, and the store remains the
+        // authority for the real path at click time.
+        for (std::size_t i = 0; i < store->entries().size(); ++i) {
+            const RecentProjectEntry& entry = store->entries()[i];
+            std::error_code ec;
+            const bool missing =
+                !std::filesystem::exists(entry.path, ec) || static_cast<bool>(ec);
+            fingerprint.append(entry.path);
+            fingerprint.push_back('\n');
+            fingerprint.append(entry.displayName);
+            fingerprint.push_back('\n');
+            fingerprint.push_back(missing ? '1' : '0');
+            fingerprint.push_back('\n');
+
+            const std::string indexArg = std::to_string(i);
+            html += "<div class=\"viewport-recent-row\" title=\"";
+            html += escapeRml(entry.path);
+            html += "\"><button class=\"viewport-recent-main\" data-action=\"open-recent-project\" "
+                    "data-arg=\"";
+            html += indexArg;
+            html += "\"><span class=\"viewport-recent-name\">";
+            html += escapeRml(entry.displayName);
+            if (missing) {
+                html += "<span class=\"viewport-recent-missing\"> missing</span>";
+            }
+            html += "</span><span class=\"viewport-recent-path\">";
+            html += escapeRml(entry.path);
+            html += "</span></button>"
+                    "<button class=\"viewport-recent-remove\" data-action=\"remove-recent-project\" "
+                    "data-arg=\"";
+            html += indexArg;
+            html += "\" title=\"Remove from recent\"><span>×</span></button></div>";
+        }
     }
 
-    std::string html;
-    for (const RecentProjectEntry& entry : store->entries()) {
-        std::error_code ec;
-        const bool missing = !std::filesystem::exists(entry.path, ec) || static_cast<bool>(ec);
-        html += "<div class=\"viewport-recent-row\" data-action=\"open-recent-project\" data-arg=\"";
-        html += escapeRml(entry.path);
-        html += "\" title=\"";
-        html += escapeRml(entry.path);
-        html += "\"><div class=\"viewport-recent-main\"><span class=\"viewport-recent-name\">";
-        html += escapeRml(entry.displayName);
-        if (missing) {
-            html += "<span class=\"viewport-recent-missing\"> missing</span>";
-        }
-        html += "</span><span class=\"viewport-recent-path\">";
-        html += escapeRml(entry.path);
-        html += "</span></div>"
-                "<button class=\"viewport-recent-remove\" data-action=\"remove-recent-project\" "
-                "data-arg=\"";
-        html += escapeRml(entry.path);
-        html += "\" title=\"Remove from recent\"><span>×</span></button></div>";
-    }
+    if (fingerprint == hubRecentFingerprint_) return;
+    hubRecentFingerprint_ = std::move(fingerprint);
     list->SetInnerRML(html);
 }
 
@@ -2403,7 +2429,16 @@ void EditorUi::refreshToolbar() {
     if (Rml::Element* empty = document_->GetElementById("viewport-empty")) {
         const bool showEmpty = !hasScene && !playing && sceneWorkspace;
         empty->SetClass("hidden", !showEmpty);
-        if (showEmpty) refreshViewportEmptyHub();
+        if (showEmpty) {
+            // Force a rebuild when the hub becomes visible again (entries may
+            // have changed while a scene was open). While visible, only rebuild
+            // when the store fingerprint changes — see refreshViewportEmptyHub.
+            if (!viewportEmptyHubVisible_) hubRecentFingerprint_.clear();
+            viewportEmptyHubVisible_ = true;
+            refreshViewportEmptyHub();
+        } else {
+            viewportEmptyHubVisible_ = false;
+        }
     }
 
     const EditorSceneViewState& view = coordinator_.sceneView(currentViewSceneId());
@@ -3901,12 +3936,22 @@ bool EditorUi::handleProjectFileAction(const std::string& action, const std::str
         if (newProjectRequest_) newProjectRequest_();
     } else if (action == "open-project") {
         if (openProjectRequest_) openProjectRequest_();
-    } else if (action == "open-recent-project") {
-        if (openRecentProjectRequest_ && !arg.empty())
-            openRecentProjectRequest_(std::filesystem::path{arg});
-    } else if (action == "remove-recent-project") {
-        if (removeRecentProjectRequest_ && !arg.empty())
-            removeRecentProjectRequest_(std::filesystem::path{arg});
+    } else if (action == "open-recent-project" || action == "remove-recent-project") {
+        if (arg.empty() || !recentProjectsQuery_) return true;
+        const RecentProjectsStore* store = recentProjectsQuery_();
+        if (!store) return true;
+        char* end = nullptr;
+        const unsigned long index = std::strtoul(arg.c_str(), &end, 10);
+        if (end == arg.c_str() || (end && *end != '\0')
+            || index >= store->entries().size()) {
+            return true;
+        }
+        const std::filesystem::path path{store->entries()[index].path};
+        if (action == "open-recent-project") {
+            if (openRecentProjectRequest_) openRecentProjectRequest_(path);
+        } else if (removeRecentProjectRequest_) {
+            removeRecentProjectRequest_(path);
+        }
     } else if (action == "save-project") {
         if (saveProjectRequest_) saveProjectRequest_();
     } else if (action == "save-project-as") {

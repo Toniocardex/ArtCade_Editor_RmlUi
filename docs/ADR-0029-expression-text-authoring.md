@@ -123,9 +123,24 @@ The rule: **a check that can only be decided statically keeps the parameter
 literal; a check that can be enforced at runtime moves there.**
 
 - Timer interval — the parameter stays literal, so the check is unaffected.
-- Volume and playback speed — the static check still runs whenever the value
-  *is* a literal, and the runtime clamps when it is not. Clamping is the
-  existing behaviour of both sinks, so this narrows nothing.
+- Volume and playback speed — **corrected after reading the sinks.** This ADR
+  originally claimed "the runtime clamps when it is not [a literal]; clamping is
+  the existing behaviour of both sinks". That is wrong on both counts. Neither
+  sink clamps: `Audio::playResolvedAsset` returns false for a volume outside
+  0..1, and `World::setAnimationPlaybackSpeed` returns false for a speed <= 0.
+  Both falses become a thrown `sol::error` in the Logic binding, and a throw
+  from a callback deactivates the subscription — so an out-of-range dynamic
+  value does not degrade, it **disables the rule**. That is worse than either
+  clamping or staying literal.
+
+  The fix is not to change the sinks — they are shared with Lua scripting and
+  rejecting a nonsense argument is reasonable there. It is to clamp in the
+  *generated* Lua for the dynamic case, so the author gets the value they asked
+  for, squeezed into the legal range, and the rule keeps running. The literal
+  case keeps its authoring-time diagnostic, which is strictly better feedback
+  than a silent clamp.
+
+  Until that codegen exists, volume and playback speed stay LiteralOnly.
 
 ### Ownership
 

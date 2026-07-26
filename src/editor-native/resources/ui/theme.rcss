@@ -292,6 +292,7 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 .tile-palette-dock-rail-sep,
 .tool-btn:hover,
 .toolbar-zoom:hover,
+.viewport-recent-main:hover,
 .viewport-recent-remove:hover,
 .viewport-recent-row:hover,
 textarea#script-editor-textarea scrollbarvertical sliderbar {
@@ -339,6 +340,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .tile-palette-empty,
 .tool-btn,
 .tree-row:hover,
+.viewport-recent-main,
 .viewport-recent-row {
     background-color: #1f1f23;
 }
@@ -601,12 +603,9 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .shortcuts-tab.active,
 .tab:hover,
 .tile-palette-dock-collapse-btn:hover,
-.tool-btn:hover {
-    border-color: #3f3f46;
-}
-
-/* viewport-recent-row hover outline */
+.tool-btn:hover,
 .viewport-empty-btn-secondary:hover,
+.viewport-recent-main:hover,
 .viewport-recent-row:hover {
     border-color: #3f3f46;
 }

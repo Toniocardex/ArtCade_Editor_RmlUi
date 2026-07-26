@@ -310,15 +310,20 @@
     align-items: center;
     justify-content: space-between;
     gap: 8dp;
-    padding: 8dp 8dp;
+    padding: 4dp 4dp;
     margin-bottom: 2dp;
     border-width: 1px;
     border-radius: 2dp;
 }
 .viewport-recent-main {
-    display: block;
+    display: flex;
+    flex-direction: column;
     flex: 1;
     min-width: 0;
+    text-align: left;
+    padding: 4dp 6dp;
+    border-width: 0;
+    border-radius: 2dp;
 }
 .viewport-recent-name {
     display: block;

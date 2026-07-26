@@ -186,7 +186,7 @@ void ProjectSessionController::persistRecentProjectsBestEffort() {
 void ProjectSessionController::touchRecentProject(const std::filesystem::path& path) {
     if (!recentProjects_ || path.empty()) return;
     const std::filesystem::path normalized = normalizeRecentPath(path);
-    recentProjects_->touch(normalized.string(), utcNowSeconds());
+    recentProjects_->touch(normalized.generic_string(), utcNowSeconds());
     persistRecentProjectsBestEffort();
     if (recentProjectsChanged_) recentProjectsChanged_();
 }
