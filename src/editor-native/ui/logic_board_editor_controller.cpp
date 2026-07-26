@@ -4,9 +4,12 @@
 #include "editor-native/app/inspector_commit.h"
 #include "editor-native/commands/global_variable_commands.h"
 #include "editor-native/commands/logic_board_commands.h"
+#include "editor-native/commands/logic_expression_commands.h"
 #include "logic-core.h"
+#include "logic-number-expression-parse.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <optional>
 #include <utility>
@@ -41,6 +44,21 @@ struct PropertyAddress {
     std::string key;
     std::string component;
 };
+
+/** Replace the token the caret is on, so picking `clamp(` after `cl` does not
+    produce `clclamp(`. Mirrors trailingFragment in logic_property_editor. */
+std::string applyExpressionCompletion(const std::string& current,
+                                      const std::string& insert) {
+    std::size_t start = current.size();
+    while (start > 0) {
+        const char c = current[start - 1];
+        const bool part = std::isalnum(static_cast<unsigned char>(c)) != 0
+            || c == '_' || c == '.' || c == '$' || c == '\'';
+        if (!part) break;
+        --start;
+    }
+    return current.substr(0, start) + insert;
+}
 
 std::optional<PropertyAddress> parsePropertyAddress(const std::string& encoded) {
     const std::vector<std::string> parts = splitPipe(encoded);
@@ -134,6 +152,37 @@ std::string LogicBoardEditorController::objectTypeMenuEntries() const {
     return panel_.objectTypeMenuEntries(coordinator_);
 }
 
+void LogicBoardEditorController::commitExpressionField(const std::string& address,
+                                                       const std::string& text) {
+    const auto& view = coordinator_.state().logicBoardEditor;
+    if (!view.objectTypeId) return;
+    const std::optional<PropertyAddress> parsed = parsePropertyAddress(address);
+    if (!parsed || (parsed->component != "x" && parsed->component != "y")) {
+        coordinator_.logError("Invalid Logic expression address");
+        return;
+    }
+    const Logic::NumberExpressionParseResult result =
+        Logic::parseNumberExpression(text);
+    if (!result.ok) {
+        // Keep the text and say what is wrong: retyping a formula from scratch
+        // because one paren was missing is the behaviour worth avoiding.
+        panel_.setExpressionDraft(document_, coordinator_, address, text);
+        panel_.setExpressionError(document_, coordinator_, address,
+                                  result.error.message);
+        return;
+    }
+    LogicNumberExpressionAddress target;
+    target.objectTypeId = *view.objectTypeId;
+    target.ruleId = parsed->ruleId;
+    target.actionIndex = parsed->index;
+    target.parameterId = parsed->key;
+    target.component = parsed->component == "y" ? LogicNumericComponent::Y
+                                                : LogicNumericComponent::X;
+    coordinator_.execute(SetLogicNumberExpressionCommand{target, result.value});
+    panel_.clearExpressionField();
+    panel_.refresh(document_, coordinator_);
+}
+
 bool LogicBoardEditorController::handleAction(
     const std::string& action, const std::string& arg, const std::string& value,
     const WorkspaceSwitchPreparation& prepareWorkspaceSwitch) {
@@ -177,6 +226,32 @@ bool LogicBoardEditorController::handleAction(
     }
     if (action == "toggle-global-variables") {
         panel_.toggleVariablesDrawer(document_, coordinator_);
+        return true;
+    }
+    // ADR-0029 — the expression field. Focus and typing are presentation only;
+    // only commit reaches a command.
+    if (action == "focus-logic-expression") {
+        panel_.focusExpressionField(document_, coordinator_, arg);
+        return true;
+    }
+    if (action == "draft-logic-expression") {
+        panel_.setExpressionDraft(document_, coordinator_, arg, value);
+        return true;
+    }
+    if (action == "cancel-logic-expression") {
+        panel_.clearExpressionField();
+        panel_.refresh(document_, coordinator_);
+        return true;
+    }
+    if (action == "pick-logic-expression-completion") {
+        const std::string current = panel_.expressionDraftText();
+        panel_.setExpressionDraft(document_, coordinator_, arg,
+                                  applyExpressionCompletion(current, value));
+        return true;
+    }
+    if (action == "commit-logic-expression") {
+        if (coordinator_.isPlaying()) return true;
+        commitExpressionField(arg, value);
         return true;
     }
     const bool variableAuthoringAction =

@@ -31,6 +31,18 @@ std::string encodeLogicPropertyAddress(
     const LogicPropertyAddress& address, const std::string& propertyKey);
 
 /**
+ * Live state for the expression field being typed into (ADR-0029). Presentation
+ * only: `draftText` holds what the author has typed while it does not parse, so
+ * a half-written `random(0,` is never thrown away and never reaches
+ * ProjectDocument. Empty `focusAddress` means no field is being edited.
+ */
+struct LogicExpressionFieldState {
+    std::string focusAddress;
+    std::string draftText;
+    std::string errorMessage;
+};
+
+/**
  * The Logic Board's boolean control: both options rendered, the current one
  * selected. A single button printing only the current value reads as a label —
  * nothing about it says the state can be changed. Each option *sets* its value
@@ -49,10 +61,12 @@ std::string renderLogicBooleanChoice(
  */
 std::string renderLogicProperties(
     const ProjectDocument& document,
+    const EntityDef* owner,
     const LogicBlockDef& block,
     const LogicPropertyAddress& address,
     const std::string& openDropdownId,
     const LogicKeyBindingEditorState& keyBinding,
+    const LogicExpressionFieldState& expressionField,
     bool playing);
 
 } // namespace ArtCade::EditorNative

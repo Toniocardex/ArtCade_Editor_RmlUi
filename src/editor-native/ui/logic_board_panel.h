@@ -59,6 +59,26 @@ public:
         keySearchAddress_.clear();
         keySearchQuery_.clear();
     }
+    // ADR-0029 — the expression field being typed into. Presentation state:
+    // the draft text exists so a half-written `random(0,` survives a redraw
+    // without ever reaching ProjectDocument.
+    void focusExpressionField(Rml::ElementDocument* document,
+                              const EditorCoordinator& coordinator,
+                              const std::string& address);
+    void setExpressionDraft(Rml::ElementDocument* document,
+                            const EditorCoordinator& coordinator,
+                            const std::string& address, std::string text);
+    void setExpressionError(Rml::ElementDocument* document,
+                            const EditorCoordinator& coordinator,
+                            const std::string& address, std::string message);
+    void clearExpressionField() const {
+        expressionFocusAddress_.clear();
+        expressionDraftText_.clear();
+        expressionErrorMessage_.clear();
+    }
+    const std::string& expressionFocusAddress() const { return expressionFocusAddress_; }
+    const std::string& expressionDraftText() const { return expressionDraftText_; }
+
     void toggleVariablesDrawer(
         Rml::ElementDocument* document, const EditorCoordinator& coordinator);
 
@@ -134,6 +154,10 @@ private:
     mutable std::string keyCaptureAddress_;
     mutable std::string keySearchAddress_;
     mutable std::string keySearchQuery_;
+    // ADR-0029 transient expression-field state, same lifetime as the above.
+    mutable std::string expressionFocusAddress_;
+    mutable std::string expressionDraftText_;
+    mutable std::string expressionErrorMessage_;
     mutable bool variablesDrawerOpen_ = false;
     mutable std::optional<LogicBoardTab> lastTab_;
     mutable LogicRuleId pendingRevealRuleId_;

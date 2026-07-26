@@ -2,7 +2,7 @@
   "activeSceneId": "scene-1",
   "audioAssets": [],
   "fontAssets": [],
-  "formatVersion": 10,
+  "formatVersion": 11,
   "generatedSfx": [],
   "globalVariables": [
     {
@@ -95,40 +95,39 @@
               {
                 "properties": [
                   {
-                    "key": "objectTypeId",
+                    "key": "target",
                     "value": {
-                      "kind": "string",
-                      "value": "Player"
+                      "kind": "entity",
+                      "target": "self"
                     }
                   },
                   {
                     "key": "position",
                     "value": {
                       "kind": "vec2",
-                      "x": 64.0,
-                      "y": 32.0
+                      "x": {
+                        "kind": "randomRange",
+                        "maximum": {
+                          "kind": "property",
+                          "property": "scene.worldWidth"
+                        },
+                        "minimum": 0.0
+                      },
+                      "y": 160.0
                     }
                   }
                 ],
-                "typeId": "entity.spawn"
+                "typeId": "entity.set_position"
               }
             ],
             "conditions": [],
             "enabled": true,
             "executionMode": "every_occurrence",
-            "id": "rule-clone",
-            "name": "Clone self",
+            "id": "rule-place",
+            "name": "Place randomly",
             "trigger": {
-              "properties": [
-                {
-                  "key": "key",
-                  "value": {
-                    "kind": "key",
-                    "value": "Enter"
-                  }
-                }
-              ],
-              "typeId": "input.key_pressed"
+              "properties": [],
+              "typeId": "event.on_start"
             }
           },
           {
@@ -176,7 +175,7 @@
             }
           }
         ],
-        "schemaVersion": 3
+        "schemaVersion": 4
       },
       "name": "Player",
       "spritePresentation": {
@@ -336,7 +335,7 @@
       }
     }
   },
-  "schemaVersion": 10,
+  "schemaVersion": 11,
   "scriptAssets": [],
   "spriteAnimationAssets": [],
   "targetFPS": 60.0,

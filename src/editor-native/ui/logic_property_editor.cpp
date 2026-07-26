@@ -3,8 +3,10 @@
 #include "editor-native/model/project_document.h"
 #include "editor-native/ui/ui_markup.h"
 #include "logic-number-expression-format.h"
+#include "logic-number-expression-parse.h"
 
 #include <algorithm>
+#include <cctype>
 #include <sstream>
 #include <vector>
 
@@ -81,6 +83,83 @@ bool keyMatchesSearch(const std::string& name, const std::string& query) {
     return normalized.find(needle) != std::string::npos;
 }
 
+/**
+ * The token the caret is sitting on: everything back to the last character that
+ * cannot be part of a name. `clamp(self.` yields `self.`, so the list narrows
+ * to the property the author is halfway through.
+ */
+std::string trailingFragment(const std::string& text) {
+    std::size_t start = text.size();
+    while (start > 0) {
+        const char c = text[start - 1];
+        const bool part = std::isalnum(static_cast<unsigned char>(c)) != 0
+            || c == '_' || c == '.' || c == '$' || c == '\'';
+        if (!part) break;
+        --start;
+    }
+    return text.substr(start);
+}
+
+bool completionMatches(const std::string& candidate, const std::string& fragment) {
+    if (fragment.empty()) return true;
+    std::string a = candidate;
+    std::string b = fragment;
+    const auto fold = [](std::string& s) {
+        std::transform(s.begin(), s.end(), s.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    };
+    fold(a);
+    fold(b);
+    return a.rfind(b, 0) == 0 || a.find(b) != std::string::npos;
+}
+
+/**
+ * The in-flow completion list (ADR-0029). Not a popup: the Logic Board panel
+ * scrolls and clips absolutely-positioned children, which is the same reason
+ * the property dropdowns render in flow.
+ */
+std::string renderLogicExpressionCompletions(
+    const ProjectDocument& document, const EntityDef* owner,
+    const std::string& address, const std::string& text) {
+    const std::string fragment = trailingFragment(text);
+
+    struct Entry { std::string insert; std::string label; std::string summary; };
+    std::vector<Entry> matches;
+    for (const Logic::NumberExpressionCompletion& entry
+         : Logic::numberExpressionCompletions()) {
+        if (completionMatches(entry.label, fragment))
+            matches.push_back({entry.insert, entry.label, entry.summary});
+    }
+    const auto addVariables = [&](const std::vector<GameVariableDefinition>& source,
+                                  const char* prefix, const char* scopeName) {
+        for (const GameVariableDefinition& variable : source) {
+            if (variable.type != GameVariableDefinition::Type::Number) continue;
+            if (variable.key.empty()) continue;
+            const std::string token = std::string(prefix) + variable.key;
+            if (!completionMatches(token, fragment)) continue;
+            matches.push_back({token, token, scopeName});
+        }
+    };
+    if (owner) addVariables(owner->localVariables, "$", "Object variable");
+    addVariables(document.data().globalVariables, "$global.", "Project variable");
+
+    std::string html = "<div class=\"logic-expression-completions\">";
+    if (matches.empty()) {
+        html += "<span class=\"logic-expression-completion-empty\">"
+                "Nothing matches — type a number, or clear to start over</span>";
+    }
+    for (const Entry& entry : matches) {
+        html += "<button class=\"logic-expression-completion\""
+                " data-action=\"pick-logic-expression-completion\" data-arg=\""
+              + escapeRml(address) + "\" data-value=\"" + escapeRml(entry.insert)
+              + "\"><span class=\"logic-expression-completion-label\">"
+              + escapeRml(entry.label)
+              + "</span><span class=\"logic-expression-completion-summary\">"
+              + escapeRml(entry.summary) + "</span></button>";
+    }
+    return html + "</div>";
+}
+
 std::string booleanOption(const char* label, const char* optionValue, bool selected,
                           const std::string& action, const std::string& arg,
                           bool disabled) {
@@ -110,10 +189,12 @@ std::string encodeLogicPropertyAddress(
 
 std::string renderLogicProperties(
     const ProjectDocument& document,
+    const EntityDef* owner,
     const LogicBlockDef& block,
     const LogicPropertyAddress& address,
     const std::string& openDropdownId,
     const LogicKeyBindingEditorState& keyBinding,
+    const LogicExpressionFieldState& expressionField,
     bool playing) {
     const Logic::LogicBlockDescriptor* descriptor = Logic::findDescriptor(block.typeId);
     if (!descriptor) return {};
@@ -161,44 +242,49 @@ std::string renderLogicProperties(
                 == Logic::NumericExpressionPolicy::PerComponentNumberExpression;
             html += "<div class=\"logic-vec2-group\">";
             auto emitAxis = [&](const char* label, const char* component,
-                                const NumberExpression& expr, bool dynamic,
+                                const NumberExpression& expr,
                                 const std::optional<double>& lit) {
+                const std::string axisAddress = encoded + "|" + component;
                 html += "<div class=\"logic-parameter-row\"><span class=\"logic-parameter-label\">"
                       + escapeRml(label) + "</span>";
-                if (dynamic && expressionEnabled) {
-                    html += "<button class=\"logic-expression-summary\" data-action=\""
-                            "open-number-expression-editor\" data-arg=\""
-                          + escapeRml(encoded + "|" + component) + "\"";
-                    if (playing) html += " disabled=\"disabled\"";
-                    html += "><span class=\"logic-expression-badge\">fx</span>"
-                            "<span class=\"logic-expression-summary-text\">"
-                          + escapeRml(Logic::formatNumberExpression(
-                                expr, Logic::NumberExpressionFormatStyle::Compact))
-                          + "</span></button>"
-                            "<button class=\"logic-expression-edit\" data-action=\""
-                            "open-number-expression-editor\" data-arg=\""
-                          + escapeRml(encoded + "|" + component) + "\"";
-                    if (playing) html += " disabled=\"disabled\"";
-                    html += "><span class=\"logic-expression-edit-label\">Edit</span></button>";
-                } else {
+                if (!expressionEnabled) {
+                    // LiteralOnly: a plain number field, unchanged.
                     html += "<input type=\"text\" class=\"logic-value-input\""
                             " data-action=\"commit-logic-property-component\" data-arg=\""
-                          + escapeRml(encoded + "|" + component) + "\" value=\""
+                          + escapeRml(axisAddress) + "\" value=\""
                           + number(lit ? static_cast<float>(*lit) : 0.f) + "\"";
                     if (playing) html += " disabled=\"disabled\"";
-                    html += "/>";
-                    if (expressionEnabled) {
-                        html += "<button class=\"logic-expression-button\" data-action=\""
-                                "open-number-expression-editor\" data-arg=\""
-                              + escapeRml(encoded + "|" + component) + "\"";
-                        if (playing) html += " disabled=\"disabled\"";
-                        html += "><span class=\"logic-expression-button-label\">fx</span></button>";
-                    }
+                    html += "/></div>";
+                    return;
                 }
-                html += "</div>";
+                // ADR-0029: one control for both states. The field holds the
+                // Code form, so a literal and an expression are the same
+                // affordance and reverting costs a keystroke.
+                const bool focused = expressionField.focusAddress == axisAddress;
+                const bool hasError = focused && !expressionField.errorMessage.empty();
+                const std::string shown = focused && !expressionField.draftText.empty()
+                    ? expressionField.draftText
+                    : Logic::formatNumberExpression(
+                          expr, Logic::NumberExpressionFormatStyle::Code);
+                html += "<input type=\"text\" class=\"logic-value-input logic-expression-input";
+                if (hasError) html += " invalid";
+                html += "\" data-action=\"edit-logic-expression\" data-arg=\""
+                      + escapeRml(axisAddress) + "\" value=\"" + escapeRml(shown) + "\"";
+                if (playing) html += " disabled=\"disabled\"";
+                html += "/></div>";
+                if (hasError) {
+                    html += "<div class=\"logic-expression-error\"><span>"
+                          + escapeRml(expressionField.errorMessage) + "</span></div>";
+                }
+                if (focused && !playing) {
+                    html += renderLogicExpressionCompletions(
+                        document, owner, axisAddress,
+                        expressionField.draftText.empty()
+                            ? shown : expressionField.draftText);
+                }
             };
-            emitAxis("X", "x", value.x, dynamicX, litX);
-            emitAxis("Y", "y", value.y, dynamicY, litY);
+            emitAxis("X", "x", value.x, litX);
+            emitAxis("Y", "y", value.y, litY);
             html += "</div>";
         } else if (property.valueKind == Logic::LogicValueKind::Key) {
             LogicKey selected = LogicKey::Space;

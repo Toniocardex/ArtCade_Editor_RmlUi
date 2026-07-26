@@ -294,6 +294,41 @@ public:
             return;
         }
 
+        // ADR-0029 — the expression field. Typing must not commit: parsing
+        // `r`, `ra`, `ran`… on the way to `random(0, 100)` would reject every
+        // keystroke. Only Enter and blur commit; `change` keeps the draft and
+        // narrows the completion list.
+        if (action == "edit-logic-expression") {
+            if (type == "focus") {
+                ui_.handleAction("focus-logic-expression", arg, {});
+                return;
+            }
+            if (type == "change") {
+                ui_.handleAction("draft-logic-expression", arg,
+                                 formValue(actionElement, event));
+                return;
+            }
+            if (type == "blur") {
+                ui_.handleAction("commit-logic-expression", arg,
+                                 formValue(actionElement, event));
+                return;
+            }
+            if (type == "keydown") {
+                const int key = event.GetParameter<int>("key_identifier", 0);
+                if (key == Rml::Input::KI_RETURN || key == Rml::Input::KI_NUMPADENTER) {
+                    ui_.handleAction("commit-logic-expression", arg,
+                                     formValue(actionElement, event));
+                    event.StopPropagation();
+                } else if (key == Rml::Input::KI_ESCAPE) {
+                    // Abandon the draft; the field redraws from the document.
+                    ui_.handleAction("cancel-logic-expression", arg, {});
+                    event.StopPropagation();
+                }
+                return;
+            }
+            return;
+        }
+
         // Hierarchy context menu triggers carry the click position; the show is
         // deferred to processFrame (see requestHierarchyContextMenu).
         if (type == "click"

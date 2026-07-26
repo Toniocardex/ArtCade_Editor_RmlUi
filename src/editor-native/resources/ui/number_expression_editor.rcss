@@ -234,44 +234,64 @@
     font-size: 12dp;
 }
 
-.logic-expression-button {
-    width: 28dp;
-    height: 26dp;
-    margin-left: 6dp;
-    text-align: center;
-    border-width: 1px;
-    border-radius: 3dp;
-}
-
-.logic-expression-summary {
-    display: flex;
+/* ADR-0029 — one control per axis. The `fx` badge, the summary button and the
+   duplicate Edit button are gone: a literal and an expression are now the same
+   field, so reverting costs a keystroke instead of a modal round-trip. The
+   26dp height is .prop-input's, which is what the two old controls disagreed
+   about (28dp vs 26dp) and why the X and Y rows did not line up. */
+.logic-expression-input {
     flex: 1;
-    flex-direction: row;
-    align-items: center;
     min-width: 0;
-    height: 28dp;
-    padding: 0 8dp;
-    border-width: 1px;
-    border-radius: 3dp;
 }
 
-.logic-expression-badge {
-    margin-right: 6dp;
+/* The parse error sits under the field it belongs to, in flow, so the row
+   below is pushed rather than covered. */
+.logic-expression-error {
+    display: block;
+    margin: 0 0 4dp 24dp;
+    padding: 3dp 6dp;
+    border-width: 1px;
+    border-radius: 2dp;
     font-size: 11dp;
 }
 
-.logic-expression-summary-text {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    font-size: 12dp;
-}
-
-.logic-expression-edit {
-    margin-left: 6dp;
-    height: 26dp;
-    padding: 0 8dp;
+/* In flow, not a popup: the Logic Board scrolls and clips absolutely
+   positioned children — the same reason the property dropdowns live in flow. */
+.logic-expression-completions {
+    display: block;
+    margin: 0 0 6dp 24dp;
+    padding: 3dp;
+    max-height: 150dp;
+    overflow-y: auto;
     border-width: 1px;
     border-radius: 3dp;
+}
+
+.logic-expression-completion {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4dp 7dp;
+    background-color: transparent;
+    border-width: 0;
+    border-radius: 2dp;
+    text-align: left;
+}
+
+.logic-expression-completion-label {
+    display: inline-block;
+    font-family: "JetBrains Mono";
+    font-size: 11dp;
+}
+
+.logic-expression-completion-summary {
+    display: inline-block;
+    margin-left: 8dp;
+    font-size: 10dp;
+}
+
+.logic-expression-completion-empty {
+    display: block;
+    padding: 5dp 7dp;
+    font-size: 11dp;
 }

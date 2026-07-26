@@ -491,6 +491,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     const LogicBoardDef& board = *objectType.logicBoard;
     const LogicKeyBindingEditorState keyBinding{
         keyCaptureAddress_, keySearchAddress_, keySearchQuery_};
+    const LogicExpressionFieldState expressionField{
+        expressionFocusAddress_, expressionDraftText_, expressionErrorMessage_};
 
     if (view.tab == LogicBoardTab::GeneratedLua) {
         const Logic::LogicCompileResult compiled = Logic::compileBoard(
@@ -633,9 +635,9 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                                    "change-logic-trigger", rule.id, /*eventCatalog=*/true);
         }
         html += renderLogicProperties(
-            coordinator.document(), rule.trigger,
+            coordinator.document(), selectedType, rule.trigger,
             LogicPropertyAddress{rule.id, LogicPropertyTarget::Trigger, 0},
-            openDropdownId_, keyBinding, playing);
+            openDropdownId_, keyBinding, expressionField, playing);
         html += "</div>"; // .logic-block (WHEN trigger)
         if (rule.executionMode == LogicExecutionMode::OncePerActivation) {
             // Projected into WHEN; never stored in rule.conditions[].
@@ -717,10 +719,10 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                     "change-logic-condition", arg);
             }
             html += renderLogicProperties(
-                coordinator.document(), clause.block,
+                coordinator.document(), selectedType, clause.block,
                 LogicPropertyAddress{
                     rule.id, LogicPropertyTarget::Condition, conditionIndex},
-                openDropdownId_, keyBinding, playing);
+                openDropdownId_, keyBinding, expressionField, playing);
             html += "</div>";
         }
         html += "</div>";
@@ -917,10 +919,10 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 html += "/></div>";
             } else {
                 html += renderLogicProperties(
-                    coordinator.document(), action,
+                    coordinator.document(), selectedType, action,
                     LogicPropertyAddress{
                         rule.id, LogicPropertyTarget::Action, actionIndex},
-                    openDropdownId_, keyBinding, playing);
+                    openDropdownId_, keyBinding, expressionField, playing);
             }
             html += "</div>";
         }
@@ -1050,6 +1052,40 @@ void LogicBoardPanel::setKeySearchQuery(Rml::ElementDocument* document,
                                         std::string query) {
     if (keySearchAddress_ != propertyAddress) return;
     keySearchQuery_ = std::move(query);
+    refresh(document, coordinator);
+}
+
+void LogicBoardPanel::focusExpressionField(Rml::ElementDocument* document,
+                                           const EditorCoordinator& coordinator,
+                                           const std::string& address) {
+    if (expressionFocusAddress_ == address) return;
+    // Moving to another field abandons the previous draft: it never parsed, so
+    // there is nothing to keep, and carrying it over would show one field's
+    // half-written text under another.
+    expressionFocusAddress_ = address;
+    expressionDraftText_.clear();
+    expressionErrorMessage_.clear();
+    refresh(document, coordinator);
+}
+
+void LogicBoardPanel::setExpressionDraft(Rml::ElementDocument* document,
+                                         const EditorCoordinator& coordinator,
+                                         const std::string& address,
+                                         std::string text) {
+    if (expressionFocusAddress_ != address) return;
+    expressionDraftText_ = std::move(text);
+    // Typing clears the previous complaint; it is about text that no longer
+    // exists. The next commit decides whether there is a new one.
+    expressionErrorMessage_.clear();
+    refresh(document, coordinator);
+}
+
+void LogicBoardPanel::setExpressionError(Rml::ElementDocument* document,
+                                         const EditorCoordinator& coordinator,
+                                         const std::string& address,
+                                         std::string message) {
+    expressionFocusAddress_ = address;
+    expressionErrorMessage_ = std::move(message);
     refresh(document, coordinator);
 }
 

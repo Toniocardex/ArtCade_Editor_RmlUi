@@ -287,6 +287,7 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 .drop-entry:hover,
 .layer-btn:hover,
 .layer-group-header:hover,
+.logic-expression-completion:hover,
 .logic-toggle-option:hover,
 .menu-entry:hover,
 .menu-item:hover,
@@ -425,11 +426,9 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-key-search input,
 .logic-key-search-cancel,
 .logic-key-search-toggle,
+.logic-expression-completions,
 .logic-toggle,
 .logic-value-input,
-.logic-expression-button,
-.logic-expression-edit,
-.logic-expression-summary,
 .number-expression-result,
 .number-expression-node,
 .number-expression-picker,
@@ -578,7 +577,6 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-key-search input,
 .logic-key-search-cancel,
 .logic-key-search-toggle,
-.logic-expression-badge,
 .logic-more-trigger,
 .logic-more-trigger:hover,
 .logic-value-input:hover,
@@ -677,12 +675,10 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-block,
 .logic-empty,
 .logic-rule,
+.logic-expression-completions,
 .logic-toggle,
 .logic-toolbar-search,
 .logic-value-input,
-.logic-expression-button,
-.logic-expression-edit,
-.logic-expression-summary,
 .number-expression-result,
 .number-expression-node,
 .number-expression-picker,
@@ -825,9 +821,6 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-toolbar-search,
 .logic-variable-description,
 .logic-value-input,
-.logic-expression-button,
-.logic-expression-edit,
-.logic-expression-summary,
 .number-expression-result,
 .logic-variable-row button.logic-variable-value,
 .logic-variable-row button.logic-variable-value.active,
@@ -920,7 +913,6 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-icon-btn,
 .logic-key-search-cancel,
 .logic-key-search-toggle,
-.logic-expression-badge,
 .number-expression-node-kind,
 .number-expression-node-summary,
 .number-expression-literal-label,
@@ -937,6 +929,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-muted,
 .logic-owner,
 .logic-rule-head:hover .logic-rule-caret,
+.logic-expression-completion-label,
 .logic-toggle-option,
 .logic-variables-toggle,
 .menu-entry,
@@ -1037,6 +1030,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-rule-title,
 .logic-title-prefix,
 .logic-toggle-option.selected,
+.logic-expression-completion:hover,
 .logic-toggle-option:hover,
 .logic-variables-title,
 .logic-variables-toggle.active,
@@ -1089,6 +1083,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* text-tertiary */
+.logic-expression-completion-empty,
+.logic-expression-completion-summary,
 #status-bar,
 .about-copyright .about-meta-value,
 .about-meta-key,
@@ -1236,6 +1232,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* danger-border */
+.logic-expression-error,
+.logic-expression-input.invalid,
 #btn-console-error.active,
 #btn-stop:hover,
 .console-clear-btn:hover,
@@ -1252,6 +1250,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* danger-surface */
+.logic-expression-error,
 .editor-modal-actions .panel-btn.danger,
 .editor-modal-actions .panel-btn.danger:hover {
     background: #2a1f20;
@@ -1279,6 +1278,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* danger-text */
+.logic-expression-error,
 #btn-console-error.active,
 #btn-stop,
 .comp-remove:hover,

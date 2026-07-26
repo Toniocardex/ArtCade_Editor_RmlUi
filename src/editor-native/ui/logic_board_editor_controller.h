@@ -47,6 +47,9 @@ public:
                       const WorkspaceSwitchPreparation& prepareWorkspaceSwitch);
 
 private:
+    /** ADR-0029: parse @p text and either commit it or show why it failed. */
+    void commitExpressionField(const std::string& address, const std::string& text);
+
     EditorCoordinator&    coordinator_;
     Rml::ElementDocument* document_ = nullptr;
     LogicBoardPanel       panel_;

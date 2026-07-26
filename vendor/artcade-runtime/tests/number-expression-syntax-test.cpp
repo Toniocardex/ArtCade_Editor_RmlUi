@@ -234,6 +234,47 @@ void testLimits() {
     CHECK(!parseNumberExpression(wide).ok);
 }
 
+/**
+ * The completion list is the only way an author discovers the vocabulary now
+ * that the palette is gone, so a name the grammar accepts but the list omits is
+ * effectively unreachable. Every completion must also parse.
+ */
+void testCompletionsCoverTheGrammar() {
+    const auto& entries = numberExpressionCompletions();
+    CHECK(!entries.empty());
+    for (const NumberExpressionCompletion& entry : entries) {
+        CHECK(!entry.label.empty());
+        CHECK(!entry.summary.empty());
+        // A function insert ends at the open paren; complete it and it must
+        // parse, which catches an entry whose spelling drifted from the parser.
+        std::string probe = entry.insert;
+        if (!probe.empty() && probe.back() == '(') {
+            const std::string name = probe.substr(0, probe.size() - 1);
+            const std::size_t arity =
+                (name == "clamp" || name == "lerp") ? 3
+                : (name == "random" || name == "min" || name == "max") ? 2 : 1;
+            for (std::size_t i = 0; i < arity; ++i) probe += (i ? ", 1" : "1");
+            probe += ")";
+        }
+        const NumberExpressionParseResult parsed = parseNumberExpression(probe);
+        if (parsed.ok) { ++passed; continue; }
+        ++failed;
+        std::cerr << "FAIL completion '" << entry.insert << "' does not parse as '"
+                  << probe << "' — " << parsed.error.message << "\n";
+    }
+    // Every callable name the parser knows has to be offered.
+    for (const char* name : {"abs", "floor", "ceil", "round", "min", "max",
+                             "random", "clamp", "lerp"}) {
+        const std::string insert = std::string(name) + "(";
+        bool offered = false;
+        for (const NumberExpressionCompletion& entry : entries)
+            if (entry.insert == insert) offered = true;
+        if (offered) { ++passed; continue; }
+        ++failed;
+        std::cerr << "FAIL '" << name << "' parses but is not in the completion list\n";
+    }
+}
+
 } // namespace
 
 int main() {
@@ -241,6 +282,7 @@ int main() {
     testAuthoredText();
     testRejects();
     testLimits();
+    testCompletionsCoverTheGrammar();
     std::cout << "number-expression-syntax-test: " << passed << " passed, "
               << failed << " failed\n";
     return failed == 0 ? 0 : 1;

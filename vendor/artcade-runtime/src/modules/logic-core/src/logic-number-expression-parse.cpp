@@ -317,4 +317,24 @@ NumberExpressionParseResult parseNumberExpression(const std::string& text) {
     return Parser{text}.run();
 }
 
+const std::vector<NumberExpressionCompletion>& numberExpressionCompletions() {
+    static const std::vector<NumberExpressionCompletion> entries{
+        {"self.x", "self.x", "This object's world X"},
+        {"self.y", "self.y", "This object's world Y"},
+        {"scene.width", "scene.width", "Scene world width"},
+        {"scene.height", "scene.height", "Scene world height"},
+        {"delta", "delta", "Seconds since the last frame"},
+        {"random(", "random(min, max)", "A new value each time it runs"},
+        {"clamp(", "clamp(value, min, max)", "Keep a value inside a range"},
+        {"lerp(", "lerp(from, to, amount)", "Blend between two values"},
+        {"min(", "min(a, b)", "The smaller of two values"},
+        {"max(", "max(a, b)", "The larger of two values"},
+        {"abs(", "abs(value)", "Distance from zero"},
+        {"floor(", "floor(value)", "Round down"},
+        {"ceil(", "ceil(value)", "Round up"},
+        {"round(", "round(value)", "Round to the nearest whole number"},
+    };
+    return entries;
+}
+
 } // namespace ArtCade::Logic

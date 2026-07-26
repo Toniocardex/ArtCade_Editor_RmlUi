@@ -65,17 +65,23 @@ LogicRuleDef makeCollectRule() {
     return rule;
 }
 
-/** Key Pressed → Spawn Object of the board's OWN type, at an explicit
-    position: the reported repro for the reentrant-install crash, and the only
-    rule in the fixture with a Vec2 property, so the two-field value row stays
-    covered by the visual reference. */
+/** On Start → Set Position, the one property that takes typed expressions
+    (ADR-0029). One axis dynamic and one literal in the same row, because the
+    point of the redesign is that both are now the same control — the reference
+    would not show a regression back to two. */
 LogicRuleDef makeCloneRule() {
-    LogicRuleDef rule = Logic::makeDefaultRule("rule-clone");
-    rule.name = "Clone self";
-    rule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Enter}}};
-    rule.actions[0] = {Logic::kSpawnObject,
-                       {{"objectTypeId", LogicStringValue{"Player"}},
-                        {"position", LogicVec2Value::literal(64., 32.)}}};
+    LogicRuleDef rule = Logic::makeDefaultRule("rule-place");
+    rule.name = "Place randomly";
+    rule.trigger = Logic::makeDefaultBlock(Logic::kOnStart, Logic::BlockKind::Trigger);
+    NumberRandomRangeExpression random;
+    random.minimum = boxNumberExpression(NumberExpression::literal(0.0));
+    random.maximum = boxNumberExpression(
+        NumberExpression{NumberPropertyExpression{NumberProperty::SceneWorldWidth}});
+    LogicVec2Value position;
+    position.x = NumberExpression{std::move(random)};
+    position.y = NumberExpression::literal(160.0);
+    rule.actions[0] = {Logic::kSetPosition,
+                       {{"target", LogicEntityReference{}}, {"position", position}}};
     return rule;
 }
 

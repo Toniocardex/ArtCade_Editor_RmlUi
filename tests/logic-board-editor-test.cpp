@@ -2004,8 +2004,9 @@ static void testSceneActionCatalogAndDefaults() {
     const std::string dropdownId =
         "property|" + encodeLogicPropertyAddress(address, "sceneId");
     const std::string markup = renderLogicProperties(
-        coordinator.document(), authored.rules[0].actions[0], address,
-        dropdownId, LogicKeyBindingEditorState{}, /*playing=*/false);
+        coordinator.document(), nullptr, authored.rules[0].actions[0], address,
+        dropdownId, LogicKeyBindingEditorState{}, LogicExpressionFieldState{},
+        /*playing=*/false);
     CHECK(markup.find("Scene 2") != std::string::npos);
     CHECK(markup.find("Scene 3") != std::string::npos);
     CHECK(markup.find("pick-logic-property") != std::string::npos);
@@ -2456,7 +2457,7 @@ static void testSetLogicNumberExpressionCommand() {
     CHECK(!rejected.ok);
 }
 
-static void testSetPositionPropertyEditorExposesFx() {
+static void testSetPositionPropertyEditorIsATypedField() {
     ProjectDoc project = makeProjectData();
     LogicBoardDef board;
     board.id = "logic:Hero";
@@ -2471,14 +2472,21 @@ static void testSetPositionPropertyEditorExposesFx() {
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     const LogicPropertyAddress address{authored.rules[0].id, LogicPropertyTarget::Action, 0};
     const std::string markup = renderLogicProperties(
-        coordinator.document(), authored.rules[0].actions[0], address,
-        "", LogicKeyBindingEditorState{}, /*playing=*/false);
+        coordinator.document(), nullptr, authored.rules[0].actions[0], address,
+        "", LogicKeyBindingEditorState{}, LogicExpressionFieldState{},
+        /*playing=*/false);
 
-    CHECK(markup.find("open-number-expression-editor") != std::string::npos);
-    CHECK(markup.find("logic-expression-button-label\">fx</span>") != std::string::npos);
-    CHECK(markup.find("commit-logic-property-component") != std::string::npos);
+    // ADR-0029: one typed field per axis. The fx badge, the summary button and
+    // the duplicate Edit button that opened the modal are all gone.
+    CHECK(markup.find("edit-logic-expression") != std::string::npos);
+    CHECK(markup.find("logic-expression-input") != std::string::npos);
+    CHECK(markup.find("open-number-expression-editor") == std::string::npos);
+    CHECK(markup.find("logic-expression-badge") == std::string::npos);
+    CHECK(markup.find("logic-expression-edit") == std::string::npos);
     CHECK(markup.find("|position|x") != std::string::npos);
     CHECK(markup.find("|position|y") != std::string::npos);
+    // A literal renders in the same field, so reverting never needs a modal.
+    CHECK(markup.find("value=\"0\"") != std::string::npos);
     // HiddenSelfTarget: no Target row — only Position group.
     CHECK(markup.find(">Target<") == std::string::npos);
     CHECK(markup.find(">Position<") != std::string::npos);
@@ -2487,10 +2495,13 @@ static void testSetPositionPropertyEditorExposesFx() {
     LogicRuleDef move = Logic::makeDefaultRule("rule-move");
     move.actions[0] = Logic::makeDefaultBlock(Logic::kTranslateBy, Logic::BlockKind::Action);
     const std::string moveMarkup = renderLogicProperties(
-        coordinator.document(), move.actions[0],
+        coordinator.document(), nullptr, move.actions[0],
         LogicPropertyAddress{move.id, LogicPropertyTarget::Action, 0},
-        "", LogicKeyBindingEditorState{}, false);
+        "", LogicKeyBindingEditorState{}, LogicExpressionFieldState{}, false);
     CHECK(moveMarkup.find("open-number-expression-editor") == std::string::npos);
+    // LiteralOnly keeps the plain numeric field, not the expression one.
+    CHECK(moveMarkup.find("logic-expression-input") == std::string::npos);
+    CHECK(moveMarkup.find("commit-logic-property-component") != std::string::npos);
 }
 
 static void testNumberExpressionEditorMarkup() {
@@ -2714,7 +2725,7 @@ int main() {
     testSetPositionNonFiniteRateLimitedDiagnostics();
     testCoordinatorProjectsLogicExpressionDiagnostics();
     testSetLogicNumberExpressionCommand();
-    testSetPositionPropertyEditorExposesFx();
+    testSetPositionPropertyEditorIsATypedField();
     testNumberExpressionEditorMarkup();
     testNumberExpressionVariablePickerContext();
     testSetLogicNumberExpressionCommandAcceptsGlobalVariable();
