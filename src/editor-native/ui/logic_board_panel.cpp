@@ -778,26 +778,6 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Self · visible</span>"
                      + renderLogicBooleanChoice("set-logic-visible", arg, visible, playing)
                      + "</div>";
-            } else if (action.typeId == Logic::kTranslateBy) {
-                // Move By stays LiteralOnly — compact ΔX/ΔY inputs (no expression UI).
-                LogicVec2Value value = LogicVec2Value::literal(0.0, 0.0);
-                if (const LogicPropertyDef* p = property(action, "offset"))
-                    if (const auto* v = std::get_if<LogicVec2Value>(&p->value)) value = *v;
-                const auto litX = literalNumberValue(value.x);
-                const auto litY = literalNumberValue(value.y);
-                html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Self · ΔX</span>"
-                        "<input type=\"text\" class=\"logic-value-input\" data-action=\""
-                        "commit-logic-offset-x\" data-arg=\""
-                     + escapeRml(arg) + "\" value=\""
-                     + number(litX ? static_cast<float>(*litX) : 0.f) + "\"";
-                if (playing) html += " disabled=\"disabled\"";
-                html += "/><span class=\"logic-block-label\">ΔY</span>"
-                        "<input type=\"text\" class=\"logic-value-input\" data-action=\""
-                        "commit-logic-offset-y\" data-arg=\""
-                     + escapeRml(arg) + "\" value=\""
-                     + number(litY ? static_cast<float>(*litY) : 0.f) + "\"";
-                if (playing) html += " disabled=\"disabled\"";
-                html += "/></div>";
             } else if (action.typeId == Logic::kAnimationPlayClip) {
                 AssetId selectedAsset;
                 std::string selectedClip;

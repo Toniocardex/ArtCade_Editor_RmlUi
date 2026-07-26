@@ -83,6 +83,13 @@ LogicRuleDef makeCloneRule() {
     position.y = NumberExpression::literal(160.0);
     rule.actions[0] = {Logic::kSetPosition,
                        {{"target", LogicEntityReference{}}, {"position", position}}};
+    // Move By and Set Velocity took expressions in 14b1c18. They render through
+    // the generic property editor, unlike Set Position which used to have its
+    // own path — so the reference is what proves all three offer the field.
+    rule.actions.push_back(LogicBlockDef{
+        Logic::kTranslateBy, {{"offset", LogicVec2Value::literal(4.0, 0.0)}}});
+    rule.actions.push_back(LogicBlockDef{
+        Logic::kSetVelocity, {{"velocity", LogicVec2Value::literal(0.0, -120.0)}}});
     return rule;
 }
 

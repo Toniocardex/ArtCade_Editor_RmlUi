@@ -25,6 +25,19 @@ std::string RecentProjectsStore::displayNameFromPath(const std::string& path) {
     return name.empty() ? path : name;
 }
 
+bool RecentProjectsStore::entriesEqual(const std::vector<RecentProjectEntry>& a,
+                                       const std::vector<RecentProjectEntry>& b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (a[i].path != b[i].path
+            || a[i].displayName != b[i].displayName
+            || a[i].lastOpenedUtc != b[i].lastOpenedUtc) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void RecentProjectsStore::touch(std::string path, std::int64_t utc) {
     if (path.empty()) return;
     const std::string key = normalizePathKey(path);
@@ -43,70 +56,86 @@ void RecentProjectsStore::touch(std::string path, std::int64_t utc) {
     entries_.insert(entries_.begin(), std::move(entry));
 
     if (entries_.size() > kMaxEntries) entries_.resize(kMaxEntries);
+    ++contentRevision_;
 }
 
-void RecentProjectsStore::remove(const std::string& path) {
+bool RecentProjectsStore::remove(const std::string& path) {
     const std::string key = normalizePathKey(path);
-    if (key.empty()) return;
+    if (key.empty()) return false;
+    const std::size_t previousSize = entries_.size();
     entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
                                   [&](const RecentProjectEntry& e) {
                                       return normalizePathKey(e.path) == key;
                                   }),
                    entries_.end());
+    if (entries_.size() == previousSize) return false;
+    ++contentRevision_;
+    return true;
 }
 
-void RecentProjectsStore::clear() { entries_.clear(); }
+void RecentProjectsStore::clear() {
+    if (entries_.empty()) return;
+    entries_.clear();
+    ++contentRevision_;
+}
 
 bool RecentProjectsStore::fromJson(const std::string& text) {
-    entries_.clear();
-    if (text.empty()) return true;
-    nlohmann::json root;
-    try {
-        root = nlohmann::json::parse(text);
-    } catch (const nlohmann::json::exception&) {
-        return false;
-    }
-    if (!root.is_object()) return false;
-
-    const nlohmann::json* projects = nullptr;
-    if (root.contains("projects") && root["projects"].is_array())
-        projects = &root["projects"];
-    else
-        return true; // valid object without projects → empty MRU
-
-    for (const nlohmann::json& item : *projects) {
-        if (!item.is_object()) continue;
-        if (!item.contains("path") || !item["path"].is_string()) continue;
-        std::string path = item["path"].get<std::string>();
-        if (path.empty()) continue;
-
-        RecentProjectEntry entry;
-        entry.path = std::move(path);
-        if (item.contains("displayName") && item["displayName"].is_string()) {
-            entry.displayName = item["displayName"].get<std::string>();
+    std::vector<RecentProjectEntry> next;
+    if (!text.empty()) {
+        nlohmann::json root;
+        try {
+            root = nlohmann::json::parse(text);
+        } catch (const nlohmann::json::exception&) {
+            return false;
         }
-        if (entry.displayName.empty())
-            entry.displayName = displayNameFromPath(entry.path);
-        if (item.contains("lastOpenedUtc") && item["lastOpenedUtc"].is_number_integer())
-            entry.lastOpenedUtc = item["lastOpenedUtc"].get<std::int64_t>();
-        else if (item.contains("lastOpenedUtc") && item["lastOpenedUtc"].is_number())
-            entry.lastOpenedUtc = static_cast<std::int64_t>(item["lastOpenedUtc"].get<double>());
+        if (!root.is_object()) return false;
 
-        const std::string key = normalizePathKey(entry.path);
-        const bool dup = std::any_of(entries_.begin(), entries_.end(),
-                                     [&](const RecentProjectEntry& e) {
-                                         return normalizePathKey(e.path) == key;
-                                     });
-        if (dup) continue;
-        entries_.push_back(std::move(entry));
-        if (entries_.size() >= kMaxEntries) break;
+        const nlohmann::json* projects = nullptr;
+        if (root.contains("projects") && root["projects"].is_array())
+            projects = &root["projects"];
+        // Valid object without projects → empty MRU (next stays empty).
+
+        if (projects) {
+            for (const nlohmann::json& item : *projects) {
+                if (!item.is_object()) continue;
+                if (!item.contains("path") || !item["path"].is_string()) continue;
+                std::string path = item["path"].get<std::string>();
+                if (path.empty()) continue;
+
+                RecentProjectEntry entry;
+                entry.path = std::move(path);
+                if (item.contains("displayName") && item["displayName"].is_string()) {
+                    entry.displayName = item["displayName"].get<std::string>();
+                }
+                if (entry.displayName.empty())
+                    entry.displayName = displayNameFromPath(entry.path);
+                if (item.contains("lastOpenedUtc") && item["lastOpenedUtc"].is_number_integer())
+                    entry.lastOpenedUtc = item["lastOpenedUtc"].get<std::int64_t>();
+                else if (item.contains("lastOpenedUtc") && item["lastOpenedUtc"].is_number())
+                    entry.lastOpenedUtc =
+                        static_cast<std::int64_t>(item["lastOpenedUtc"].get<double>());
+
+                const std::string key = normalizePathKey(entry.path);
+                const bool dup = std::any_of(next.begin(), next.end(),
+                                             [&](const RecentProjectEntry& e) {
+                                                 return normalizePathKey(e.path) == key;
+                                             });
+                if (dup) continue;
+                next.push_back(std::move(entry));
+                if (next.size() >= kMaxEntries) break;
+            }
+
+            std::stable_sort(next.begin(), next.end(),
+                             [](const RecentProjectEntry& a, const RecentProjectEntry& b) {
+                                 return a.lastOpenedUtc > b.lastOpenedUtc;
+                             });
+            if (next.size() > kMaxEntries) next.resize(kMaxEntries);
+        }
     }
 
-    std::stable_sort(entries_.begin(), entries_.end(),
-                     [](const RecentProjectEntry& a, const RecentProjectEntry& b) {
-                         return a.lastOpenedUtc > b.lastOpenedUtc;
-                     });
-    if (entries_.size() > kMaxEntries) entries_.resize(kMaxEntries);
+    if (entriesEqual(entries_, next)) return true;
+    entries_ = std::move(next);
+    ++contentRevision_;
     return true;
 }
 

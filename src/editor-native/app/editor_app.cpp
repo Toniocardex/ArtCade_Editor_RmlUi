@@ -410,7 +410,7 @@ int EditorApp::run(int argc, char** argv) {
     }
     projectSession.setRecentProjectsStore(&recentProjects);
     projectSession.setRecentProjectsChangedHandler(
-        [&ui]() { ui.refreshViewportEmptyHub(); });
+        [&ui]() { ui.refreshRecentProjectsIfNeeded(); });
     projectSession.bindUi();
     ui.setRecentProjectsHandlers(
         [&projectSession](const std::filesystem::path& path) {

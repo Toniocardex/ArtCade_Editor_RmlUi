@@ -118,6 +118,32 @@
                   }
                 ],
                 "typeId": "entity.set_position"
+              },
+              {
+                "properties": [
+                  {
+                    "key": "offset",
+                    "value": {
+                      "kind": "vec2",
+                      "x": 4.0,
+                      "y": 0.0
+                    }
+                  }
+                ],
+                "typeId": "entity.translate_by"
+              },
+              {
+                "properties": [
+                  {
+                    "key": "velocity",
+                    "value": {
+                      "kind": "vec2",
+                      "x": 0.0,
+                      "y": -120.0
+                    }
+                  }
+                ],
+                "typeId": "physics.set_velocity"
               }
             ],
             "conditions": [],

@@ -197,7 +197,7 @@ void ProjectSessionController::noteSuccessfulProjectPath(const std::filesystem::
 
 void ProjectSessionController::removeRecentProject(const std::filesystem::path& path) {
     if (!recentProjects_ || path.empty()) return;
-    recentProjects_->remove(path.string());
+    if (!recentProjects_->remove(path.string())) return;
     persistRecentProjectsBestEffort();
     if (recentProjectsChanged_) recentProjectsChanged_();
 }
@@ -382,8 +382,20 @@ void ProjectSessionController::requestOpenProjectAt(const std::filesystem::path&
     }
     const std::filesystem::path normalized = normalizeRecentPath(path);
     std::error_code ec;
-    if (!std::filesystem::exists(normalized, ec) || ec) {
-        coordinator_.logError("Recent project not found: " + normalized.string());
+    const bool exists = std::filesystem::exists(normalized, ec);
+    if (ec) {
+        // Drive offline, network share unreachable, permission denied, etc.
+        // Keep the MRU entry — only a definitive absence removes it.
+        coordinator_.logError("Could not inspect recent project: "
+                              + normalized.string() + ": " + ec.message());
+        return;
+    }
+    if (!exists) {
+        // App-local prefs mutation only — before unsaved guard; no project load.
+        removeRecentProject(normalized);
+        coordinator_.logWarning(
+            "Project no longer exists and was removed from Recent Projects: "
+            + normalized.string());
         return;
     }
     resolveUnsavedChanges([this, normalized](bool proceed) {

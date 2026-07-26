@@ -150,19 +150,32 @@ not in RmlUi.
 path exists
     → enter the normal guarded project-open workflow
 
-path missing
+filesystem inspection error
     → do not attempt project load
+    → keep the recent entry
     → log an explicit error
-    → keep the row visible
-    → keep the remove affordance available
+
+path definitively missing
+    → do not attempt project load
+    → remove the entry from RecentProjectsStore
+    → persist preferences best-effort
+    → refresh the visible hub
+    → log an informational warning
 ```
 
-Missing entries are not silently removed. The user removes them explicitly with
-`×`. The remove control is always available, including for valid paths, and its
-activation must not bubble into the row-open action.
+A definitively missing project is removed automatically when the user explicitly
+attempts to open it. No filesystem polling or background cleanup is performed.
+The `×` affordance remains available for voluntary removal of valid or
+temporarily unavailable entries, and its activation must not bubble into the
+row-open action.
 
-No filesystem polling is introduced. Existence is checked when the entry is
-activated, and optionally when the targeted hub projection is rebuilt.
+Existence is checked when the entry is activated, and optionally when the
+targeted hub projection is rebuilt (definitive absence only; inspection errors
+do not show the missing badge).
+
+Corrupted or incompatible project files still exist on disk: they are not
+auto-removed. Load failure after a successful existence check leaves the MRU
+entry in place.
 
 ### Active Scene restoration
 
@@ -391,8 +404,10 @@ The later code slice is complete only when all of the following are testable:
 - successful New/Open/Save touches and deduplicates the path at the top;
 - failed and cancelled operations do not touch the store;
 - the store retains at most 10 entries in descending `lastOpenedUtc` order;
-- a missing path does not start a load, logs an error, stays visible, and can be
-  explicitly removed;
+- a definitively missing path does not start a load, removes the MRU entry,
+  persists preferences best-effort, refreshes the hub, and logs a warning; a
+  filesystem inspection error keeps the entry and logs an error; `×` remains
+  available for voluntary removal;
 - removing a row does not attempt to open it;
 - MRU touch/remove creates no Command, revision, dirty state, or Undo entry;
 - no `lastSceneId` is stored;

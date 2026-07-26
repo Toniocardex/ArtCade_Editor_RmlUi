@@ -837,14 +837,45 @@ void EditorUi::setRecentProjectsHandlers(RecentProjectPathRequest openRecent,
     openRecentProjectRequest_ = std::move(openRecent);
     removeRecentProjectRequest_ = std::move(removeRecent);
     recentProjectsQuery_ = std::move(queryStore);
-    // Initial bind can paint the empty hub before preferences are wired.
-    // Rebuilding here is the preferences-load boundary refresh (ADR-0030),
-    // not a click-driven workaround.
-    hubRecentFingerprint_.clear();
-    refreshViewportEmptyHub();
+    // Preferences / store attach boundary: project after handlers are live.
+    recentProjectsRefreshPending_ = true;
+    refreshRecentProjectsIfNeeded();
 }
 
-void EditorUi::refreshViewportEmptyHub() {
+void EditorUi::refreshEmptySceneHubVisibility(bool visible) {
+    if (visible == emptySceneHubVisible_) return;
+    if (!document_) return;
+
+    emptySceneHubVisible_ = visible;
+    if (Rml::Element* empty = document_->GetElementById("viewport-empty")) {
+        empty->SetClass("hidden", !visible);
+    }
+    if (visible) {
+        recentProjectsRefreshPending_ = true;
+        refreshRecentProjectsIfNeeded();
+    }
+}
+
+void EditorUi::refreshRecentProjectsIfNeeded() {
+    if (!emptySceneHubVisible_) {
+        recentProjectsRefreshPending_ = true;
+        return;
+    }
+
+    const RecentProjectsStore* store =
+        recentProjectsQuery_ ? recentProjectsQuery_() : nullptr;
+    const std::uint64_t revision = store ? store->revision() : 0;
+    if (!recentProjectsRefreshPending_
+        && renderedRecentProjectsRevision_ == revision) {
+        return;
+    }
+
+    rebuildRecentProjectsMarkup();
+    renderedRecentProjectsRevision_ = revision;
+    recentProjectsRefreshPending_ = false;
+}
+
+void EditorUi::rebuildRecentProjectsMarkup() {
     if (!document_) return;
     Rml::Element* list = document_->GetElementById("viewport-recent-list");
     if (!list) return;
@@ -852,30 +883,21 @@ void EditorUi::refreshViewportEmptyHub() {
     const RecentProjectsStore* store =
         recentProjectsQuery_ ? recentProjectsQuery_() : nullptr;
 
-    // Stable fingerprint so we skip SetInnerRML when the MRU is unchanged.
-    // RefreshToolbar runs often; replacing the list DOM every tick destroys the
-    // clicked button between mousedown and mouseup and drops the click.
-    std::string fingerprint;
     std::string html;
     if (!store || store->entries().empty()) {
-        fingerprint = "empty";
         html = "<div class=\"viewport-recent-empty\"><span>No recent projects</span></div>";
     } else {
         // data-arg is a stable list index (not a filesystem path): Windows paths
         // with backslashes are unsafe in RML attributes, and the store remains the
         // authority for the real path at click time.
+        // exists() runs only on this explicit rebuild — not on toolbar ticks.
         for (std::size_t i = 0; i < store->entries().size(); ++i) {
             const RecentProjectEntry& entry = store->entries()[i];
             std::error_code ec;
-            const bool missing =
-                !std::filesystem::exists(entry.path, ec) || static_cast<bool>(ec);
-            fingerprint.append(entry.path);
-            fingerprint.push_back('\n');
-            fingerprint.append(entry.displayName);
-            fingerprint.push_back('\n');
-            fingerprint.push_back(missing ? '1' : '0');
-            fingerprint.push_back('\n');
-
+            const bool exists = std::filesystem::exists(entry.path, ec);
+            // Match open-at policy: only mark missing when inspection succeeds
+            // and the path is definitively absent (not on transient FS errors).
+            const bool missing = !ec && !exists;
             const std::string indexArg = std::to_string(i);
             html += "<div class=\"viewport-recent-row\" title=\"";
             html += escapeRml(entry.path);
@@ -896,9 +918,6 @@ void EditorUi::refreshViewportEmptyHub() {
             html += "\" title=\"Remove from recent\"><span>×</span></button></div>";
         }
     }
-
-    if (fingerprint == hubRecentFingerprint_) return;
-    hubRecentFingerprint_ = std::move(fingerprint);
     list->SetInnerRML(html);
 }
 
@@ -2426,19 +2445,11 @@ void EditorUi::refreshToolbar() {
     setEnabledBoth("toolbar-zoom", "menu-reset-zoom", canZoom);
 
     // Central Scene View empty state: shown only when no scene exists to edit.
-    if (Rml::Element* empty = document_->GetElementById("viewport-empty")) {
+    // Visibility only — MRU markup is projected via refreshRecentProjectsIfNeeded
+    // on store revision / show transitions, never on every toolbar tick.
+    {
         const bool showEmpty = !hasScene && !playing && sceneWorkspace;
-        empty->SetClass("hidden", !showEmpty);
-        if (showEmpty) {
-            // Force a rebuild when the hub becomes visible again (entries may
-            // have changed while a scene was open). While visible, only rebuild
-            // when the store fingerprint changes — see refreshViewportEmptyHub.
-            if (!viewportEmptyHubVisible_) hubRecentFingerprint_.clear();
-            viewportEmptyHubVisible_ = true;
-            refreshViewportEmptyHub();
-        } else {
-            viewportEmptyHubVisible_ = false;
-        }
+        refreshEmptySceneHubVisibility(showEmpty);
     }
 
     const EditorSceneViewState& view = coordinator_.sceneView(currentViewSceneId());

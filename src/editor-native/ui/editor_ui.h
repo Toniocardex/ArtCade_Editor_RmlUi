@@ -22,8 +22,10 @@
 #include "editor-native/ui/ui_markup.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -103,9 +105,9 @@ public:
     void setRecentProjectsHandlers(RecentProjectPathRequest openRecent,
                                    RecentProjectPathRequest removeRecent,
                                    RecentProjectsStoreQuery queryStore);
-    // Rebuild the empty-hub recent list from the wired store (visibility,
-    // touch/remove, and preferences-attach boundaries).
-    void refreshViewportEmptyHub();
+    // Explicit invalidation boundary: rebuild MRU markup only when the empty
+    // hub is visible and the store revision has not been projected yet.
+    void refreshRecentProjectsIfNeeded();
     void setPlayHandlers(ProjectFileRequest playProject,
                          ProjectFileRequest playCurrentScene);
     // Import copies a file into the project via the canonical importAsset
@@ -340,6 +342,9 @@ private:
 
     void applyInvalidations(EditorInvalidation flags);
     void refreshToolbar();
+    // Empty-scene hub: visibility transition only (no MRU markup).
+    void refreshEmptySceneHubVisibility(bool visible);
+    void rebuildRecentProjectsMarkup();
     void refreshStatusBar();
     void refreshCenterWorkspace();
     void updateZoomReadout();   // toolbar zoom %, refreshed on Viewport invalidation
@@ -395,11 +400,12 @@ private:
     RecentProjectPathRequest            openRecentProjectRequest_;
     RecentProjectPathRequest            removeRecentProjectRequest_;
     RecentProjectsStoreQuery            recentProjectsQuery_;
-    // Fingerprint of the last hub recent list projected via SetInnerRML.
-    // RefreshToolbar runs often; rebuilding the list every time destroys the
-    // clicked button between mousedown and mouseup and drops the click.
-    std::string                         hubRecentFingerprint_;
-    bool                                viewportEmptyHubVisible_ = false;
+    // Store contentRevision last projected into #viewport-recent-list.
+    // Sentinel max forces the first paint even when the store is empty (rev 0).
+    std::uint64_t                       renderedRecentProjectsRevision_ =
+        std::numeric_limits<std::uint64_t>::max();
+    bool                                recentProjectsRefreshPending_ = true;
+    bool                                emptySceneHubVisible_ = false;
     ProjectFileRequest                  playProjectRequest_;
     ProjectFileRequest                  playCurrentSceneRequest_;
     ImportAssetRequest                  importAssetRequest_;

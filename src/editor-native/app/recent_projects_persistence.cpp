@@ -65,15 +65,18 @@ bool writeFileAtomic(const std::filesystem::path& path, const std::string& text,
 
 RecentProjectsPersistResult loadRecentProjects(RecentProjectsStore& store) {
     RecentProjectsPersistResult out;
-    store.clear();
+    // Do not clear-then-replace: fromJson / clear each bump contentRevision at
+    // most once when the in-memory list actually changes.
     const auto path = recentProjectsPreferencesPath();
     if (!path) {
+        store.clear();
         out.ok = true;
         out.message = "preferences directory unavailable";
         return out;
     }
     std::error_code ec;
     if (!std::filesystem::exists(*path, ec) || ec) {
+        store.clear();
         out.ok = true;
         return out;
     }

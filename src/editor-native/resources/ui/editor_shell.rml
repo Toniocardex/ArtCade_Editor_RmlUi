@@ -211,7 +211,7 @@
                             <div class="viewport-empty-sub">Create a scene or open an existing ArtCade project.</div>
                             <div class="viewport-empty-actions">
                                 <button class="viewport-empty-btn" data-action="add-scene"><span class="icon">&#xeb0b;</span><span>Create Scene</span></button>
-                                <button class="viewport-empty-btn-secondary panel-btn" data-action="open-project"><span class="icon">&#xeaad;</span><span>Open Project…</span></button>
+                                <button class="viewport-empty-btn-secondary" data-action="open-project"><span class="icon">&#xeaad;</span><span>Open Project…</span></button>
                             </div>
                             <div class="viewport-recent">
                                 <div class="viewport-recent-header"><span>Recent Projects</span></div>

@@ -269,7 +269,9 @@
     align-items: center;
     justify-content: center;
     gap: 6dp;
+    box-sizing: border-box;
     height: 32dp;
+    min-width: 156dp;
     line-height: 32dp;
     padding: 0 16dp;
     border-width: 1px;
@@ -278,6 +280,9 @@
     font-weight: 600;
     white-space: nowrap;
     transition: background-color 0.1s, border-color 0.1s;
+}
+.viewport-empty-btn-secondary {
+    background-color: transparent;
 }
 .viewport-recent {
     display: block;

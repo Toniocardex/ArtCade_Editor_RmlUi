@@ -6363,47 +6363,76 @@ int main() {
     // ========================================================================
     {
         RecentProjectsStore store;
+        CHECK(store.revision() == 0);
+
         store.touch(R"(C:\Games\Alpha\Alpha.artcade-project)", 100);
+        CHECK(store.revision() == 1);
         store.touch(R"(D:\Beta\Beta.artcade-project)", 200);
+        CHECK(store.revision() == 2);
         store.touch(R"(C:/Games/Alpha/Alpha.artcade-project)", 300); // dedupe + front
+        CHECK(store.revision() == 3);
         CHECK(store.entries().size() == 2);
         CHECK(store.entries()[0].path == R"(C:/Games/Alpha/Alpha.artcade-project)");
         CHECK(store.entries()[0].lastOpenedUtc == 300);
         CHECK(store.entries()[0].displayName == "Alpha");
         CHECK(store.entries()[1].displayName == "Beta");
 
+        // Re-touch front still bumps (lastOpenedUtc refresh is a content change).
+        store.touch(R"(C:/Games/Alpha/Alpha.artcade-project)", 301);
+        CHECK(store.revision() == 4);
+        CHECK(store.entries()[0].lastOpenedUtc == 301);
+
+        const std::uint64_t revBeforeCap = store.revision();
         for (int i = 0; i < 12; ++i) {
             store.touch("P" + std::to_string(i) + ".artcade-project", 1000 + i);
         }
+        CHECK(store.revision() == revBeforeCap + 12);
         CHECK(store.entries().size() == RecentProjectsStore::kMaxEntries);
         CHECK(store.entries().front().path == "P11.artcade-project");
         CHECK(store.entries().back().path == "P2.artcade-project");
 
-        store.remove("P11.artcade-project");
+        const std::uint64_t revBeforeRemove = store.revision();
+        CHECK(store.remove("P11.artcade-project"));
+        CHECK(store.revision() == revBeforeRemove + 1);
         CHECK(store.entries().size() == RecentProjectsStore::kMaxEntries - 1);
         CHECK(store.entries().front().path == "P10.artcade-project");
-        store.remove("missing.artcade-project"); // no-op
+        CHECK(!store.remove("missing.artcade-project")); // no-op
+        CHECK(store.revision() == revBeforeRemove + 1);
         CHECK(store.entries().size() == RecentProjectsStore::kMaxEntries - 1);
 
         const std::string json = store.toJson();
         RecentProjectsStore roundtrip;
+        CHECK(roundtrip.revision() == 0);
         CHECK(roundtrip.fromJson(json));
+        CHECK(roundtrip.revision() == 1);
         CHECK(roundtrip.entries().size() == store.entries().size());
         for (std::size_t i = 0; i < store.entries().size(); ++i) {
             CHECK(roundtrip.entries()[i].path == store.entries()[i].path);
             CHECK(roundtrip.entries()[i].displayName == store.entries()[i].displayName);
             CHECK(roundtrip.entries()[i].lastOpenedUtc == store.entries()[i].lastOpenedUtc);
         }
+        // Equivalent content → no revision bump.
+        CHECK(roundtrip.fromJson(json));
+        CHECK(roundtrip.revision() == 1);
 
         RecentProjectsStore bad;
         CHECK(!bad.fromJson("{not-json"));
         CHECK(bad.entries().empty());
+        CHECK(bad.revision() == 0); // malformed leaves store unchanged
         CHECK(bad.fromJson(R"({"version":1,"projects":[{"path":""},{"nope":1},
             {"path":"ok.artcade-project","displayName":"Ok","lastOpenedUtc":9}]})"));
+        CHECK(bad.revision() == 1);
         CHECK(bad.entries().size() == 1);
         CHECK(bad.entries()[0].path == "ok.artcade-project");
         CHECK(bad.entries()[0].displayName == "Ok");
         CHECK(bad.entries()[0].lastOpenedUtc == 9);
+
+        const std::uint64_t revBeforeClear = bad.revision();
+        bad.clear();
+        CHECK(bad.revision() == revBeforeClear + 1);
+        CHECK(bad.entries().empty());
+        bad.clear(); // already empty
+        CHECK(bad.revision() == revBeforeClear + 1);
 
         // Store mutations never touch ProjectDocument dirty/revision.
         EditorCoordinator c{makeDoc()};
@@ -6411,7 +6440,8 @@ int main() {
         const bool dirty = c.document().isDirty();
         RecentProjectsStore isolated;
         isolated.touch("x.artcade-project", 1);
-        isolated.remove("x.artcade-project");
+        CHECK(isolated.remove("x.artcade-project"));
+        CHECK(!isolated.remove("x.artcade-project"));
         CHECK(c.document().revision() == rev);
         CHECK(c.document().isDirty() == dirty);
     }
