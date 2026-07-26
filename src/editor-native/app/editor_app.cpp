@@ -229,6 +229,7 @@ int EditorApp::run(int argc, char** argv) {
     // renders in the capture (ADR-0029). Same action path a real focus takes.
     std::string shotExpression;
     std::string shotExpressionText;
+    std::string shotExpressionPick;
     std::string shotSection;    // non-empty: toggle this Inspector section (e.g. "tilemap")
     std::string shotStamp;      // "c0,r0,c1,r1": select that palette region as a stamp
     float shotPaletteZoom = 0.f; // > 0: apply this palette zoom to the shot tileset
@@ -264,6 +265,8 @@ int EditorApp::run(int argc, char** argv) {
             shotExpression = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-expression-text") == 0 && i + 1 < argc)
             shotExpressionText = argv[i + 1];
+        else if (std::strcmp(argv[i], "--shot-expression-pick") == 0 && i + 1 < argc)
+            shotExpressionPick = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-section") == 0 && i + 1 < argc)
             shotSection = argv[i + 1];
         else if (std::strcmp(argv[i], "--shot-stamp") == 0 && i + 1 < argc)
@@ -1285,6 +1288,31 @@ int EditorApp::run(int argc, char** argv) {
                 host.context()->ProcessKeyDown(Rml::Input::KI_A, Rml::Input::KM_CTRL);
                 host.context()->ProcessTextInput(Rml::String(shotExpressionText));
                 ui.processFrame();
+                host.context()->Update();
+                ui.restoreAfterRmlLayout();
+            }
+            // Real mouse down/up on the entry, not a synthesised click: the
+            // pick used to be lost in the gap between the two, because the
+            // focus change on mouse down committed and rebuilt the list away.
+            if (!shotExpressionPick.empty()) {
+                for (Rml::Element* entry : findElementsByAttribute(
+                         host.document(), "data-value", shotExpressionPick)) {
+                    if (entry->GetAttribute<Rml::String>("data-action", Rml::String())
+                        != "pick-logic-expression-completion") continue;
+                    const Rml::Vector2f centre =
+                        entry->GetAbsoluteOffset(Rml::BoxArea::Border)
+                        + Rml::Vector2f(entry->GetClientWidth() * 0.5f,
+                                        entry->GetClientHeight() * 0.5f);
+                    host.context()->ProcessMouseMove(
+                        static_cast<int>(centre.x), static_cast<int>(centre.y), 0);
+                    host.context()->ProcessMouseButtonDown(0, 0);
+                    ui.processFrame();
+                    host.context()->Update();
+                    ui.restoreAfterRmlLayout();
+                    host.context()->ProcessMouseButtonUp(0, 0);
+                    ui.processFrame();
+                    break;
+                }
             }
         }
     }
