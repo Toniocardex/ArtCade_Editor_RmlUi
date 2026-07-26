@@ -195,7 +195,13 @@ std::string renderLogicProperties(
         const std::string encoded = encodeLogicPropertyAddress(address, property.key);
         const std::string dropdownId = "property|" + encoded;
         const bool open = openDropdownId == dropdownId;
-        html += "<div class=\"logic-inline logic-property\"><span class=\"logic-block-label\">"
+        // A Vec2 owns two full-width rows, so its label sits above them rather
+        // than centred against the pair — inline, the label floats beside a
+        // two-line control and the axis fields start at an arbitrary offset.
+        const bool stacked = property.valueKind == Logic::LogicValueKind::Vec2;
+        html += std::string("<div class=\"logic-inline logic-property")
+              + (stacked ? " stacked" : "")
+              + "\"><span class=\"logic-block-label\">"
               + escapeRml(Logic::propertyDisplayName(property)) + "</span>";
 
         if (property.valueKind == Logic::LogicValueKind::Bool) {

@@ -1,5 +1,24 @@
 /* ADR-0028 — Number Expression Editor structure only (colours in theme.rcss). */
 
+/* Label above, fields below. `.logic-inline` centres its children on one row,
+   which reads fine for a single control but leaves a Vec2's label hanging
+   beside a two-row block. */
+.logic-property.stacked {
+    flex-direction: column;
+    align-items: stretch;
+}
+.logic-property.stacked .logic-block-label {
+    margin-right: 0;
+    margin-bottom: 5dp;
+}
+/* `.logic-vec2-group` carries `flex: 1` to fill the width when it sits beside
+   its label. Once stacked, the parent is a column, so the same declaration
+   asks it to grow in *height* — with no definite height to grow into it
+   collapses and the two axis rows draw on top of the next control. */
+.logic-property.stacked .logic-vec2-group {
+    flex: 0 0 auto;
+}
+
 .logic-vec2-group {
     display: flex;
     flex-direction: column;
