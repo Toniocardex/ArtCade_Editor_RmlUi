@@ -900,9 +900,9 @@ EditorOperationResult EditorCoordinator::stopPlaying() {
 void EditorCoordinator::tickRuntime(const RuntimeInputSnapshot& input, float dt) {
     if (!playSession_) return;
     playSession_->tick(input, dt);
-    const std::vector<Scripts::ScriptRuntimeDiagnostic> diagnostics =
+    const std::vector<Scripts::ScriptRuntimeDiagnostic> scriptDiagnostics =
         playSession_->drainScriptDiagnostics();
-    for (const Scripts::ScriptRuntimeDiagnostic& diagnostic : diagnostics) {
+    for (const Scripts::ScriptRuntimeDiagnostic& diagnostic : scriptDiagnostics) {
         console_.push_back(ConsoleMessage{
             ConsoleMessage::Level::Error,
             diagnostic.sourcePath + " [SCRIPT_RUNTIME/" + diagnostic.callback + "] entity "
@@ -911,7 +911,15 @@ void EditorCoordinator::tickRuntime(const RuntimeInputSnapshot& input, float dt)
                                          diagnostic.sourcePath,
                                          diagnostic.line, diagnostic.column}});
     }
-    if (!diagnostics.empty()) accumulate(EditorInvalidation::Console);
+    const std::vector<std::string> logicDiagnostics =
+        playSession_->drainLogicDiagnostics();
+    for (const std::string& message : logicDiagnostics) {
+        console_.push_back(ConsoleMessage{
+            ConsoleMessage::Level::Error,
+            "[LOGIC_RUNTIME] " + message});
+    }
+    if (!scriptDiagnostics.empty() || !logicDiagnostics.empty())
+        accumulate(EditorInvalidation::Console);
 }
 
 // ----------------------------------------------------------------------------

@@ -156,6 +156,8 @@ public:
     bool isVisible(EntityId owner) override;
     bool setSpriteFlipX(EntityId owner, bool flipX) override;
     bool setPosition(EntityId owner, Vec2 value) override;
+    std::optional<Vec2> getPosition(EntityId owner) const override;
+    std::optional<Vec2> getSceneWorldSize() const override;
     bool translate(EntityId owner, Vec2 delta) override;
     bool setRotation(EntityId owner, float radians) override;
     bool rotateBy(EntityId owner, float deltaRadians) override;
@@ -178,6 +180,8 @@ public:
     bool addStateNumber(const GameVariableId& id, double delta) override;
     bool toggleStateBoolean(const GameVariableId& id) override;
     std::optional<double> getStateNumber(const GameVariableId& id) const override;
+    std::optional<double> getLocalNumber(EntityId owner,
+                                         const GameVariableId& id) const override;
     bool setVelocity(EntityId owner, Vec2 velocity) override;
     bool isKeyDown(LogicKey key) override;
     EntityId spawnObjectType(EntityId owner, const ObjectTypeId& objectTypeId,
@@ -405,6 +409,12 @@ public:
     // D-21's full scope (a host-agnostic diagnostics channel for every
     // subsystem). Thin forward only, same style as resetScriptRuntime().
     std::vector<Scripts::ScriptRuntimeDiagnostic> drainScriptDiagnostics();
+    /**
+     * ADR-0028: Logic Board runtime diagnostics (including rate-limited
+     * non-finite expression failures). Same RU-03 host-drain contract as
+     * drainScriptDiagnostics().
+     */
+    std::vector<std::string> drainLogicDiagnostics();
 
     // Application::physicsMode_ can change after construction too
     // (applyRuntimeSettings, project-load time) - kept in sync the same way.
@@ -483,6 +493,8 @@ private:
     std::set<std::pair<EntityId, EntityId>> activeGameplayCollisionPairs_;
     // RU-03: accumulated by tickFixedStep(), drained by drainScriptDiagnostics().
     std::vector<Scripts::ScriptRuntimeDiagnostic> pendingScriptDiagnostics_;
+    // ADR-0028: Logic Runtime diagnostics (expression_once, dispatch limits…).
+    std::vector<std::string> pendingLogicDiagnostics_;
 };
 
 static_assert(!std::is_abstract_v<RuntimeLogicHostAdapter>,

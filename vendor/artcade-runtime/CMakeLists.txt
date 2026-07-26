@@ -99,19 +99,20 @@ set(NLOHMANN_JSON_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libs/nlohmann-json/inc
 set(LUA_INCLUDE_DIR           ${CMAKE_CURRENT_SOURCE_DIR}/libs/lua)
 
 # ============================================================================
-# Shared include interface — core headers disponibili a ogni modulo
+# Shared core — LogicValue / NumberExpression storage (ADR-0028)
 # ============================================================================
-add_library(artcade-core INTERFACE)
-target_include_directories(artcade-core INTERFACE
+add_library(artcade-core STATIC
+    src/core/logic-number-expression.cpp
+)
+target_include_directories(artcade-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core
     ${CMAKE_CURRENT_SOURCE_DIR}/src/modules/sfx/include
 )
-# Aggiungi include di terze parti solo se le directory esistono
 foreach(_inc IN ITEMS
         ${SOL2_INCLUDE_DIR}
         ${NLOHMANN_JSON_INCLUDE_DIR})
     if(EXISTS ${_inc})
-        target_include_directories(artcade-core INTERFACE ${_inc})
+        target_include_directories(artcade-core PUBLIC ${_inc})
     endif()
 endforeach()
 

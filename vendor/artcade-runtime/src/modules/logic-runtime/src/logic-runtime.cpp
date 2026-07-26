@@ -10,6 +10,8 @@ extern "C" {
 }
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -110,6 +112,8 @@ struct LogicRuntime::Impl {
         std::unique_ptr<ContextProxy> context;
         // Rising-edge gate state for OncePerActivation (per rule, per instance).
         std::unordered_map<LogicRuleId, RuleExecutionState> ruleStates;
+        // ADR-0028: deterministic board-instance RNG (never math.random).
+        uint32_t rngState = 1u;
     };
 
     struct Subscription {
@@ -157,6 +161,16 @@ struct LogicRuntime::Impl {
         void setPosition(float x, float y) {
             if (!impl || !impl->host.setPosition(owner, Vec2{x, y}))
                 throw sol::error("set_position failed for owner");
+        }
+        float getPositionX() {
+            const auto position = impl ? impl->host.getPosition(owner) : std::nullopt;
+            if (!position) throw sol::error("get_position_x failed for owner");
+            return position->x;
+        }
+        float getPositionY() {
+            const auto position = impl ? impl->host.getPosition(owner) : std::nullopt;
+            if (!position) throw sol::error("get_position_y failed for owner");
+            return position->y;
         }
         void translate(float x, float y) {
             if (!impl || !impl->host.translate(owner, Vec2{x, y}))
@@ -344,6 +358,44 @@ struct LogicRuntime::Impl {
             if (!impl || other == INVALID_ENTITY || !impl->host.requestDestroy(other))
                 throw sol::error("destroy_other failed");
         }
+        float sceneWorldWidth() {
+            const auto size = impl ? impl->host.getSceneWorldSize() : std::nullopt;
+            if (!size) throw sol::error("scene_world_width unavailable");
+            return size->x;
+        }
+        float sceneWorldHeight() {
+            const auto size = impl ? impl->host.getSceneWorldSize() : std::nullopt;
+            if (!size) throw sol::error("scene_world_height unavailable");
+            return size->y;
+        }
+        double getGlobalNumber(const std::string& key) {
+            if (!impl) throw sol::error("get_global_number failed");
+            const auto value = impl->host.getStateNumber(key);
+            if (!value) throw sol::error("get_global_number failed for key: " + key);
+            return *value;
+        }
+        double getLocalNumber(const std::string& key) {
+            if (!impl) throw sol::error("get_local_number failed");
+            const auto value = impl->host.getLocalNumber(owner, key);
+            if (!value) throw sol::error("get_local_number failed for key: " + key);
+            return *value;
+        }
+        double randomRange(double minimum, double maximum) {
+            if (!impl) throw sol::error("random_range failed");
+            Scope* active = impl->findScope(scope);
+            if (!active || !active->active) throw sol::error("random_range scope inactive");
+            if (!(minimum <= maximum) || !std::isfinite(minimum) || !std::isfinite(maximum))
+                return std::numeric_limits<double>::quiet_NaN();
+            if (minimum == maximum) return minimum;
+            // xorshift32
+            uint32_t& s = active->rngState;
+            s ^= s << 13;
+            s ^= s >> 17;
+            s ^= s << 5;
+            if (s == 0) s = 1;
+            const double unit = (s & 0x00FFFFFFu) / static_cast<double>(0x01000000u);
+            return minimum + (maximum - minimum) * unit;
+        }
         /**
          * Rising-edge execution gate for the complete WHEN expression.
          * Pulse triggers treat every event as a fresh activation; Level triggers
@@ -387,6 +439,8 @@ struct LogicRuntime::Impl {
     std::vector<Subscription> subscriptions;
     std::vector<DelayedCallback> delayedCallbacks;
     std::vector<std::string> diagnosticLog;
+    /** ADR-0028: once-per-key rate limit for non-finite expression diagnostics. */
+    std::unordered_set<std::string> expressionDiagnosticKeys;
     ScopeToken nextScope = 1;
     uint64_t nextSubscription = 1;
     uint64_t nextDelayed = 1;
@@ -616,6 +670,8 @@ bool LogicRuntime::initialize(std::string* error) {
             "is_visible", &Impl::SelfProxy::isVisible,
             "set_flip_x", &Impl::SelfProxy::setFlipX,
             "set_position", &Impl::SelfProxy::setPosition,
+            "get_position_x", &Impl::SelfProxy::getPositionX,
+            "get_position_y", &Impl::SelfProxy::getPositionY,
             "translate", &Impl::SelfProxy::translate,
             "set_rotation", &Impl::SelfProxy::setRotation,
             "rotate_by", &Impl::SelfProxy::rotateBy,
@@ -657,9 +713,49 @@ bool LogicRuntime::initialize(std::string* error) {
             "is_key_down", &Impl::ContextProxy::isKeyDown,
             "other_is_object_type", &Impl::ContextProxy::otherIsObjectType,
             "destroy_other", &Impl::ContextProxy::destroyOther,
+            "scene_world_width", &Impl::ContextProxy::sceneWorldWidth,
+            "scene_world_height", &Impl::ContextProxy::sceneWorldHeight,
+            "get_global_number", &Impl::ContextProxy::getGlobalNumber,
+            "get_local_number", &Impl::ContextProxy::getLocalNumber,
             "should_execute", &Impl::ContextProxy::shouldExecute);
 
         sol::table logic = lua.create_named_table("logic");
+        sol::table number = lua.create_table();
+        number.set_function("is_finite", [](double value) {
+            return std::isfinite(value);
+        });
+        number.set_function("divide", [](double left, double right) {
+            if (!std::isfinite(left) || !std::isfinite(right)
+                || std::abs(right) <= kExpressionDivisionEpsilon)
+                return std::numeric_limits<double>::quiet_NaN();
+            return left / right;
+        });
+        number.set_function("clamp", [](double value, double minimum, double maximum) {
+            if (!std::isfinite(value) || !std::isfinite(minimum) || !std::isfinite(maximum)
+                || minimum > maximum)
+                return std::numeric_limits<double>::quiet_NaN();
+            return std::min(maximum, std::max(minimum, value));
+        });
+        number.set_function("lerp", [](double from, double to, double amount) {
+            if (!std::isfinite(from) || !std::isfinite(to) || !std::isfinite(amount))
+                return std::numeric_limits<double>::quiet_NaN();
+            return from + (to - from) * amount;
+        });
+        logic["number"] = number;
+        sol::table random = lua.create_table();
+        random.set_function("range", [](Impl::ContextProxy& context, double minimum,
+                                        double maximum) {
+            return context.randomRange(minimum, maximum);
+        });
+        logic["random"] = random;
+        sol::table diagnostics = lua.create_table();
+        diagnostics.set_function("expression_once", [impl](const std::string& key) {
+            if (key.empty()) return;
+            if (!impl->expressionDiagnosticKeys.insert(key).second) return;
+            impl->diagnosticLog.push_back(
+                "Logic expression produced a non-finite number (" + key + ")");
+        });
+        logic["diagnostics"] = diagnostics;
         logic.set_function("require_api_version", [impl](uint32_t version) {
             if (version != kLogicApiVersion)
                 throw sol::error("Unsupported Logic API version");
@@ -731,7 +827,11 @@ std::optional<ScopeToken> LogicRuntime::install(const ObjectTypeId& objectTypeId
     }
 
     const ScopeToken token = impl_->nextScope++;
-    impl_->scopes.push_back(Impl::Scope{token, objectTypeId, owner, true, nullptr, {}});
+    uint32_t seed = 0xA5A5A5A5u
+        ^ static_cast<uint32_t>(owner) * 0x9E3779B9u
+        ^ static_cast<uint32_t>(token) * 0x85EBCA6Bu;
+    if (seed == 0) seed = 1u;
+    impl_->scopes.push_back(Impl::Scope{token, objectTypeId, owner, true, nullptr, {}, seed});
     Impl::Scope* scope = impl_->findScope(token);
     scope->context = std::make_unique<Impl::ContextProxy>(
         Impl::ContextProxy{impl_.get(), token, owner, {impl_.get(), owner}});
@@ -811,6 +911,8 @@ void LogicRuntime::shutdown() noexcept {
     impl_->delayedCallbacks.clear();
     impl_->factories.clear();
     impl_->scopes.clear();
+    impl_->diagnosticLog.clear();
+    impl_->expressionDiagnosticKeys.clear();
     impl_->lua.shutdown();
     impl_->enabled = false;
     impl_->initialized = false;
@@ -824,6 +926,13 @@ bool LogicRuntime::requiresTick() const {
 }
 const std::vector<std::string>& LogicRuntime::diagnostics() const {
     return impl_->diagnosticLog;
+}
+
+std::vector<std::string> LogicRuntime::drainDiagnostics() {
+    if (!impl_) return {};
+    std::vector<std::string> out = std::move(impl_->diagnosticLog);
+    impl_->diagnosticLog.clear();
+    return out;
 }
 
 } // namespace ArtCade::Logic

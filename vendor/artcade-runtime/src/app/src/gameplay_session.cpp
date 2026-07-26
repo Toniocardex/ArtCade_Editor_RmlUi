@@ -68,6 +68,16 @@ bool RuntimeLogicHostAdapter::setPosition(EntityId owner, Vec2 value) {
     transform.position = value;
     return gateway_.setTransform(owner, transform);
 }
+std::optional<Vec2> RuntimeLogicHostAdapter::getPosition(EntityId owner) const {
+    Transform transform{};
+    if (!gateway_.getTransform(owner, transform)) return std::nullopt;
+    return transform.position;
+}
+std::optional<Vec2> RuntimeLogicHostAdapter::getSceneWorldSize() const {
+    const SceneDef* scene = gateway_.activeScene();
+    if (!scene) return std::nullopt;
+    return scene->worldSize;
+}
 bool RuntimeLogicHostAdapter::translate(EntityId owner, Vec2 delta) {
     if (!std::isfinite(delta.x) || !std::isfinite(delta.y)) return false;
     Transform transform{};
@@ -170,6 +180,13 @@ bool RuntimeLogicHostAdapter::toggleStateBoolean(const GameVariableId& id) {
 std::optional<double> RuntimeLogicHostAdapter::getStateNumber(const GameVariableId& id) const {
     if (!variables_) return std::nullopt;
     return variables_->tryGetNumber(id);
+}
+std::optional<double> RuntimeLogicHostAdapter::getLocalNumber(
+    EntityId owner, const GameVariableId& id) const {
+    if (!variables_ || !variables_->entityExists(owner, id)) return std::nullopt;
+    const Modules::VariableManager::Value value = variables_->getEntity(owner, id);
+    if (!std::holds_alternative<double>(value)) return std::nullopt;
+    return std::get<double>(value);
 }
 bool RuntimeLogicHostAdapter::setVelocity(EntityId owner, Vec2 velocity) {
     if (!std::isfinite(velocity.x) || !std::isfinite(velocity.y)) return false;
@@ -392,6 +409,12 @@ void GameplaySession::clearScriptRuntime() { scriptRuntime_.reset(); }
 std::vector<Scripts::ScriptRuntimeDiagnostic> GameplaySession::drainScriptDiagnostics() {
     std::vector<Scripts::ScriptRuntimeDiagnostic> result = std::move(pendingScriptDiagnostics_);
     pendingScriptDiagnostics_.clear();
+    return result;
+}
+
+std::vector<std::string> GameplaySession::drainLogicDiagnostics() {
+    std::vector<std::string> result = std::move(pendingLogicDiagnostics_);
+    pendingLogicDiagnostics_.clear();
     return result;
 }
 
@@ -833,6 +856,13 @@ void GameplaySession::tickFixedStep(float dt) {
         auto diagnostics = scriptRuntime_->drainDiagnostics();
         pendingScriptDiagnostics_.insert(
             pendingScriptDiagnostics_.end(),
+            std::make_move_iterator(diagnostics.begin()),
+            std::make_move_iterator(diagnostics.end()));
+    }
+    if (logicRuntime_) {
+        auto diagnostics = logicRuntime_->drainDiagnostics();
+        pendingLogicDiagnostics_.insert(
+            pendingLogicDiagnostics_.end(),
             std::make_move_iterator(diagnostics.begin()),
             std::make_move_iterator(diagnostics.end()));
     }

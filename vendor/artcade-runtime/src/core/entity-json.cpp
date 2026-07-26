@@ -371,6 +371,7 @@ void read_object_types_map(const nlohmann::json& doc,
 
 bool read_object_type_logic_boards(const nlohmann::json& doc,
                                    std::unordered_map<std::string, EntityDef>& objectTypes,
+                                   const ProjectDoc* project,
                                    std::string* error) {
     const nlohmann::json* rawTypes = nullptr;
     if (doc.contains("objectTypes")
@@ -392,7 +393,12 @@ bool read_object_type_logic_boards(const nlohmann::json& doc,
             if (error) *error = "logicBoard for '" + typeId + "': " + parsed.error;
             return false;
         }
-        const auto diagnostics = Logic::validateBoard(typeId, board, &typeIt->second);
+        // StructuralCommit keeps ADR-0028 expression catalog checks (globals
+        // already loaded) while skipping semantic asset/scene checks that need
+        // catalogs populated later in parseProjectJson.
+        const auto diagnostics = Logic::validateBoard(
+            typeId, board, &typeIt->second, project,
+            Logic::LogicValidationPurpose::StructuralCommit);
         if (!diagnostics.empty()) {
             if (error) *error = "logicBoard for '" + typeId + "': " + diagnostics.front().message;
             return false;

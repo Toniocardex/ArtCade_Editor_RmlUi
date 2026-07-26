@@ -178,6 +178,18 @@ int main() {
             std::cerr << "FAIL " << name << " assigns named colour '" << stray
                       << "' — colours belong in theme.rcss (ADR-0027)\n";
         }
+        {
+            std::string lower = split.declarations;
+            std::transform(lower.begin(), lower.end(), lower.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            for (const char* fn : {"rgb(", "rgba(", "hsl(", "hsla("}) {
+                if (lower.find(fn) != std::string::npos) {
+                    ++failed;
+                    std::cerr << "FAIL " << name << " uses " << fn
+                              << " — colours belong in theme.rcss (ADR-0027)\n";
+                }
+            }
+        }
         ++passed;  // this sheet is clean
     }
     CHECK(sawTheme);

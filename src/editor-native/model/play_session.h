@@ -187,6 +187,8 @@ public:
     void tick(const RuntimeInputSnapshot& input, float dt);
 
     std::vector<Scripts::ScriptRuntimeDiagnostic> drainScriptDiagnostics();
+    /** ADR-0028: Logic runtime diagnostics projected by the Coordinator. */
+    std::vector<std::string> drainLogicDiagnostics();
 
     // Render hand-off for scene_frame_snapshot.cpp's Play overload: resolves
     // gameplay-visible entities (transform/sprite/visibility) via the same

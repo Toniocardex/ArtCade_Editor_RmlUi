@@ -93,6 +93,15 @@ struct Host final : IGameplayRuntimeHost {
         t.position = value;
         return gateway.setTransform(owner, t);
     }
+    std::optional<Vec2> getPosition(EntityId owner) const override {
+        Transform t{};
+        if (!gateway.getTransform(owner, t)) return std::nullopt;
+        return t.position;
+    }
+    std::optional<Vec2> getSceneWorldSize() const override {
+        if (const SceneDef* scene = gateway.activeScene()) return scene->worldSize;
+        return std::nullopt;
+    }
     bool translate(EntityId owner, Vec2 delta) override {
         Transform t{};
         if (!gateway.getTransform(owner, t)) return false;

@@ -1,4 +1,6 @@
 #include "../include/logic-core.h"
+#include "../include/logic-number-expression-compiler.h"
+#include "../include/logic-number-expression-validation.h"
 #include "logic-codegen-internal.h"
 
 #include <algorithm>
@@ -55,7 +57,7 @@ LogicValueKind kindOf(const LogicValue& value) {
     if (std::holds_alternative<int64_t>(value)) return LogicValueKind::Integer;
     if (std::holds_alternative<double>(value)) return LogicValueKind::Number;
     if (std::holds_alternative<LogicStringValue>(value)) return LogicValueKind::String;
-    if (std::holds_alternative<Vec2>(value)) return LogicValueKind::Vec2;
+    if (std::holds_alternative<LogicVec2Value>(value)) return LogicValueKind::Vec2;
     if (std::holds_alternative<LogicAssetReference>(value)) return LogicValueKind::Asset;
     if (std::holds_alternative<LogicEntityReference>(value)) return LogicValueKind::Entity;
     if (std::holds_alternative<LogicVariableReference>(value)) return LogicValueKind::Variable;
@@ -198,16 +200,43 @@ void validateBlock(const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
                                     "Property has the wrong value type: " + property.key,
                                     &rule, &block, property.key));
         }
-        if (const Vec2* v = std::get_if<Vec2>(&property.value)) {
-            if (!std::isfinite(v->x) || !std::isfinite(v->y)) {
-                out.push_back(makeError(objectTypeId, board, "LB_NON_FINITE",
-                                        "Vec2 property must contain finite values",
-                                        &rule, &block, property.key));
-            } else if (!structuralOnly && block.typeId == kSetScale && property.key == "scale"
-                       && (v->x <= 0.f || v->y <= 0.f)) {
-                pushSemantic(makeError(objectTypeId, board, "LB_SCALE_POSITIVE",
-                                       "Scale axes must be greater than 0",
-                                       &rule, &block, property.key));
+        if (const LogicVec2Value* v = std::get_if<LogicVec2Value>(&property.value)) {
+            if (it->numericExpressionPolicy == NumericExpressionPolicy::LiteralOnly) {
+                const auto requireLiteral = [&](const NumberExpression& expression) {
+                    const NumberExpressionValidationResult result =
+                        requireLiteralNumberExpression(expression);
+                    if (!result.ok) {
+                        out.push_back(makeError(objectTypeId, board, result.errorCode,
+                                                result.message, &rule, &block, property.key));
+                    }
+                };
+                requireLiteral(v->x);
+                requireLiteral(v->y);
+                if (!structuralOnly && block.typeId == kSetScale && property.key == "scale") {
+                    if (const std::optional<Vec2> lit = literalVec2Value(*v)) {
+                        if (lit->x <= 0.f || lit->y <= 0.f) {
+                            pushSemantic(makeError(objectTypeId, board, "LB_SCALE_POSITIVE",
+                                                   "Scale axes must be greater than 0",
+                                                   &rule, &block, property.key));
+                        }
+                    }
+                }
+            } else {
+                NumberExpressionContext context;
+                context.globalVariables = project ? &project->globalVariables : nullptr;
+                context.localVariables = owner ? &owner->localVariables : nullptr;
+                context.deltaSecondsAvailable =
+                    trigger && trigger->typeId == kEveryFrame;
+                const auto validateComponent = [&](const NumberExpression& expression) {
+                    const NumberExpressionValidationResult result =
+                        validateNumberExpression(expression, context);
+                    if (!result.ok) {
+                        out.push_back(makeError(objectTypeId, board, result.errorCode,
+                                                result.message, &rule, &block, property.key));
+                    }
+                };
+                validateComponent(v->x);
+                validateComponent(v->y);
             }
         }
         if (const double* value = std::get_if<double>(&property.value)) {
@@ -419,7 +448,9 @@ void validateBlock(const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
 }
 
 void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
-                std::set<std::string>& features) {
+                std::set<std::string>& features,
+                const std::string& boardId, const LogicRuleId& ruleId,
+                std::size_t actionIndex) {
     if (action.typeId == kSetVisible) {
         const LogicPropertyDef* p = findProperty(action, "visible");
         const bool value = std::get<bool>(p->value);
@@ -432,12 +463,27 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
         lua << "      context.self:set_flip_x(" << (flipX ? "true" : "false") << ")\n";
     } else if (action.typeId == kSetPosition) {
         const LogicPropertyDef* p = findProperty(action, "position");
-        const Vec2 value = std::get<Vec2>(p->value);
-        lua << "      context.self:set_position(" << value.x << ", " << value.y << ")\n";
+        const LogicVec2Value& value = std::get<LogicVec2Value>(p->value);
+        const CompiledNumberExpression compiledX = compileNumberExpressionToLua(value.x);
+        const CompiledNumberExpression compiledY = compileNumberExpressionToLua(value.y);
+        const std::string diagnosticKey = boardId + ":" + ruleId + ":"
+            + std::to_string(actionIndex) + ":position";
+        lua << "      do\n";
+        lua << "        local _x = " << (compiledX.ok ? compiledX.luaSource : "0") << "\n";
+        lua << "        local _y = " << (compiledY.ok ? compiledY.luaSource : "0") << "\n";
+        lua << "        if logic.number.is_finite(_x) and logic.number.is_finite(_y) then\n";
+        lua << "          context.self:set_position(_x, _y)\n";
+        lua << "        else\n";
+        lua << "          logic.diagnostics.expression_once(\""
+            << escapeLua(diagnosticKey) << "\")\n";
+        lua << "        end\n";
+        lua << "      end\n";
     } else if (action.typeId == kTranslateBy) {
         const LogicPropertyDef* p = findProperty(action, "offset");
-        const Vec2 value = std::get<Vec2>(p->value);
-        lua << "      context.self:translate(" << value.x << ", " << value.y << ")\n";
+        const LogicVec2Value& value = std::get<LogicVec2Value>(p->value);
+        if (const std::optional<Vec2> lit = literalVec2Value(value)) {
+            lua << "      context.self:translate(" << lit->x << ", " << lit->y << ")\n";
+        }
     } else if (action.typeId == kSetRotation) {
         const LogicPropertyDef* p = findProperty(action, "degrees");
         const double degrees = std::get<double>(p->value);
@@ -451,17 +497,27 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
         lua << "      context.self:rotate_by(" << radians << ")\n";
     } else if (action.typeId == kSetScale) {
         const LogicPropertyDef* p = findProperty(action, "scale");
-        const Vec2 value = std::get<Vec2>(p->value);
-        lua << "      context.self:set_scale(" << value.x << ", " << value.y << ")\n";
+        const LogicVec2Value& value = std::get<LogicVec2Value>(p->value);
+        if (const std::optional<Vec2> lit = literalVec2Value(value)) {
+            lua << "      context.self:set_scale(" << lit->x << ", " << lit->y << ")\n";
+        }
     } else if (action.typeId == kSetVelocity) {
         const LogicPropertyDef* p = findProperty(action, "velocity");
-        const Vec2 value = std::get<Vec2>(p->value);
-        lua << "      context.self:set_velocity(" << value.x << ", " << value.y << ")\n";
+        const LogicVec2Value& value = std::get<LogicVec2Value>(p->value);
+        if (const std::optional<Vec2> lit = literalVec2Value(value)) {
+            lua << "      context.self:set_velocity(" << lit->x << ", " << lit->y << ")\n";
+        }
     } else if (action.typeId == kSpawnObject) {
         const LogicPropertyDef* typeProp = findProperty(action, "objectTypeId");
         const LogicPropertyDef* posProp = findProperty(action, "position");
         const auto* type = typeProp ? std::get_if<LogicStringValue>(&typeProp->value) : nullptr;
-        const Vec2 position = posProp ? std::get<Vec2>(posProp->value) : Vec2{};
+        const Vec2 position = [&]() -> Vec2 {
+            if (!posProp) return {};
+            if (const auto* vec = std::get_if<LogicVec2Value>(&posProp->value)) {
+                if (const std::optional<Vec2> lit = literalVec2Value(*vec)) return *lit;
+            }
+            return {};
+        }();
         lua << "      context.self:spawn(\""
             << escapeLua(type ? type->value : std::string{}) << "\", "
             << position.x << ", " << position.y << ")\n";
@@ -549,7 +605,8 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
 }
 
 void emitActions(std::ostringstream& lua, const std::vector<LogicBlockDef>& actions,
-                 std::size_t start, std::set<std::string>& features) {
+                 std::size_t start, std::set<std::string>& features,
+                 const std::string& boardId, const LogicRuleId& ruleId) {
     for (std::size_t i = start; i < actions.size(); ++i) {
         const LogicBlockDef& action = actions[i];
         if (action.typeId == kWait) {
@@ -559,11 +616,11 @@ void emitActions(std::ostringstream& lua, const std::vector<LogicBlockDef>& acti
                 if (!descriptor->requiredFeature.empty())
                     features.insert(descriptor->requiredFeature);
             lua << "      context:wait(" << seconds << ", function()\n";
-            emitActions(lua, actions, i + 1, features);
+            emitActions(lua, actions, i + 1, features, boardId, ruleId);
             lua << "      end)\n";
             return;
         }
-        emitAction(lua, action, features);
+        emitAction(lua, action, features, boardId, ruleId, i);
     }
 }
 
@@ -667,12 +724,13 @@ const std::vector<LogicBlockDescriptor>& registry() {
         {kSetPosition, "entity", "Set Position", "Moves Self to an absolute world position.",
             BlockKind::Action,
             {{"target", LogicValueKind::Entity, selfReference(), "Target"},
-             {"position", LogicValueKind::Vec2, Vec2{}, "Position"}},
+             expressionVec2Property("position", LogicVec2Value{}, "Position",
+                                    NumericExpressionPolicy::PerComponentNumberExpression)},
             {}, {LogicContextCapability::Self}, {}, "entity.transform", false, 20,
             {"teleport", "coords"}},
         {kTranslateBy, "entity", "Move By", "Adds an offset to Self's current world position.",
             BlockKind::Action,
-            {{"offset", LogicValueKind::Vec2, Vec2{}, "Offset"}},
+            {{"offset", LogicValueKind::Vec2, LogicVec2Value{}, "Offset"}},
             {}, {LogicContextCapability::Self}, {}, "entity.transform", false, 30,
             {"translate", "offset", "nudge"}},
         {kSetRotation, "entity", "Set Rotation", "Sets Self's absolute rotation in degrees.",
@@ -687,13 +745,13 @@ const std::vector<LogicBlockDescriptor>& registry() {
             {"turn", "spin"}},
         {kSetScale, "entity", "Set Scale", "Sets Self's runtime scale X/Y (positive only).",
             BlockKind::Action,
-            {{"scale", LogicValueKind::Vec2, Vec2{1.f, 1.f}, "Scale"}},
+            {{"scale", LogicValueKind::Vec2, LogicVec2Value::literal(1.0, 1.0), "Scale"}},
             {}, {LogicContextCapability::Self}, {}, "entity.transform", false, 60,
             {"size", "resize"}},
         {kSpawnObject, "entity", "Spawn Object", "Spawns an Object Type at a world position.",
             BlockKind::Action,
             {{"objectTypeId", LogicValueKind::String, LogicStringValue{}, "Object Type"},
-             {"position", LogicValueKind::Vec2, Vec2{}, "Position"}},
+             {"position", LogicValueKind::Vec2, LogicVec2Value{}, "Position"}},
             {}, {LogicContextCapability::Self}, {}, "entity.spawn", false, 70,
             {"create", "instantiate"}},
         {kDestroySelf, "entity", "Destroy Self", "Removes Self from the runtime world after event dispatch.",
@@ -701,7 +759,7 @@ const std::vector<LogicBlockDescriptor>& registry() {
             {"delete", "remove", "kill"}},
         {kSetVelocity, "physics", "Set Velocity", "Sets Self's linear velocity.",
             BlockKind::Action,
-            {{"velocity", LogicValueKind::Vec2, Vec2{}, "Velocity"}},
+            {{"velocity", LogicValueKind::Vec2, LogicVec2Value{}, "Velocity"}},
             {}, {LogicContextCapability::Self}, {}, "physics.set_velocity", false, 10,
             {"speed", "motion"}},
         {kIsGrounded, "platformer", "Is Grounded", "Checks whether Self is touching valid ground.",
@@ -927,6 +985,20 @@ LogicBlockDef makeDefaultBlock(const LogicBlockTypeId& typeId, BlockKind expecte
     for (const LogicPropertyDescriptor& property : descriptor->properties)
         block.properties.push_back({property.key, property.defaultValue});
     return block;
+}
+
+LogicPropertyDescriptor expressionVec2Property(
+    std::string key,
+    LogicVec2Value defaultValue,
+    std::string displayName,
+    NumericExpressionPolicy policy) {
+    LogicPropertyDescriptor property;
+    property.key = std::move(key);
+    property.valueKind = LogicValueKind::Vec2;
+    property.defaultValue = std::move(defaultValue);
+    property.displayName = std::move(displayName);
+    property.numericExpressionPolicy = policy;
+    return property;
 }
 
 bool isEventEligible(const LogicBlockDescriptor& descriptor) {
@@ -1279,7 +1351,7 @@ LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
                 << logicExecutionModeToString(rule.executionMode) << "\", \""
                 << logicTriggerActivationKindToString(activationKind)
                 << "\", when_active) then\n";
-            emitActions(lua, rule.actions, 0, features);
+            emitActions(lua, rule.actions, 0, features, board.id, rule.id);
             if (features.count("flow.wait")) result.requiresTick = true;
             lua << "    end\n";
             lua << "  end)\n";
@@ -1305,7 +1377,7 @@ LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
             ++guardDepth;
         }
         if (emitConditionGuard(lua, rule.conditions, features)) ++guardDepth;
-        emitActions(lua, rule.actions, 0, features);
+        emitActions(lua, rule.actions, 0, features, board.id, rule.id);
         // Wait is an action (not a trigger) but still needs the tick path.
         if (features.count("flow.wait")) result.requiresTick = true;
         for (int i = 0; i < guardDepth; ++i) lua << "    end\n";

@@ -46,7 +46,7 @@ namespace {
 // carry no mirrored display name; provenance is derived and validated.
 // v7: Object-Type-owned ordered Script attachments. Project JSON still stores
 // metadata only; source text remains in project-relative .lua files.
-constexpr int kCurrentSchemaVersion = 10;
+constexpr int kCurrentSchemaVersion = 11;
 
 } // namespace
 
@@ -1310,7 +1310,7 @@ DeserializeResult deserializeCanonical(const nlohmann::json& root) {
     }
 
     ProjectJson::read_object_types_map(root, doc.objectTypes);
-    if (!ProjectJson::read_object_type_logic_boards(root, doc.objectTypes, &error)) {
+    if (!ProjectJson::read_object_type_logic_boards(root, doc.objectTypes, &doc, &error)) {
         return DeserializeResult::failure(error);
     }
     ProjectJson::read_entities_map(root, doc.entities, false);
@@ -2072,6 +2072,14 @@ DeserializeResult ProjectMigration::migrate(ProjectDocument document) {
         if (version < 8) migrateGeneratedSfxAuthority(migrated);
         if (version < 9) migrateSpriteAnimationOwnershipV9(migrated);
         if (version < 10) migrateSpritePresentationV10(migrated);
+        if (version < 11) {
+            // ADR-0028: Logic Board schema 3→4 is applied by logicBoardFromJson on
+            // disk load; bump any already-materialized boards still marked 3.
+            for (auto& [_, type] : migrated.objectTypes) {
+                if (type.logicBoard && type.logicBoard->schemaVersion == 3u)
+                    type.logicBoard->schemaVersion = Logic::kLogicBoardSchemaVersion;
+            }
+        }
         migrated.formatVersion = kCurrentSchemaVersion;
         return DeserializeResult::success(ProjectDocument{std::move(migrated)});
     }

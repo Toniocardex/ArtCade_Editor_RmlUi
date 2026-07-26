@@ -229,7 +229,7 @@ static void test_minimal_zip_load() {
     const std::string projJson = R"({
   "projectName":   "TestProject",
   "version":       "2.0.0",
-  "formatVersion": 10,
+  "formatVersion": 11,
   "targetFPS":     60,
   "activeSceneId": "scene_main",
   "mainScriptPath": "scripts/main.lua",
@@ -357,7 +357,7 @@ static void test_reloading_same_artcade_path_clears_stale_extracted_files() {
 
     const std::string projectWithOldScript = R"({
   "projectName": "StaleA",
-  "formatVersion": 10,
+  "formatVersion": 11,
   "activeSceneId": "s1",
   "mainScriptPath": "scripts/old.lua",
   "globalVariables": [],
@@ -367,7 +367,7 @@ static void test_reloading_same_artcade_path_clears_stale_extracted_files() {
 })";
     const std::string projectWithoutOldScript = R"({
   "projectName": "StaleB",
-  "formatVersion": 10,
+  "formatVersion": 11,
   "activeSceneId": "s1",
   "mainScriptPath": "scripts/main.lua",
   "globalVariables": [],
@@ -417,7 +417,7 @@ static void test_directory_load_still_works() {
     const std::string proj = R"({
   "projectName": "DirProject",
   "version": "1.0.0",
-  "formatVersion": 10,
+  "formatVersion": 11,
   "activeSceneId": "s1",
   "globalVariables": [],
   "entities": {},
@@ -528,7 +528,7 @@ static void test_runtime_project_paths_are_sandboxed() {
     fs::create_directories(root / "scripts");
     const std::string sandboxProj = R"({
   "projectName": "SandboxProject",
-  "formatVersion": 10,
+  "formatVersion": 11,
   "activeSceneId": "s1",
   "globalVariables": [],
   "entities": {},
@@ -593,7 +593,7 @@ static void test_ru01a_component_readers_round_trip() {
 
     const std::string proj = R"({
   "projectName": "Ru01aReaders",
-  "formatVersion": 10,
+  "formatVersion": 11,
   "activeSceneId": "s1",
   "globalVariables": [],
   "entities": {

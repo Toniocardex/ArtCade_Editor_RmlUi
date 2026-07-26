@@ -49,12 +49,14 @@ void read_object_types_map(const nlohmann::json& doc,
  * `objectTypes` (call after read_object_types_map). Shared by
  * AssetLoader::parseProjectJson and the editor's canonical project reader
  * (RU-01) - was previously duplicated inline in asset-loader.cpp.
+ * @param project optional project for ADR-0028 expression Context (globals).
  * @return false (leaving `objectTypes` partially updated) if a logicBoard
  * references an unknown object type, fails to parse, or fails board
  * validation; `error`, if non-null, receives a human-readable reason.
  */
 bool read_object_type_logic_boards(const nlohmann::json& doc,
                                    std::unordered_map<std::string, EntityDef>& objectTypes,
+                                   const ProjectDoc* project = nullptr,
                                    std::string* error = nullptr);
 
 } // namespace ArtCade::ProjectJson

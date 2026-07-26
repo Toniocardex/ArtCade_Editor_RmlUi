@@ -2,6 +2,7 @@
 
 #include "editor-native/model/project_document.h"
 #include "editor-native/ui/ui_markup.h"
+#include "logic-number-expression-format.h"
 
 #include <algorithm>
 #include <sstream>
@@ -146,17 +147,59 @@ std::string renderLogicProperties(
             if (playing) html += " disabled=\"disabled\"";
             html += "/>";
         } else if (property.valueKind == Logic::LogicValueKind::Vec2) {
-            Vec2 value{};
-            if (current) if (const auto* vec = std::get_if<Vec2>(&current->value)) value = *vec;
-            html += "<input type=\"text\" class=\"logic-value-input\""
-                    " data-action=\"commit-logic-property-component\" data-arg=\""
-                  + escapeRml(encoded + "|x") + "\" value=\"" + number(value.x) + "\"";
-            if (playing) html += " disabled=\"disabled\"";
-            html += "/><input type=\"text\" class=\"logic-value-input\""
-                    " data-action=\"commit-logic-property-component\" data-arg=\""
-                  + escapeRml(encoded + "|y") + "\" value=\"" + number(value.y) + "\"";
-            if (playing) html += " disabled=\"disabled\"";
-            html += "/>";
+            LogicVec2Value value = LogicVec2Value::literal(0.0, 0.0);
+            if (current) {
+                if (const auto* vec = std::get_if<LogicVec2Value>(&current->value))
+                    value = *vec;
+            }
+            const auto litX = literalNumberValue(value.x);
+            const auto litY = literalNumberValue(value.y);
+            const bool dynamicX = !litX.has_value();
+            const bool dynamicY = !litY.has_value();
+            const bool expressionEnabled =
+                property.numericExpressionPolicy
+                == Logic::NumericExpressionPolicy::PerComponentNumberExpression;
+            html += "<div class=\"logic-vec2-group\">";
+            auto emitAxis = [&](const char* label, const char* component,
+                                const NumberExpression& expr, bool dynamic,
+                                const std::optional<double>& lit) {
+                html += "<div class=\"logic-parameter-row\"><span class=\"logic-parameter-label\">"
+                      + escapeRml(label) + "</span>";
+                if (dynamic && expressionEnabled) {
+                    html += "<button class=\"logic-expression-summary\" data-action=\""
+                            "open-number-expression-editor\" data-arg=\""
+                          + escapeRml(encoded + "|" + component) + "\"";
+                    if (playing) html += " disabled=\"disabled\"";
+                    html += "><span class=\"logic-expression-badge\">fx</span>"
+                            "<span class=\"logic-expression-summary-text\">"
+                          + escapeRml(Logic::formatNumberExpression(
+                                expr, Logic::NumberExpressionFormatStyle::Compact))
+                          + "</span></button>"
+                            "<button class=\"logic-expression-edit\" data-action=\""
+                            "open-number-expression-editor\" data-arg=\""
+                          + escapeRml(encoded + "|" + component) + "\"";
+                    if (playing) html += " disabled=\"disabled\"";
+                    html += "><span class=\"logic-expression-edit-label\">Edit</span></button>";
+                } else {
+                    html += "<input type=\"text\" class=\"logic-value-input\""
+                            " data-action=\"commit-logic-property-component\" data-arg=\""
+                          + escapeRml(encoded + "|" + component) + "\" value=\""
+                          + number(lit ? static_cast<float>(*lit) : 0.f) + "\"";
+                    if (playing) html += " disabled=\"disabled\"";
+                    html += "/>";
+                    if (expressionEnabled) {
+                        html += "<button class=\"logic-expression-button\" data-action=\""
+                                "open-number-expression-editor\" data-arg=\""
+                              + escapeRml(encoded + "|" + component) + "\"";
+                        if (playing) html += " disabled=\"disabled\"";
+                        html += "><span class=\"logic-expression-button-label\">fx</span></button>";
+                    }
+                }
+                html += "</div>";
+            };
+            emitAxis("X", "x", value.x, dynamicX, litX);
+            emitAxis("Y", "y", value.y, dynamicY, litY);
+            html += "</div>";
         } else if (property.valueKind == Logic::LogicValueKind::Key) {
             LogicKey selected = LogicKey::Space;
             if (current) if (const auto* key = std::get_if<LogicKey>(&current->value)) selected = *key;

@@ -22,6 +22,10 @@ public:
      */
     virtual bool setSpriteFlipX(EntityId owner, bool flipX) = 0;
     virtual bool setPosition(EntityId owner, Vec2 value) = 0;
+    /** World position of @p owner; nullopt when inactive. */
+    virtual std::optional<Vec2> getPosition(EntityId owner) const = 0;
+    /** Active scene world size in world units; nullopt when unavailable. */
+    virtual std::optional<Vec2> getSceneWorldSize() const = 0;
     virtual bool translate(EntityId owner, Vec2 delta) = 0;
     /** Absolute rotation in radians (Logic compiler converts authored degrees). */
     virtual bool setRotation(EntityId owner, float radians) = 0;
@@ -74,6 +78,16 @@ public:
      * Never invents a default zero for Compare Variable.
      */
     virtual std::optional<double> getStateNumber(const GameVariableId& id) const = 0;
+    /**
+     * Reads a Number local variable on @p owner. Unknown key or wrong type →
+     * nullopt. Default: unavailable (hosts that materialize locals override).
+     */
+    virtual std::optional<double> getLocalNumber(EntityId owner,
+                                                 const GameVariableId& id) const {
+        (void)owner;
+        (void)id;
+        return std::nullopt;
+    }
     virtual bool setVelocity(EntityId owner, Vec2 velocity) = 0;
     virtual bool isKeyDown(LogicKey key) = 0;
     /**

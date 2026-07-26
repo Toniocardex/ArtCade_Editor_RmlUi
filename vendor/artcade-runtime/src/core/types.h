@@ -3,6 +3,7 @@
 #include "artcade/sfx/types.hpp"
 
 #include "project-defaults.h"
+#include "logic-number-expression.h"
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -89,11 +90,14 @@ using LogicValue = std::variant<
     int64_t,
     double,
     LogicStringValue,
-    Vec2,
+    LogicVec2Value,
     LogicAssetReference,
     LogicEntityReference,
     LogicVariableReference,
     LogicKey>;
+
+/** When both components are finite literals, returns float Vec2; else nullopt. */
+std::optional<Vec2> literalVec2Value(const LogicVec2Value& value);
 
 struct LogicPropertyDef {
     std::string key;
@@ -141,7 +145,7 @@ struct LogicRuleDef {
 
 struct LogicBoardDef {
     LogicBoardId              id;
-    uint32_t                  schemaVersion = 3;
+    uint32_t                  schemaVersion = 4;
     uint32_t                  apiVersion = 2;
     std::vector<LogicSectionDef> sections;  // display grouping; optional
     std::vector<LogicRuleDef> rules;

@@ -3,14 +3,17 @@
 #include "editor-native/commands/audio_asset_commands.h"
 #include "editor-native/commands/global_variable_commands.h"
 #include "editor-native/commands/logic_board_commands.h"
+#include "editor-native/commands/logic_expression_commands.h"
 #include "editor-native/commands/top_down_controller_commands.h"
 #include "editor-native/model/logic_component_references.h"
 #include "editor-native/model/project_io.h"
 #include "editor-native/model/scene_frame_snapshot.h"
 #include "editor-native/ui/logic_board_editor_controller.h"
 #include "editor-native/ui/logic_property_editor.h"
+#include "editor-native/ui/number_expression_editor_controller.h"
 #include "app/render/scene_frame_snapshot.h"
 #include "logic-core.h"
+#include "logic-runtime.h"
 
 #include <cmath>
 #include <algorithm>
@@ -107,7 +110,7 @@ static void testCommandsAndPersistence() {
 
     const auto serialized = ProjectSerializer::serialize(coordinator.document());
     CHECK(serialized.ok);
-    CHECK(serialized.value.find("\"formatVersion\": 10") != std::string::npos);
+    CHECK(serialized.value.find("\"formatVersion\": 11") != std::string::npos);
     const auto loaded = ProjectSerializer::deserialize(serialized.value);
     CHECK(loaded.ok);
     CHECK(loaded.value.data().objectTypes.at("Hero").logicBoard.has_value());
@@ -127,7 +130,7 @@ static void testCommandsAndPersistence() {
         while (end < v2.size() && (v2[end] == '\r' || v2[end] == '\n')) ++end;
         v2.erase(boardAt, end - boardAt);
     }
-    const std::string currentVersion = "\"formatVersion\": 10";
+    const std::string currentVersion = "\"formatVersion\": 11";
     const std::size_t version = v2.find(currentVersion);
     if (version != std::string::npos) {
         v2.replace(version, currentVersion.size(), "\"formatVersion\": 2");
@@ -136,7 +139,7 @@ static void testCommandsAndPersistence() {
     CHECK(migratedRaw.ok);
     auto migrated = ProjectMigration::migrate(std::move(migratedRaw.value));
     CHECK(migrated.ok);
-    CHECK(migrated.value.data().formatVersion == 10);
+    CHECK(migrated.value.data().formatVersion == 11);
     CHECK(!migrated.value.data().objectTypes.at("Hero").logicBoard.has_value());
 
     std::string malformed = serialized.value;
@@ -495,10 +498,10 @@ static void testConditionControllerAndGenericProperties() {
     CHECK(controller.handleAction(
         "commit-logic-property-component", rule.id + "|a|0|velocity|y", "-4", {}));
     board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
-    const Vec2 velocity = std::get<Vec2>(
+    const LogicVec2Value velocity = std::get<LogicVec2Value>(
         Logic::findProperty(board->rules[0].actions[0], "velocity")->value);
-    CHECK(velocity.x == 7.5f);
-    CHECK(velocity.y == -4.f);
+    CHECK(literalNumberValue(velocity.x).value_or(0.0) == 7.5);
+    CHECK(literalNumberValue(velocity.y).value_or(0.0) == -4.0);
 
     CHECK(controller.handleAction(
         "remove-logic-condition", rule.id + "|0", {}, {}));
@@ -782,7 +785,7 @@ static void testIsVisibleEventAndMoveBy() {
 
     LogicRuleDef visibleRule = Logic::makeDefaultRule(nextLogicRuleId(initial));
     visibleRule.trigger = Logic::makeDefaultEventBlock(Logic::kIsVisible);
-    visibleRule.actions[0] = {Logic::kTranslateBy, {{"offset", Vec2{10.f, 20.f}}}};
+    visibleRule.actions[0] = {Logic::kTranslateBy, {{"offset", LogicVec2Value::literal(10., 20.)}}};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", visibleRule, 0}).ok);
 
     const LogicBoardDef& authored =
@@ -791,16 +794,16 @@ static void testIsVisibleEventAndMoveBy() {
     CHECK(authored.rules[0].actions[0].typeId == Logic::kTranslateBy);
     CHECK(coordinator.execute(SetLogicPropertyCommand{
         "Hero", authored.rules[0].id, LogicPropertyTarget::Action, 0,
-        "offset", Vec2{12.f, -3.f}}).ok);
+        "offset", LogicVec2Value::literal(12.0, -3.0)}).ok);
     const LogicBoardDef& updated =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     const LogicPropertyDef* offset =
         Logic::findProperty(updated.rules[0].actions[0], "offset");
     CHECK(offset != nullptr);
-    const auto* offsetValue = std::get_if<Vec2>(&offset->value);
+    const auto* offsetValue = std::get_if<LogicVec2Value>(&offset->value);
     CHECK(offsetValue != nullptr);
-    CHECK(offsetValue->x == 12.f);
-    CHECK(offsetValue->y == -3.f);
+    CHECK(literalNumberValue(offsetValue->x).value_or(0.0) == 12.0);
+    CHECK(literalNumberValue(offsetValue->y).value_or(0.0) == -3.0);
 
     CHECK(coordinator.playCurrentScene().ok);
     CHECK(coordinator.playSession() != nullptr);
@@ -1129,7 +1132,7 @@ static void testPlayRuntimeIsolation() {
     LogicRuleDef key = Logic::makeDefaultRule(nextLogicRuleId(withStart));
     key.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
     key.actions[0] = {Logic::kSetPosition,
-        {{"target", LogicEntityReference{}}, {"position", Vec2{40.f, 50.f}}}};
+        {{"target", LogicEntityReference{}}, {"position", LogicVec2Value::literal(40., 50.)}}};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", key, 1}).ok);
 
     const uint64_t revision = coordinator.document().revision();
@@ -2103,7 +2106,7 @@ static void testSceneGoToSwitchesSceneAndFiresOnStart() {
     ghostBoard.id = "logic:Ghost";
     LogicRuleDef ghostRule = Logic::makeDefaultRule("rule-1");
     ghostRule.actions[0] = LogicBlockDef{
-        Logic::kTranslateBy, {{"offset", Vec2{10.f, 20.f}}}};
+        Logic::kTranslateBy, {{"offset", LogicVec2Value::literal(10., 20.)}}};
     ghostBoard.rules.push_back(ghostRule);
     data.objectTypes.at("Ghost").logicBoard = ghostBoard;
 
@@ -2132,12 +2135,12 @@ static void testSceneRestartRestoresAuthoredLayoutAndRefiresOnStart() {
     board.id = "logic:Hero";
     LogicRuleDef startRule = Logic::makeDefaultRule("rule-1");
     startRule.actions[0] = LogicBlockDef{
-        Logic::kTranslateBy, {{"offset", Vec2{10.f, 0.f}}}};
+        Logic::kTranslateBy, {{"offset", LogicVec2Value::literal(10., 0.)}}};
     board.rules.push_back(startRule);
     LogicRuleDef nudgeRule = Logic::makeDefaultRule("rule-2");
     nudgeRule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::D}}};
     nudgeRule.actions[0] = LogicBlockDef{
-        Logic::kTranslateBy, {{"offset", Vec2{100.f, 0.f}}}};
+        Logic::kTranslateBy, {{"offset", LogicVec2Value::literal(100., 0.)}}};
     board.rules.push_back(nudgeRule);
     LogicRuleDef restartRule = Logic::makeDefaultRule("rule-3");
     restartRule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
@@ -2216,6 +2219,465 @@ static void testDestroyOtherCollectsPickup() {
     CHECK(coordinator.stopPlaying().ok);
 }
 
+static void testCoordinatorProjectsLogicExpressionDiagnostics() {
+    // ADR-0028 gap 3: UI reads diagnostics only via Coordinator projection
+    // (PlaySession → tickRuntime → console), never LogicRuntime directly.
+    ProjectDoc data = makeProjectData();
+    data.scenes.at("scene-1").instances[0].transform.position = {1.f, 6.f};
+    EditorCoordinator coordinator{std::move(data)};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& board =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+
+    LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(board));
+    rule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
+    NumberBinaryExpression zeroDenom;
+    zeroDenom.operation = NumberBinaryOperator::Subtract;
+    zeroDenom.left = boxNumberExpression(NumberExpression{
+        NumberPropertyExpression{NumberProperty::SelfPositionX}});
+    zeroDenom.right = boxNumberExpression(NumberExpression::literal(1.0));
+    NumberBinaryExpression divide;
+    divide.operation = NumberBinaryOperator::Divide;
+    divide.left = boxNumberExpression(NumberExpression::literal(1.0));
+    divide.right = boxNumberExpression(NumberExpression{std::move(zeroDenom)});
+    LogicVec2Value position;
+    position.x = NumberExpression{std::move(divide)};
+    position.y = NumberExpression::literal(10.0);
+    rule.actions[0] = {Logic::kSetPosition,
+        {{"target", LogicEntityReference{}}, {"position", std::move(position)}}};
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
+
+    CHECK(coordinator.playCurrentScene().ok);
+    const std::size_t consoleBefore = coordinator.consoleLog().size();
+    RuntimeInputSnapshot space;
+    space.pressedLogicKeys.push_back(LogicKey::Space);
+    coordinator.tickRuntime(space, 1.f / 60.f);
+
+    auto countLogicRuntime = [&]() {
+        std::size_t count = 0;
+        for (const ConsoleMessage& message : coordinator.consoleLog()) {
+            if (message.level == ConsoleMessage::Level::Error
+                && message.text.find("[LOGIC_RUNTIME]") != std::string::npos
+                && message.text.find("non-finite") != std::string::npos) {
+                ++count;
+            }
+        }
+        return count;
+    };
+    CHECK(countLogicRuntime() == 1);
+    CHECK(coordinator.consoleLog().size() == consoleBefore + 1);
+    // Position unchanged: non-finite Set Position is skipped.
+    CHECK(findRenderable(*coordinator.playSession(), 1)->transform.position.x == 1.f);
+
+    coordinator.tickRuntime(space, 1.f / 60.f);
+    CHECK(countLogicRuntime() == 1);
+    CHECK(coordinator.stopPlaying().ok);
+}
+
+static void testSetPositionNonFiniteRateLimitedDiagnostics() {
+    LogicBoardDef board;
+    board.id = "logic:Pos";
+    LogicRuleDef rule = Logic::makeDefaultRule("rule-nan");
+    rule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
+    NumberBinaryExpression zeroDenom;
+    zeroDenom.operation = NumberBinaryOperator::Subtract;
+    zeroDenom.left = boxNumberExpression(NumberExpression{
+        NumberPropertyExpression{NumberProperty::SelfPositionX}});
+    zeroDenom.right = boxNumberExpression(NumberExpression::literal(1.0));
+    NumberBinaryExpression divide;
+    divide.operation = NumberBinaryOperator::Divide;
+    divide.left = boxNumberExpression(NumberExpression::literal(1.0));
+    divide.right = boxNumberExpression(NumberExpression{std::move(zeroDenom)});
+    LogicVec2Value position;
+    position.x = NumberExpression{std::move(divide)};
+    position.y = NumberExpression::literal(10.0);
+    rule.actions[0] = {Logic::kSetPosition,
+        {{"target", LogicEntityReference{}}, {"position", std::move(position)}}};
+    board.rules.push_back(std::move(rule));
+
+    const Logic::LogicCompileResult compiled = Logic::compileBoard("Hero", board);
+    CHECK(compiled.ok());
+    CHECK(compiled.programs[0].source.find("logic.diagnostics.expression_once")
+          != std::string::npos);
+    CHECK(compiled.programs[0].source.find("logic:Pos:rule-nan:0:position")
+          != std::string::npos);
+
+    struct Host final : IGameplayRuntimeHost {
+        int setPositionCalls = 0;
+        Vec2 position{1.f, 2.f};
+        bool setVisible(EntityId, bool) override { return true; }
+        bool isVisible(EntityId) override { return true; }
+        bool setSpriteFlipX(EntityId, bool) override { return true; }
+        bool setPosition(EntityId, Vec2 value) override {
+            ++setPositionCalls;
+            position = value;
+            return true;
+        }
+        std::optional<Vec2> getPosition(EntityId) const override { return position; }
+        std::optional<Vec2> getSceneWorldSize() const override { return Vec2{512.f, 320.f}; }
+        bool translate(EntityId, Vec2) override { return true; }
+        bool setRotation(EntityId, float) override { return true; }
+        bool rotateBy(EntityId, float) override { return true; }
+        bool setScale(EntityId, Vec2) override { return true; }
+        bool isGrounded(EntityId) override { return false; }
+        bool isFalling(EntityId) override { return false; }
+        PlatformerState platformerState(EntityId) override { return PlatformerState::Stopped; }
+        bool isPlatformerMoving(EntityId) override { return false; }
+        bool requestPlatformerMove(EntityId, float) override { return true; }
+        bool requestTopDownMove(EntityId, Vec2) override { return true; }
+        bool requestPlatformerJump(EntityId) override { return true; }
+        bool isObjectType(EntityId, const ObjectTypeId&) override { return false; }
+        bool requestDestroy(EntityId) override { return true; }
+        bool playAnimationClip(EntityId, const AssetId&, const std::string&) override {
+            return true;
+        }
+        bool stopAnimation(EntityId) override { return true; }
+        bool setAnimationPlaybackSpeed(EntityId, float) override { return true; }
+        bool playSound(EntityId, const AssetId&, float) override { return true; }
+        bool setStateNumber(const GameVariableId&, double) override { return false; }
+        bool addStateNumber(const GameVariableId&, double) override { return false; }
+        bool toggleStateBoolean(const GameVariableId&) override { return false; }
+        std::optional<double> getStateNumber(const GameVariableId&) const override {
+            return std::nullopt;
+        }
+        bool setVelocity(EntityId, Vec2) override { return true; }
+        bool isKeyDown(LogicKey) override { return false; }
+        EntityId spawnObjectType(EntityId, const ObjectTypeId&, float, float) override {
+            return INVALID_ENTITY;
+        }
+        bool requestSceneRestart() override { return false; }
+        bool requestSceneGoTo(const SceneId&) override { return false; }
+    };
+
+    Host host;
+    Logic::LogicRuntime runtime(host);
+    std::string error;
+    CHECK(runtime.loadPrograms(compiled.programs, &error));
+    CHECK(runtime.install("Hero", 7, &error).has_value());
+    runtime.beginFrame();
+    runtime.dispatchKeyPressed(LogicKey::Space);
+    CHECK(host.setPositionCalls == 0);
+    CHECK(host.position.x == 1.f && host.position.y == 2.f);
+    CHECK(runtime.diagnostics().size() == 1);
+    CHECK(runtime.diagnostics().front().find("non-finite") != std::string::npos);
+    CHECK(runtime.diagnostics().front().find("logic:Pos:rule-nan:0:position")
+          != std::string::npos);
+
+    // Drain clears the log buffer but keeps once-per-key rate-limit state.
+    const auto drained = runtime.drainDiagnostics();
+    CHECK(drained.size() == 1);
+    CHECK(runtime.diagnostics().empty());
+
+    runtime.beginFrame();
+    runtime.dispatchKeyPressed(LogicKey::Space);
+    CHECK(host.setPositionCalls == 0);
+    CHECK(runtime.diagnostics().empty());
+    CHECK(runtime.drainDiagnostics().empty());
+    runtime.shutdown();
+}
+
+static void testSetLogicNumberExpressionCommand() {
+    ProjectDoc project = makeProjectData();
+    LogicBoardDef board;
+    board.id = "logic:Hero";
+    LogicRuleDef rule = Logic::makeDefaultRule("rule-pos");
+    rule.trigger = {Logic::kOnStart, {}};
+    rule.actions[0] = {Logic::kSetPosition,
+        {{"target", LogicEntityReference{}},
+         {"position", LogicVec2Value::literal(10., 20.)}}};
+    board.rules.push_back(std::move(rule));
+    project.objectTypes.at("Hero").logicBoard = std::move(board);
+    EditorCoordinator coordinator{std::move(project)};
+
+    LogicNumberExpressionAddress xAddress{
+        "Hero", "rule-pos", 0, "position", LogicNumericComponent::X};
+    NumberExpression addX{NumberBinaryExpression{
+        NumberBinaryOperator::Add,
+        boxNumberExpression(NumberExpression::literal(1.0)),
+        boxNumberExpression(NumberExpression{
+            NumberPropertyExpression{NumberProperty::SelfPositionX}})}};
+
+    const std::size_t undoBefore = coordinator.undoSize();
+    CHECK(coordinator.execute(SetLogicNumberExpressionCommand{xAddress, addX}).ok);
+    CHECK(coordinator.undoSize() == undoBefore + 1);
+    const LogicPropertyDef* positionProperty = Logic::findProperty(
+        coordinator.document().data().objectTypes.at("Hero").logicBoard
+            ->rules[0].actions[0],
+        "position");
+    CHECK(positionProperty != nullptr);
+    const LogicVec2Value* vec =
+        positionProperty ? std::get_if<LogicVec2Value>(&positionProperty->value) : nullptr;
+    CHECK(vec != nullptr);
+    if (vec) {
+        CHECK(!isLiteralNumberExpression(vec->x));
+        const auto y = literalNumberValue(vec->y);
+        CHECK(y.has_value() && *y == 20.0);
+    }
+
+    const auto noop = coordinator.execute(SetLogicNumberExpressionCommand{xAddress, addX});
+    CHECK(noop.ok);
+    CHECK(coordinator.undoSize() == undoBefore + 1);
+
+    LogicNumberExpressionAddress yAddress = xAddress;
+    yAddress.component = LogicNumericComponent::Y;
+    CHECK(coordinator.execute(SetLogicNumberExpressionCommand{
+        yAddress, NumberExpression::literal(99.0)}).ok);
+    positionProperty = Logic::findProperty(
+        coordinator.document().data().objectTypes.at("Hero").logicBoard
+            ->rules[0].actions[0],
+        "position");
+    vec = positionProperty ? std::get_if<LogicVec2Value>(&positionProperty->value) : nullptr;
+    if (vec) {
+        CHECK(!isLiteralNumberExpression(vec->x));
+        const auto y = literalNumberValue(vec->y);
+        CHECK(y.has_value() && *y == 99.0);
+    }
+
+    CHECK(coordinator.undo().ok);
+    positionProperty = Logic::findProperty(
+        coordinator.document().data().objectTypes.at("Hero").logicBoard
+            ->rules[0].actions[0],
+        "position");
+    vec = positionProperty ? std::get_if<LogicVec2Value>(&positionProperty->value) : nullptr;
+    if (vec) {
+        const auto y = literalNumberValue(vec->y);
+        CHECK(y.has_value() && *y == 20.0);
+    }
+
+    // LiteralOnly Vec2 (Move By) rejects dynamic expressions.
+    LogicRuleDef move = Logic::makeDefaultRule("rule-move");
+    move.trigger = {Logic::kOnStart, {}};
+    move.actions[0] = Logic::makeDefaultBlock(Logic::kTranslateBy, Logic::BlockKind::Action);
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", move, 1}).ok);
+    LogicNumberExpressionAddress moveAddress{
+        "Hero", "rule-move", 0, "offset", LogicNumericComponent::X};
+    const auto rejected = coordinator.execute(
+        SetLogicNumberExpressionCommand{moveAddress, addX});
+    CHECK(!rejected.ok);
+}
+
+static void testSetPositionPropertyEditorExposesFx() {
+    ProjectDoc project = makeProjectData();
+    LogicBoardDef board;
+    board.id = "logic:Hero";
+    LogicRuleDef rule = Logic::makeDefaultRule("rule-pos");
+    rule.trigger = {Logic::kOnStart, {}};
+    rule.actions[0] = Logic::makeDefaultBlock(Logic::kSetPosition, Logic::BlockKind::Action);
+    board.rules.push_back(std::move(rule));
+    project.objectTypes.at("Hero").logicBoard = std::move(board);
+
+    EditorCoordinator coordinator{std::move(project)};
+    const LogicBoardDef& authored =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicPropertyAddress address{authored.rules[0].id, LogicPropertyTarget::Action, 0};
+    const std::string markup = renderLogicProperties(
+        coordinator.document(), authored.rules[0].actions[0], address,
+        "", LogicKeyBindingEditorState{}, /*playing=*/false);
+
+    CHECK(markup.find("open-number-expression-editor") != std::string::npos);
+    CHECK(markup.find("logic-expression-button-label\">fx</span>") != std::string::npos);
+    CHECK(markup.find("commit-logic-property-component") != std::string::npos);
+    CHECK(markup.find("|position|x") != std::string::npos);
+    CHECK(markup.find("|position|y") != std::string::npos);
+    // HiddenSelfTarget: no Target row — only Position group.
+    CHECK(markup.find(">Target<") == std::string::npos);
+    CHECK(markup.find(">Position<") != std::string::npos);
+
+    // Move By remains LiteralOnly — no fx affordance.
+    LogicRuleDef move = Logic::makeDefaultRule("rule-move");
+    move.actions[0] = Logic::makeDefaultBlock(Logic::kTranslateBy, Logic::BlockKind::Action);
+    const std::string moveMarkup = renderLogicProperties(
+        coordinator.document(), move.actions[0],
+        LogicPropertyAddress{move.id, LogicPropertyTarget::Action, 0},
+        "", LogicKeyBindingEditorState{}, false);
+    CHECK(moveMarkup.find("open-number-expression-editor") == std::string::npos);
+}
+
+static void testNumberExpressionEditorMarkup() {
+    NumberExpressionEditorController editor;
+    NumberExpressionEditorDraft draft;
+    draft.address = {"Hero", "rule-pos", 0, "position", LogicNumericComponent::X};
+    draft.title = "Set Position · Position.X <fx>";
+    GameVariableDefinition score;
+    score.key = "score";
+    score.type = GameVariableDefinition::Type::Number;
+    score.initialValue = 0.0;
+    GameVariableDefinition flag;
+    flag.key = "flag";
+    flag.type = GameVariableDefinition::Type::Boolean;
+    flag.initialValue = false;
+    draft.globalNumberVariables = {score, flag};
+    GameVariableDefinition hp;
+    hp.key = "hp";
+    hp.type = GameVariableDefinition::Type::Number;
+    hp.initialValue = 3.0;
+    draft.localNumberVariables = {hp};
+    draft.deltaSecondsAvailable = false;
+    NumberBinaryExpression binary;
+    binary.operation = NumberBinaryOperator::Add;
+    binary.left = boxNumberExpression(NumberExpression::literal(3.0));
+    binary.right = boxNumberExpression(NumberExpression{
+        NumberPropertyExpression{NumberProperty::SelfPositionX}});
+    draft.original = NumberExpression{std::move(binary)};
+    editor.open(std::move(draft));
+    editor.replaceAtPath("left", "literal");
+    editor.setLiteralAtPath("left", 7.5);
+    const std::string html = editor.renderMarkup(false);
+    CHECK(html.find("number-expression-modal") != std::string::npos);
+    CHECK(html.find("number-expression-header") != std::string::npos);
+    CHECK(html.find("number-expression-title\">Edit Number Expression</span>")
+          != std::string::npos);
+    CHECK(html.find("number-expression-subtitle\">Set Position · Position.X &lt;fx&gt;</span>")
+          != std::string::npos
+          || html.find("Position.X &lt;fx&gt;") != std::string::npos);
+    CHECK(html.find("data-action=\"number-expression-toggle-picker\"") != std::string::npos);
+    CHECK(html.find("data-action=\"commit-number-expression-literal\"") != std::string::npos);
+    CHECK(html.find("number-expression-child-label") != std::string::npos);
+    CHECK(html.find(">Left</span>") != std::string::npos || html.find(">Left<") != std::string::npos);
+    CHECK(html.find("<span>Apply</span>") != std::string::npos);
+    CHECK(html.find("<span>Cancel</span>") != std::string::npos);
+    CHECK(html.find("<span>Change</span>") != std::string::npos);
+    // Picker stays collapsed until Change is pressed.
+    CHECK(html.find("number-expression-pick-label\">Add</span>") == std::string::npos);
+    editor.togglePicker("left");
+    const std::string openPicker = editor.renderMarkup(false);
+    CHECK(openPicker.find("<span>Close</span>") != std::string::npos);
+    CHECK(openPicker.find("><span class=\"number-expression-pick-label\">Add</span>")
+          != std::string::npos);
+    CHECK(openPicker.find("number-expression-pick-label\">Global Variable</span>")
+          != std::string::npos);
+    CHECK(openPicker.find("number-expression-pick-label\">Local Variable</span>")
+          != std::string::npos);
+    CHECK(openPicker.find("number-expression-pick-label\">Delta Seconds</span>")
+          == std::string::npos);
+    CHECK(openPicker.find("number-expression-picker-category-label\">VALUE</span>")
+          != std::string::npos);
+    editor.closePicker();
+    CHECK(!editor.hasOpenPicker());
+    editor.close();
+    CHECK(!editor.isOpen());
+}
+
+static void testNumberExpressionVariablePickerContext() {
+    NumberExpressionEditorController editor;
+    NumberExpressionEditorDraft draft;
+    draft.address = {"Hero", "rule-pos", 0, "position", LogicNumericComponent::X};
+    draft.title = "Set Position · Position.X";
+    GameVariableDefinition targetX;
+    targetX.key = "TargetX";
+    targetX.type = GameVariableDefinition::Type::Number;
+    targetX.initialValue = 100.0;
+    GameVariableDefinition lives;
+    lives.key = "lives";
+    lives.type = GameVariableDefinition::Type::Number;
+    lives.initialValue = 3.0;
+    draft.globalNumberVariables = {targetX};
+    draft.localNumberVariables = {lives};
+    draft.deltaSecondsAvailable = true;
+    draft.original = NumberExpression::literal(0.0);
+    editor.open(std::move(draft));
+
+    const std::string collapsed = editor.renderMarkup(false);
+    CHECK(collapsed.find("number-expression-pick-label\">Delta Seconds</span>")
+          == std::string::npos);
+    editor.togglePicker("");
+    const std::string withPicker = editor.renderMarkup(false);
+    CHECK(withPicker.find("number-expression-pick-label\">Delta Seconds</span>")
+          != std::string::npos);
+    CHECK(withPicker.find("number-expression-pick-label\">Global Variable</span>")
+          != std::string::npos);
+
+    editor.replaceAtPath("", "var.global");
+    CHECK(!editor.hasOpenPicker());
+    CHECK(editor.draft()->edited.kind() == NumberExpressionKind::Variable);
+    const auto* global = std::get_if<NumberVariableExpression>(&editor.draft()->edited.value());
+    CHECK(global != nullptr);
+    CHECK(global->scope == NumberVariableScope::Global);
+    CHECK(global->variableId == "TargetX");
+    CHECK(editor.validation().ok);
+    const std::string withGlobal = editor.renderMarkup(false);
+    CHECK(withGlobal.find("data-action=\"number-expression-set-variable\"")
+          != std::string::npos);
+    CHECK(withGlobal.find("number-expression-variable-label\">TargetX</span>")
+          != std::string::npos);
+    CHECK(withGlobal.find("Global.TargetX") != std::string::npos
+          || withGlobal.find("Global.") != std::string::npos);
+
+    editor.replaceAtPath("", "var.local");
+    const auto* local = std::get_if<NumberVariableExpression>(&editor.draft()->edited.value());
+    CHECK(local != nullptr);
+    CHECK(local->scope == NumberVariableScope::Local);
+    CHECK(local->variableId == "lives");
+    CHECK(editor.validation().ok);
+
+    editor.setVariableAtPath("", NumberVariableScope::Global, "missing");
+    CHECK(!editor.validation().ok);
+    CHECK(!editor.canApply());
+
+    editor.setVariableAtPath("", NumberVariableScope::Global, "TargetX");
+    CHECK(editor.validation().ok);
+    CHECK(editor.canApply());
+    editor.close();
+}
+
+static void testSetLogicNumberExpressionCommandAcceptsGlobalVariable() {
+    ProjectDoc project = makeProjectData();
+    GameVariableDefinition targetX;
+    targetX.key = "TargetX";
+    targetX.type = GameVariableDefinition::Type::Number;
+    targetX.initialValue = 40.0;
+    project.globalVariables.push_back(targetX);
+    EditorCoordinator coordinator{std::move(project)};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& board =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(board));
+    rule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
+    rule.actions[0] = {Logic::kSetPosition,
+        {{"target", LogicEntityReference{}},
+         {"position", LogicVec2Value::literal(0., 0.)}}};
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", std::move(rule), 0}).ok);
+    const LogicRuleId ruleId =
+        coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0].id;
+
+    NumberVariableExpression variable;
+    variable.scope = NumberVariableScope::Global;
+    variable.variableId = "TargetX";
+    CHECK(coordinator.execute(SetLogicNumberExpressionCommand{
+        {"Hero", ruleId, 0, "position", LogicNumericComponent::X},
+        NumberExpression{variable}}).ok);
+
+    const LogicPropertyDef* position = Logic::findProperty(
+        coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0].actions[0],
+        "position");
+    CHECK(position != nullptr);
+    const auto* vec = std::get_if<LogicVec2Value>(&position->value);
+    CHECK(vec != nullptr);
+    const auto* stored = std::get_if<NumberVariableExpression>(&vec->x.value());
+    CHECK(stored != nullptr);
+    CHECK(stored->variableId == "TargetX");
+
+    const Logic::LogicCompileResult compiled = Logic::compileProjectLogic(
+        coordinator.document().data());
+    if (!compiled.ok()) {
+        std::cerr << "compile failed: "
+                  << (compiled.diagnostics.empty() ? "?" : compiled.diagnostics.front().message)
+                  << "\n";
+    }
+    CHECK(compiled.ok());
+    CHECK(compiled.programs[0].source.find("get_global_number('TargetX')")
+          != std::string::npos);
+
+    const auto play = coordinator.playCurrentScene();
+    if (!play.ok) std::cerr << "play failed: " << play.error << "\n";
+    CHECK(play.ok);
+    RuntimeInputSnapshot space;
+    space.pressedLogicKeys.push_back(LogicKey::Space);
+    coordinator.tickRuntime(space, 1.f / 60.f);
+    CHECK(findRenderable(*coordinator.playSession(), 1)->transform.position.x == 40.f);
+    CHECK(coordinator.stopPlaying().ok);
+}
+
 int main() {
     testCommandsAndPersistence();
     testIncompatibleBoardRecovery();
@@ -2249,6 +2711,13 @@ int main() {
     testSceneGoToSwitchesSceneAndFiresOnStart();
     testSceneRestartRestoresAuthoredLayoutAndRefiresOnStart();
     testDestroyOtherCollectsPickup();
+    testSetPositionNonFiniteRateLimitedDiagnostics();
+    testCoordinatorProjectsLogicExpressionDiagnostics();
+    testSetLogicNumberExpressionCommand();
+    testSetPositionPropertyEditorExposesFx();
+    testNumberExpressionEditorMarkup();
+    testNumberExpressionVariablePickerContext();
+    testSetLogicNumberExpressionCommandAcceptsGlobalVariable();
     std::cout << "logic-board-editor-test: " << passed << " passed, "
               << failed << " failed\n";
     return failed == 0 ? 0 : 1;

@@ -30,6 +30,7 @@
 | 2F.0. Timer authoring | Completata | `event.every_seconds` e `flow.wait` hanno proprietà generiche validate e lifetime nello scope Play. |
 | 2G. Scene actions | Completata | `scene.restart` e `scene.go_to` (ADR-0025): richiesta differita last-wins nell'host, commit a dispatch depth 0, reinstall scope su transizione (parità game.exe) e PlaySession multi-scena materializzata a Start Play. |
 | 2C.1. Destroy Other | Completata | `collision.destroy_other` (ADR-0026): action EventOther-scoped, disponibile solo sotto trigger di collisione (availability+`LB_INCOMPATIBLE_BLOCK`), destroy differito riusato con scope cleanup. |
+| 2H. Number Expressions | Fatto | ADR-0028: `NumberExpression` in artcade-core, `LogicVec2Value`, board schema 4 / project format 11; prima slice Set Position Position.X/Y. |
 
 ### Aggiornamenti trasversali completati
 

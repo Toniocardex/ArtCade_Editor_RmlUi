@@ -58,7 +58,14 @@ public:
 
     bool isEnabled() const;
     bool requiresTick() const;
+    /** Undrained diagnostics accumulated since the last drain/shutdown. */
     const std::vector<std::string>& diagnostics() const;
+    /**
+     * ADR-0028 / RU-03: host-owned projection. Moves and clears the pending
+     * diagnostic buffer. Expression rate-limit keys are retained so
+     * expression_once stays once-per-key for the session.
+     */
+    std::vector<std::string> drainDiagnostics();
 
 private:
     struct Impl;

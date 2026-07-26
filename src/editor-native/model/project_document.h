@@ -329,6 +329,7 @@ private:
     friend class SetLogicConditionNegatedCommand;
     friend class SetLogicPropertyCommand;
     friend class SetLogicAnimationClipCommand;
+    friend class SetLogicNumberExpressionCommand;
     friend class RepairIncompatibleLogicCommand;
 
     // ---- Patch (authoring mutations; called by commands) --------------------

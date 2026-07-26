@@ -75,7 +75,7 @@ LogicRuleDef makeCloneRule() {
     rule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Enter}}};
     rule.actions[0] = {Logic::kSpawnObject,
                        {{"objectTypeId", LogicStringValue{"Player"}},
-                        {"position", Vec2{64.f, 32.f}}}};
+                        {"position", LogicVec2Value::literal(64., 32.)}}};
     return rule;
 }
 

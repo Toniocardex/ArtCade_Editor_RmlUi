@@ -120,16 +120,17 @@ void Application::loopIteration() {
             accumulator_ -= targetDt_;
             simulatedDt += targetDt_;
         }
-        // RU-03 (D-21): GameplaySession only buffers Script diagnostics now,
-        // it doesn't decide where they go - this host prints them exactly as
-        // tickFixedStep used to internally, just once per frame after the
-        // catch-up loop instead of once per fixed step (harmless: order is
-        // preserved, only the timing shifts within the same real frame).
+        // RU-03 (D-21) + ADR-0028: GameplaySession buffers Script/Logic
+        // diagnostics; this host prints them once per frame after the
+        // catch-up loop (order preserved; timing shifts within the frame).
         for (const auto& diagnostic : mod_->gameplaySession->drainScriptDiagnostics()) {
             std::cerr << "[Script] " << diagnostic.sourcePath;
             if (diagnostic.line > 0) std::cerr << ":" << diagnostic.line;
             std::cerr << " [" << diagnostic.callback << "] entity "
                       << diagnostic.owner << ": " << diagnostic.message << "\n";
+        }
+        for (const auto& diagnostic : mod_->gameplaySession->drainLogicDiagnostics()) {
+            std::cerr << "[Logic] " << diagnostic << "\n";
         }
         // Host-side product policy (RU-02b), not simulation: ticked with the
         // total simulated dt for this frame, matching the sum of what N

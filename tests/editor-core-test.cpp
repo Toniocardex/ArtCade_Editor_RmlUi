@@ -526,7 +526,7 @@ int main() {
 
         const SerializeResult serialized = ProjectSerializer::serialize(ProjectDocument{doc});
         CHECK(serialized.ok);
-        CHECK(serialized.value.find("\"formatVersion\": 10") != std::string::npos);
+        CHECK(serialized.value.find("\"formatVersion\": 11") != std::string::npos);
 
         const DeserializeResult deserialized = ProjectSerializer::deserialize(serialized.value);
         CHECK(deserialized.ok);
@@ -573,7 +573,7 @@ int main() {
         CHECK(decoded.ok);
         DeserializeResult migrated = ProjectMigration::migrate(std::move(decoded.value));
         CHECK(migrated.ok);
-        CHECK(migrated.value.data().formatVersion == 10);
+        CHECK(migrated.value.data().formatVersion == 11);
 
         const EntityDef& type = migrated.value.data().objectTypes.at("Hero");
         CHECK(type.spritePresentation.has_value());

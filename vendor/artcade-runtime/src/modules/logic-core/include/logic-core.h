@@ -9,7 +9,7 @@
 
 namespace ArtCade::Logic {
 
-inline constexpr uint32_t kLogicBoardSchemaVersion = 3;
+inline constexpr uint32_t kLogicBoardSchemaVersion = 4;
 inline constexpr uint32_t kLogicApiVersion = 2;
 inline constexpr std::size_t kMaxRulesPerBoard = 128;
 inline constexpr std::size_t kMaxSectionsPerBoard = 64;
@@ -104,6 +104,10 @@ enum class LogicNumberConstraint {
     NormalizedAxis,
     PositiveVec2,
 };
+enum class NumericExpressionPolicy {
+    LiteralOnly,
+    PerComponentNumberExpression,
+};
 enum class LogicRequiredComponent { PlatformerController, TopDownController, SpriteAnimator };
 enum class LogicContextCapability {
     Self,
@@ -130,6 +134,9 @@ struct LogicPropertyDescriptor {
     bool allowEmpty = false;
     /** Stable string choices for small enum-like properties. */
     std::vector<std::string> options;
+    /** ADR-0028: whether Vec2 components may hold dynamic NumberExpressions. */
+    NumericExpressionPolicy numericExpressionPolicy =
+        NumericExpressionPolicy::LiteralOnly;
 };
 
 struct LogicBlockDescriptor {
@@ -215,6 +222,15 @@ const LogicPropertyDef* findProperty(const LogicBlockDef& block, const std::stri
 /** User-facing property label; falls back to @p key when displayName is empty. */
 [[nodiscard]] std::string propertyDisplayName(const LogicPropertyDescriptor& property);
 LogicBlockDef makeDefaultBlock(const LogicBlockTypeId& typeId, BlockKind expected);
+/**
+ * Vec2 catalog property with an explicit NumericExpressionPolicy (ADR-0028).
+ * Used for Set Position position; other Vec2 properties keep LiteralOnly default.
+ */
+[[nodiscard]] LogicPropertyDescriptor expressionVec2Property(
+    std::string key,
+    LogicVec2Value defaultValue,
+    std::string displayName,
+    NumericExpressionPolicy policy);
 /**
  * True when @p descriptor may occupy the rule Event/trigger slot.
  * Triggers always qualify. Conditions qualify only when they do not require

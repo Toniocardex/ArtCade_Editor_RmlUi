@@ -1,4 +1,5 @@
 #include "../include/logic-core.h"
+#include "../include/logic-number-expression-json.h"
 
 #include <nlohmann/json.hpp>
 
@@ -16,8 +17,10 @@ nlohmann::json valueToJson(const LogicValue& value) {
     if (const double* v = std::get_if<double>(&value)) return {{"kind", "number"}, {"value", *v}};
     if (const LogicStringValue* v = std::get_if<LogicStringValue>(&value))
         return {{"kind", "string"}, {"value", v->value}};
-    if (const Vec2* v = std::get_if<Vec2>(&value))
-        return {{"kind", "vec2"}, {"x", v->x}, {"y", v->y}};
+    if (const LogicVec2Value* v = std::get_if<LogicVec2Value>(&value))
+        return {{"kind", "vec2"},
+                {"x", numberExpressionToJson(v->x)},
+                {"y", numberExpressionToJson(v->y)}};
     if (const LogicAssetReference* v = std::get_if<LogicAssetReference>(&value))
         return {{"kind", "asset"}, {"id", v->id}};
     if (std::holds_alternative<LogicEntityReference>(value))
@@ -33,7 +36,8 @@ bool readString(const nlohmann::json& json, const char* key, std::string& out) {
     return true;
 }
 
-bool valueFromJson(const nlohmann::json& json, LogicValue& out, std::string& error) {
+bool valueFromJson(const nlohmann::json& json, LogicValue& out, std::string& error,
+                   bool allowStructuredExpressions = true) {
     if (!json.is_object()) { error = "Logic property value must be an object"; return false; }
     std::string kind;
     if (!readString(json, "kind", kind)) { error = "Logic property value kind is missing"; return false; }
@@ -49,9 +53,14 @@ bool valueFromJson(const nlohmann::json& json, LogicValue& out, std::string& err
     if (kind == "string" && json.contains("value") && json["value"].is_string()) {
         out = LogicStringValue{json["value"].get<std::string>()}; return true;
     }
-    if (kind == "vec2" && json.contains("x") && json.contains("y")
-        && json["x"].is_number() && json["y"].is_number()) {
-        out = Vec2{json["x"].get<float>(), json["y"].get<float>()}; return true;
+    if (kind == "vec2" && json.contains("x") && json.contains("y")) {
+        LogicVec2Value vec;
+        if (!numberExpressionFromJson(json["x"], vec.x, error, allowStructuredExpressions))
+            return false;
+        if (!numberExpressionFromJson(json["y"], vec.y, error, allowStructuredExpressions))
+            return false;
+        out = std::move(vec);
+        return true;
     }
     if (kind == "asset") {
         std::string id;
@@ -80,7 +89,7 @@ LogicValueKind valueKind(const LogicValue& value) {
     if (std::holds_alternative<int64_t>(value)) return LogicValueKind::Integer;
     if (std::holds_alternative<double>(value)) return LogicValueKind::Number;
     if (std::holds_alternative<LogicStringValue>(value)) return LogicValueKind::String;
-    if (std::holds_alternative<Vec2>(value)) return LogicValueKind::Vec2;
+    if (std::holds_alternative<LogicVec2Value>(value)) return LogicValueKind::Vec2;
     if (std::holds_alternative<LogicAssetReference>(value)) return LogicValueKind::Asset;
     if (std::holds_alternative<LogicEntityReference>(value)) return LogicValueKind::Entity;
     if (std::holds_alternative<LogicVariableReference>(value)) return LogicValueKind::Variable;
@@ -94,7 +103,8 @@ nlohmann::json blockToJson(const LogicBlockDef& block) {
     return {{"typeId", block.typeId}, {"properties", std::move(properties)}};
 }
 
-bool blockFromJson(const nlohmann::json& json, LogicBlockDef& out, std::string& error) {
+bool blockFromJson(const nlohmann::json& json, LogicBlockDef& out, std::string& error,
+                   bool allowStructuredExpressions = true) {
     if (!json.is_object() || !readString(json, "typeId", out.typeId)) {
         error = "Logic block typeId is missing"; return false;
     }
@@ -113,7 +123,8 @@ bool blockFromJson(const nlohmann::json& json, LogicBlockDef& out, std::string& 
         if (!seen.insert(property.key).second) {
             error = "Duplicate Logic property: " + property.key; return false;
         }
-        if (!valueFromJson(item["value"], property.value, error)) return false;
+        if (!valueFromJson(item["value"], property.value, error, allowStructuredExpressions))
+            return false;
         // ADR-0013: unknown catalog typeIds stay loadable for repair. Property
         // shape is accepted as stored; AuthoringDiagnostics / Executable flag it.
         if (descriptor) {
@@ -208,7 +219,10 @@ LogicJsonResult logicBoardFromJson(const nlohmann::json& json, LogicBoardDef& ou
             return {false, "Logic Board apiVersion is invalid"};
         parsed.schemaVersion = json["schemaVersion"].get<uint32_t>();
         parsed.apiVersion = json["apiVersion"].get<uint32_t>();
-        if (parsed.schemaVersion != kLogicBoardSchemaVersion) {
+        // ADR-0028: schema 3 → numeric-only vec2 → in-memory 4; schema 4 allows
+        // structured NumberExpression objects. Reject anything else.
+        const bool allowStructuredExpressions = parsed.schemaVersion == kLogicBoardSchemaVersion;
+        if (parsed.schemaVersion != 3u && parsed.schemaVersion != kLogicBoardSchemaVersion) {
             return {false, "Unsupported Logic Board schemaVersion"};
         }
         if (parsed.apiVersion != kLogicApiVersion) {
@@ -262,7 +276,9 @@ LogicJsonResult logicBoardFromJson(const nlohmann::json& json, LogicBoardDef& ou
                 rule.sectionId = item["sectionId"].get<std::string>();
             }
             std::string error;
-            if (!item.contains("trigger") || !blockFromJson(item["trigger"], rule.trigger, error))
+            if (!item.contains("trigger")
+                || !blockFromJson(item["trigger"], rule.trigger, error,
+                                 allowStructuredExpressions))
                 return {false, error.empty() ? "Logic rule trigger is missing" : error};
             if (!item.contains("conditions") || !item["conditions"].is_array())
                 return {false, "Logic rule conditions must be an array"};
@@ -281,7 +297,8 @@ LogicJsonResult logicBoardFromJson(const nlohmann::json& json, LogicBoardDef& ou
                 else if (join == "or") clause.joinBefore = LogicConditionJoin::Or;
                 else return {false, "Unknown Logic condition join operator"};
                 clause.negated = raw["negated"].get<bool>();
-                if (!blockFromJson(raw["block"], clause.block, error)) return {false, error};
+                if (!blockFromJson(raw["block"], clause.block, error, allowStructuredExpressions))
+                    return {false, error};
                 rule.conditions.push_back(std::move(clause));
             }
             if (!rule.conditions.empty()
@@ -290,7 +307,8 @@ LogicJsonResult logicBoardFromJson(const nlohmann::json& json, LogicBoardDef& ou
             }
             for (const auto& raw : item["actions"]) {
                 LogicBlockDef block;
-                if (!blockFromJson(raw, block, error)) return {false, error};
+                if (!blockFromJson(raw, block, error, allowStructuredExpressions))
+                    return {false, error};
                 rule.actions.push_back(std::move(block));
             }
             parsed.rules.push_back(std::move(rule));
@@ -312,6 +330,8 @@ LogicJsonResult logicBoardFromJson(const nlohmann::json& json, LogicBoardDef& ou
             for (LogicConditionClause& clause : rule.conditions)
                 migrateIsFallingBlock(clause.block);
         }
+        // Schema 3 boards normalize to current schema 4 in memory (ADR-0028).
+        parsed.schemaVersion = kLogicBoardSchemaVersion;
         out = std::move(parsed);
         return {true, {}};
     } catch (const std::exception& e) {
@@ -320,4 +340,3 @@ LogicJsonResult logicBoardFromJson(const nlohmann::json& json, LogicBoardDef& ou
 }
 
 } // namespace ArtCade::Logic
-

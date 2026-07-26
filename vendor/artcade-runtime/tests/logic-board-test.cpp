@@ -34,6 +34,7 @@ struct Host final : ILogicRuntimeHost {
     std::unordered_set<EntityId> movingHorizontally;
     std::unordered_map<EntityId, PlatformerState> platformerStates;
     std::unordered_map<EntityId, bool> visible;
+    std::unordered_map<EntityId, Vec2> positions;
     std::unordered_map<std::string, double> state;
     std::unordered_map<std::string, bool> boolState;
     bool keyDown = false;
@@ -64,7 +65,16 @@ struct Host final : ILogicRuntimeHost {
         calls.push_back("position:" + std::to_string(owner) + ":"
                         + std::to_string(static_cast<int>(value.x)) + ","
                         + std::to_string(static_cast<int>(value.y)));
+        positions[owner] = value;
         return true;
+    }
+    std::optional<Vec2> getPosition(EntityId owner) const override {
+        const auto it = positions.find(owner);
+        if (it == positions.end()) return Vec2{};
+        return it->second;
+    }
+    std::optional<Vec2> getSceneWorldSize() const override {
+        return Vec2{512.f, 320.f};
     }
     bool translate(EntityId owner, Vec2 delta) override {
         calls.push_back("translate:" + std::to_string(owner) + ":"
@@ -232,7 +242,7 @@ static LogicBoardDef makeBoard() {
     key.name = "Logic 02";
     key.trigger = {kKeyPressed, {{"key", LogicKey::Space}}};
     key.actions[0] = {kSetPosition,
-        {{"target", LogicEntityReference{}}, {"position", Vec2{12.f, 34.f}}}};
+        {{"target", LogicEntityReference{}}, {"position", LogicVec2Value::literal(12., 34.)}}};
     board.rules.push_back(key);
     return board;
 }
@@ -341,6 +351,64 @@ static void testRuntime() {
     runtime.dispatchKeyPressed(LogicKey::Space);
     CHECK(host.calls.size() == 5);
     CHECK(host.calls.back() == "position:20:12,34");
+    runtime.shutdown();
+}
+
+static void testSetPositionNonFiniteRateLimitedDiagnostics() {
+    LogicBoardDef board;
+    board.id = "logic:Pos";
+    LogicRuleDef rule = makeDefaultRule("rule-nan");
+    rule.trigger = {kKeyPressed, {{"key", LogicKey::Space}}};
+    NumberBinaryExpression zeroDenom;
+    zeroDenom.operation = NumberBinaryOperator::Subtract;
+    zeroDenom.left = boxNumberExpression(NumberExpression{
+        NumberPropertyExpression{NumberProperty::SelfPositionX}});
+    zeroDenom.right = boxNumberExpression(NumberExpression::literal(1.0));
+    NumberBinaryExpression divide;
+    divide.operation = NumberBinaryOperator::Divide;
+    divide.left = boxNumberExpression(NumberExpression::literal(1.0));
+    divide.right = boxNumberExpression(NumberExpression{std::move(zeroDenom)});
+    LogicVec2Value position;
+    position.x = NumberExpression{std::move(divide)};
+    position.y = NumberExpression::literal(10.0);
+    rule.actions[0] = {kSetPosition,
+        {{"target", LogicEntityReference{}}, {"position", std::move(position)}}};
+    board.rules.push_back(rule);
+
+    LogicCompileResult compiled = compileBoard("Hero", board);
+    CHECK(compiled.ok());
+    CHECK(compiled.programs[0].source.find("logic.diagnostics.expression_once")
+          != std::string::npos);
+    CHECK(compiled.programs[0].source.find("logic:Pos:rule-nan:0:position")
+          != std::string::npos);
+
+    Host host;
+    host.positions[7] = Vec2{1.f, 2.f};
+    LogicRuntime runtime(host);
+    std::string error;
+    CHECK(runtime.loadPrograms(compiled.programs, &error));
+    CHECK(runtime.install("Hero", 7, &error).has_value());
+
+    runtime.beginFrame();
+    runtime.dispatchKeyPressed(LogicKey::Space);
+    CHECK(host.calls.empty());
+    CHECK(host.positions[7].x == 1.f && host.positions[7].y == 2.f);
+    CHECK(runtime.diagnostics().size() == 1);
+    CHECK(runtime.diagnostics().front().find("non-finite") != std::string::npos);
+    CHECK(runtime.diagnostics().front().find("logic:Pos:rule-nan:0:position")
+          != std::string::npos);
+
+    // Drain clears the log buffer but keeps once-per-key rate-limit state.
+    const auto drained = runtime.drainDiagnostics();
+    CHECK(drained.size() == 1);
+    CHECK(runtime.diagnostics().empty());
+
+    // Repeated failures must not spam — once per Board+Rule+Action+Parameter key.
+    runtime.beginFrame();
+    runtime.dispatchKeyPressed(LogicKey::Space);
+    CHECK(host.calls.empty());
+    CHECK(runtime.diagnostics().empty());
+    CHECK(runtime.drainDiagnostics().empty());
     runtime.shutdown();
 }
 
@@ -821,7 +889,7 @@ static void testIsVisibleAsEvent() {
     rule.trigger = event;
     LogicBlockDef moveBy = makeDefaultBlock(kTranslateBy, BlockKind::Action);
     for (LogicPropertyDef& p : moveBy.properties) {
-        if (p.key == "offset") p.value = Vec2{5.f, 0.f};
+        if (p.key == "offset") p.value = LogicVec2Value::literal(5., 0.);
     }
     rule.actions = {moveBy};
     board.rules.push_back(rule);
@@ -1001,7 +1069,7 @@ static void testDescriptorSemanticMetadataConsistency() {
         case LogicValueKind::String:
             return std::holds_alternative<LogicStringValue>(property.defaultValue);
         case LogicValueKind::Vec2:
-            return std::holds_alternative<Vec2>(property.defaultValue);
+            return std::holds_alternative<LogicVec2Value>(property.defaultValue);
         case LogicValueKind::Asset:
             return std::holds_alternative<LogicAssetReference>(property.defaultValue);
         case LogicValueKind::Entity:
@@ -1589,7 +1657,7 @@ static void testP1EverySecondsAndTick() {
         if (p.key == "seconds") p.value = 0.5;
     }
     rule.actions[0] = {kSetPosition,
-        {{"target", LogicEntityReference{}}, {"position", Vec2{1.f, 2.f}}}};
+        {{"target", LogicEntityReference{}}, {"position", LogicVec2Value::literal(1., 2.)}}};
     board.rules.push_back(rule);
 
     LogicCompileResult compiled = compileBoard("Timer", board);
@@ -1689,7 +1757,7 @@ static void testP1StateAndWaitAndVelocity() {
             if (p.key == "seconds") p.value = 0.4;
         }
         LogicBlockDef pos = {kSetPosition,
-            {{"target", LogicEntityReference{}}, {"position", Vec2{9.f, 8.f}}}};
+            {{"target", LogicEntityReference{}}, {"position", LogicVec2Value::literal(9., 8.)}}};
         rule.actions = {wait, pos};
         board.rules.push_back(rule);
 
@@ -1716,7 +1784,7 @@ static void testP1StateAndWaitAndVelocity() {
         LogicRuleDef rule = makeDefaultRule("vel");
         LogicBlockDef vel = makeDefaultBlock(kSetVelocity, BlockKind::Action);
         for (LogicPropertyDef& p : vel.properties) {
-            if (p.key == "velocity") p.value = Vec2{5.f, -3.f};
+            if (p.key == "velocity") p.value = LogicVec2Value::literal(5., -3.);
         }
         rule.actions = {vel};
         board.rules.push_back(rule);
@@ -1774,7 +1842,7 @@ static void testP1SpawnInstallFailure() {
     LogicBlockDef spawn = makeDefaultBlock(kSpawnObject, BlockKind::Action);
     for (LogicPropertyDef& p : spawn.properties) {
         if (p.key == "objectTypeId") p.value = LogicStringValue{"Coin"};
-        else if (p.key == "position") p.value = Vec2{10.f, 20.f};
+        else if (p.key == "position") p.value = LogicVec2Value::literal(10., 20.);
     }
     rule.actions = {spawn};
     board.rules.push_back(rule);
@@ -1829,7 +1897,7 @@ static void testSpawnOfOwnObjectTypeReentrantInstall() {
     for (LogicPropertyDef& p : spawn.properties) {
         // The spawned type is the board's own type: a clone of itself.
         if (p.key == "objectTypeId") p.value = LogicStringValue{"Hero"};
-        else if (p.key == "position") p.value = Vec2{5.f, 6.f};
+        else if (p.key == "position") p.value = LogicVec2Value::literal(5., 6.);
     }
     rule.actions = {spawn};
     board.rules.push_back(rule);
@@ -1871,7 +1939,7 @@ static void testEntityTransformActions() {
     rule.trigger = makeDefaultTrigger();
     LogicBlockDef moveBy = makeDefaultBlock(kTranslateBy, BlockKind::Action);
     for (LogicPropertyDef& p : moveBy.properties) {
-        if (p.key == "offset") p.value = Vec2{3.f, 4.f};
+        if (p.key == "offset") p.value = LogicVec2Value::literal(3., 4.);
     }
     LogicBlockDef setRot = makeDefaultBlock(kSetRotation, BlockKind::Action);
     for (LogicPropertyDef& p : setRot.properties) {
@@ -1883,14 +1951,14 @@ static void testEntityTransformActions() {
     }
     LogicBlockDef setScale = makeDefaultBlock(kSetScale, BlockKind::Action);
     for (LogicPropertyDef& p : setScale.properties) {
-        if (p.key == "scale") p.value = Vec2{2.f, 2.f};
+        if (p.key == "scale") p.value = LogicVec2Value::literal(2., 2.);
     }
     rule.actions = {moveBy, setRot, rotBy, setScale};
     board.rules.push_back(rule);
 
     // Negative / zero scale rejected.
     LogicBoardDef badBoard = board;
-    badBoard.rules[0].actions[3].properties[0].value = Vec2{-1.f, 1.f};
+    badBoard.rules[0].actions[3].properties[0].value = LogicVec2Value::literal(-1., 1.);
     LogicCompileResult bad = compileBoard("Hero", badBoard);
     CHECK(!bad.ok());
 
@@ -2364,6 +2432,7 @@ int main() {
     testCompilerAndJson();
     testDescriptorSemanticMetadataConsistency();
     testRuntime();
+    testSetPositionNonFiniteRateLimitedDiagnostics();
     testStrictSandboxAndBudget();
     testLimitsSnapshotAndIsolation();
     testIsGroundedCondition();

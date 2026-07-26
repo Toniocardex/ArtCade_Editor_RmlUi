@@ -211,7 +211,7 @@ bool AssetLoader::parseProjectJson(const std::string& path, ProjectDoc& out) {
     ProjectJson::read_object_types_map(j, out.objectTypes);
     // RU-01: shared with the editor's canonical project reader now - was
     // inline here only, so the editor would have had to duplicate it.
-    if (!ProjectJson::read_object_type_logic_boards(j, out.objectTypes)) return false;
+    if (!ProjectJson::read_object_type_logic_boards(j, out.objectTypes, &out)) return false;
     ProjectJson::read_entities_map(j, out.entities, false);
     ProjectJson::read_scenes_map(j, out.scenes);
     ProjectJson::read_thumbnails(j, out.thumbnails);

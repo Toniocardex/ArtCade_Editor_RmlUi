@@ -470,6 +470,10 @@ std::vector<Scripts::ScriptRuntimeDiagnostic> PlaySession::drainScriptDiagnostic
                      : std::vector<Scripts::ScriptRuntimeDiagnostic>{};
 }
 
+std::vector<std::string> PlaySession::drainLogicDiagnostics() {
+    return runtime_ ? runtime_->drainLogicDiagnostics() : std::vector<std::string>{};
+}
+
 std::vector<RenderableEntitySnapshot> PlaySession::renderables() const {
     if (!runtime_) return {};
     auto out = runtime_->buildFrameSnapshot(::ArtCade::SceneFrameSnapshot{}).renderables;

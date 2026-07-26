@@ -466,15 +466,20 @@ bool LogicBoardEditorController::handleAction(
             return true;
         }
         if (action == "commit-logic-property-component") {
-            Vec2 next{};
-            if (current) if (const auto* valueNow = std::get_if<Vec2>(&current->value)) next = *valueNow;
+            LogicVec2Value next = LogicVec2Value::literal(0.0, 0.0);
+            if (current) {
+                if (const auto* valueNow = std::get_if<LogicVec2Value>(&current->value))
+                    next = *valueNow;
+            }
             const std::optional<float> parsed = parseNumberField(value);
             if (!parsed) {
                 coordinator_.logError("Logic vector component must be a finite number");
                 return true;
             }
-            if (address->component == "x") next.x = *parsed;
-            else if (address->component == "y") next.y = *parsed;
+            if (address->component == "x")
+                next.x = NumberExpression::literal(*parsed);
+            else if (address->component == "y")
+                next.y = NumberExpression::literal(*parsed);
             else {
                 coordinator_.logError("Unknown Logic vector component");
                 return true;
@@ -634,11 +639,13 @@ bool LogicBoardEditorController::handleAction(
                 coordinator_.logError("Logic position must be a finite number");
                 return true;
             }
-            Vec2 position{};
+            LogicVec2Value position = LogicVec2Value::literal(0.0, 0.0);
             if (const LogicPropertyDef* p = Logic::findProperty(rule->actions[index], "position"))
-                if (const auto* current = std::get_if<Vec2>(&p->value)) position = *current;
-            if (action == "commit-logic-position-x") position.x = *parsed;
-            else position.y = *parsed;
+                if (const auto* current = std::get_if<LogicVec2Value>(&p->value)) position = *current;
+            if (action == "commit-logic-position-x")
+                position.x = NumberExpression::literal(*parsed);
+            else
+                position.y = NumberExpression::literal(*parsed);
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, ruleId, LogicPropertyTarget::Action, index, "position", position});
         } else if (action == "commit-logic-offset-x" || action == "commit-logic-offset-y") {
@@ -647,11 +654,13 @@ bool LogicBoardEditorController::handleAction(
                 coordinator_.logError("Logic offset must be a finite number");
                 return true;
             }
-            Vec2 offset{};
+            LogicVec2Value offset = LogicVec2Value::literal(0.0, 0.0);
             if (const LogicPropertyDef* p = Logic::findProperty(rule->actions[index], "offset"))
-                if (const auto* current = std::get_if<Vec2>(&p->value)) offset = *current;
-            if (action == "commit-logic-offset-x") offset.x = *parsed;
-            else offset.y = *parsed;
+                if (const auto* current = std::get_if<LogicVec2Value>(&p->value)) offset = *current;
+            if (action == "commit-logic-offset-x")
+                offset.x = NumberExpression::literal(*parsed);
+            else
+                offset.y = NumberExpression::literal(*parsed);
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, ruleId, LogicPropertyTarget::Action, index, "offset", offset});
         } else if (action == "set-logic-animation-asset") {

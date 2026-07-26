@@ -214,7 +214,7 @@ int main() {
 
     const auto serialized = ProjectSerializer::serialize(coordinator.document());
     CHECK(serialized.ok);
-    CHECK(serialized.value.find("\"formatVersion\": 10") != std::string::npos);
+        CHECK(serialized.value.find("\"formatVersion\": 11") != std::string::npos);
     CHECK(serialized.value.find("\"scriptAssets\"") != std::string::npos);
     const auto decoded = ProjectSerializer::deserialize(serialized.value);
     CHECK(decoded.ok);
@@ -527,6 +527,8 @@ return { on_start = function(ctx) ctx.self:set_position(9, 10) end }
         bool isVisible(EntityId) override { return visible; }
         bool setSpriteFlipX(EntityId, bool) override { return true; }
         bool setPosition(EntityId, Vec2 value) override { position = value; return true; }
+        std::optional<Vec2> getPosition(EntityId) const override { return position; }
+        std::optional<Vec2> getSceneWorldSize() const override { return Vec2{512.f, 320.f}; }
         bool translate(EntityId, Vec2 delta) override {
             position.x += delta.x; position.y += delta.y; return true;
         }
@@ -862,7 +864,7 @@ end }
     LogicBlockDef setPosition =
         Logic::makeDefaultBlock(Logic::kSetPosition, Logic::BlockKind::Action);
     for (LogicPropertyDef& property : setPosition.properties)
-        if (property.key == "position") property.value = Vec2{1.f, 2.f};
+        if (property.key == "position") property.value = LogicVec2Value::literal(1., 2.);
     startRule.actions.push_back(std::move(setPosition));
     board.rules.push_back(std::move(startRule));
     hero.logicBoard = std::move(board);

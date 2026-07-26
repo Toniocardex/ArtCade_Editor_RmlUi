@@ -163,6 +163,7 @@ EditorActionResult EditorActionDispatcher::executeEnabled(
         switch (resolveEscapeOwner(escapeContext_)) {
         case EscapeOwner::Modal:
             if (ui_.helpDialogOpen()) ui_.closeHelp();
+            else if (ui_.numberExpressionEditorOpen()) ui_.cancelNumberExpressionEditor();
             else ui_.cancelConfirm();
             return EditorActionResult::executed();
         case EscapeOwner::LogicKeyCapture:

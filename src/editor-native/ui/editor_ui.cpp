@@ -11,7 +11,8 @@
 #include "editor-native/app/shortcuts/editor_action_catalog.h"
 #include "editor-native/app/shortcuts/keyboard_shortcut_projection.h"
 #include "editor-native/app/shortcuts/shortcut_format.h"
-#include "editor-native/commands/domain_change.h"
+#include "editor-native/commands/logic_expression_commands.h"
+#include "editor-native/commands/logic_board_commands.h"
 #include "editor-native/commands/entity_commands.h"
 #include "editor-native/commands/scene_commands.h"
 #include "editor-native/commands/scene_layer_commands.h"
@@ -165,11 +166,12 @@ public:
     void ProcessEvent(Rml::Event& event) override {
         const Rml::String type = event.GetType();
 
-        if (type == "keydown" && ui_.helpDialogOpen()) {
+        if (type == "keydown" && (ui_.helpDialogOpen() || ui_.numberExpressionEditorOpen())) {
             const int key = event.GetParameter<int>("key_identifier", 0);
             if (key == Rml::Input::KI_TAB) {
                 const bool shift = event.GetParameter<int>("shift_key", 0) != 0;
-                ui_.handleHelpTabKey(shift);
+                if (ui_.helpDialogOpen()) ui_.handleHelpTabKey(shift);
+                else ui_.handleNumberExpressionTabKey(shift);
                 event.StopImmediatePropagation();
                 return;
             }
@@ -1872,7 +1874,8 @@ bool EditorUi::helpDialogOpen() const {
 }
 
 bool EditorUi::hasBlockingModal() const {
-    return hasOpenConfirm() || helpDialogOpen();
+    return hasOpenConfirm() || helpDialogOpen()
+        || numberExpressionEditor_.isOpen();
 }
 
 void EditorUi::setExportTemplatesRoot(std::filesystem::path root) {
@@ -2130,6 +2133,121 @@ void EditorUi::toggleLogicMoreMenu() {
     menu->SetClass("hidden", false);
     trigger->SetClass("open", true);
     logicMoreMenuVisible_ = true;
+}
+
+void EditorUi::refreshNumberExpressionHost() {
+    if (!document_) return;
+    Rml::Element* host = document_->GetElementById("number-expression-host");
+    if (!host) return;
+    host->SetInnerRML(numberExpressionEditor_.renderMarkup(coordinator_.isPlaying()));
+}
+
+void EditorUi::openNumberExpressionEditor(const std::string& addressArg) {
+    // Encoded: ruleId|a|actionIndex|parameterId|x|y  (same as property editor)
+    std::vector<std::string> parts;
+    std::size_t start = 0;
+    while (start <= addressArg.size()) {
+        const std::size_t pos = addressArg.find('|', start);
+        if (pos == std::string::npos) {
+            parts.push_back(addressArg.substr(start));
+            break;
+        }
+        parts.push_back(addressArg.substr(start, pos - start));
+        start = pos + 1;
+    }
+    if (parts.size() < 5) return;
+    const auto& view = coordinator_.state().logicBoardEditor;
+    if (!view.objectTypeId) return;
+    const ObjectTypeId objectTypeId = *view.objectTypeId;
+    const EntityDef* type = coordinator_.document().findObjectType(objectTypeId);
+    if (!type || !type->logicBoard) return;
+    const LogicRuleId ruleId = parts[0];
+    const std::size_t actionIndex = static_cast<std::size_t>(std::strtoul(parts[2].c_str(), nullptr, 10));
+    const std::string parameterId = parts[3];
+    const LogicNumericComponent component =
+        parts[4] == "y" ? LogicNumericComponent::Y : LogicNumericComponent::X;
+    const LogicRuleDef* rule = nullptr;
+    for (const LogicRuleDef& candidate : type->logicBoard->rules) {
+        if (candidate.id == ruleId) { rule = &candidate; break; }
+    }
+    if (!rule || actionIndex >= rule->actions.size()) return;
+    const LogicPropertyDef* property =
+        Logic::findProperty(rule->actions[actionIndex], parameterId);
+    if (!property) return;
+    const auto* vec = std::get_if<LogicVec2Value>(&property->value);
+    if (!vec) return;
+    NumberExpressionEditorDraft draft;
+    draft.address = LogicNumberExpressionAddress{
+        objectTypeId, ruleId, actionIndex, parameterId, component};
+    draft.original = component == LogicNumericComponent::X ? vec->x : vec->y;
+    draft.title = "Set Position · Position."
+        + std::string(component == LogicNumericComponent::X ? "X" : "Y");
+    draft.localNumberVariables = type->localVariables;
+    draft.globalNumberVariables = coordinator_.document().data().globalVariables;
+    draft.deltaSecondsAvailable = rule->trigger.typeId == Logic::kEveryFrame;
+    numberExpressionEditor_.open(std::move(draft));
+    refreshNumberExpressionHost();
+}
+
+void EditorUi::applyNumberExpressionEditor() {
+    const NumberExpressionEditorDraft* draft = numberExpressionEditor_.draft();
+    if (!draft || !numberExpressionEditor_.canApply()) return;
+    coordinator_.execute(SetLogicNumberExpressionCommand{
+        draft->address, draft->edited});
+    numberExpressionEditor_.close();
+    refreshNumberExpressionHost();
+}
+
+bool EditorUi::numberExpressionEditorOpen() const {
+    return numberExpressionEditor_.isOpen();
+}
+
+void EditorUi::cancelNumberExpressionEditor() {
+    if (!numberExpressionEditor_.isOpen()) return;
+    // ADR §23: Escape closes an open picker first, then Cancel.
+    if (numberExpressionEditor_.hasOpenPicker()) {
+        numberExpressionEditor_.closePicker();
+        refreshNumberExpressionHost();
+        return;
+    }
+    numberExpressionEditor_.close();
+    refreshNumberExpressionHost();
+}
+
+void EditorUi::handleNumberExpressionTabKey(bool shift) {
+    if (!document_ || !numberExpressionEditor_.isOpen()) return;
+    Rml::Element* modal = document_->GetElementById("number-expression-modal");
+    if (!modal) return;
+    std::vector<Rml::Element*> focusables;
+    std::vector<Rml::Element*> stack{modal};
+    while (!stack.empty()) {
+        Rml::Element* el = stack.back();
+        stack.pop_back();
+        if (!el) continue;
+        const std::string tag = el->GetTagName();
+        const bool focusableTag = tag == "input" || tag == "button" || tag == "textarea";
+        if (focusableTag && el->IsVisible() && !el->HasAttribute("disabled"))
+            focusables.push_back(el);
+        for (int i = static_cast<int>(el->GetNumChildren()) - 1; i >= 0; --i)
+            stack.push_back(el->GetChild(static_cast<unsigned>(i)));
+    }
+    if (focusables.empty()) return;
+    Rml::Element* current = document_->GetContext()
+        ? document_->GetContext()->GetFocusElement() : nullptr;
+    int index = -1;
+    for (std::size_t i = 0; i < focusables.size(); ++i) {
+        if (focusables[i] == current) {
+            index = static_cast<int>(i);
+            break;
+        }
+    }
+    if (index < 0) {
+        focusables.front()->Focus();
+        return;
+    }
+    const int n = static_cast<int>(focusables.size());
+    const int next = shift ? (index - 1 + n) % n : (index + 1) % n;
+    focusables[static_cast<std::size_t>(next)]->Focus();
 }
 
 void EditorUi::refreshToolbar() {
@@ -2603,6 +2721,72 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     if (action == "toggle-logic-more-menu") {
         if (coordinator_.isPlaying()) return;
         toggleLogicMoreMenu();
+        return;
+    }
+    if (action == "open-number-expression-editor") {
+        if (coordinator_.isPlaying()) return;
+        openNumberExpressionEditor(arg);
+        return;
+    }
+    if (action == "cancel-number-expression-editor") {
+        cancelNumberExpressionEditor();
+        return;
+    }
+    if (action == "apply-number-expression-editor") {
+        applyNumberExpressionEditor();
+        return;
+    }
+    if (action == "number-expression-pick") {
+        if (coordinator_.isPlaying()) return;
+        std::string path;
+        std::string choice = arg;
+        const std::size_t sep = arg.rfind('|');
+        if (sep != std::string::npos) {
+            path = arg.substr(0, sep);
+            choice = arg.substr(sep + 1);
+        }
+        numberExpressionEditor_.replaceAtPath(path, choice);
+        refreshNumberExpressionHost();
+        return;
+    }
+    if (action == "number-expression-toggle-picker") {
+        if (coordinator_.isPlaying()) return;
+        numberExpressionEditor_.togglePicker(arg);
+        refreshNumberExpressionHost();
+        return;
+    }
+    if (action == "number-expression-set-variable") {
+        if (coordinator_.isPlaying()) return;
+        // Encoded: path|local|varId  or  path|global|varId  (path may be empty).
+        std::vector<std::string> parts;
+        std::size_t start = 0;
+        while (start <= arg.size()) {
+            const std::size_t pos = arg.find('|', start);
+            if (pos == std::string::npos) {
+                parts.push_back(arg.substr(start));
+                break;
+            }
+            parts.push_back(arg.substr(start, pos - start));
+            start = pos + 1;
+        }
+        if (parts.size() < 3) return;
+        const std::string& path = parts[0];
+        const NumberVariableScope scope = parts[1] == "local"
+            ? NumberVariableScope::Local : NumberVariableScope::Global;
+        numberExpressionEditor_.setVariableAtPath(path, scope, parts[2]);
+        refreshNumberExpressionHost();
+        return;
+    }
+    if (action == "commit-number-expression-literal") {
+        if (coordinator_.isPlaying()) return;
+        char* end = nullptr;
+        const double parsed = std::strtod(value.c_str(), &end);
+        if (!end || *end != '\0' || !std::isfinite(parsed)) {
+            refreshNumberExpressionHost();
+            return;
+        }
+        numberExpressionEditor_.setLiteralAtPath(arg, parsed);
+        refreshNumberExpressionHost();
         return;
     }
     if (action == "toggle-inspector-section") {
