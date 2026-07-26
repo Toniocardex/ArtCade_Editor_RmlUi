@@ -295,7 +295,6 @@ bool LogicBoardEditorController::handleAction(
         || action == "commit-logic-offset-y" || action == "set-logic-animation-asset"
         || action == "set-logic-animation-clip" || action == "commit-logic-animation-speed"
         || action == "set-logic-audio-asset" || action == "commit-logic-audio-volume"
-        || action == "toggle-logic-event-expected"
         || action == "set-logic-event-collision-object-type"
         || action == "set-logic-execution-mode"
         || action == "add-logic-condition-type"
@@ -591,14 +590,6 @@ bool LogicBoardEditorController::handleAction(
         if (const auto key = Logic::logicKeyFromName(value)) {
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, arg, LogicPropertyTarget::Trigger, 0, "key", *key});
-        }
-    } else if (action == "toggle-logic-event-expected") {
-        if (const LogicRuleDef* rule = ruleById(arg)) {
-            bool expected = true;
-            if (const LogicPropertyDef* p = Logic::findProperty(rule->trigger, "expected"))
-                if (const auto* current = std::get_if<bool>(&p->value)) expected = *current;
-            coordinator_.execute(SetLogicPropertyCommand{
-                objectTypeId, arg, LogicPropertyTarget::Trigger, 0, "expected", !expected});
         }
     } else if (action == "set-logic-event-collision-object-type") {
         coordinator_.execute(SetLogicPropertyCommand{
