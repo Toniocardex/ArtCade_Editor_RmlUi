@@ -203,8 +203,12 @@ applied from RML and from the C++ panels that build markup:
 | `.context-entry` | 19 | 2 |
 | `.drop-entry` | 13 | 3 |
 | `.prop-input` | 12 | 3 |
+| `.comp-badge` | 8 | 3 |
 
 Single-use classes need no contract.
+
+`.comp-badge`'s contract is narrower than its usage was: see
+§Correction below.
 
 ### 5. Enforcement
 
@@ -493,10 +497,38 @@ stylesheet migration parses rules instead of lines.
 `.logic-key-binding` is now a gallery specimen in all four states, so this
 particular regression cannot return silently.
 
+### Correction: `.comp-badge` reports state, not ownership
+
+**2026-07-27.** The Inspector used this class for two different jobs. One was
+ownership — `INSTANCE`, `TYPE`, `OBJECT TYPE` on a section header, saying which
+authority holds the data. The other was state — `INSTANCE OVERRIDE`,
+`INHERITED` — saying what is true of this instance right now.
+
+Only the second earns a badge. The first was a label on a fact that does not
+change and that the section's own contents already imply, and it did not scale:
+by mid-2026 the entity Inspector stacked five of them down a panel narrower
+than the words themselves, in two spellings for the same thing (`TYPE` in five
+sections, `OBJECT TYPE` in four). Repetition at that density stops being
+information and becomes texture.
+
+**Contract:** `.comp-badge` marks a state a reader could not infer from the
+section's contents and that can change while the project is open. It never
+names an authority. A section whose ownership genuinely needs stating says so
+once, in prose, in its body — which is what `.type-owned-note` is for.
+
+Applied in `d4423e5`: ownership badges removed from every section header;
+`INSTANCE OVERRIDE` and `INHERITED` on Sprite Animator kept, along with the
+inline override badge in the Sprite section. Object Variables, whose badge was
+the only place it stated ownership, moved that sentence into its body
+(ADR-0031 §A2).
+
+No stylesheet change: `.comp-badge` keeps its declaration and its `.override`
+variant. This is a rule about when markup may emit it.
+
 ### Not yet done
 
-Phase 5 (a second theme), and the spacing scale, which §Correction above
-withdrew.
+Phase 5 (a second theme), and the spacing scale, which
+§Correction: spacing is not enforced withdrew.
 
 ## Verification
 
