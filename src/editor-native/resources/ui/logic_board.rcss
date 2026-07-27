@@ -597,7 +597,7 @@
 }
 .logic-catalog-entry.disabled { opacity: 0.48; }
 .logic-catalog-name, .logic-catalog-description { display: block; }
-.logic-catalog-name {  font-size: 12dp; }
+.logic-catalog-name {  font-size: 12dp;  font-weight: 600; }
 .logic-catalog-description { margin-top: 2dp;  font-size: 10dp; }
 
 /* A second, always-visible "+ Add Logic" at the end of the list — the natural
