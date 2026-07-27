@@ -169,7 +169,7 @@ bool knownSection(std::string_view id) {
         "project", "general", "appearance", "world-bounds", "game-view", "layers", "diagnostics",
         "identity", "transform", "sprite", "sprite-renderer", "sprite-animator",
         "tilemap", "camera-target", "scripts", "box-collider", "linear-mover", "top-down-controller",
-        "platformer-controller", "auto-destroy", "text", "gauge",
+        "platformer-controller", "auto-destroy", "text", "gauge", "object-variables",
     };
     for (std::string_view known : ids) if (known == id) return true;
     return false;
@@ -286,6 +286,70 @@ std::string dropdownTrigger(const char* label, const char* dropdownId,
     row += "</span>";
     row += dropdownTriggerMarkup(valueText, "toggle-inspector-dropdown", dropdownId,
                                  open, disabled);
+    row += "</div>";
+    return row;
+}
+
+// -- Object Variables (ADR-0031) ---------------------------------------------
+
+const char* variableTypeLabel(GameVariableDefinition::Type type) {
+    switch (type) {
+    case GameVariableDefinition::Type::Number:  return "Number";
+    case GameVariableDefinition::Type::Boolean: return "Boolean";
+    case GameVariableDefinition::Type::String:  return "String";
+    }
+    return "Number";
+}
+
+const char* variableTypeToken(GameVariableDefinition::Type type) {
+    switch (type) {
+    case GameVariableDefinition::Type::Number:  return "number";
+    case GameVariableDefinition::Type::Boolean: return "boolean";
+    case GameVariableDefinition::Type::String:  return "string";
+    }
+    return "number";
+}
+
+std::string variableValueText(const GameVariableValue& value) {
+    if (const auto* number = std::get_if<double>(&value))
+        return num(static_cast<float>(*number));
+    if (const auto* boolean = std::get_if<bool>(&value)) return *boolean ? "True" : "False";
+    if (const auto* text = std::get_if<std::string>(&value)) return *text;
+    return {};
+}
+
+/**
+ * One value row for either side of a variable. `present` false means the
+ * instance has no override: the control shows an em dash rather than the
+ * inherited value, so "same as the default" and "overridden to the same value"
+ * never look alike.
+ */
+std::string variableValueRow(const char* label, GameVariableDefinition::Type type,
+                             const GameVariableValue& value, const char* commitAction,
+                             const char* toggleAction, const std::string& key,
+                             bool playing, bool present) {
+    std::string row = "<div class=\"prop-row\"><span class=\"prop-label\">";
+    row += label;
+    row += "</span>";
+    if (type == GameVariableDefinition::Type::Boolean) {
+        const bool on = present && std::get_if<bool>(&value) && std::get<bool>(value);
+        row += "<button class=\"panel-btn";
+        if (on) row += " active";
+        if (playing) row += " disabled";
+        row += "\" data-action=\"";
+        row += toggleAction;
+        row += "\" data-arg=\"" + escapeRml(key) + "\">";
+        row += present ? (on ? "True" : "False") : "&#8212;";
+        row += "</button>";
+    } else {
+        row += "<input type=\"text\" class=\"prop-input\" data-action=\"";
+        row += commitAction;
+        row += "\" data-arg=\"" + escapeRml(key) + "\" placeholder=\"&#8212;\" value=\"";
+        if (present) row += escapeRml(variableValueText(value));
+        row += "\"";
+        if (playing) row += " disabled=\"disabled\"";
+        row += "/>";
+    }
     row += "</div>";
     return row;
 }
@@ -1734,6 +1798,87 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             html += "</div>";
         }
         html += "</div>";
+    }
+
+    // -- Object Variables (ADR-0031) -----------------------------------------
+    // One section, not two: the definition belongs to the Object Type and the
+    // override to this instance, so the same row carries both and the
+    // relationship between them stays on screen. A separate "Overrides"
+    // section would turn one variable into two apparently independent things.
+    if (type) {
+        html += header("object-variables", isSectionCollapsed("object-variables"),
+                       "&#xeb4c;", "Object Variables", "OBJECT TYPE", "", "", playing);
+        html += typeOwnedLockNote;
+        if (type->localVariables.empty()) {
+            html += "<p class=\"inspector-empty\">No object variables yet</p>";
+        }
+        for (const GameVariableDefinition& variable : type->localVariables) {
+            const std::string safeKey = escapeRml(variable.key);
+            const std::string typeDropdownId = "object-variable-type|" + variable.key;
+            const bool typeOpen = openDropdownId_ == typeDropdownId && !playing;
+
+            html += "<div class=\"prop-row\"><span class=\"prop-label\">Name</span>"
+                    "<input type=\"text\" class=\"prop-input\""
+                    " data-action=\"commit-object-variable-key\" data-arg=\""
+                  + safeKey + "\" value=\"" + safeKey + "\"";
+            if (playing) html += " disabled=\"disabled\"";
+            html += "/><span class=\"comp-remove";
+            if (playing) html += " disabled";
+            html += "\" data-action=\"remove-object-variable\" data-arg=\"" + safeKey
+                  + "\" title=\"Delete object variable\">" + icon("&#xeb41;") + "</span></div>";
+
+            html += dropdownTrigger("Type", typeDropdownId.c_str(),
+                                    variableTypeLabel(variable.type), typeOpen, playing);
+            if (typeOpen) {
+                html += "<div class=\"drop-list\">";
+                for (const GameVariableDefinition::Type option :
+                     {GameVariableDefinition::Type::Number,
+                      GameVariableDefinition::Type::Boolean,
+                      GameVariableDefinition::Type::String}) {
+                    html += "<div class=\"drop-entry";
+                    if (option == variable.type) html += " selected";
+                    // Key and type in one arg: a key cannot contain '|'
+                    // (project-global-variables-format's charset), so the split
+                    // is unambiguous.
+                    html += "\" data-action=\"set-object-variable-type\" data-arg=\""
+                          + std::string(variableTypeToken(option)) + "|" + safeKey + "\">"
+                          + variableTypeLabel(option) + "</div>";
+                }
+                html += "</div>";
+            }
+
+            html += variableValueRow(
+                "Object Type default", variable.type, variable.initialValue,
+                "commit-object-variable-default", "toggle-object-variable-default",
+                variable.key, playing, /*present=*/true);
+
+            // The instance row states the relationship rather than restating
+            // the value: the default above is the definition's, never the
+            // resolved one.
+            const auto overrideIt = inst->localVariableOverrides.find(variable.key);
+            const bool hasOverride = overrideIt != inst->localVariableOverrides.end();
+            html += variableValueRow(
+                "Instance override", variable.type,
+                hasOverride ? overrideIt->second : variable.initialValue,
+                "commit-instance-variable-override", "toggle-instance-variable-override",
+                variable.key, playing, hasOverride);
+            html += "<div class=\"prop-row\"><span class=\"prop-label\"></span>"
+                    "<button class=\"panel-btn";
+            if (playing || !hasOverride) html += " disabled";
+            html += "\" data-action=\"reset-instance-variable-override\" data-arg=\"" + safeKey
+                  + "\">Reset</button></div>";
+
+            html += "<div class=\"prop-row\"><span class=\"prop-label\">Description</span>"
+                    "<input type=\"text\" class=\"prop-input\""
+                    " data-action=\"commit-object-variable-description\" data-arg=\""
+                  + safeKey + "\" placeholder=\"Optional\" value=\""
+                  + escapeRml(variable.description) + "\"";
+            if (playing) html += " disabled=\"disabled\"";
+            html += "/></div>";
+        }
+        html += "<div class=\"prop-row\"><button class=\"panel-btn";
+        if (playing) html += " disabled";
+        html += "\" data-action=\"add-object-variable\">+ Add Object Variable</button></div>";
     }
 
     body->SetInnerRML(finalizeSectionMarkup(html, collapsedSections_));

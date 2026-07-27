@@ -14,6 +14,7 @@
 #include "editor-native/commands/logic_expression_commands.h"
 #include "editor-native/commands/logic_board_commands.h"
 #include "editor-native/commands/entity_commands.h"
+#include "editor-native/commands/object_variable_commands.h"
 #include "editor-native/commands/scene_commands.h"
 #include "editor-native/commands/scene_layer_commands.h"
 #include "editor-native/commands/image_asset_commands.h"
@@ -2920,6 +2921,137 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
     if (handleInspectorAction(action, arg, value, selected)) return;
 }
 
+/**
+ * Object variables (ADR-0031 A2). The Inspector is projection and buffer: every
+ * branch here ends in one Command, and the definition and the override go
+ * through different ones so a keystroke in either row can never write the
+ * other's field.
+ */
+void EditorUi::handleObjectVariableAction(const std::string& action, const std::string& arg,
+                                          const std::string& value) {
+    const SceneId sceneId = coordinator_.state().activeSceneId;
+    const EntityId selected = coordinator_.selection().primaryEntity;
+    const SceneInstanceDef* instance =
+        coordinator_.document().findInstanceInScene(sceneId, selected);
+    if (!instance) {
+        coordinator_.logError("Select an instance to edit its object variables");
+        return;
+    }
+    const ObjectTypeId typeId = instance->objectTypeId;
+    const EntityDef* type = coordinator_.document().findObjectType(typeId);
+    if (!type) {
+        coordinator_.logError("Unknown object type");
+        return;
+    }
+
+    const auto run = [this](auto command) {
+        const EditorOperationResult result = coordinator_.execute(std::move(command));
+        if (!result.ok) coordinator_.logError(result.error);
+    };
+    const auto findDefinition = [&](const std::string& key) -> const GameVariableDefinition* {
+        for (const GameVariableDefinition& definition : type->localVariables) {
+            if (definition.key == key) return &definition;
+        }
+        return nullptr;
+    };
+    // Text → the definition's type, or nothing. A field that cannot produce the
+    // declared type reports it instead of quietly writing a default.
+    const auto parseValue = [&](GameVariableDefinition::Type declared,
+                                const std::string& text) -> std::optional<GameVariableValue> {
+        switch (declared) {
+        case GameVariableDefinition::Type::Number: {
+            try {
+                std::size_t consumed = 0;
+                const double parsed = std::stod(text, &consumed);
+                while (consumed < text.size() && std::isspace(
+                           static_cast<unsigned char>(text[consumed]))) ++consumed;
+                if (consumed != text.size() || !std::isfinite(parsed)) return std::nullopt;
+                return GameVariableValue{parsed};
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        }
+        case GameVariableDefinition::Type::Boolean:
+            return std::nullopt;  // booleans use the toggle, never the text field
+        case GameVariableDefinition::Type::String:
+            return GameVariableValue{text};
+        }
+        return std::nullopt;
+    };
+
+    if (action == "add-object-variable") {
+        std::string key = "Variable";
+        for (int suffix = 2; findDefinition(key); ++suffix) {
+            key = "Variable" + std::to_string(suffix);
+        }
+        GameVariableDefinition definition;
+        definition.key = key;
+        definition.type = GameVariableDefinition::Type::Number;
+        definition.initialValue = 0.0;
+        run(AddObjectVariableCommand{typeId, std::move(definition)});
+        return;
+    }
+
+    const GameVariableDefinition* definition = nullptr;
+    std::string key = arg;
+    if (action == "set-object-variable-type") {
+        const std::size_t split = arg.find('|');
+        if (split == std::string::npos) return;
+        key = arg.substr(split + 1);
+        definition = findDefinition(key);
+        if (!definition) return;
+        const std::string token = arg.substr(0, split);
+        const GameVariableDefinition::Type next =
+            token == "boolean" ? GameVariableDefinition::Type::Boolean
+            : token == "string" ? GameVariableDefinition::Type::String
+                                : GameVariableDefinition::Type::Number;
+        run(SetObjectVariableTypeCommand{typeId, key, next});
+        return;
+    }
+
+    definition = findDefinition(key);
+    if (!definition) return;
+    const GameVariableDefinition::Type declared = definition->type;
+
+    if (action == "remove-object-variable") {
+        run(RemoveObjectVariableCommand{typeId, key});
+    } else if (action == "commit-object-variable-key") {
+        if (value == key) return;
+        run(RenameObjectVariableCommand{typeId, key, value});
+    } else if (action == "commit-object-variable-description") {
+        run(SetObjectVariableDescriptionCommand{typeId, key, value});
+    } else if (action == "commit-object-variable-default") {
+        const std::optional<GameVariableValue> parsed = parseValue(declared, value);
+        if (!parsed) {
+            coordinator_.logError("Value does not match the object variable type");
+            return;
+        }
+        run(SetObjectVariableInitialValueCommand{typeId, key, *parsed});
+    } else if (action == "toggle-object-variable-default") {
+        const bool current = std::get_if<bool>(&definition->initialValue)
+                          && std::get<bool>(definition->initialValue);
+        run(SetObjectVariableInitialValueCommand{typeId, key, GameVariableValue{!current}});
+    } else if (action == "reset-instance-variable-override") {
+        run(ClearInstanceVariableOverrideCommand{sceneId, selected, key});
+    } else if (action == "commit-instance-variable-override") {
+        const std::optional<GameVariableValue> parsed = parseValue(declared, value);
+        if (!parsed) {
+            coordinator_.logError("Value does not match the object variable type");
+            return;
+        }
+        run(SetInstanceVariableOverrideCommand{sceneId, selected, key, *parsed});
+    } else if (action == "toggle-instance-variable-override") {
+        // Toggling with no override starts from the value the instance shows,
+        // which is the Object Type default.
+        const auto existing = instance->localVariableOverrides.find(key);
+        const GameVariableValue& effective = existing != instance->localVariableOverrides.end()
+            ? existing->second : definition->initialValue;
+        const bool current = std::get_if<bool>(&effective) && std::get<bool>(effective);
+        run(SetInstanceVariableOverrideCommand{sceneId, selected, key,
+                                               GameVariableValue{!current}});
+    }
+}
+
 bool EditorUi::handleInspectorAction(const std::string& action, const std::string& arg,
                                      const std::string& value, EntityId selected) {
     if (action == "deselect-entity") {
@@ -3274,6 +3406,16 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         addGaugeComponent(coordinator_);
     } else if (action == "remove-gauge") {
         removeGaugeComponent(coordinator_);
+    } else if (action == "add-object-variable" || action == "remove-object-variable"
+               || action == "commit-object-variable-key"
+               || action == "set-object-variable-type"
+               || action == "commit-object-variable-default"
+               || action == "toggle-object-variable-default"
+               || action == "commit-object-variable-description"
+               || action == "commit-instance-variable-override"
+               || action == "toggle-instance-variable-override"
+               || action == "reset-instance-variable-override") {
+        handleObjectVariableAction(action, arg, value);
     } else if (action == "set-text-binding-none" || action == "set-text-binding-global"
                || action == "set-text-binding-local" || action == "set-text-variable"
                || action == "set-text-format" || action == "set-text-align"

@@ -362,8 +362,21 @@ navigation UI (the *counter* is in scope, the navigation is not) ·
   define — the canonical reader already read them, so only the writer was
   losing data. `ProjectValidator` now rejects both an invalid definition list
   and an override with no matching definition.
-- **A2 — not started.** All eight commands are unreferenced by any UI until it
-  lands.
+- **A2 — section shipped, coverage pending.** `OBJECT VARIABLES` renders in the
+  entity Inspector with the `OBJECT TYPE` badge: per variable a name field, a
+  type dropdown, `Object Type default`, `Instance override` (an em dash when
+  unset, so "same as the default" and "overridden to the same value" never look
+  alike), Reset, and a description; plus `+ Add Object Variable`. Every action
+  routes through `EditorUi::handleObjectVariableAction` into one A1.1 Command,
+  and the two rows never write each other's field. Disabled during Play like
+  every other document mutation.
+  Not yet covered: no test drives the rendering or the action dispatch — the
+  Commands underneath are covered by A1.1, the wiring is not. An EditorUi-level
+  test in the shape of `logic_expression_focus_routing_test` is the follow-up.
+  Also still open from the ADR's own lifecycle table: the draft buffers. The
+  fields commit on the RmlUi change/blur path the Inspector already uses; the
+  explicit Escape-reverts and discard-on-selection-change rules are not
+  implemented as a panel-local draft yet.
 - The `Create compatible variable` button in
   `logic_property_editor.cpp:401` still routes to the Project Variables
   drawer. It becomes the typed contextual creation of Slice B; Slice 0

@@ -341,6 +341,9 @@ private:
                                const std::string& value, EntityId selected);
     bool handleInspectorAction(const std::string& action, const std::string& arg,
                                const std::string& value, EntityId selected);
+    /** Object variable definitions and instance overrides (ADR-0031 A2). */
+    void handleObjectVariableAction(const std::string& action, const std::string& arg,
+                                    const std::string& value);
 
     void applyInvalidations(EditorInvalidation flags);
     void refreshToolbar();
