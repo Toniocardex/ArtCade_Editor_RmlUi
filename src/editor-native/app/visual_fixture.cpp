@@ -2,10 +2,15 @@
 
 #include "editor-native/model/project_document.h"
 #include "editor-native/model/project_io.h"
+#include "editor-native/model/tileset_slicing.h"
 
 #include "logic-core.h"
 
+#include <raylib.h>
+
+#include <filesystem>
 #include <fstream>
+#include <vector>
 
 namespace ArtCade::EditorNative {
 namespace {
@@ -93,6 +98,35 @@ LogicRuleDef makeCloneRule() {
     return rule;
 }
 
+std::string writeFixtureSheet(const std::filesystem::path& projectPath) {
+    constexpr int width = 32;
+    constexpr int height = 16;
+    const std::filesystem::path assetPath =
+        projectPath.parent_path() / "visual-assets" / "design-system-sheet.png";
+    std::error_code error;
+    std::filesystem::create_directories(assetPath.parent_path(), error);
+    if (error) return "cannot create fixture asset directory: " + error.message();
+
+    constexpr Color colours[8]{
+        {37, 99, 235, 255}, {79, 70, 229, 255}, {216, 180, 74, 255},
+        {79, 155, 104, 255}, {229, 112, 107, 255}, {63, 63, 70, 255},
+        {161, 161, 170, 255}, {39, 39, 42, 255},
+    };
+    std::vector<Color> pixels(static_cast<std::size_t>(width * height));
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const int tile = (y / 8) * 4 + (x / 8);
+            const bool border = x % 8 == 0 || x % 8 == 7 || y % 8 == 0 || y % 8 == 7;
+            pixels[static_cast<std::size_t>(y * width + x)] =
+                border ? colours[tile] : Color{244, 244, 245, 255};
+        }
+    }
+    Image image{pixels.data(), width, height, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+    if (!ExportImage(image, assetPath.string().c_str()))
+        return "write failed: " + assetPath.string();
+    return {};
+}
+
 } // namespace
 
 ProjectDoc makeVisualFixtureProject() {
@@ -116,6 +150,35 @@ ProjectDoc makeVisualFixtureProject() {
     doc.globalVariables.push_back(
         GameVariableDefinition{"score", GameVariableDefinition::Type::Number, 0.0,
                                "Coins collected"});
+
+    ImageAssetDef sheet;
+    sheet.assetId = "fixture-sheet";
+    sheet.name = "Design System Sheet";
+    sheet.sourcePath = "visual-assets/design-system-sheet.png";
+    doc.imageAssets.push_back(sheet);
+
+    SpriteAnimationAssetDef animation;
+    animation.id = "fixture-animation";
+    animation.name = "Fixture Animation";
+    animation.sourceImageAssetId = sheet.assetId;
+    animation.frames.push_back(SpriteFrameDef{"frame-1", 0, 0, 16, 16});
+    animation.frames.push_back(SpriteFrameDef{"frame-2", 16, 0, 16, 16});
+    SpriteAnimationClipDef idle;
+    idle.id = "idle";
+    idle.name = "Idle";
+    idle.frameIds = {"frame-1", "frame-2"};
+    idle.framesPerSecond = 8.f;
+    idle.playbackMode = AnimationPlaybackMode::Loop;
+    animation.clips.push_back(idle);
+    doc.spriteAnimationAssets.push_back(animation);
+
+    TilesetAsset tileset;
+    tileset.assetId = "fixture-tileset";
+    tileset.name = "Fixture Tileset";
+    tileset.imageAssetId = sheet.assetId;
+    tileset.slicing = TilesetSlicing{8, 8};
+    tileset.tiles = tilesForSlicing(32, 16, tileset.slicing);
+    doc.tilesets.push_back(tileset);
 
     SceneDef scene;
     scene.id = "scene-1";
@@ -161,7 +224,8 @@ std::string writeVisualFixtureProject(const std::string& path) {
     if (!out) return "cannot open " + path;
     out << serialized.value;
     if (!out) return "write failed: " + path;
-    return {};
+    out.close();
+    return writeFixtureSheet(std::filesystem::path{path});
 }
 
 } // namespace ArtCade::EditorNative

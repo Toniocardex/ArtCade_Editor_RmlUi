@@ -1,4 +1,5 @@
 #include "editor-native/ui/logic_board_panel.h"
+#include "editor-native/ui/ui_icons.h"
 
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/commands/global_variable_commands.h"
@@ -268,7 +269,7 @@ std::string variablesDrawer(
     html += "\" data-action=\"add-global-variable\">+ Variable</button>"
             "<button class=\"logic-variables-collapse\" data-action=\"toggle-global-variables\" "
             "title=\"Hide Project Variables\">"
-          + iconMarkup("&#xeb5d;") + "</button></div></div>";
+          + iconMarkup("" UI_ICON_EXPAND "") + "</button></div></div>";
 
     const auto& variables = coordinator.document().data().globalVariables;
     if (variables.empty()) {
@@ -341,7 +342,7 @@ std::string variablesDrawer(
         html += "\" data-action=\"remove-global-variable\" data-arg=\""
               + escapeRml(variable.key) + "\" title=\""
               + (refs == 0 ? "Delete variable" : "Referenced variables cannot be deleted")
-              + "\">" + iconMarkup("&#xeb41;") + "</button></div>";
+              + "\">" + iconMarkup("" UI_ICON_DELETE "") + "</button></div>";
     }
     return html + "</div>";
 }
@@ -645,7 +646,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         // toggle action (right-side On/clone/move/delete buttons keep their
         // own data-action and win the click walk-up first).
         html += "<span class=\"logic-rule-caret\">"
-             + iconMarkup(collapsed ? "&#xeb5f;" : "&#xeb5d;") + "</span>";
+             + iconMarkup(collapsed ? "" UI_ICON_COLLAPSE "" : "" UI_ICON_EXPAND "") + "</span>";
         html += "<span class=\"logic-rule-index\">" + std::to_string(ruleIndex + 1) + "</span>";
         html += "<span class=\"logic-rule-title\">" + escapeRml(summary) + "</span>";
         if (diagnosticCount > 0) {
@@ -666,13 +667,13 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             html += " data-action=\"" + std::string(action) + "\" data-arg=\""
                  + escapeRml(rule.id) + "\">" + label + "</button>";
         };
-        iconButton("duplicate-logic-rule", iconMarkup("&#xedef;"), false, "Clone rule");
+        iconButton("duplicate-logic-rule", iconMarkup("" UI_ICON_DUPLICATE ""), false, "Clone rule");
         iconButton("move-logic-rule-up", "↑", ruleIndex == 0);
         iconButton("move-logic-rule-down", "↓", ruleIndex + 1 == board.rules.size());
         html += "<button class=\"comp-remove";
         if (playing) html += " disabled";
         html += "\" data-action=\"remove-logic-rule\" data-arg=\"" + escapeRml(rule.id)
-             + "\" title=\"Delete rule\">" + iconMarkup("&#xeb41;") + "</button>";
+             + "\" title=\"Delete rule\">" + iconMarkup("" UI_ICON_DELETE "") + "</button>";
         html += "</div>"; // .logic-rule-head
 
         if (collapsed) {
@@ -771,7 +772,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             if (playing) html += " disabled";
             html += "\" data-action=\"remove-logic-condition\" data-arg=\""
                   + escapeRml(arg) + "\" title=\"Delete condition\">"
-                  + iconMarkup("&#xeb41;") + "</button></div>";
+                  + iconMarkup("" UI_ICON_DELETE "") + "</button></div>";
             html += dropdownTriggerMarkup(
                 descriptorLabel(clause.block.typeId), "toggle-logic-dropdown",
                 dropdownId, dropdownOpen, playing);
@@ -829,7 +830,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                     "<button class=\"comp-remove";
             if (playing) html += " disabled";
             html += "\" data-action=\"remove-logic-action\" data-arg=\"" + escapeRml(arg)
-                 + "\" title=\"Delete action\">" + iconMarkup("&#xeb41;") + "</button></div>";
+                 + "\" title=\"Delete action\">" + iconMarkup("" UI_ICON_DELETE "") + "</button></div>";
             if (dropdownOpen) {
                 html += catalogEntries(objectType, Logic::findDescriptor(rule.trigger.typeId),
                                        Logic::BlockKind::Action, action.typeId, dropdownId,

@@ -1,4 +1,5 @@
 #include "editor-native/ui/sprite_animation_editor_controller.h"
+#include "editor-native/ui/ui_icons.h"
 
 #include "editor-native/ui/editor_ui.h"
 #include "editor-native/app/editor_coordinator.h"
@@ -168,12 +169,12 @@ void SpriteAnimationEditorController::refresh() {
                 // click here never also triggers open-sprite-animation.
                 "<button class=\"anim-asset-remove\" data-action=\"remove-sprite-animation\""
                 " data-arg=\"" + escapeRml(a.id) + "\" title=\"Delete this animation\">"
-                "<span class=\"icon\">&#xeb41;</span></button>"
+                "<span class=\"icon\">" UI_ICON_DELETE "</span></button>"
                 "</div>";
     }
     html += "</div><button class=\"anim-import-sheet\" data-action=\"import-animation-sheet\""
             " title=\"Import an image and start a new animation on it\">"
-            "<span class=\"icon\">&#xea7a;</span>Import Sheet</button>";
+            "<span class=\"icon\">" UI_ICON_IMPORT "</span>Import Sheet</button>";
 
     html += "<div class=\"anim-panel-title anim-section-gap\">Clips</div>"
             "<div class=\"anim-clip-list\">";
@@ -190,7 +191,7 @@ void SpriteAnimationEditorController::refresh() {
     html += "</div><button class=\"anim-add-clip\" data-action=\"add-animation-clip\""
             " data-arg=\"" + escapeRml(asset->id)
           + "\" title=\"Add another clip on this same sheet\">"
-            "<span class=\"icon\">&#xeb0b;</span>Add Clip</button></div>";
+            "<span class=\"icon\">" UI_ICON_ADD "</span>Add Clip</button></div>";
 
     // -- Sheet column -----------------------------------------------------------
     html += "<div class=\"anim-sheet\"><div class=\"anim-sheet-head\">"
@@ -297,18 +298,18 @@ void SpriteAnimationEditorController::refresh() {
                 "<div id=\"animation-preview-canvas\" class=\"anim-preview-canvas\"></div>"
                 "<div class=\"anim-transport\">"
                 "<button class=\"panel-btn\" data-action=\"step-animation-preview\""
-                " data-arg=\"-1\" title=\"Previous frame\"><span class=\"icon\">&#xed48;</span></button>"
+                " data-arg=\"-1\" title=\"Previous frame\"><span class=\"icon\">" UI_ICON_PREVIOUS "</span></button>"
                 "<button id=\"anim-preview-toggle\" class=\"panel-btn anim-preview-toggle\""
                 " data-action=\"toggle-animation-preview\" title=\"Play / Pause\">"
-                "<span class=\"icon preview-when-stopped\">&#xed46;</span>"
-                "<span class=\"icon preview-when-playing\">&#xed45;</span></button>"
+                "<span class=\"icon preview-when-stopped\">" UI_ICON_PLAY "</span>"
+                "<span class=\"icon preview-when-playing\">" UI_ICON_PAUSE "</span></button>"
                 "<button class=\"panel-btn\" data-action=\"step-animation-preview\""
-                " data-arg=\"1\" title=\"Next frame\"><span class=\"icon\">&#xed49;</span></button>"
+                " data-arg=\"1\" title=\"Next frame\"><span class=\"icon\">" UI_ICON_NEXT "</span></button>"
                 "</div>";
         html += "<div class=\"anim-settings-spacer\"></div>"
                 "<button class=\"anim-remove-clip\" data-action=\"remove-animation-clip\" data-arg=\""
               + escapeRml(asset->id + "|" + selected->id)
-              + "\"><span class=\"icon\">&#xeb41;</span>Remove Clip</button>";
+              + "\"><span class=\"icon\">" UI_ICON_DELETE "</span>Remove Clip</button>";
     } else {
         html += "<div class=\"assets-empty\">Select or add a clip</div>";
     }

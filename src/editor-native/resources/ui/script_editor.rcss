@@ -10,8 +10,8 @@
 .script-toolbar-field input {
     width: 160dp;
     height: 28dp;
-    margin-left: 5dp;
-    padding: 0 7dp;
+    margin-left: 4dp;
+    padding: 0 8dp;
 
     border-width: 1px;
 
@@ -68,7 +68,7 @@
 }
 .script-tab.active {   border-top-width: 2px; }
 .script-tab-name { flex: 1; overflow: hidden; }
-.script-tab-dirty { margin-left: 5dp;  }
+.script-tab-dirty { margin-left: 4dp;  }
 .script-tab-close {
     width: 25dp;
     height: 25dp;
@@ -87,8 +87,8 @@
 
 }
 .script-editor-empty.hidden { display: none; }
-.script-editor-empty-title { margin-bottom: 7dp;  font-size: 15dp; }
-.script-editor-empty .panel-btn { margin-top: 14dp; }
+.script-editor-empty-title { margin-bottom: 8dp;  font-size: 15dp; }
+.script-editor-empty .panel-btn { margin-top: 12dp; }
 .script-editor-body {
     flex: 1;
     width: 100%;
@@ -113,7 +113,7 @@
 }
 .script-line-current {
 
-    font-weight: bold;
+    font-weight: 700;
 }
 .script-editor-code {
     position: relative;
@@ -215,7 +215,7 @@ textarea#script-editor-textarea scrollbarvertical {
 }
 textarea#script-editor-textarea scrollbarvertical sliderbar {
 
-    border-radius: 3dp;
+    border-radius: 2dp;
     margin-left: 2dp;
     margin-right: 2dp;
     min-height: 32dp;
@@ -233,7 +233,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .script-diagnostic {
     display: block;
     width: 100%;
-    padding: 5dp 10dp;
+    padding: 4dp 10dp;
     border: 0px transparent;
     background-color: transparent;
 
@@ -311,7 +311,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 
     font-family: Inter;
     font-size: 11dp;
-    font-weight: bold;
+    font-weight: 700;
 }
 .script-api-detail-doc {
 
@@ -322,7 +322,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .script-api-detail-label {
 
     font-family: Inter;
-    font-size: 9dp;
+    font-size: 10dp;
     text-transform: uppercase;
 }
 .script-api-detail-sig {
@@ -364,7 +364,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .script-completion-item {
     display: block;
     width: 100%;
-    padding: 5dp 8dp;
+    padding: 4dp 8dp;
     border: 0px transparent;
     background-color: transparent;
 

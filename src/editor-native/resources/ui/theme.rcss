@@ -51,10 +51,10 @@
         used on, which qualify as large text (>= 3.0).
      ** disabled controls are exempt from WCAG contrast requirements.
 
-   ACCENT — primary calls to action only
-     accent            #2563eb   CTA fill (white text = 5.17, AA)
-     accent-hover      #1d4ed8   CTA hover  (white text = 6.70)
-     accent-on         #ffffff   text/icon on an accent fill
+   PRIMARY ACTION — calls to action only
+     action            #2563eb   CTA fill (white text = 5.17, AA)
+     action-hover      #1d4ed8   CTA hover  (white text = 6.70)
+     on-action         #ffffff   text/icon on an action fill
      brand             #3b82f6   wordmark and brand marks only
 
      The former CTA fill was the brand blue #3b82f6, but white text on it
@@ -74,10 +74,13 @@
    -----------------------------------------------------------------------------
    SCALE
    -----------------------------------------------------------------------------
-   Spacing (padding/margin/gap):  2 · 4 · 6 · 8 · 12 · 16 · 24 dp
-   Radius:                        2 (default) · 4 · 8 dp
-   A value outside the scale needs a comment saying why, exactly like a magic
-   number in C++.
+   Spacing (padding/margin/gap):  0 · 2 · 4 · 6 · 8 · 10 · 12 · 16 · 24 dp
+   Radius:                        0 · 2 (default) · 4 · 8 dp
+   Typography:                    10 · 11 · 12 · 13 · 15 · 18 · 28 dp
+   Weight:                        400 · 500 · 600 · 700
+   Motion:                        0.1s
+   Exceptions use the exact declaration-local `ds-exception(...)` grammar in
+   ADR-0033; narrative comments alone do not expand a vocabulary.
 
    -----------------------------------------------------------------------------
    COMPONENT CONTRACTS
@@ -117,6 +120,7 @@
                     static text just because it sits in a card.
    ============================================================================= */
 
+/* ds-role(text-primary): color */
 body {
     font-family: Inter;
     font-size: 11dp;
@@ -125,6 +129,7 @@ body {
 }
 
 /* Section / panel eyebrow labels — tracked uppercase, large-text contrast. */
+/* ds-role(text-secondary): color */
 .panel-header {
     font-size: 10dp;
     font-weight: 700;
@@ -137,12 +142,13 @@ body {
    colour inherits. Always normal weight — the icon font has a single face. */
 .icon {
     font-family: tabler-icons;
-    font-weight: normal;
+    font-weight: 400;
     font-size: 1.2em;
     vertical-align: middle;
     margin-right: 6dp;
 }
 /* Hierarchy row type icon — muted, slightly smaller gap. */
+/* ds-role(text-tertiary): color */
 .row-icon {
     color: #71717a;
     font-size: 1.25em;
@@ -153,28 +159,34 @@ body {
    Latin-only subset has no glyph for the arrow shapes. */
 .icon-caret {
     font-family: tabler-icons;
-    font-weight: normal;
+    font-weight: 400;
     font-size: 1em;
     margin-left: 4dp;
 }
+/* ds-role(text-strong): color */
 .tree-row.selected .row-icon { color: #f4f4f5; }
 /* Start-scene star marker. */
+/* ds-role(warning-text): color */
 .ico-start { color: #d8b44a; }
 
 /* Scrollable areas */
 .tree, .console, .inspector { overflow-y: auto; }
 
 scrollbarvertical { width: 10dp; }
+/* ds-role(surface-sunken): background-color */
 scrollbarvertical slidertrack { background-color: #0b0b0d; }
+/* ds-role(border-subtle): background-color */
 scrollbarvertical sliderbar {
     background-color: #27272a;
-    border-radius: 3dp;
+    border-radius: 2dp;
     margin-left: 2dp;
     margin-right: 2dp;
     min-height: 32dp;
     transition: background-color 0.1s;
 }
-scrollbarvertical sliderbar:hover  { background-color: #3f3f46; }
+/* ds-role(border-strong): background-color */
+scrollbarvertical sliderbar:hover { background-color: #3f3f46; }
+/* ds-role(border-focus): background-color */
 scrollbarvertical sliderbar:active { background-color: #71717a; }
 
 /* =============================================================================
@@ -185,6 +197,7 @@ scrollbarvertical sliderbar:active { background-color: #71717a; }
    ============================================================================= */
 
 /* surface-base */
+/* ds-role(surface-base): background */
 .sfx-editor,
 .sfx-editor-browser,
 .sfx-modal-input {
@@ -192,6 +205,7 @@ scrollbarvertical sliderbar:active { background-color: #71717a; }
 }
 
 /* surface-base */
+/* ds-role(surface-base): background-color */
 #center-modebar,
 #console,
 #status-bar,
@@ -211,6 +225,7 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 }
 
 /* surface-chrome */
+/* ds-role(surface-chrome): background */
 .editor-modal,
 .sfx-batch-panel,
 .sfx-browser-row:hover,
@@ -222,6 +237,7 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 }
 
 /* surface-chrome */
+/* ds-role(surface-chrome): background-color */
 #center-mode-tabs,
 #menubar,
 #toolbar,
@@ -242,6 +258,7 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 }
 
 /* surface-disabled */
+/* ds-role(surface-disabled): background-color */
 #btn-grid-size.disabled,
 #btn-grid-snap.disabled,
 #btn-grid-visible.disabled,
@@ -260,6 +277,7 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 }
 
 /* surface-hover */
+/* ds-role(surface-hover): background */
 .sfx-batch-cancel:hover,
 .sfx-batch-cta:hover,
 .sfx-browser-action:hover,
@@ -271,6 +289,7 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 }
 
 /* surface-hover */
+/* ds-role(surface-hover): background-color */
 .add-entry:hover,
 .asset-option:hover,
 .center-mode-tab.active,
@@ -300,6 +319,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* surface-raised */
+/* ds-role(surface-raised): background */
 .sfx-batch-cancel,
 .sfx-batch-cta,
 .sfx-browser-add,
@@ -309,6 +329,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* surface-raised */
+/* ds-role(surface-raised): background-color */
 .add-list,
 .asset-count,
 .asset-option,
@@ -346,6 +367,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* surface-selected */
+/* ds-role(surface-selected): background */
 .sfx-batch-bar-fill,
 .sfx-browser-create-entry:hover,
 .sfx-browser-row.selected,
@@ -356,6 +378,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* surface-selected */
+/* ds-role(surface-selected): background-color */
 #btn-grid-size.grid-size-nav:hover,
 .add-component-btn.open,
 .asset-option.selected,
@@ -400,6 +423,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* surface-sunken */
+/* ds-role(surface-sunken): background */
 .editor-modal-backdrop,
 .sfx-batch-bar,
 .sfx-browser-search,
@@ -410,6 +434,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* surface-sunken */
+/* ds-role(surface-sunken): background-color */
 .assets-search-field,
 .color-field,
 .console-search-field,
@@ -446,16 +471,19 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* border-focus */
+/* ds-role(border-focus): background */
 .sfx-batch-bar-fill {
     background: #71717a;
 }
 
 /* border-focus */
+/* ds-role(border-focus): border-bottom-color */
 .center-mode-tab.active {
     border-bottom-color: #71717a;
 }
 
 /* border-focus */
+/* ds-role(border-focus): border-color */
 #btn-grid-size.grid-size-nav,
 #btn-grid-size.grid-size-nav:hover,
 .add-component-btn.open,
@@ -518,17 +546,20 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* border-focus */
+/* ds-role(border-focus): border-left-color */
 .layer-group-header.active,
 .tree-row.selected {
     border-left-color: #71717a;
 }
 
 /* border-focus */
+/* ds-role(border-focus): border-top-color */
 .script-tab.active {
     border-top-color: #71717a;
 }
 
 /* border-strong */
+/* ds-role(border-strong): background-color */
 .inspector-opacity-slider:hover slidertrack,
 .menu-separator,
 .tool-sep {
@@ -536,11 +567,13 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* border-strong */
+/* ds-role(border-strong): border-bottom-color */
 .sfx-editor-header {
     border-bottom-color: #3f3f46;
 }
 
 /* border-strong */
+/* ds-role(border-strong): border-color */
 .add-component-btn,
 .add-list,
 .asset-option:hover,
@@ -612,16 +645,19 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* border-strong */
+/* ds-role(border-strong): border-right-color */
 .sfx-editor-browser {
     border-right-color: #3f3f46;
 }
 
 /* border-subtle */
+/* ds-role(border-subtle): background-color */
 .inspector-opacity-slider slidertrack {
     background-color: #27272a;
 }
 
 /* border-subtle */
+/* ds-role(border-subtle): border-bottom-color */
 #center-modebar,
 #menubar,
 #toolbar,
@@ -649,6 +685,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* border-subtle */
+/* ds-role(border-subtle): border-color */
 #btn-grid-size.disabled,
 #btn-grid-snap.disabled,
 #btn-grid-visible.disabled,
@@ -700,6 +737,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* border-subtle */
+/* ds-role(border-subtle): border-left-color */
 #center-mode-tabs,
 #right-col,
 .color-reset,
@@ -710,6 +748,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* border-subtle */
+/* ds-role(border-subtle): border-right-color */
 #center-mode-tabs,
 #left-col,
 .script-line-numbers,
@@ -718,6 +757,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* border-subtle */
+/* ds-role(border-subtle): border-top-color */
 #console,
 #status-bar,
 #tile-palette-dock,
@@ -730,6 +770,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* text-disabled */
+/* ds-role(text-disabled): color */
 #btn-grid-size.disabled,
 #btn-grid-snap.disabled,
 #btn-grid-visible.disabled,
@@ -778,11 +819,13 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* text-primary */
+/* ds-role(text-primary): background-color */
 .inspector-opacity-slider sliderbar {
     background-color: #d4d4d8;
 }
 
 /* text-primary */
+/* ds-role(text-primary): color */
 .about-meta-value,
 .add-component-btn.open,
 .add-entry:hover,
@@ -863,6 +906,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* text-secondary */
+/* ds-role(text-secondary): color */
 .about-tagline,
 .about-version,
 .add-component-btn,
@@ -971,6 +1015,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* text-strong */
+/* ds-role(text-strong): background-color */
 .inspector-opacity-slider sliderbar:hover,
 .script-editor-caret,
 .sfx-macro-slider sliderbar,
@@ -979,6 +1024,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* text-strong */
+/* ds-role(text-strong): color */
 #btn-grid-size.grid-size-nav,
 #btn-grid-size.grid-size-nav:hover,
 .about-product,
@@ -1071,6 +1117,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* text-tertiary */
+/* ds-role(text-tertiary): color */
 .logic-expression-completion-empty,
 .logic-expression-completion-summary,
 #status-bar,
@@ -1157,13 +1204,15 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
     color: #71717a;
 }
 
-/* accent */
+/* action */
+/* ds-role(action): background */
 .panel-btn.primary,
 .sfx-header-actions .primary {
     background: #2563eb;
 }
 
-/* accent */
+/* action */
+/* ds-role(action): background-color */
 #btn-play-project,
 .logic-btn.primary,
 .script-restart-button,
@@ -1172,7 +1221,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
     background-color: #2563eb;
 }
 
-/* accent */
+/* action */
+/* ds-role(action): border-color */
 #btn-play-project,
 .logic-btn.primary,
 .panel-btn.primary,
@@ -1183,7 +1233,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
     border-color: #2563eb;
 }
 
-/* accent-hover */
+/* action-hover */
+/* ds-role(action-hover): background-color */
 #btn-play-project:hover,
 .logic-btn.primary:hover,
 .panel-btn.primary:hover,
@@ -1193,7 +1244,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
     background-color: #1d4ed8;
 }
 
-/* accent-hover */
+/* action-hover */
+/* ds-role(action-hover): border-color */
 #btn-play-project:hover,
 .logic-btn.primary:hover,
 .panel-btn.primary:hover,
@@ -1201,7 +1253,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
     border-color: #1d4ed8;
 }
 
-/* accent-on */
+/* on-action */
+/* ds-role(on-action): color */
 #btn-play-project,
 .center-mode-tab.active,
 .logic-btn.primary,
@@ -1219,11 +1272,13 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* brand */
+/* ds-role(brand): color */
 .about-brand {
     color: #3b82f6;
 }
 
 /* danger-border */
+/* ds-role(danger-border): border-color */
 .logic-expression-error,
 .logic-expression-input.invalid,
 .logic-context-variable-error,
@@ -1240,11 +1295,13 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* danger-border */
+/* ds-role(danger-border): border-top-color */
 .script-diagnostics {
     border-top-color: #7f3b38;
 }
 
 /* danger-surface */
+/* ds-role(danger-surface): background */
 .logic-expression-error,
 .logic-context-variable-error,
 .editor-modal-actions .panel-btn.danger,
@@ -1253,6 +1310,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* danger-surface */
+/* ds-role(danger-surface): background-color */
 #btn-console-error.active,
 #btn-stop:hover,
 .comp-remove:hover,
@@ -1269,11 +1327,13 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* danger-text */
+/* ds-role(danger-text): background-color */
 .status-health.error .status-dot {
     background-color: #e5706b;
 }
 
 /* danger-text */
+/* ds-role(danger-text): color */
 .logic-expression-error,
 .logic-context-variable-error,
 #btn-console-error.active,
@@ -1300,7 +1360,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
     color: #e5706b;
 }
 
-/* danger-text-hi */
+/* danger-text-hover */
+/* ds-role(danger-text-hover): color */
 #btn-stop:hover,
 .logic-btn.danger:hover,
 .script-diagnostic:hover {
@@ -1308,17 +1369,20 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* warning-border */
+/* ds-role(warning-border): border-bottom-color */
 .script-restart-banner {
     border-bottom-color: #6b5420;
 }
 
 /* warning-border */
+/* ds-role(warning-border): border-color */
 #btn-console-warning.active,
 .sfx-batch-cancel:hover {
     border-color: #6b5420;
 }
 
 /* warning-surface */
+/* ds-role(warning-surface): background-color */
 #btn-console-warning.active,
 .outside-warning,
 .script-restart-banner {
@@ -1326,16 +1390,19 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* warning-text */
+/* ds-role(warning-text): background-color */
 .status-health.warning .status-dot {
     background-color: #d8b44a;
 }
 
 /* warning-text */
+/* ds-role(warning-text): border-left-color */
 .outside-warning {
     border-left-color: #d8b44a;
 }
 
 /* warning-text */
+/* ds-role(warning-text): color */
 #btn-console-warning.active,
 .console-counts .count-warn,
 .layer-lock.locked,
@@ -1354,11 +1421,13 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 }
 
 /* success-text */
+/* ds-role(success-text): background-color */
 .status-dot {
     background-color: #4f9b68;
 }
 
 /* success-text */
+/* ds-role(success-text): color */
 .sfx-browser-status.ready,
 .sfx-status.ready,
 .tx-success {
@@ -1377,26 +1446,295 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
      code-comment     #697098   code-number    #f78c6c
      code-operator    #89ddff
      code-error-bg    #3a1f24   code-error-rule #f07178
-     code-bracket     #3b82f6   on #ffffff     (matched pair)
+     code-bracket     #3b82f6   code-bracket-on #ffffff (matched pair)
      code-caret-layer #00000000 (functional transparency, see below)
    ============================================================================= */
+/* ds-role(code-text): color */
 .script-editor-highlight { color: #d8d8dc; }
-.script-editor-highlight .lua-kw  { color: #c792ea; }   /* keyword    */
+/* ds-role(code-keyword): color */
+.script-editor-highlight .lua-kw { color: #c792ea; }   /* keyword    */
+/* ds-role(code-string): color */
 .script-editor-highlight .lua-str { color: #c3e88d; }   /* string     */
+/* ds-role(code-comment): color */
 .script-editor-highlight .lua-com { color: #697098; }   /* comment    */
+/* ds-role(code-number): color */
 .script-editor-highlight .lua-num { color: #f78c6c; }   /* number     */
-.script-editor-highlight .lua-op  { color: #89ddff; }   /* operator   */
-.script-editor-highlight .lua-id  { color: #d8d8dc; }   /* identifier */
+/* ds-role(code-operator): color */
+.script-editor-highlight .lua-op { color: #89ddff; }   /* operator   */
+/* ds-role(code-text): color */
+.script-editor-highlight .lua-id { color: #d8d8dc; }   /* identifier */
+/* ds-role(code-error-bg): background-color */
 .script-editor-highlight .lua-line-error {
     background-color: #3a1f24;
+}
+/* ds-role(code-error-rule): border-bottom */
+.script-editor-highlight .lua-line-error {
     border-bottom: 1px #f07178;
 }
 /* Matched-bracket highlight: brand tint is legitimate here — it marks a
    caret-driven pair in code, not a call to action. */
+/* ds-role(code-bracket-on): color */
 .script-editor-highlight .lua-bracket {
     color: #ffffff;
+}
+/* ds-role(code-bracket): background-color */
+.script-editor-highlight .lua-bracket {
     background-color: #3b82f6;
 }
 /* The editable textarea sits invisibly over the highlighted layer: its own
    glyphs must not paint, so the transparency is functional, not decorative. */
+/* ds-role(code-caret-layer): color */
 textarea#script-editor-textarea.script-editor-textarea { color: #00000000; }
+
+/* =============================================================================
+   ADR-0033 — standalone editor consumers. Values remain owned by the
+   semantic roles above; these selectors contain no private overlay palette.
+   ============================================================================= */
+
+/* ds-role(surface-base): background-color */
+.animation-editor-body,
+.tileset-editor-body,
+.animation-editor,
+.anim-editor-shell,
+.anim-clips,
+.anim-sheet,
+.anim-settings,
+.anim-timeline,
+.tileset-editor,
+.tileset-editor-shell,
+.tileset-canvas-col,
+.tileset-settings {
+    background-color: #131316;
+}
+
+/* ds-role(border-subtle): border-bottom */
+.anim-editor-title,
+.tileset-editor-title {
+    border-bottom: 1px #27272a;
+}
+
+/* ds-role(text-secondary): color */
+.anim-editor-eyebrow,
+.anim-panel-title,
+.animation-editor .assets-empty,
+.anim-asset,
+.anim-clip,
+.anim-add-clip,
+.anim-tool-label,
+.anim-tool-field,
+.anim-canvas-empty-hint,
+.anim-frame-order,
+.tileset-editor-eyebrow,
+.tileset-status-chip,
+.tileset-panel-title,
+.tileset-status-strong,
+.tileset-selected-info {
+    color: #a1a1aa;
+}
+
+/* ds-role(text-strong): color */
+.anim-editor-name,
+.anim-asset.selected .anim-clip-count,
+.anim-clip.selected .anim-clip-count,
+.anim-canvas-empty-title,
+.anim-frame.current .anim-frame-order,
+.tileset-editor-name {
+    color: #f4f4f5;
+}
+
+/* ds-role(border-subtle): border */
+.anim-clips,
+.anim-sheet,
+.anim-settings,
+.anim-slice-controls,
+.anim-sprite-canvas,
+.anim-preview-canvas,
+.anim-timeline,
+.anim-frame,
+.tileset-canvas-col,
+.tileset-settings,
+#tileset-canvas,
+.tileset-selected-thumb {
+    border: 1px #27272a;
+}
+
+/* ds-role(surface-hover): background-color */
+.anim-asset:hover,
+.anim-clip:hover,
+.anim-import-sheet:hover {
+    background-color: #27272a;
+}
+
+/* ds-role(text-primary): color */
+.anim-asset:hover,
+.anim-asset.selected,
+.anim-clip:hover,
+.anim-clip.selected,
+.anim-import-sheet:hover,
+.tileset-zoom-readout {
+    color: #d4d4d8;
+}
+
+/* ds-role(surface-selected): background-color */
+.anim-asset.selected,
+.anim-clip.selected,
+.anim-frame.current .anim-frame-thumb {
+    background-color: #2f2f36;
+}
+
+/* ds-role(border-focus): border-left */
+.anim-asset.selected,
+.anim-clip.selected {
+    border-left: 2dp #71717a;
+}
+
+/* ds-role(text-tertiary): color */
+.anim-asset-remove,
+.anim-clip-count,
+.anim-import-sheet,
+.anim-sheet-meta,
+.anim-sheet-footer,
+.anim-timeline-readout,
+.anim-frame-remove,
+.tileset-editor-source,
+.tileset-canvas-status,
+.tileset-slice-feedback,
+.tileset-selected-empty,
+.tileset-tiles-more,
+.tileset-settings-diagnostic {
+    color: #71717a;
+}
+
+/* ds-role(danger-surface): background-color */
+.anim-asset-remove:hover,
+.anim-remove-clip:hover,
+.anim-frame-remove:hover {
+    background-color: #2a1f20;
+}
+
+/* ds-role(danger-text): color */
+.anim-asset-remove:hover,
+.anim-remove-clip,
+.anim-remove-clip:hover,
+.anim-frame-remove:hover,
+.tileset-slice-feedback.err {
+    color: #e5706b;
+}
+
+/* ds-role(border-strong): border */
+.anim-add-clip,
+.anim-canvas-empty,
+.tileset-status-chip {
+    border: 1px #3f3f46;
+}
+
+/* ds-role(border-focus): border-color */
+.anim-add-clip:hover,
+.anim-frame.current {
+    border-color: #71717a;
+}
+
+/* ds-role(action): color */
+.anim-add-clip:hover {
+    color: #2563eb;
+}
+
+/* ds-role(surface-sunken): background-color */
+.anim-slice-controls,
+.anim-sprite-canvas,
+.anim-preview-canvas,
+.anim-frame-thumb,
+scrollbarhorizontal slidertrack,
+#tileset-canvas,
+.tileset-selected-thumb {
+    background-color: #0b0b0d;
+}
+
+/* ds-role(on-action): color */
+.anim-slice-controls .primary,
+.anim-canvas-empty-cta,
+.tileset-settings-actions .primary {
+    color: #ffffff;
+}
+
+/* ds-role(action): background-color */
+.anim-slice-controls .primary,
+.anim-canvas-empty-cta,
+.tileset-settings-actions .primary {
+    background-color: #2563eb;
+}
+
+/* ds-role(action): border-color */
+.anim-slice-controls .primary,
+.tileset-settings-actions .primary {
+    border-color: #2563eb;
+}
+
+/* ds-role(action-hover): background-color */
+.anim-slice-controls .primary:hover,
+.anim-canvas-empty-cta:hover,
+.tileset-settings-actions .primary:hover {
+    background-color: #1d4ed8;
+}
+
+/* ds-role(surface-raised): background-color */
+.anim-canvas-empty,
+.tileset-status-chip {
+    background-color: #1f1f23;
+}
+
+/* ds-role(action): border */
+.anim-canvas-empty-cta {
+    border: 1px #2563eb;
+}
+
+/* ds-role(danger-border): border */
+.anim-remove-clip {
+    border: 1px #7f3b38;
+}
+
+/* ds-role(danger-border): border-color */
+.anim-remove-clip:hover {
+    border-color: #7f3b38;
+}
+
+/* ds-role(surface-chrome): background-color */
+.anim-frame {
+    background-color: #18181b;
+}
+
+/* ds-role(border-strong): border-color */
+.anim-frame:hover {
+    border-color: #3f3f46;
+}
+
+/* ds-role(border-subtle): background-color */
+scrollbarhorizontal sliderbar {
+    background-color: #27272a;
+}
+
+/* ds-role(border-strong): background-color */
+scrollbarhorizontal sliderbar:hover {
+    background-color: #3f3f46;
+}
+
+/* ds-role(warning-text): color */
+.tileset-status-chip.warn,
+.tileset-slice-feedback.warn {
+    color: #d8b44a;
+}
+
+/* ds-role(warning-surface): background-color */
+.tileset-status-chip.warn {
+    background-color: #241f13;
+}
+
+/* ds-role(warning-border): border-color */
+.tileset-status-chip.warn {
+    border-color: #6b5420;
+}
+
+/* ds-role(success-text): color */
+.tileset-slice-feedback.ok {
+    color: #4f9b68;
+}

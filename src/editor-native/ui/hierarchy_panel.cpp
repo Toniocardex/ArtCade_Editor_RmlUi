@@ -1,4 +1,5 @@
 #include "editor-native/ui/hierarchy_panel.h"
+#include "editor-native/ui/ui_icons.h"
 
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/app/instance_name_policy.h"
@@ -60,11 +61,11 @@ HierarchySearchFields toSearchFields(const HierarchyInstancePresentation& item) 
 
 const char* typeIcon(const std::string& typeId) {
     const std::string t = lower(typeId);
-    if (t.find("player") != std::string::npos) return "&#xeb4d;";
-    if (t.find("crate")  != std::string::npos) return "&#xea45;";
-    if (t.find("coin")   != std::string::npos) return "&#xeb82;";
-    if (t.find("enemy")  != std::string::npos) return "&#xeb8e;";
-    return "&#xfa97;";
+    if (t.find("player") != std::string::npos) return "" UI_ICON_PLAYER "";
+    if (t.find("crate")  != std::string::npos) return "" UI_ICON_CRATE "";
+    if (t.find("coin")   != std::string::npos) return "" UI_ICON_COIN "";
+    if (t.find("enemy")  != std::string::npos) return "" UI_ICON_ENEMY "";
+    return "" UI_ICON_OBJECT "";
 }
 
 void setHtml(Rml::ElementDocument* document, const char* id, const std::string& html) {
@@ -173,10 +174,10 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
         tabs += "<div class=\"tab";
         if (active) tabs += " active";
         tabs += "\" data-action=\"select-scene\" data-arg=\"" + escapeRml(id) + "\">";
-        if (id == startSceneId) tabs += "<span class=\"icon ico-start\">&#xeb2e;</span>";
+        if (id == startSceneId) tabs += "<span class=\"icon ico-start\">" UI_ICON_START_SCENE "</span>";
         tabs += escapeRml(name);
         tabs += "<span class=\"tab-menu\" data-action=\"open-scene-menu\" data-arg=\""
-              + escapeRml(id) + "\">&#xeb5d;</span>";
+              + escapeRml(id) + "\">" UI_ICON_EXPAND "</span>";
         tabs += "</div>";
     }
     setHtml(document, "scene-tabs", tabs);
@@ -202,7 +203,7 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
     if (Rml::Element* slot = document->GetElementById("hierarchy-search-slot")) {
         if (!slot->HasChildNodes()) {
             slot->SetInnerRML(
-                "<span class=\"hierarchy-search-icon\">&#xeb1c;</span>"
+                "<span class=\"hierarchy-search-icon\">" UI_ICON_SEARCH "</span>"
                 "<input id=\"hierarchy-filter\" type=\"text\""
                 " class=\"hierarchy-search-field\" data-action=\"set-hierarchy-filter\""
                 " placeholder=\"Search hierarchy...\"/>");
@@ -264,7 +265,7 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
              + std::to_string(item.entityId) + "\" title=\""
              + instanceTooltip(item) + "\">";
         row += "<span class=\"icon row-icon\">";
-        row += item.tilemap ? "&#xea3b;" : typeIcon(item.objectTypeId);
+        row += item.tilemap ? "" UI_ICON_GRID "" : typeIcon(item.objectTypeId);
         row += "</span>";
 
         if (renameDraft_.entityId == item.entityId
@@ -291,11 +292,11 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
                  + escapeRml(item.objectTypeName) + "&#10;Stable ID: "
                  + escapeRml(item.objectTypeId) + "&#10;"
                  + std::to_string(item.sharedTypeCount)
-                 + " instances in this scene share this type\">&#xeade;</span>";
+                 + " instances in this scene share this type\">" UI_ICON_SHARED_INSTANCES "</span>";
         }
         row += "</span>";
         row += "<span class=\"row-menu\" data-action=\"open-entity-menu\" data-arg=\""
-             + std::to_string(item.entityId) + "\">&#xeb5d;</span>";
+             + std::to_string(item.entityId) + "\">" UI_ICON_EXPAND "</span>";
         row += "</div>";
         return row;
     };
@@ -346,18 +347,18 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
                   + escapeRml(layer.id) + "\">";
             rows += "<span class=\"layer-chevron\" data-action=\"toggle-hierarchy-layer\" "
                     "data-arg=\"" + escapeRml(layer.id) + "\"><span class=\"icon\">"
-                  + (isCollapsed ? "&#xea61;" : "&#xea62;") + "</span></span>";
+                  + (isCollapsed ? "" UI_ICON_CHEVRON_RIGHT "" : "" UI_ICON_CHEVRON_DOWN "") + "</span></span>";
             rows += "<span class=\"layer-eye\" data-action=\"toggle-layer-visible\""
                     " data-arg=\"" + escapeRml(layer.id) + "\" title=\""
                   + (isHidden ? "Show layer in editor" : "Hide layer in editor")
-                  + "\"><span class=\"icon\">&#xea9a;</span></span>";
+                  + "\"><span class=\"icon\">" UI_ICON_HIDDEN "</span></span>";
             rows += "<span class=\"layer-lock";
             if (layer.locked) rows += " locked";
             rows += "\" data-action=\"toggle-layer-locked\" data-arg=\""
                   + escapeRml(layer.id) + "\" title=\""
                   + (layer.locked ? "Unlock layer" : "Lock layer")
                   + "\"><span class=\"icon\">"
-                  + (layer.locked ? "&#xeae2;" : "&#xeae1;") + "</span></span>";
+                  + (layer.locked ? "" UI_ICON_LOCKED "" : "" UI_ICON_UNLOCKED "") + "</span></span>";
             rows += "<span class=\"layer-group-name\">";
             if (isActive) rows += "<span class=\"layer-active-dot\">&#x25cf;</span> ";
             rows += escapeRml(layer.name) + "</span>";
@@ -390,7 +391,7 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
         rows = "<div class=\"tree-empty\">No scene open.</div>";
     } else if (scene->instances.empty()) {
         rows = "<div class=\"hierarchy-empty-state\">"
-               "<span class=\"hierarchy-empty-icon\">&#xef94;</span>"
+               "<span class=\"hierarchy-empty-icon\">" UI_ICON_EMPTY_HIERARCHY "</span>"
                "<span class=\"hierarchy-empty-title\">Your scene is empty</span>"
                "<span class=\"hierarchy-empty-copy\">Create an entity to start building this scene.</span>"
                "<button class=\"panel-btn hierarchy-empty-action";

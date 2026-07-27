@@ -6,7 +6,7 @@
     <link type="text/rcss" href="../panels.rcss"/>
     <link type="text/rcss" href="sprite_animation_editor.rcss"/>
 </head>
-<body>
+<body class="animation-editor-body">
     <div id="animation-editor" class="animation-editor"></div>
 </body>
 </rml>

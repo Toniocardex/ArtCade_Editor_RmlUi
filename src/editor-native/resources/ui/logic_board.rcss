@@ -12,7 +12,7 @@
     display: flex;
     flex-direction: row;
     align-items: center;
-    padding: 10dp 14dp;
+    padding: 10dp 12dp;
 
     border-bottom-width: 1px;
 }
@@ -21,7 +21,7 @@
    header's far edge — it's part of what "Logic Board · <name>" means, not an
    unrelated remote control. */
 .logic-title-row { display: flex; flex-direction: row; align-items: center; min-width: 0; }
-.logic-title-prefix { flex: 0 0 auto; font-size: 17dp;  margin-right: 7dp; }
+.logic-title-prefix { flex: 0 0 auto; font-size: 18dp;  margin-right: 8dp; }
 /* .drop-trigger's shared `flex: 1` is right for an Inspector prop-row (one
    fixed label, one control) but would let this picker consume the whole
    title row — cap it, and let it shrink (not just cap) so a long Object Type
@@ -29,10 +29,10 @@
    (see editor_ui.cpp), not an in-flow .drop-list, so opening it never
    resizes this header. */
 .logic-type-trigger { flex: 0 1 240dp; min-width: 140dp; max-width: 240dp; }
-.logic-owner { margin-top: 3dp;  font-size: 11dp; letter-spacing: 0.5dp; }
+.logic-owner { margin-top: 4dp;  font-size: 11dp; letter-spacing: 0.5dp; }
 .logic-object-variables-reachability {
     display: block;
-    padding: 7dp 14dp;
+    padding: 8dp 12dp;
     border-bottom-width: 1px;
     font-size: 11dp;
 }
@@ -58,7 +58,7 @@
 .logic-variables-toggle {
     flex: 0 0 auto;
     margin-left: 10dp;
-    padding: 5dp 9dp;
+    padding: 4dp 10dp;
     background-color: transparent;
     border-width: 1px;
     border-radius: 2dp;
@@ -66,7 +66,7 @@
 }
 .logic-variables-drawer {
     display: block;
-    padding: 12dp 16dp 14dp 16dp;
+    padding: 12dp 16dp 12dp 16dp;
 
     border-bottom-width: 1px;
 }
@@ -100,7 +100,7 @@
     border-radius: 2dp;
 
     font-family: tabler-icons;
-    font-weight: normal;
+    font-weight: 400;
     transition: background-color 0.1s, color 0.1s;
 }
 .logic-variables-collapse .icon { margin: 0; }
@@ -110,10 +110,10 @@
     font-size: 13dp;
     font-weight: 600;
 }
-.logic-variables-head .logic-muted { margin: 3dp 0 0 0; font-size: 10dp; }
+.logic-variables-head .logic-muted { margin: 4dp 0 0 0; font-size: 10dp; }
 .logic-variables-empty {
     display: block;
-    padding: 12dp 14dp;
+    padding: 12dp 12dp;
 
     border-width: 1px;
     border-radius: 2dp;
@@ -133,7 +133,7 @@
 }
 .logic-variable-col {
 
-    font-size: 9dp;
+    font-size: 10dp;
     font-weight: 700;
     letter-spacing: 0.8dp;
     text-transform: uppercase;
@@ -188,7 +188,7 @@
     width: 100%;
     height: 28dp;
     line-height: 26dp;
-    padding: 0 20dp 0 8dp;
+    padding: 0 24dp 0 8dp;
     text-align: center;
     font-size: 11dp;
     font-weight: 500;
@@ -235,8 +235,8 @@
    widget-conversion pass can retire the ones it makes obsolete without
    touching the shared class other panels depend on). */
 .logic-btn, .logic-icon-btn {
-    margin-right: 5dp;
-    padding: 5dp 9dp;
+    margin-right: 4dp;
+    padding: 4dp 10dp;
     background-color: transparent;
     border-width: 1px;
     border-radius: 2dp;
@@ -250,7 +250,7 @@
     position: relative;
     display: flex;
     flex-wrap: wrap;
-    gap: 5dp;
+    gap: 4dp;
     min-width: 0;
 }
 .logic-key-capture, .logic-key-search-toggle, .logic-key-search-cancel,
@@ -268,7 +268,7 @@
     flex: 1 0 100%;
     display: flex;
     flex-wrap: wrap;
-    gap: 5dp;
+    gap: 4dp;
     padding: 6dp;
 
     border-width: 1px;
@@ -279,7 +279,7 @@
     min-width: 100dp;
     height: 26dp;
     box-sizing: border-box;
-    padding: 0 7dp;
+    padding: 0 8dp;
 
     border-width: 1px;
     border-radius: 2dp;
@@ -307,15 +307,15 @@
     display: flex;
     flex-direction: row;
     align-items: center;
-    padding: 1dp;
+    padding: 2dp;
 
     border-width: 1px;
-    border-radius: 3dp;
+    border-radius: 2dp;
 }
 .logic-toggle-option {
     box-sizing: border-box;
     min-width: 38dp;
-    padding: 3dp 10dp;
+    padding: 4dp 10dp;
 
     background-color: transparent;
     border-width: 0;
@@ -330,15 +330,15 @@
    margin of its own is needed — unlike the old bare-child-of-.logic-rule
    placement this replaced. */
 .logic-add-action { margin: 0; }
-.logic-scroll { flex: 1; overflow-y: auto; padding: 0 14dp 18dp 14dp; }
+.logic-scroll { flex: 1; overflow-y: auto; padding: 0 12dp 16dp 12dp; }
 /* RmlUi has no user-agent stylesheet: an element with no explicit `display`
    defaults to inline, not block. Every one of these wraps sibling instances
    of itself (rule list, EVENT/ACTION blocks, diagnostics) or block content
    (the empty-state card) — left inline they'd run onto one line / flow
    horizontally instead of stacking, exactly like .logic-empty-title did. */
-.logic-empty { display: block; margin: 28dp auto; width: 430dp; padding: 28dp; text-align: center;  border-width: 1px; border-radius: 4dp; }
+.logic-empty { display: block; margin: 24dp auto; width: 430dp; padding: 24dp; text-align: center;  border-width: 1px; border-radius: 4dp; }
 .logic-empty-title { display: block; font-size: 18dp;  margin-bottom: 8dp; }
-.logic-muted { display: block;  margin-bottom: 14dp; }
+.logic-muted { display: block;  margin-bottom: 12dp; }
 /* Capped so a rule card reads as a card even on very wide/ultrawide windows,
    but raised from the old 720dp (too tight for the 3-column Event/
    Conditions/Actions body — see .logic-rule-body below) to 1280dp, and
@@ -369,7 +369,7 @@
     margin-right: 2dp;
 
     font-family: tabler-icons;
-    font-weight: normal;
+    font-weight: 400;
 }
 /* Scoped to cards, not the shared .comp-remove definition itself (other
    panels use that class at its own, smaller size) — the move/delete buttons
@@ -385,7 +385,7 @@
 .logic-rule-title { flex: 1; font-size: 13dp;  }
 .logic-rule-diagnostic-count {
     margin-right: 8dp;
-    padding: 2dp 7dp;
+    padding: 2dp 8dp;
 
     font-size: 10dp;
 }
@@ -400,13 +400,13 @@
 .logic-block {
     display: block;
     margin: 8dp 0;
-    padding: 9dp;
+    padding: 10dp;
 
     border-width: 1px;
     border-radius: 4dp;
 }
 .logic-block-label {  margin-right: 8dp; }
-.logic-inline { display: flex; flex-direction: row; align-items: center; margin-top: 7dp; }
+.logic-inline { display: flex; flex-direction: row; align-items: center; margin-top: 8dp; }
 /* Keep a property picker and its list together. `.logic-inline` is a row, so
    emitting the list directly beside the trigger would lay it out to the
    right; this wrapper restores the normal vertical dropdown flow. */
@@ -454,28 +454,28 @@
     min-width: 64dp;
     height: 26dp;
     line-height: 24dp;
-    padding: 0 7dp;
+    padding: 0 8dp;
     border-width: 1px;
     border-radius: 2dp;
     text-align: center;
     font-size: 11dp;
 }
-.logic-context-variable-actions { margin-top: 5dp; }
-.logic-context-variable-actions .logic-btn { margin-right: 5dp; }
+.logic-context-variable-actions { margin-top: 4dp; }
+.logic-context-variable-actions .logic-btn { margin-right: 4dp; }
 .logic-context-variable-error {
     display: block;
-    margin-top: 5dp;
-    padding: 3dp 6dp;
+    margin-top: 4dp;
+    padding: 4dp 6dp;
     border-width: 1px;
     border-radius: 2dp;
     font-size: 11dp;
 }
 .logic-action-row { display: flex; flex-direction: row; align-items: center; }
 .logic-action-main { flex: 1; }
-.logic-diagnostic { display: block; margin: 5dp 10dp; padding: 7dp;   border-width: 0dp; text-align: left; font-size: 12dp; width: 100%; }
+.logic-diagnostic { display: block; margin: 4dp 10dp; padding: 8dp;   border-width: 0dp; text-align: left; font-size: 12dp; width: 100%; }
 .logic-diagnostic.logic-diagnostic-focus { border-width: 1dp; }
 .logic-repair-banner { margin: 8dp 10dp 4dp 10dp; padding: 10dp;  }
-.logic-repair-title {  font-weight: bold; margin-bottom: 4dp; }
+.logic-repair-title {  font-weight: 700; margin-bottom: 4dp; }
 .logic-repair-actions { margin-top: 8dp; }
 .logic-repair-actions button { margin-right: 6dp; margin-bottom: 4dp; }
 .logic-rule-diagnostics { display: block; }
@@ -503,8 +503,8 @@
 .logic-condition-toolbar .mode-option { margin-right: 2dp; }
 .logic-condition-join.fixed {
     display: inline-block;
-    margin-right: 5dp;
-    padding: 5dp 8dp;
+    margin-right: 4dp;
+    padding: 4dp 8dp;
 
     font-size: 10dp;
     font-weight: 700;
@@ -534,7 +534,7 @@
     flex-direction: row;
     align-items: center;
     margin: 6dp 0 2dp 0;
-    padding: 6dp 9dp;
+    padding: 6dp 10dp;
 
     font-size: 12dp;
 }
@@ -559,7 +559,7 @@
 
     font-size: 11dp;
 }
-.logic-col-empty-sub { display: block; margin-top: 3dp;  font-size: 10dp; }
+.logic-col-empty-sub { display: block; margin-top: 4dp;  font-size: 10dp; }
 .logic-board-panel.compact .logic-rule-body { flex-direction: column; }
 .logic-board-panel.compact .logic-rule-col { flex: 1 1 auto; width: 100%; }
 .logic-board-panel.compact .logic-rule-col.conditions-col,
@@ -580,7 +580,7 @@
 .logic-catalog-list { max-height: 260dp; overflow-y: auto; }
 .logic-catalog-category {
     display: block;
-    padding: 7dp 9dp 3dp 9dp;
+    padding: 8dp 10dp 4dp 10dp;
 
     font-size: 10dp;
     font-weight: 700;
@@ -590,7 +590,7 @@
 .logic-catalog-entry {
     display: block;
     width: 100%;
-    padding: 7dp 9dp;
+    padding: 8dp 10dp;
     text-align: left;
     background-color: transparent;
     border-width: 0;
@@ -611,7 +611,7 @@
     max-width: 1280dp;
     height: 38dp;
     line-height: 38dp;
-    margin: 8dp auto 18dp auto;
+    margin: 8dp auto 16dp auto;
     background-color: transparent;
     border-width: 1px;
     border-radius: 2dp;

@@ -1,4 +1,5 @@
 #include "editor-native/ui/tile_palette_dock_panel.h"
+#include "editor-native/ui/ui_icons.h"
 
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/model/tile_palette_availability.h"
@@ -104,7 +105,7 @@ std::string buildDockBodyHtml(const EditorCoordinator& coordinator,
     html += "<button class=\"panel-btn icon-only";
     if (view.gridVisible) html += " active";
     html += "\" data-action=\"tile-palette-toggle-grid\" title=\"Toggle grid\">"
-            "<span class=\"icon\">&#xea3b;</span></button>";
+            "<span class=\"icon\">" UI_ICON_GRID "</span></button>";
     html += "</div>";
 
     html += "<div class=\"tile-palette-dock-main\">";

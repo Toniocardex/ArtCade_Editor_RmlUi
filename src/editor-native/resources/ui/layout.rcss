@@ -41,7 +41,7 @@ body {
 
 /* flex:1 so this group (not just .toolbar-coords inside it) claims the
    space between the static buttons and toolbar-status — otherwise the group
-   shrink-wraps its content and toolbar-coords' margin-left:auto has nothing
+   shrink-wraps its content and toolbar-coords' margin-left: auto has nothing
    to push against, leaving toolbar-status stranded right after the buttons
    instead of pinned to the toolbar's far edge. */
 .contextual-tools {
@@ -62,7 +62,7 @@ body {
     flex-direction: row;
     align-items: center;
     height: 30dp;
-    margin: 0 5dp;
+    margin: 0 4dp;
 }
 .logic-search-icon {
     display: inline-block;
@@ -162,7 +162,7 @@ body {
     line-height: 36dp;
     min-width: 112dp;
     margin: 0;
-    padding: 0 18dp;
+    padding: 0 16dp;
     background-color: transparent;
     border-width: 0 0 3px 0;
     border-color: transparent;
@@ -253,7 +253,7 @@ body {
     padding: 0;
     background-color: transparent;
     border: 1px transparent;
-    border-radius: 3dp;
+    border-radius: 2dp;
 
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
 }
@@ -289,7 +289,7 @@ body {
     box-sizing: border-box;
     width: 100%;
     margin: 0;
-    padding: 1dp 2dp;
+    padding: 2dp 2dp;
     font-size: 10dp;
     text-align: center;
 }
@@ -300,7 +300,7 @@ body {
 .tile-palette-dock-rail-sep {
     flex: 0 0 auto;
     height: 1px;
-    margin: 1dp 4dp;
+    margin: 2dp 4dp;
 
 }
 .tile-palette-dock-main {

@@ -5,11 +5,11 @@
    here sets its display explicitly. Raw text must not sit directly inside a
    display:flex element (it won't render); text always lives in a span/div. */
 
-body {
+.animation-editor-body {
     width: 100%;
     height: 100%;
     display: block;
-    background-color: #0e0e10;
+
 }
 
 .animation-editor {
@@ -18,7 +18,7 @@ body {
     top: 0;
     width: 100%;
     height: 100%;
-    background-color: #0e0e10;
+
 }
 
 /* Shell: header / main row / timeline as one vertical flex so the sheet canvas
@@ -30,7 +30,7 @@ body {
     width: 100%;
     height: 100%;
     padding: 12dp;
-    background-color: #0e0e10;
+
 }
 
 /* -- Header bar ------------------------------------------------------------ */
@@ -40,11 +40,11 @@ body {
     align-items: center;
     height: 36dp;
     margin-bottom: 10dp;
-    border-bottom: 1px #26262a;
+
 }
 .anim-editor-eyebrow {
     display: inline-block;
-    color: #8a8a93;
+
     font-size: 10dp;
     font-weight: 700;
     letter-spacing: 1.1dp;
@@ -53,7 +53,7 @@ body {
 .anim-editor-name {
     display: inline-block;
     margin-left: 10dp;
-    color: #e4e4e7;
+
     font-size: 13dp;
     font-weight: 600;
 }
@@ -71,8 +71,8 @@ body {
 .anim-clips,
 .anim-sheet,
 .anim-settings {
-    background-color: #141417;
-    border: 1px #26262a;
+
+
     border-radius: 4dp;
 }
 .anim-panel-title {
@@ -80,7 +80,7 @@ body {
     height: 18dp;
     line-height: 18dp;
     margin-bottom: 8dp;
-    color: #8a8a93;
+
     font-size: 10dp;
     font-weight: 700;
     letter-spacing: 1.1dp;
@@ -91,7 +91,7 @@ body {
    panels; inside this editor the guidance must stay legible. */
 .animation-editor .assets-empty {
     font-size: 12dp;
-    color: #8a8a93;
+
 }
 
 /* -- Clips column ------------------------------------------------------------ */
@@ -116,20 +116,16 @@ body {
     align-items: center;
     height: 28dp;
     padding: 0 8dp;
-    margin-bottom: 3dp;
+    margin-bottom: 4dp;
     border-radius: 2dp;
     border-left: 2dp transparent;
-    color: #a1a1aa;
+
     transition: background-color 0.1s, color 0.1s;
 }
-.anim-asset:hover { background-color: #1c1c1f; color: #d4d4d8; }
-.anim-asset.selected {
-    background-color: #3b82f626;
-    border-left: 2dp #3b82f6;
-    color: #d4d4d8;
-}
+
+
 .anim-asset-name { flex: 1; font-size: 12dp; }
-.anim-asset.selected .anim-clip-count { color: #7aa2e8; }
+
 /* Same grey-to-red "remove" language as the Inspector's .comp-remove: quiet
    until hovered, never competing with the row's own open-sprite-animation. */
 .anim-asset-remove {
@@ -140,10 +136,10 @@ body {
     margin-left: 6dp;
     text-align: center;
     border-radius: 2dp;
-    color: #6b6b73;
+
     transition: background-color 0.1s, color 0.1s;
 }
-.anim-asset-remove:hover { background-color: #2a1f20; color: #e5706b; }
+
 
 /* Gap before the Clips sub-section title. */
 .anim-section-gap { margin-top: 6dp; }
@@ -160,25 +156,21 @@ body {
     align-items: center;
     height: 28dp;
     padding: 0 8dp;
-    margin-bottom: 3dp;
+    margin-bottom: 4dp;
     border-radius: 2dp;
     border-left: 2dp transparent;
-    color: #a1a1aa;
+
     transition: background-color 0.1s, color 0.1s;
 }
-.anim-clip:hover { background-color: #1c1c1f; color: #d4d4d8; }
-.anim-clip.selected {
-    background-color: #3b82f626;
-    border-left: 2dp #3b82f6;
-    color: #d4d4d8;
-}
+
+
 .anim-clip-name { flex: 1; font-size: 12dp; }
 .anim-clip-count {
     display: inline-block;
-    color: #71717a;
+
     font-size: 11dp;
 }
-.anim-clip.selected .anim-clip-count { color: #7aa2e8; }
+
 
 /* Full-width dashed-style add action at the bottom of the list. */
 .anim-add-clip {
@@ -186,14 +178,14 @@ body {
     height: 26dp;
     line-height: 26dp;
     text-align: center;
-    border: 1px #3a3a40;
+
     border-radius: 2dp;
-    color: #a1a1aa;
+
     font-size: 11dp;
     font-weight: 500;
     transition: border-color 0.1s, color 0.1s;
 }
-.anim-add-clip:hover { border-color: #3b82f6; color: #3b82f6; }
+
 
 /* Secondary: import a new sheet and start a fresh animation (asset-level). */
 .anim-import-sheet {
@@ -204,12 +196,12 @@ body {
     text-align: center;
     border: 1px transparent;
     border-radius: 2dp;
-    color: #71717a;
+
     font-size: 11dp;
     font-weight: 500;
     transition: background-color 0.1s, color 0.1s;
 }
-.anim-import-sheet:hover { background-color: #1c1c1f; color: #d4d4d8; }
+
 
 /* -- Sheet column ------------------------------------------------------------ */
 .anim-sheet {
@@ -230,7 +222,7 @@ body {
 .anim-sheet-meta {
     display: inline-block;
     margin-left: 8dp;
-    color: #71717a;
+
     font-size: 12dp;
 }
 .sheet-view-reset { margin: 0 0 0 auto; }
@@ -243,8 +235,8 @@ body {
     align-items: center;
     padding: 6dp 8dp;
     margin-bottom: 8dp;
-    background-color: #101013;
-    border: 1px #222226;
+
+
     border-radius: 4dp;
 }
 .anim-tool-group {
@@ -257,7 +249,7 @@ body {
 .anim-tool-label {
     display: inline-block;
     margin-right: 8dp;
-    color: #8a8a93;
+
     font-size: 10dp;
     font-weight: 700;
     letter-spacing: 0.6dp;
@@ -266,7 +258,7 @@ body {
 .anim-tool-field {
     display: inline-block;
     margin-left: 6dp;
-    color: #8a8a93;
+
     font-size: 12dp;
 }
 /* .prop-input is flex:1 (basis 0) for Inspector rows; inside this auto-sized
@@ -280,25 +272,21 @@ body {
 }
 .anim-slice-controls .slice-action { margin: 0 0 0 10dp; }
 .anim-slice-controls .panel-btn { margin-bottom: 0; }
-.anim-slice-controls .primary {
-    color: #f8fbff;
-    background-color: #1e4f8f;
-    border-color: #3b82f6;
-}
-.anim-slice-controls .primary:hover { background-color: #2563b8; }
+
+
 
 .anim-sprite-canvas {
     display: block;
     flex: 1;
     min-height: 120dp;
-    background-color: #0b0b0d;
-    border: 1px #222226;
+
+
     border-radius: 4dp;
 }
 .anim-sheet-footer {
     display: block;
     margin-top: 8dp;
-    color: #71717a;
+
     font-size: 11dp;
 }
 
@@ -309,21 +297,21 @@ body {
     align-items: center;
     padding: 10dp 12dp;
     margin-bottom: 8dp;
-    background-color: #141d30;
-    border: 1px #2b4a7a;
+
+
     border-radius: 4dp;
 }
 .anim-canvas-empty-text { display: block; flex: 1; }
 .anim-canvas-empty-title {
     display: block;
-    margin-bottom: 3dp;
-    color: #dbe7ff;
+    margin-bottom: 4dp;
+
     font-size: 13dp;
     font-weight: 600;
 }
 .anim-canvas-empty-hint {
     display: block;
-    color: #8fa8cf;
+
     font-size: 11dp;
 }
 .anim-canvas-empty-cta {
@@ -331,16 +319,16 @@ body {
     height: 28dp;
     line-height: 28dp;
     margin-left: 12dp;
-    padding: 0 14dp;
-    background-color: #3b82f6;
-    border: 1px #3b82f6;
+    padding: 0 12dp;
+
+
     border-radius: 2dp;
-    color: #ffffff;
+
     font-size: 12dp;
     font-weight: 600;
     transition: background-color 0.1s;
 }
-.anim-canvas-empty-cta:hover { background-color: #2f74e6; }
+
 
 /* -- Settings column ---------------------------------------------------------- */
 .anim-settings {
@@ -350,14 +338,14 @@ body {
     padding: 10dp 12dp;
 }
 .anim-settings .prop-label { width: 64dp; }
-.anim-preview-title { margin-top: 14dp; }
+.anim-preview-title { margin-top: 12dp; }
 
 .anim-preview-canvas {
     display: block;
     height: 170dp;
     margin-bottom: 8dp;
-    background-color: #0b0b0d;
-    border: 1px #222226;
+
+
     border-radius: 4dp;
 }
 
@@ -372,7 +360,7 @@ body {
 .anim-transport .panel-btn {
     width: 36dp;
     padding: 0;
-    margin: 0 3dp;
+    margin: 0 4dp;
 }
 .anim-transport .icon { margin-right: 0; }
 
@@ -389,18 +377,14 @@ body {
     height: 26dp;
     line-height: 26dp;
     text-align: center;
-    border: 1px #3a2527;
+
     border-radius: 2dp;
-    color: #b3665f;
+
     font-size: 11dp;
     font-weight: 500;
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
 }
-.anim-remove-clip:hover {
-    background-color: #2a1f20;
-    border-color: #7f3b38;
-    color: #e5706b;
-}
+
 
 /* -- Timeline strip ------------------------------------------------------------ */
 .anim-timeline {
@@ -408,8 +392,8 @@ body {
     flex-direction: column;
     height: 150dp;
     padding: 10dp 12dp;
-    background-color: #141417;
-    border: 1px #26262a;
+
+
     border-radius: 4dp;
 }
 .anim-timeline-head {
@@ -423,7 +407,7 @@ body {
 .anim-timeline-readout {
     display: inline-block;
     margin-left: 8dp;
-    color: #71717a;
+
     font-size: 11dp;
 }
 .anim-timeline-head .panel-btn { margin: 0 0 0 auto; }
@@ -442,13 +426,13 @@ body {
     width: 68dp;
     height: 84dp;
     margin-right: 6dp;
-    background-color: #18181b;
-    border: 1px #2c2d33;
+
+
     border-radius: 2dp;
     transition: border-color 0.1s;
 }
-.anim-frame:hover { border-color: #3f3f46; }
-.anim-frame.current { border-color: #3b82f6; }
+
+
 
 /* Head strip: order badge (left) + remove (right). Stays above the thumb so the
    raylib overlay, which paints only the thumb rect, never covers the controls. */
@@ -461,11 +445,11 @@ body {
 }
 .anim-frame-order {
     flex: 1;
-    color: #a1a1aa;
+
     font-size: 11dp;
     font-weight: 600;
 }
-.anim-frame.current .anim-frame-order { color: #cfe2ff; }
+
 .anim-frame-remove {
     display: inline-block;
     width: 15dp;
@@ -473,29 +457,28 @@ body {
     line-height: 15dp;
     text-align: center;
     border-radius: 2dp;
-    color: #6b6b73;
+
     font-size: 12dp;
     transition: background-color 0.1s, color 0.1s;
 }
-.anim-frame-remove:hover { background-color: #2a1f20; color: #e5706b; }
+
 
 /* Reserved rect for the raylib-drawn frame image. */
 .anim-frame-thumb {
     display: block;
     flex: 1;
-    margin: 0 3dp 3dp 3dp;
-    background-color: #0b0b0d;
+    margin: 0 4dp 4dp 4dp;
+
     border-radius: 2dp;
 }
-.anim-frame.current .anim-frame-thumb { background-color: #0d1524; }
+
 
 scrollbarhorizontal { height: 8dp; }
-scrollbarhorizontal slidertrack { background-color: #111113; }
+
 scrollbarhorizontal sliderbar {
-    background-color: #27272a;
-    border-radius: 3dp;
+
+    border-radius: 2dp;
     margin-top: 2dp;
     margin-bottom: 2dp;
     min-width: 32dp;
 }
-scrollbarhorizontal sliderbar:hover { background-color: #3f3f46; }

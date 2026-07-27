@@ -1,4 +1,5 @@
 #include "editor-native/ui/assets_panel.h"
+#include "editor-native/ui/ui_icons.h"
 
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/ui/editor_ui.h"
@@ -41,7 +42,7 @@ std::string importMenu(bool disabled) {
     };
     return std::string("<div class=\"create-menu asset-import\">")
          + "<button class=\"asset-import-trigger " + btnClass(disabled)
-         + "\"><span class=\"asset-import-title\"><span class=\"icon\">&#xeaad;</span>Import assets <span class=\"icon-caret\">&#xeb5d;</span></span>"
+         + "\"><span class=\"asset-import-title\"><span class=\"icon\">" UI_ICON_OPEN "</span>Import assets <span class=\"icon-caret\">" UI_ICON_EXPAND "</span></span>"
            "<span class=\"asset-import-subtitle\">Files or generated sound</span></button>"
            "<div class=\"create-dropdown\">"
          + entry("import-image", "Image")
@@ -60,7 +61,7 @@ std::string groupHeader(const char* sectionId, const char* label, std::size_t co
     return std::string("<div class=\"asset-group-title\" data-action=\"toggle-asset-section\""
                        " data-arg=\"")
          + sectionId + "\"><span class=\"asset-group-caret\">"
-         + (collapsed ? "&#xeb5f;" : "&#xeb5d;")
+         + (collapsed ? "" UI_ICON_COLLAPSE "" : "" UI_ICON_EXPAND "")
          + "</span><span class=\"asset-group-label\">" + label
          + "</span><span class=\"asset-count\">" + std::to_string(count)
          + "</span></div>";
@@ -71,7 +72,7 @@ std::string groupHeader(const char* sectionId, const char* label, std::size_t co
 // match parseAssetMenuKind.
 std::string menuAffordance(const char* kindTag, const std::string& id) {
     return "<span class=\"row-menu\" data-action=\"open-asset-menu\" data-arg=\""
-         + escapeRml(std::string(kindTag) + "|" + id) + "\">&#xeb5d;</span>";
+         + escapeRml(std::string(kindTag) + "|" + id) + "\">" UI_ICON_EXPAND "</span>";
 }
 
 // One list row: kind icon + display name + optional trailing meta + "⌄" menu.
@@ -152,7 +153,7 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
     if (Rml::Element* slot = document->GetElementById("assets-search-slot")) {
         if (!slot->HasChildNodes()) {
             slot->SetInnerRML(
-                "<span class=\"assets-search-icon\">&#xeb1c;</span>"
+                "<span class=\"assets-search-icon\">" UI_ICON_SEARCH "</span>"
                 "<input id=\"assets-filter-input\" type=\"text\""
                 " class=\"assets-search-field\" data-action=\"set-asset-filter\""
                 " placeholder=\"Search assets...\"/>");
@@ -184,7 +185,7 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
         for (const ImageAssetDef& asset : doc.imageAssets) {
             if (matchesAssetFilter(filter, {asset.name, asset.assetId, "Images",
                                             asset.sourcePath})) {
-                body += assetRow("&#xeb0a;", assetDisplayName(asset.name, asset.assetId),
+                body += assetRow("" UI_ICON_RENAME "", assetDisplayName(asset.name, asset.assetId),
                                    asset.assetId, nullptr, asset.assetId, "",
                                    menuAffordance("image", asset.assetId));
                 ++shown;
@@ -198,7 +199,7 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
         for (const SpriteAnimationAssetDef& asset : doc.spriteAnimationAssets) {
             const std::string source = asset.sourceImageAssetId;
             if (matchesAssetFilter(filter, {asset.name, asset.id, "Animations", source})) {
-                body += assetRow("&#xed46;", assetDisplayName(asset.name, asset.id),
+                body += assetRow("" UI_ICON_PLAY "", assetDisplayName(asset.name, asset.id),
                                    asset.id, "open-sprite-animation", asset.id, "",
                                    menuAffordance("anim", asset.id));
                 if (!source.empty()) body += sourceSubtitle(source);
@@ -213,7 +214,7 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
         for (const TilesetAsset& asset : doc.tilesets) {
             if (matchesAssetFilter(filter, {asset.name, asset.assetId, "Tilesets",
                                             asset.imageAssetId})) {
-                body += assetRow("&#xea3b;", assetDisplayName(asset.name, asset.assetId),
+                body += assetRow("" UI_ICON_GRID "", assetDisplayName(asset.name, asset.assetId),
                                    asset.assetId, "open-tileset-editor", asset.assetId, "",
                                    menuAffordance("tileset", asset.assetId));
                 body += sourceSubtitle(asset.imageAssetId);
@@ -231,7 +232,7 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
                 const GeneratedSfxStatusProjection status = generatedSfxStatus
                     ? generatedSfxStatus(definition.id)
                     : GeneratedSfxStatusProjection{};
-                body += assetRow("&#xed46;", definition.name, definition.id,
+                body += assetRow("" UI_ICON_PLAY "", definition.name, definition.id,
                                    "open-generated-sfx", definition.id,
                                    "<span class=\"asset-meta\">"
                                        + std::string(generatedSfxObservedStatusLabel(status.status))
@@ -289,7 +290,7 @@ void AssetsPanel::refresh(Rml::ElementDocument* document,
         for (const ScriptAssetDef& asset : doc.scriptAssets) {
             if (matchesAssetFilter(filter, {asset.name, asset.assetId, "Scripts",
                                             asset.sourcePath})) {
-                body += assetRow("&#xf2d2;", assetDisplayName(asset.name, asset.assetId),
+                body += assetRow("" UI_ICON_AUDIO "", assetDisplayName(asset.name, asset.assetId),
                                    asset.sourcePath, "open-script", asset.assetId, "",
                                    menuAffordance("script", asset.assetId));
                 ++shown;

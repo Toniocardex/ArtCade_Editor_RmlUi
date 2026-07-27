@@ -1,4 +1,5 @@
 #include "editor-native/ui/console_panel.h"
+#include "editor-native/ui/ui_icons.h"
 
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/ui/editor_ui.h"
@@ -151,7 +152,7 @@ void ConsolePanel::refresh(Rml::ElementDocument* document,
         row += levelClass(message.level);
         if (selected_ && *selected_ == i) row += " selected";
         row += "\" data-action=\"select-console\" data-arg=\"" + std::to_string(i) + "\">";
-        if (message.scriptSource) row += "<span class=\"console-source-link\">&#xeb47;</span> ";
+        if (message.scriptSource) row += "<span class=\"console-source-link\">" UI_ICON_SOURCE_LINK "</span> ";
         row += escapeRml(message.text) + "</div>";
         html = row + html;   // prepend: keep chronological order in the list
         ++shown;

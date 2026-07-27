@@ -9,7 +9,7 @@
 }
 .logic-property.stacked .logic-block-label {
     margin-right: 0;
-    margin-bottom: 5dp;
+    margin-bottom: 4dp;
 }
 /* `.logic-vec2-group` carries `flex: 1` to fill the width when it sits beside
    its label. Once stacked, the parent is a column, so the same declaration
@@ -54,7 +54,7 @@
 .logic-expression-error {
     display: block;
     margin: 0 0 4dp 24dp;
-    padding: 3dp 6dp;
+    padding: 4dp 6dp;
     border-width: 1px;
     border-radius: 2dp;
     font-size: 11dp;
@@ -65,18 +65,18 @@
 .logic-expression-completions {
     display: block;
     margin: 0 0 6dp 24dp;
-    padding: 3dp;
+    padding: 4dp;
     max-height: 150dp;
     overflow-y: auto;
     border-width: 1px;
-    border-radius: 3dp;
+    border-radius: 2dp;
 }
 
 .logic-expression-completion {
     display: block;
     width: 100%;
     box-sizing: border-box;
-    padding: 4dp 7dp;
+    padding: 4dp 8dp;
     background-color: transparent;
     border-width: 0;
     border-radius: 2dp;
@@ -97,6 +97,6 @@
 
 .logic-expression-completion-empty {
     display: block;
-    padding: 5dp 7dp;
+    padding: 4dp 8dp;
     font-size: 11dp;
 }

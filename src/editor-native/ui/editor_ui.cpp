@@ -1,4 +1,5 @@
 #include "editor-native/ui/editor_ui.h"
+#include "editor-native/ui/ui_icons.h"
 
 #include "editor-native/app/editor_action_ui_map.h"
 #include "editor-native/app/editor_build_info.h"
@@ -1906,12 +1907,12 @@ void EditorUi::refreshGeneratedSfxEditor() {
         browserHtml += "\">" + std::string(status) + "</span></button>"
             "<div class=\"sfx-browser-actions\">"
             "<button class=\"sfx-browser-action\" data-action=\"focus-sfx-rename\" data-arg=\""
-            + escapeRml(entry.id) + "\" title=\"Rename\"><span class=\"icon\">&#xeb0a;</span></button>"
+            + escapeRml(entry.id) + "\" title=\"Rename\"><span class=\"icon\">" UI_ICON_RENAME "</span></button>"
             "<button class=\"sfx-browser-action\" data-action=\"duplicate-generated-sfx\" data-arg=\""
-            + escapeRml(entry.id) + "\" title=\"Duplicate Sound\"><span class=\"icon\">&#xedef;</span></button>"
+            + escapeRml(entry.id) + "\" title=\"Duplicate Sound\"><span class=\"icon\">" UI_ICON_DUPLICATE "</span></button>"
             "<button id=\"sfx-delete-" + escapeRml(entry.id)
             + "\" class=\"sfx-browser-action destructive\" data-action=\"remove-generated-sfx\" data-arg=\""
-            + escapeRml(entry.id) + "\" title=\"Delete sound, linked audio and WAV\"><span class=\"icon\">&#xeb41;</span></button>"
+            + escapeRml(entry.id) + "\" title=\"Delete sound, linked audio and WAV\"><span class=\"icon\">" UI_ICON_DELETE "</span></button>"
             "</div></div>";
     }
     if (shown == 0) {
@@ -2291,7 +2292,7 @@ std::string sfxSectionHeader(const char* title, const std::string& sectionId, bo
                              const char* toggleField, bool toggleOn) {
     std::string html = "<div class=\"sfx-section-head\">"
         "<button class=\"sfx-section-caret\" data-action=\"toggle-sfx-section\" data-arg=\""
-        + sectionId + "\">" + (collapsed ? "&#xeb5d;" : "&#xeb5f;") + "</button>"
+        + sectionId + "\">" + (collapsed ? "" UI_ICON_EXPAND "" : "" UI_ICON_COLLAPSE "") + "</button>"
         "<span class=\"sfx-section-title\">" + title + "</span>";
     if (toggleField) {
         html += "<button class=\"sfx-choice sfx-section-toggle\" data-action=\"toggle-sfx-field\" "
@@ -2585,7 +2586,7 @@ void EditorUi::toggleLogicMoreMenu() {
     menu->SetInnerRML(
         "<div id=\"logic-more-remove\" class=\"context-entry destructive\" "
         "data-action=\"remove-logic-board\">"
-        "<span class=\"icon\">&#xeb41;</span>"
+        "<span class=\"icon\">" UI_ICON_DELETE "</span>"
         "<span>Remove Logic Board</span></div>");
     const Rml::Vector2f offset = trigger->GetAbsoluteOffset();
     menu->SetProperty("left", std::to_string(static_cast<int>(offset.x)) + "px");
@@ -2822,7 +2823,7 @@ void EditorUi::refreshToolbar() {
             el->RemoveAttribute("data-action");
             el->SetAttribute("title", "Grid Cell Size");
             el->SetInnerRML(escapeRml(gridSizeLabel)
-                            + " <span class=\"icon-caret\">&#xeb5d;</span>");
+                            + " <span class=\"icon-caret\">" UI_ICON_EXPAND "</span>");
         }
     }
     if (Rml::Element* el = document_->GetElementById("grid-size-control"))

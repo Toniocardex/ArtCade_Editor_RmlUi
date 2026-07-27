@@ -114,12 +114,12 @@ artcade_test(sfx_synthesizer_test
     ${CMAKE_SOURCE_DIR}/vendor/artcade-runtime/src/modules/sfx/tests/sfx_tests.cpp
     ArtCade::Sfx)
 
-# ADR-0027 phase 3: the design-system invariants (colour lives only in
-# theme.rcss, and every value it declares is documented). Scans the shipped
-# .rcss sources, so it needs their path rather than a library.
+# ADR-0033: recursive design-system gates for semantic colour roles, metrics,
+# static/generated markup, platform mirrors, and Tabler icon authority.
 add_executable(ui_stylesheet_tokens_test ui-stylesheet-tokens-test.cpp)
 target_compile_definitions(ui_stylesheet_tokens_test PRIVATE
-    ARTCADE_UI_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/src/editor-native/resources/ui")
+    ARTCADE_UI_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/src/editor-native/resources/ui"
+    ARTCADE_UI_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src/editor-native")
 add_test(NAME ui_stylesheet_tokens_test COMMAND ui_stylesheet_tokens_test)
 
 # A bare text node inside a `display: flex` element is invisible in RmlUi.

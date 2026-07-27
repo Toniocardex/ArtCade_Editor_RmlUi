@@ -62,9 +62,6 @@ std::string formatOpacityPercent(float alpha);
  */
 std::optional<float> parseOpacityPercent(const std::string& text);
 
-/** CSS `rgba(r,g,b,a)` for swatch fills (channels from document Vec4). */
-std::string formatColorCssRgba(const Vec4& color);
-
 enum class OpacitySliderChangeDisposition {
     PreviewOnly,
     CommitImmediately,

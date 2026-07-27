@@ -12,13 +12,7 @@
       "type": "number"
     }
   ],
-  "imageAssets": [
-    {
-      "assetId": "fixture-sheet",
-      "name": "Design System Sheet",
-      "sourcePath": "visual-assets/design-system-sheet.png"
-    }
-  ],
+  "imageAssets": [],
   "mainScriptPath": "scripts/main.luac",
   "objectTypes": [
     {
@@ -205,6 +199,138 @@
               ],
               "typeId": "collision.enter"
             }
+          },
+          {
+            "actions": [
+              {
+                "properties": [
+                  {
+                    "key": "direction",
+                    "value": {
+                      "kind": "string",
+                      "value": "Right"
+                    }
+                  }
+                ],
+                "typeId": "topdown.move"
+              }
+            ],
+            "conditions": [],
+            "enabled": true,
+            "executionMode": "every_occurrence",
+            "id": "rule-1",
+            "name": "rule-1",
+            "trigger": {
+              "properties": [
+                {
+                  "key": "key",
+                  "value": {
+                    "kind": "key",
+                    "value": "D"
+                  }
+                }
+              ],
+              "typeId": "input.key_held"
+            }
+          },
+          {
+            "actions": [
+              {
+                "properties": [
+                  {
+                    "key": "direction",
+                    "value": {
+                      "kind": "string",
+                      "value": "Left"
+                    }
+                  }
+                ],
+                "typeId": "topdown.move"
+              }
+            ],
+            "conditions": [],
+            "enabled": true,
+            "executionMode": "every_occurrence",
+            "id": "rule-2",
+            "name": "rule-1 Copy",
+            "trigger": {
+              "properties": [
+                {
+                  "key": "key",
+                  "value": {
+                    "kind": "key",
+                    "value": "A"
+                  }
+                }
+              ],
+              "typeId": "input.key_held"
+            }
+          },
+          {
+            "actions": [
+              {
+                "properties": [
+                  {
+                    "key": "direction",
+                    "value": {
+                      "kind": "string",
+                      "value": "Up"
+                    }
+                  }
+                ],
+                "typeId": "topdown.move"
+              }
+            ],
+            "conditions": [],
+            "enabled": true,
+            "executionMode": "every_occurrence",
+            "id": "rule-3",
+            "name": "rule-1 Copy Copy",
+            "trigger": {
+              "properties": [
+                {
+                  "key": "key",
+                  "value": {
+                    "kind": "key",
+                    "value": "W"
+                  }
+                }
+              ],
+              "typeId": "input.key_held"
+            }
+          },
+          {
+            "actions": [
+              {
+                "properties": [
+                  {
+                    "key": "direction",
+                    "value": {
+                      "kind": "string",
+                      "value": "Down"
+                    }
+                  }
+                ],
+                "typeId": "topdown.move"
+              }
+            ],
+            "conditions": [],
+            "enabled": true,
+            "executionMode": "every_occurrence",
+            "id": "rule-4",
+            "name": "rule-1 Copy Copy Copy",
+            "trigger": {
+              "properties": [
+                {
+                  "key": "key",
+                  "value": {
+                    "kind": "key",
+                    "value": "S"
+                  }
+                }
+              ],
+              "typeId": "input.key_held"
+            }
           }
         ],
         "schemaVersion": 4
@@ -215,6 +341,12 @@
           "kind": "none"
         },
         "visible": true
+      },
+      "topDownController": {
+        "acceleration": 1600.0,
+        "fourDirections": false,
+        "friction": 2200.0,
+        "maxSpeed": 260.0
       },
       "visible": true
     },
@@ -239,6 +371,80 @@
         },
         "visible": true
       },
+      "visible": true
+    },
+    {
+      "id": "object-1",
+      "name": "Entity 4",
+      "text": {
+        "align": "top-left",
+        "bindKey": "score",
+        "bindScope": "global",
+        "colorHex": "#FFFFFF",
+        "digits": 2,
+        "fontPath": "",
+        "format": "integer",
+        "offsetX": 0.0,
+        "offsetY": 0.0,
+        "prefix": "",
+        "screenSpace": false,
+        "size": 24,
+        "suffix": "",
+        "text": "Text"
+      },
+      "visible": true
+    },
+    {
+      "id": "object-2",
+      "logicBoard": {
+        "apiVersion": 2,
+        "id": "logic:object-2",
+        "rules": [
+          {
+            "actions": [
+              {
+                "properties": [
+                  {
+                    "key": "objectTypeId",
+                    "value": {
+                      "kind": "string",
+                      "value": "Coin"
+                    }
+                  },
+                  {
+                    "key": "position",
+                    "value": {
+                      "kind": "vec2",
+                      "x": 256.0,
+                      "y": 256.0
+                    }
+                  }
+                ],
+                "typeId": "entity.spawn"
+              }
+            ],
+            "conditions": [],
+            "enabled": true,
+            "executionMode": "every_occurrence",
+            "id": "rule-1",
+            "name": "rule-1",
+            "trigger": {
+              "properties": [
+                {
+                  "key": "seconds",
+                  "value": {
+                    "kind": "number",
+                    "value": 2.0
+                  }
+                }
+              ],
+              "typeId": "event.every_seconds"
+            }
+          }
+        ],
+        "schemaVersion": 4
+      },
+      "name": "Spawner",
       "visible": true
     }
   ],
@@ -311,6 +517,42 @@
             }
           },
           "visible": true
+        },
+        {
+          "id": 4,
+          "instanceName": "Text_hud",
+          "layerId": "layer-main",
+          "objectTypeId": "object-1",
+          "transform": {
+            "position": {
+              "x": 32.0,
+              "y": 32.0
+            },
+            "rotation": 0.0,
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            }
+          },
+          "visible": true
+        },
+        {
+          "id": 5,
+          "instanceName": "Spawner",
+          "layerId": "layer-main",
+          "objectTypeId": "object-2",
+          "transform": {
+            "position": {
+              "x": 256.0,
+              "y": 256.0
+            },
+            "rotation": 0.0,
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            }
+          },
+          "visible": true
         }
       ],
       "layers": [
@@ -369,114 +611,8 @@
   },
   "schemaVersion": 11,
   "scriptAssets": [],
-  "spriteAnimationAssets": [
-    {
-      "clips": [
-        {
-          "frameIds": [
-            "frame-1",
-            "frame-2"
-          ],
-          "framesPerSecond": 8.0,
-          "id": "idle",
-          "name": "Idle",
-          "playbackMode": "loop"
-        }
-      ],
-      "frames": [
-        {
-          "height": 16,
-          "id": "frame-1",
-          "width": 16,
-          "x": 0,
-          "y": 0
-        },
-        {
-          "height": 16,
-          "id": "frame-2",
-          "width": 16,
-          "x": 16,
-          "y": 0
-        }
-      ],
-      "id": "fixture-animation",
-      "name": "Fixture Animation",
-      "sourceImageAssetId": "fixture-sheet"
-    }
-  ],
+  "spriteAnimationAssets": [],
   "targetFPS": 60.0,
-  "tilesets": [
-    {
-      "assetId": "fixture-tileset",
-      "imageAssetId": "fixture-sheet",
-      "name": "Fixture Tileset",
-      "slicing": {
-        "marginX": 0,
-        "marginY": 0,
-        "spacingX": 0,
-        "spacingY": 0,
-        "tileHeight": 8,
-        "tileWidth": 8
-      },
-      "tiles": [
-        {
-          "height": 8,
-          "id": "tile-1",
-          "width": 8,
-          "x": 0,
-          "y": 0
-        },
-        {
-          "height": 8,
-          "id": "tile-2",
-          "width": 8,
-          "x": 8,
-          "y": 0
-        },
-        {
-          "height": 8,
-          "id": "tile-3",
-          "width": 8,
-          "x": 16,
-          "y": 0
-        },
-        {
-          "height": 8,
-          "id": "tile-4",
-          "width": 8,
-          "x": 24,
-          "y": 0
-        },
-        {
-          "height": 8,
-          "id": "tile-5",
-          "width": 8,
-          "x": 0,
-          "y": 8
-        },
-        {
-          "height": 8,
-          "id": "tile-6",
-          "width": 8,
-          "x": 8,
-          "y": 8
-        },
-        {
-          "height": 8,
-          "id": "tile-7",
-          "width": 8,
-          "x": 16,
-          "y": 8
-        },
-        {
-          "height": 8,
-          "id": "tile-8",
-          "width": 8,
-          "x": 24,
-          "y": 8
-        }
-      ]
-    }
-  ],
+  "tilesets": [],
   "version": "2.0.0"
 }

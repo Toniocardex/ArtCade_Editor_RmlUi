@@ -1,5 +1,13 @@
 # ADR-0027 — UI Design Tokens and Component Contracts
 
+> **Superseded in part by [ADR-0033](ADR-0033-product-wide-ui-design-system.md).**
+> This document remains the historical record of the shell migration and
+> component-contract decisions. ADR-0033 is authoritative for product-wide
+> scope, semantic roles, the `0/2/4/6/8/10/12/16/24dp` spacing vocabulary,
+> radius, typography, motion, icons, exceptions, platform mirrors, and recursive
+> enforcement. Earlier scales and statements that spacing is unenforced are
+> historical baseline only.
+
 **Status:** Accepted — phases 1–4 implemented (all stylesheets migrated,
 invariants enforced by test, components under visual regression); phase 5 open  
 **Date:** 2026-07-25  

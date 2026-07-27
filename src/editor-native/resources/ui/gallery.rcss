@@ -79,6 +79,30 @@
     font-weight: 600;
 }
 
+.gallery-type {
+    display: block;
+    height: 32dp;
+    line-height: 32dp;
+    white-space: nowrap;
+}
+.type-eyebrow { font-size: 10dp; font-weight: 700; text-transform: uppercase; }
+.type-body { font-size: 11dp; font-weight: 400; }
+.type-label { font-size: 12dp; font-weight: 400; }
+.type-control-strong { font-size: 13dp; font-weight: 600; }
+.type-heading-small { font-size: 15dp; font-weight: 600; }
+.type-heading { font-size: 18dp; font-weight: 600; }
+.type-display { font-size: 28dp; font-weight: 700; }
+
+.gallery-icon-button {
+    display: inline-block;
+    width: 28dp;
+    height: 28dp;
+    line-height: 28dp;
+    padding: 0;
+    text-align: center;
+}
+.gallery-icon-button .icon { margin-right: 0; }
+
 /* Menu-family specimens need their real container: .menu-entry and friends
    are styled for the inside of a dropdown, not for bare page background. */
 .gallery-menu {

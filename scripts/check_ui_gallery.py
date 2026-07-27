@@ -35,6 +35,8 @@ VIEWS = {
     "gallery": ["--shot-gallery"],
     "scene":   ["--shot-project", str(FIXTURE), "--shot-entity", "0"],
     "logic":   ["--shot-project", str(FIXTURE), "--shot-entity", "0", "--shot-logic"],
+    "anim":    ["--shot-project", str(FIXTURE), "--shot-anim"],
+    "tileset": ["--shot-project", str(FIXTURE), "--shot-tileset"],
     # ADR-0029: the completion list is the whole discovery surface now that the
     # node palette is gone, and it only exists while a field has focus — which
     # no static capture would otherwise reach.

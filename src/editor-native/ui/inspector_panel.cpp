@@ -1,4 +1,5 @@
 #include "editor-native/ui/inspector_panel.h"
+#include "editor-native/ui/ui_icons.h"
 
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/app/inspector_commit.h"
@@ -127,7 +128,7 @@ std::string header(const char* sectionId, bool collapsed, const char* iconCp,
          " data-action=\"toggle-inspector-section\" data-arg=\"";
     h += sectionId;
     h += "\"><span class=\"comp-caret\">";
-    h += collapsed ? "&#xeb5f;" : "&#xeb5d;";
+    h += collapsed ? "" UI_ICON_COLLAPSE "" : "" UI_ICON_EXPAND "";
     h += "</span>";
     h += icon(iconCp);
     h += title;
@@ -154,7 +155,7 @@ std::string header(const char* sectionId, bool collapsed, const char* iconCp,
         h += "\" data-action=\"";
         h += removeAction;
         h += "\">";
-        h += icon("&#xeb41;");
+        h += icon("" UI_ICON_DELETE "");
         h += "</span>";
     }
     h += "</div>";
@@ -252,13 +253,13 @@ std::string outsideSceneWarning(SceneContainment containment, bool playing) {
         ? "Outside scene bounds"
         : "Partially outside scene bounds";
     std::string html = "<div class=\"outside-warning\">"
-        "<span class=\"icon\">&#xea06;</span><span>";
+        "<span class=\"icon\">" UI_ICON_DIAGNOSTICS "</span><span>";
     html += label;
     html += "</span></div>";
     html += "<button class=\"";
     html += playing ? "panel-btn disabled" : "panel-btn";
     html += "\" data-action=\"bring-entity-into-scene\">"
-            "<span class=\"icon\">&#xea5f;</span>Bring Into Scene</button>";
+            "<span class=\"icon\">" UI_ICON_BRING_INTO_SCENE "</span>Bring Into Scene</button>";
     return html;
 }
 
@@ -641,7 +642,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         // Folder glyph, not the plus: "+" is the add-action icon everywhere else
         // (+ Create, + Import, + Add Layer), so "+ PROJECT" read as a button.
         html += header("project", isSectionCollapsed("project"),
-                       "&#xeaad;", "Project", "", "", "", playing);
+                       "" UI_ICON_OPEN "", "Project", "", "", "", playing);
         html += field("Name", "commit-project-name", projectName, playing,
                       "inspector-project-name");
         if (!scene) {
@@ -657,11 +658,11 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
 
         // -- GENERAL -----------------------------------------------------------
         html += header("general", isSectionCollapsed("general"),
-                       "&#xeb34;", "General", "", "", "", playing);
+                       "" UI_ICON_GENERAL "", "General", "", "", "", playing);
         html += field("Name", "commit-scene-name", scene->name, playing);
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Start</span>";
         if (isStart) {
-            html += "<span class=\"prop-start-badge\"><span class=\"icon\">&#xeb2e;</span>"
+            html += "<span class=\"prop-start-badge\"><span class=\"icon\">" UI_ICON_START_SCENE "</span>"
                     "<span>Current Start Scene</span></span>";
         } else {
             html += "<button class=\"" + btn + "\" data-action=\"set-start-scene\">"
@@ -673,7 +674,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 "<span class=\"prop-meta-value\">" + escapeRml(scene->id) + "</span>";
         if (!playing) {
             html += "<button class=\"prop-copy\" data-action=\"copy-scene-id\" "
-                    "title=\"Copy scene ID\"><span class=\"icon\">&#xea7a;</span></button>";
+                    "title=\"Copy scene ID\"><span class=\"icon\">" UI_ICON_COPY "</span></button>";
         }
         html += "</div>";
         html += "<div class=\"prop-row prop-meta\"><span class=\"prop-label\">Entities</span>"
@@ -686,7 +687,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         const std::string hex = formatColorHexRgb(bgColor);
         const std::string opacity = formatOpacityPercent(bgColor.a);
         html += header("appearance", isSectionCollapsed("appearance"),
-                       "&#xeb01;", "Appearance", "", "", "", playing);
+                       "" UI_ICON_APPEARANCE "", "Appearance", "", "", "", playing);
         html += "<div class=\"prop-color-block\">"
                 "<span class=\"prop-label\">Background</span>"
                 "<div class=\"color-field\">";
@@ -698,9 +699,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                     "data-action=\"pick-scene-background-color\" "
                     "title=\"Choose background color\">";
         }
-        html += "<div class=\"color-swatch-checker\">"
-                "<div id=\"scene-bg-swatch-color\" class=\"color-swatch-color\"></div>"
-                "</div></div>";
+        html += "<div class=\"color-swatch-checker\"></div></div>";
         html += "<input id=\"scene-bg-hex\" type=\"text\" class=\"prop-input color-hex\""
                 " data-action=\"commit-scene-background-hex\" value=\""
               + escapeRml(hex) + "\"";
@@ -711,7 +710,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         html += "\" data-action=\"reset-scene-background\" "
                 "title=\"Reset to default scene background\"";
         if (playing) html += " disabled=\"disabled\"";
-        html += "><span class=\"icon\">&#xeb55;</span></button>";
+        html += "><span class=\"icon\">" UI_ICON_RESET "</span></button>";
         html += "</div></div>";
         html += "<div class=\"prop-row opacity-row\">"
                 "<span class=\"prop-label\">Opacity</span>"
@@ -731,7 +730,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
 
         // -- WORLD BOUNDS (world units; resizing never moves instances) ---------
         html += header("world-bounds", isSectionCollapsed("world-bounds"),
-                       "&#xf22f;", "World Bounds", "", "", "", playing);
+                       "" UI_ICON_SPATIAL "", "World Bounds", "", "", "", playing);
         html += fieldWithUnit("Width", "commit-scene-width", num(scene->worldSize.x), "wu", playing);
         html += fieldWithUnit("Height", "commit-scene-height", num(scene->worldSize.y), "wu", playing);
         // Fit View lives in the toolbar's view group (audit 7.4): a camera action
@@ -739,7 +738,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
 
         // -- GAME VIEW (ADR-0018): visible area at Play; not world bounds --------
         html += header("game-view", isSectionCollapsed("game-view"),
-                       "&#xed30;", "Game View", "", "", "", playing);
+                       "" UI_ICON_GAME_VIEW "", "Game View", "", "", "", playing);
         {
             const bool presetOpen = openDropdownId_ == "game-view-preset" && !playing;
             const std::string presetLabel = sceneViewportPresetLabel(scene->viewportSize);
@@ -772,7 +771,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
 
         // -- LAYER MANAGER (per-scene render order; top row = foreground) ------
         html += header("layers", isSectionCollapsed("layers"),
-                       "&#xee9e;", "Layer Manager", "", "", "", playing);
+                       "" UI_ICON_LAYER_MANAGER "", "Layer Manager", "", "", "", playing);
         const EditorSceneViewState& view = coordinator.sceneView(activeScene);
         const std::string activeLayer = coordinator.activeLayerId(activeScene);
         // Render rows reversed so the foreground layer (last in scene.layers) is on top.
@@ -786,13 +785,13 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             if (isHidden) html += " hidden";
             html += "\">";
             html += "<span class=\"layer-eye\" data-action=\"toggle-layer-visible\" data-arg=\""
-                  + escapeRml(layer.id) + "\"><span class=\"icon\">&#xea9a;</span></span>";
+                  + escapeRml(layer.id) + "\"><span class=\"icon\">" UI_ICON_HIDDEN "</span></span>";
             html += "<span class=\"layer-lock";
             if (layer.locked) html += " locked";
             html += "\" data-action=\"toggle-layer-locked\" data-arg=\"" + escapeRml(layer.id)
                   + "\" title=\"" + (layer.locked ? "Unlock layer" : "Lock layer")
                   + "\"><span class=\"icon\">"
-                  + (layer.locked ? "&#xeae2;" : "&#xeae1;") + "</span></span>";
+                  + (layer.locked ? "" UI_ICON_LOCKED "" : "" UI_ICON_UNLOCKED "") + "</span></span>";
             const bool renaming = layerRename_
                 && layerRename_->sceneId == activeScene
                 && layerRename_->layerId == layer.id;
@@ -841,7 +840,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         }
         if (!playing)
             html += "<button class=\"" + btn + " layer-add-btn\" data-action=\"add-layer\">"
-                    "<span class=\"icon\">&#xeb0b;</span>Add Layer</button>";
+                    "<span class=\"icon\">" UI_ICON_ADD "</span>Add Layer</button>";
 
         // -- DIAGNOSTICS (derived query, recomputed each refresh) --------------
         const SceneFrameSnapshot diag =
@@ -853,7 +852,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                     ++outside;
         }
         html += header("diagnostics", isSectionCollapsed("diagnostics"),
-                       "&#xea06;", "Diagnostics", "", "", "", playing);
+                       "" UI_ICON_DIAGNOSTICS "", "Diagnostics", "", "", "", playing);
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Outside bounds</span>"
                 "<span class=\"prop-readonly";
         if (outside > 0) html += " warn";
@@ -933,13 +932,13 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     }
 
     if (instanceLocked) {
-        html += "<div class=\"outside-warning panel-top\"><span class=\"icon\">&#xeae2;</span>"
+        html += "<div class=\"outside-warning panel-top\"><span class=\"icon\">" UI_ICON_LOCKED "</span>"
                 "<span>This entity belongs to a locked layer.</span></div>";
     }
 
     // -- Identity (not a component) -------------------------------------------
     html += header("identity", isSectionCollapsed("identity"),
-                   "&#xeb34;", "Identity", "", "", "", playing);
+                   "" UI_ICON_GENERAL "", "Identity", "", "", "", playing);
     html += field("Name", "commit-name", inst->instanceName, instanceDisabled);
     // Renaming this field renames the shared ObjectTypeDef (every instance of
     // this type reflects the new name), not just this instance - unlike "Name"
@@ -994,8 +993,8 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 else if (targetHidden) html += " title=\"Layer is hidden\"";
                 html += ">";
                 if (isCurrent) html += "<span class=\"drop-mark\">&#x25cf;</span> ";
-                if (targetLocked) html += "<span class=\"icon\">&#xeae2;</span> ";
-                else if (targetHidden) html += "<span class=\"icon\">&#xea9a;</span> ";
+                if (targetLocked) html += "<span class=\"icon\">" UI_ICON_LOCKED "</span> ";
+                else if (targetHidden) html += "<span class=\"icon\">" UI_ICON_HIDDEN "</span> ";
                 html += escapeRml(l.name) + "</div>";
             }
             html += "</div>";
@@ -1004,7 +1003,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
 
     // -- Transform (instance-owned; structural, no remove) --------------------
     html += header("transform", isSectionCollapsed("transform"),
-                   "&#xf22f;", "Transform", "", "", "", instanceDisabled);
+                   "" UI_ICON_SPATIAL "", "Transform", "", "", "", instanceDisabled);
     html += fieldWithUnit("Position X", "commit-transform-position-x",
                           num(inst->transform.position.x), "wu", instanceDisabled,
                           "inspector-pos-x");
@@ -1032,7 +1031,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         const bool unifiedSprite = type->spritePresentation.has_value();
         html += header(unifiedSprite ? "sprite" : "sprite-renderer",
                        isSectionCollapsed(unifiedSprite ? "sprite" : "sprite-renderer"),
-                       "&#xeb0a;", unifiedSprite ? "Sprite" : "Sprite Renderer", "", "",
+                       "" UI_ICON_RENAME "", unifiedSprite ? "Sprite" : "Sprite Renderer", "", "",
                        "remove-sprite-renderer", playing);
         html += typeOwnedLockNote;
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Visible</span>"
@@ -1112,7 +1111,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             // instance - unaffected by this instance's own layer lock.
             html += "<button class=\"" + btn + "\" data-action=\"open-sprite-animation\" data-arg=\""
                   + escapeRml(animationAssetId)
-                  + "\"><span class=\"icon\">&#xeb0a;</span>Open Animation Editor</button>";
+                  + "\"><span class=\"icon\">" UI_ICON_RENAME "</span>Open Animation Editor</button>";
         }
         if (unifiedSprite && presentation.animator) {
             const SpriteAnimatorComponent& animator = *presentation.animator;
@@ -1167,7 +1166,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 animatorBadge = "INHERITED";
             }
             html += header("sprite-animator", isSectionCollapsed("sprite-animator"),
-                           "&#xeb0a;", "Sprite Animator", animatorBadge.c_str(), "",
+                           "" UI_ICON_RENAME "", "Sprite Animator", animatorBadge.c_str(), "",
                            "remove-sprite-animator-type", playing);
             html += typeOwnedLockNote;
             if (inherited) {
@@ -1248,7 +1247,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         const TilemapComponent& tm = *inst->tilemap;
         const TilesetAsset* tmTileset = coordinator.document().findTilesetAsset(tm.tilesetAssetId);
         html += header("tilemap", isSectionCollapsed("tilemap"),
-                       "&#xf22f;", "Tilemap", "", "", "remove-tilemap-component", instanceDisabled);
+                       "" UI_ICON_SPATIAL "", "Tilemap", "", "", "remove-tilemap-component", instanceDisabled);
         const std::string tilesetLabel = tmTileset
             ? assetDisplayName(tmTileset->name, tmTileset->assetId)
             : std::string("(missing)");
@@ -1307,7 +1306,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     // -- Scripts (Object-Type owned; every instance inherits this order) -------
     if (type) {
         html += header("scripts", isSectionCollapsed("scripts"),
-                       "&#xf1b7;", "Scripts", "", "", "", playing);
+                       "" UI_ICON_SCRIPTS "", "Scripts", "", "", "", playing);
         html += typeOwnedLockNote;
         const ScriptComponent emptyScripts;
         const ScriptComponent& scripts = type->scripts ? *type->scripts : emptyScripts;
@@ -1369,7 +1368,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         (type && type->boxCollider2D) ? &*type->boxCollider2D : nullptr;
     if (collider) {
         html += header("box-collider", isSectionCollapsed("box-collider"),
-                       "&#xeca9;", "Box Collider 2D", "", "", "remove-box-collider", playing);
+                       "" UI_ICON_COLLIDER "", "Box Collider 2D", "", "", "remove-box-collider", playing);
         html += typeOwnedLockNote;
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Enabled</span>"
                 "<button class=\"" + btn + "\" data-action=\"toggle-box-enabled\">";
@@ -1402,7 +1401,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         (type && type->linearMover) ? &*type->linearMover : nullptr;
     if (mover) {
         html += header("linear-mover", isSectionCollapsed("linear-mover"),
-                       "&#xf22f;", "Linear Mover", "", "", "remove-linear-mover", playing);
+                       "" UI_ICON_SPATIAL "", "Linear Mover", "", "", "remove-linear-mover", playing);
         html += typeOwnedLockNote;
         html += field("Direction X", "commit-mover-dir-x", num(mover->directionX), playing);
         html += field("Direction Y", "commit-mover-dir-y", num(mover->directionY), playing);
@@ -1414,7 +1413,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         (type && type->topDownController) ? &*type->topDownController : nullptr;
     if (controller) {
         html += header("top-down-controller", isSectionCollapsed("top-down-controller"),
-                       "&#xec8e;", "Top Down Controller", "", "", "remove-top-down", playing);
+                       "" UI_ICON_CONTROLLER "", "Top Down Controller", "", "", "remove-top-down", playing);
         html += typeOwnedLockNote;
         html += field("Speed", "commit-topdown-speed", num(controller->maxSpeed), playing);
         html += field("Acceleration", "commit-topdown-acceleration",
@@ -1433,7 +1432,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         (type && type->platformerController) ? &*type->platformerController : nullptr;
     if (platformer) {
         html += header("platformer-controller", isSectionCollapsed("platformer-controller"),
-                       "&#xec8e;", "Platformer Controller", "", "", "remove-platformer", playing);
+                       "" UI_ICON_CONTROLLER "", "Platformer Controller", "", "", "remove-platformer", playing);
         html += typeOwnedLockNote;
         html += field("Move Speed", "commit-platformer-move", num(platformer->maxSpeed), playing);
         html += field("Jump Speed", "commit-platformer-jump", num(platformer->jumpForce), playing);
@@ -1447,7 +1446,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     if (inst->cameraTarget.has_value()) {
         const CameraTargetComponent& target = *inst->cameraTarget;
         html += header("camera-target", isSectionCollapsed("camera-target"),
-                       "&#xeb5f;", "Camera Target", "", "",
+                       "" UI_ICON_COLLAPSE "", "Camera Target", "", "",
                        "remove-camera-target", instanceDisabled);
         html += field("Offset X", "commit-camera-target-offset-x", num(target.offsetX),
                       instanceDisabled);
@@ -1463,7 +1462,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         (type && type->autoDestroy) ? &*type->autoDestroy : nullptr;
     if (autoDestroy) {
         html += header("auto-destroy", isSectionCollapsed("auto-destroy"),
-                       "&#xeb41;", "Auto Destroy", "", "", "remove-auto-destroy", playing);
+                       "" UI_ICON_DELETE "", "Auto Destroy", "", "", "remove-auto-destroy", playing);
         html += typeOwnedLockNote;
         html += fieldWithUnit("Lifetime", "commit-auto-destroy-lifespan",
                               num(autoDestroy->lifespan), "s", playing);
@@ -1474,7 +1473,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     const TextComponent* textComp = (type && type->text) ? &*type->text : nullptr;
     if (textComp) {
         html += header("text", isSectionCollapsed("text"),
-                       "&#xea95;", "Text", "", "", "remove-text", playing);
+                       "" UI_ICON_TEXT "", "Text", "", "", "remove-text", playing);
         html += typeOwnedLockNote;
         html += field("Text", "commit-text-static", textComp->text, playing);
         html += field("Prefix", "commit-text-prefix", textComp->prefix, playing);
@@ -1650,7 +1649,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     const GaugeComponent* gaugeComp = (type && type->gauge) ? &*type->gauge : nullptr;
     if (gaugeComp) {
         html += header("gauge", isSectionCollapsed("gauge"),
-                       "&#xea94;", "Gauge", "", "", "remove-gauge", playing);
+                       "" UI_ICON_GAUGE "", "Gauge", "", "", "remove-gauge", playing);
         html += typeOwnedLockNote;
         const bool gaugeBindingLocal = gaugeComp->bindScope == "local";
         const bool pickingGaugeGlobalVariable = !gaugeBindingLocal
@@ -1765,7 +1764,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     // section would turn one variable into two apparently independent things.
     if (type) {
         html += header("object-variables", isSectionCollapsed("object-variables"),
-                       "&#xeb4c;", "Object Variables", "", "", "", playing);
+                       "" UI_ICON_OBJECT_VARIABLES "", "Object Variables", "", "", "", playing);
         html += typeOwnedLockNote;
         // Said once, in prose, instead of twice per variable in labels too long
         // for the column. With the ownership pills gone this is what carries it.
@@ -1816,7 +1815,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             html += "</div><span class=\"comp-remove";
             if (playing) html += " disabled";
             html += "\" data-action=\"remove-object-variable\" data-arg=\"" + safeKey
-                  + "\" title=\"Delete object variable\">" + icon("&#xeb41;")
+                  + "\" title=\"Delete object variable\">" + icon("" UI_ICON_DELETE "")
                   + "</span></div>";
             if (typeOpen) {
                 html += "<div class=\"drop-list\">";
@@ -1939,7 +1938,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         if (addMenuOpen_ && !playing) trigger += " open";
         html += "<div class=\"add-component\">";
         html += "<div class=\"" + trigger + "\" data-action=\"toggle-add-component\">"
-                "<span class=\"icon\">&#xeb0b;</span>Add Component</div>";
+                "<span class=\"icon\">" UI_ICON_ADD "</span>Add Component</div>";
         if (addMenuOpen_ && !playing) {
             html += "<div class=\"add-list\">";
             for (const Addable& a : addable) {
@@ -2018,9 +2017,6 @@ void InspectorPanel::applyBackgroundOpacityPreview(Rml::ElementDocument* documen
         } else {
             value->SetAttribute("value", percent);
         }
-    }
-    if (Rml::Element* swatchColor = document->GetElementById("scene-bg-swatch-color")) {
-        swatchColor->SetProperty("background-color", formatColorCssRgba(color));
     }
 }
 

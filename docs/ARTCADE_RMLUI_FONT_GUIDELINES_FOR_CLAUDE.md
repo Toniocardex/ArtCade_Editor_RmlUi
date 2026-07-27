@@ -1,5 +1,12 @@
 # ArtCade — gestione dei font con RmlUi
 
+> **Aggiornamento di autorità:** [ADR-0033](ADR-0033-product-wide-ui-design-system.md)
+> definisce il vocabolario tipografico e iconografico del prodotto implementato.
+> Le dimensioni in pixel e le alternative SVG/atlas riportate più avanti
+> descrivono lo spike storico e non autorizzano nuovi valori: l'editor usa i
+> ruoli `10/11/12/13/15/18/28dp`, i pesi statici `400/500/600/700` e Tabler
+> Icons secondo il catalogo/allowlist stabiliti dall'ADR.
+
 Queste linee guida devono essere applicate durante il refactor dell’editor nativo ArtCade basato su RmlUi.
 
 L’obiettivo è ottenere un sistema font:

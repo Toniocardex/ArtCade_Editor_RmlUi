@@ -6,7 +6,7 @@
     <link type="text/rcss" href="../panels.rcss"/>
     <link type="text/rcss" href="tileset_editor.rcss"/>
 </head>
-<body>
+<body class="tileset-editor-body">
     <div id="tileset-editor" class="tileset-editor"></div>
 </body>
 </rml>

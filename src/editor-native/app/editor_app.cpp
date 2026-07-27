@@ -54,6 +54,7 @@
 #include "editor-native/model/tileset_slicing.h"
 #include "editor-native/app/visual_fixture.h"
 #include "editor-native/ui/component_gallery.h"
+#include "editor-native/ui/window_chrome_theme.h"
 #include "editor-native/ui/editor_ui.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view.h"
@@ -329,8 +330,10 @@ int EditorApp::run(int argc, char** argv) {
     // exact menubar colors; COLORREF is 0x00BBGGRR.
     if (void* hwnd = GetWindowHandle()) {
         const int darkMode = 1;
-        const unsigned long captionColor = 0x001B1818;   // #18181b
-        const unsigned long textColor    = 0x00D8D4D4;   // #d4d4d8
+        const unsigned long captionColor =
+            WindowChromeTheme::toColorRef(WindowChromeTheme::kCaptionBackgroundRgb);
+        const unsigned long textColor =
+            WindowChromeTheme::toColorRef(WindowChromeTheme::kCaptionTextRgb);
         DwmSetWindowAttribute(hwnd, 20, &darkMode, sizeof(darkMode));
         DwmSetWindowAttribute(hwnd, 35, &captionColor, sizeof(captionColor));
         DwmSetWindowAttribute(hwnd, 36, &textColor, sizeof(textColor));

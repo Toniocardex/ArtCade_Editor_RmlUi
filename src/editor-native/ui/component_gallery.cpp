@@ -1,4 +1,5 @@
 #include "editor-native/ui/component_gallery.h"
+#include "editor-native/ui/ui_icons.h"
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -52,6 +53,30 @@ std::string componentGalleryMarkup() {
         + specimen("warning", "<div class=\"gallery-text tx-warning\">Ag</div>")
         + specimen("success", "<div class=\"gallery-text tx-success\">Ag</div>"));
 
+    // -- Complete readable-text vocabulary and icon-only control states. --
+    html += section("Typography roles",
+        specimen("eyebrow 10", "<div class=\"gallery-type type-eyebrow\">Section label</div>")
+        + specimen("body 11", "<div class=\"gallery-type type-body\">Dense editor body</div>")
+        + specimen("label 12", "<div class=\"gallery-type type-label\">Control label</div>")
+        + specimen("control 13", "<div class=\"gallery-type type-control-strong\">Strong control</div>")
+        + specimen("heading small 15", "<div class=\"gallery-type type-heading-small\">Panel heading</div>")
+        + specimen("heading 18", "<div class=\"gallery-type type-heading\">Editor heading</div>")
+        + specimen("display 28", "<div class=\"gallery-type type-display\">ArtCade</div>"));
+
+    html += section("Icon-only controls",
+        specimen("normal", "<button class=\"panel-btn gallery-icon-button\" "
+                           "title=\"Add item\"><span class=\"icon\">" UI_ICON_ADD "</span></button>")
+        + specimen("hover", "<button class=\"panel-btn gallery-icon-button\" data-force=\"hover\" "
+                            "title=\"Rename\"><span class=\"icon\">" UI_ICON_RENAME "</span></button>")
+        + specimen("focus", "<button class=\"panel-btn gallery-icon-button\" data-force=\"focus\" "
+                            "title=\"Copy\"><span class=\"icon\">" UI_ICON_COPY "</span></button>")
+        + specimen("selected", "<button class=\"panel-btn gallery-icon-button active\" "
+                               "title=\"Grid selected\"><span class=\"icon\">" UI_ICON_GRID "</span></button>")
+        + specimen("disabled", "<button class=\"panel-btn gallery-icon-button disabled\" "
+                               "title=\"Undo unavailable\"><span class=\"icon\">" UI_ICON_UNDO "</span></button>")
+        + specimen("destructive", "<span class=\"comp-remove gallery-icon-button\" "
+                                  "title=\"Delete\"><span class=\"icon\">" UI_ICON_DELETE "</span></span>"));
+
     // -- tool-btn: the toolbar contract, including the state that regressed --
     html += section("tool-btn",
         specimen("normal", "<button class=\"tool-btn\">Grid</button>")
@@ -76,13 +101,13 @@ std::string componentGalleryMarkup() {
     //    text form and the .with-shortcut form must render their label. --
     html += section("menu-entry",
         specimen("bare label", "<div class=\"gallery-menu\"><div class=\"menu-entry\">"
-                               "<span class=\"icon\">&#xeb0b;</span>New</div></div>")
+                               "<span class=\"icon\">" UI_ICON_ADD "</span>New</div></div>")
         + specimen("hover", "<div class=\"gallery-menu\"><div class=\"menu-entry\" "
-                            "data-force=\"hover\"><span class=\"icon\">&#xeb0b;</span>New</div></div>")
+                            "data-force=\"hover\"><span class=\"icon\">" UI_ICON_ADD "</span>New</div></div>")
         + specimen("active", "<div class=\"gallery-menu\"><div class=\"menu-entry active\">"
-                             "<span class=\"icon\">&#xea3b;</span>Show Grid</div></div>")
+                             "<span class=\"icon\">" UI_ICON_GRID "</span>Show Grid</div></div>")
         + specimen("disabled", "<div class=\"gallery-menu\"><div class=\"menu-entry disabled\">"
-                               "<span class=\"icon\">&#xeb77;</span>Undo</div></div>")
+                               "<span class=\"icon\">" UI_ICON_UNDO "</span>Undo</div></div>")
         + specimen("with-shortcut", "<div class=\"gallery-menu\"><div class=\"menu-entry with-shortcut\">"
                                     "<span class=\"menu-entry-label\">Keyboard Shortcuts</span>"
                                     "<span class=\"menu-entry-shortcut\">F1</span></div></div>")
@@ -94,17 +119,17 @@ std::string componentGalleryMarkup() {
     // -- context-entry, including the submenu flyout that regressed twice --
     html += section("context-entry",
         specimen("normal", "<div class=\"gallery-menu\"><div class=\"context-entry\">"
-                           "<span class=\"icon\">&#xeb0a;</span><span>Rename</span>"
+                           "<span class=\"icon\">" UI_ICON_RENAME "</span><span>Rename</span>"
                            "<span class=\"context-shortcut\">F2</span></div></div>")
         + specimen("hover", "<div class=\"gallery-menu\"><div class=\"context-entry\" "
-                            "data-force=\"hover\"><span class=\"icon\">&#xeb0a;</span>"
+                            "data-force=\"hover\"><span class=\"icon\">" UI_ICON_RENAME "</span>"
                             "<span>Rename</span></div></div>")
         + specimen("destructive", "<div class=\"gallery-menu\"><div class=\"context-entry destructive\">"
-                                  "<span class=\"icon\">&#xeb41;</span><span>Delete</span>"
+                                  "<span class=\"icon\">" UI_ICON_DELETE "</span><span>Delete</span>"
                                   "<span class=\"context-shortcut\">Del</span></div></div>")
         + specimen("has-submenu", "<div class=\"gallery-menu\"><div class=\"context-entry has-submenu\">"
-                                  "<span class=\"icon\">&#xeb2d;</span><span>Move to Layer</span>"
-                                  "<span class=\"context-submenu-caret\">&#xea61;</span></div></div>"));
+                                  "<span class=\"icon\">" UI_ICON_MOVE_TO_LAYER "</span><span>Move to Layer</span>"
+                                  "<span class=\"context-submenu-caret\">" UI_ICON_CHEVRON_RIGHT "</span></div></div>"));
 
     // -- drop-entry: the value pickers --
     html += section("drop-entry",

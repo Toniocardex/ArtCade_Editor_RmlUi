@@ -10,7 +10,7 @@
 
 .sfx-editor-header {
     height: 62px;
-    padding: 10px 16px;
+    padding: 10dp 16dp;
     display: flex;
     flex-direction: row;
     justify-content: space-between;
@@ -19,15 +19,15 @@
     border-bottom-width: 1px;
 }
 
-.sfx-kicker { display: block; font-size: 10px;  letter-spacing: 1px; }
-.sfx-editor-title { display: block; margin-top: 2px; font-size: 19px; font-weight: 600; }
-.sfx-header-actions { display: flex; flex-direction: row; gap: 7px; align-items: center; }
+.sfx-kicker { display: block; font-size: 10dp;  letter-spacing: 1px; }
+.sfx-editor-title { display: block; margin-top: 2dp; font-size: 18dp; font-weight: 600; }
+.sfx-header-actions { display: flex; flex-direction: row; gap: 8dp; align-items: center; }
 /* Header is a single flex row -- drop panel-btn's default bottom margin so
    icons and labels sit on the same optical baseline. */
 .sfx-header-actions .panel-btn { margin: 0; }
 /* Extra breathing room before the primary action -- Preview/Stop read as one
    group (listen), Generate/Close as another (commit/leave). */
-.sfx-header-actions .primary {   margin-left: 10px; }
+.sfx-header-actions .primary {   margin-left: 10dp; }
 
 .sfx-more-wrap { position: relative; }
 /* Square icon-like trigger: plain "..." (same rationale as logic-more-trigger —
@@ -43,7 +43,7 @@
     top: 34px;
     right: 0px;
     min-width: 260px;
-    padding: 4px;
+    padding: 4dp;
 
     border-width: 1px;
     z-index: 40;
@@ -57,31 +57,31 @@
     height: 28px;
     line-height: 28px;
     text-align: left;
-    padding: 0 10px;
+    padding: 0 10dp;
     background: transparent;
     border-width: 0;
-    border-radius: 2px;
+    border-radius: 2dp;
 
-    font-size: 12px;
+    font-size: 12dp;
 }
 .sfx-more-entry .icon {
-    margin-right: 6px;
+    margin-right: 6dp;
 
 }
 
-.sfx-modal-label { display: block; font-size: 11px;  margin-bottom: 4px; }
+.sfx-modal-label { display: block; font-size: 11dp;  margin-bottom: 4dp; }
 .sfx-modal-input {
     display: block;
     width: 100%;
     box-sizing: border-box;
     height: 30px;
-    padding: 4px 8px;
-    margin-bottom: 6px;
+    padding: 4dp 8dp;
+    margin-bottom: 6dp;
 
     border-width: 1px;
 
 }
-.sfx-modal-error { display: block; font-size: 11px;  min-height: 14px; margin-bottom: 10px; }
+.sfx-modal-error { display: block; font-size: 11dp;  min-height: 14px; margin-bottom: 10dp; }
 .editor-modal-actions .panel-btn.primary.disabled { opacity: 0.45; }
 
 .sfx-editor-main {
@@ -98,7 +98,7 @@
     width: 240px;
     min-width: 240px;
     box-sizing: border-box;
-    padding: 10px 8px 16px 8px;
+    padding: 10dp 8dp 16dp 8dp;
 
     border-right-width: 1px;
     overflow-y: auto;
@@ -107,13 +107,13 @@
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 6px;
-    margin-bottom: 8px;
+    gap: 6dp;
+    margin-bottom: 8dp;
 }
 .sfx-browser-search {
     flex: 1;
     height: 23px;
-    padding: 2px 6px;
+    padding: 2dp 6dp;
     box-sizing: border-box;
 
     border-width: 1px;
@@ -125,39 +125,39 @@
     padding: 0;
 
     border-width: 1px;
-    border-radius: 2px;
+    border-radius: 2dp;
 
-    font-size: 14px;
+    font-size: 15dp;
 }
 .sfx-batch-cta {
     display: block;
     width: 100%;
     box-sizing: border-box;
-    margin-bottom: 8px;
-    padding: 6px 8px;
+    margin-bottom: 8dp;
+    padding: 6dp 8dp;
 
     border-width: 1px;
-    border-radius: 3px;
+    border-radius: 2dp;
 
-    font-size: 11px;
+    font-size: 11dp;
     text-align: center;
 }
 .sfx-batch-panel {
-    margin-bottom: 8px;
-    padding: 8px;
+    margin-bottom: 8dp;
+    padding: 8dp;
 
     border-width: 1px;
-    border-radius: 3px;
+    border-radius: 2dp;
 }
-.sfx-batch-title { font-size: 11px; font-weight: 600;  margin-bottom: 4px; }
-.sfx-batch-name { font-size: 11px;  margin-bottom: 6px; }
-.sfx-batch-summary { font-size: 11px;  margin-bottom: 8px; line-height: 1.45; }
+.sfx-batch-title { font-size: 11dp; font-weight: 600;  margin-bottom: 4dp; }
+.sfx-batch-name { font-size: 11dp;  margin-bottom: 6dp; }
+.sfx-batch-summary { font-size: 11dp;  margin-bottom: 8dp; line-height: 1.45; }
 .sfx-batch-bar {
     height: 6px;
 
     border-width: 1px;
-    border-radius: 3px;
-    margin-bottom: 8px;
+    border-radius: 2dp;
+    margin-bottom: 8dp;
     overflow: hidden;
 }
 .sfx-batch-bar-fill {
@@ -168,25 +168,25 @@
     display: block;
     width: 100%;
     box-sizing: border-box;
-    padding: 5px 8px;
+    padding: 4dp 8dp;
 
     border-width: 1px;
-    border-radius: 2px;
+    border-radius: 2dp;
 
-    font-size: 11px;
+    font-size: 11dp;
     text-align: center;
 }
 .sfx-browser-create-menu {
-    margin: 0 0 8px 0;
-    padding: 2px 0 4px 0;
+    margin: 0 0 8dp 0;
+    padding: 2dp 0 4dp 0;
     background: transparent;
     border-width: 0;
 }
 .sfx-browser-create-title {
     display: block;
-    padding: 2px 8px 6px 8px;
+    padding: 2dp 8dp 6dp 8dp;
 
-    font-size: 10px;
+    font-size: 10dp;
     letter-spacing: 0.6px;
 }
 .sfx-browser-create-entry {
@@ -194,33 +194,33 @@
     width: 100%;
     box-sizing: border-box;
     text-align: left;
-    padding: 5px 8px;
-    margin-bottom: 1px;
+    padding: 4dp 8dp;
+    margin-bottom: 2dp;
     background: transparent;
     border-width: 0;
-    border-radius: 2px;
+    border-radius: 2dp;
 
-    font-size: 12px;
+    font-size: 12dp;
 }
 .sfx-browser-list { display: block; }
 .sfx-browser-empty {
-    padding: 12px 8px;
+    padding: 12dp 8dp;
 
-    font-size: 11px;
+    font-size: 11dp;
 }
 .sfx-browser-row {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 4px;
+    gap: 4dp;
     width: 100%;
     box-sizing: border-box;
     min-height: 28px;
-    padding: 3px 4px 3px 6px;
-    margin-bottom: 1px;
+    padding: 4dp 4dp 4dp 6dp;
+    margin-bottom: 2dp;
     background: transparent;
     border-width: 0;
-    border-radius: 3px;
+    border-radius: 2dp;
 
 }
 .sfx-browser-row-main {
@@ -228,7 +228,7 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 2dp;
     text-align: left;
     padding: 0;
     background: transparent;
@@ -236,22 +236,22 @@
 
 }
 .sfx-browser-name {
-    font-size: 12px;
+    font-size: 12dp;
 
     white-space: nowrap;
     overflow: hidden;
 }
-.sfx-browser-status { font-size: 10px;  }
-.sfx-browser-actions { display: flex; flex-direction: row; gap: 2px; }
+.sfx-browser-status { font-size: 10dp;  }
+.sfx-browser-actions { display: flex; flex-direction: row; gap: 2dp; }
 .sfx-browser-action {
     width: 20px;
     height: 20px;
     padding: 0;
     background: transparent;
     border-width: 0;
-    border-radius: 2px;
+    border-radius: 2dp;
 
-    font-size: 11px;
+    font-size: 11dp;
 }
 .sfx-browser-action .icon {
     margin-right: 0;
@@ -262,7 +262,7 @@
 .sfx-editor-body {
     flex: 1;
     min-width: 0;
-    padding: 14px 18px 28px 18px;
+    padding: 12dp 16dp 24dp 16dp;
     overflow-y: auto;
 }
 
@@ -272,11 +272,11 @@
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    gap: 8px;
+    gap: 8dp;
 
 }
-.sfx-empty-title { display: block;  font-size: 16px; font-weight: 600; }
-.sfx-empty-copy { display: block; margin-bottom: 6px; font-size: 11px; }
+.sfx-empty-title { display: block;  font-size: 15dp; font-weight: 600; }
+.sfx-empty-copy { display: block; margin-bottom: 6dp; font-size: 11dp; }
 
 /* Confirmed via RmlUi's Outlines debugger: this block's width collapsed to
    its padding alone (content width ~0) -- its flex children (.sfx-summary-
@@ -295,66 +295,66 @@
     min-width: 0;
     max-width: none;
     box-sizing: border-box;
-    padding: 10px 12px;
-    margin-bottom: 12px;
+    padding: 10dp 12dp;
+    margin-bottom: 12dp;
 
     border-width: 1px;
-    border-radius: 4px;
+    border-radius: 4dp;
 }
-.sfx-summary-row { display: flex; flex-direction: row; align-items: center; gap: 10px; }
-.sfx-status {  font-size: 11px; }
+.sfx-summary-row { display: flex; flex-direction: row; align-items: center; gap: 10dp; }
+.sfx-status {  font-size: 11dp; }
 /* Match .sfx-field input / .sfx-macro-input — identity field, not a hero control. */
 .sfx-name {
     width: 200px;
     height: 23px;
-    padding: 2px 6px;
+    padding: 2dp 6dp;
     box-sizing: border-box;
 
     border-width: 1px;
 
 }
-.sfx-output-path { margin-top: 4px;  font-size: 10px; }
+.sfx-output-path { margin-top: 4dp;  font-size: 10dp; }
 /* Global console counts (see the comment at their computation site in
    editor_ui.cpp for why this isn't scoped to this asset specifically).
    status-health/status-dot are reused as-is from controls.rcss. */
-.sfx-console-issues { display: flex; flex-direction: row; align-items: center; margin-top: 4px; }
+.sfx-console-issues { display: flex; flex-direction: row; align-items: center; margin-top: 4dp; }
 /* One truth, not two: this only ever renders while the Generate button is
    also disabled (see EditorUi::refreshGeneratedSfxEditor) -- the message and
    the button state can't disagree, and the button carries its own fix. */
 .sfx-inline-action {
-    margin-left: 8px;
-    padding: 3px 8px;
+    margin-left: 8dp;
+    padding: 4dp 8dp;
     background: transparent;
     border-width: 1px;
-    border-radius: 2px;
+    border-radius: 2dp;
 
-    font-size: 10px;
+    font-size: 10dp;
 }
 
-.sfx-presets { display: flex; flex-direction: row; align-items: center; gap: 6px; margin-top: 7px; }
-.sfx-preset { padding: 5px 10px;  border-width: 1px; border-radius: 2px;  }
+.sfx-presets { display: flex; flex-direction: row; align-items: center; gap: 6dp; margin-top: 8dp; }
+.sfx-preset { padding: 4dp 10dp;  border-width: 1px; border-radius: 2dp;  }
 /* The preset that exactly matches the current recipe, if any -- cleared the
    moment a macro edit makes the recipe diverge (see activeGeneratedSfxPresetId). */
 /* Randomize is an operation, not a sound choice -- a divider plus a slightly
    muted tone keeps it from reading as a sixth preset and inviting stray clicks. */
-.sfx-preset-divider { width: 1px; align-self: stretch;  margin: 0 2px; }
-.sfx-custom-badge { margin-left: 4px;  font-size: 10px; }
+.sfx-preset-divider { width: 1px; align-self: stretch;  margin: 0 2dp; }
+.sfx-custom-badge { margin-left: 4dp;  font-size: 10dp; }
 
-.sfx-grid { display: flex; flex-direction: row; flex-wrap: wrap; gap: 12px; }
+.sfx-grid { display: flex; flex-direction: row; flex-wrap: wrap; gap: 12dp; }
 .sfx-section {
     width: 31%;
     min-width: 300px;
-    padding: 12px;
+    padding: 12dp;
 
     border-width: 1px;
-    border-radius: 4px;
+    border-radius: 4dp;
 }
-.sfx-section-title { margin-bottom: 9px; font-size: 12px; font-weight: 600;  }
+.sfx-section-title { margin-bottom: 10dp; font-size: 12dp; font-weight: 600;  }
 .sfx-field { display: flex; flex-direction: row; align-items: center; justify-content: space-between; height: 29px; }
-.sfx-field-label {  font-size: 11px; }
-.sfx-field input { width: 112px; height: 23px; padding: 2px 6px;  border-width: 1px;  }
-.sfx-choice { min-width: 112px; padding: 3px 7px;  border-width: 1px; border-radius: 2px;  }
-.sfx-help { margin-top: 8px;  font-size: 10px; }
+.sfx-field-label {  font-size: 11dp; }
+.sfx-field input { width: 112px; height: 23px; padding: 2dp 6dp;  border-width: 1px;  }
+.sfx-choice { min-width: 112px; padding: 4dp 8dp;  border-width: 1px; border-radius: 2dp;  }
+.sfx-help { margin-top: 8dp;  font-size: 10dp; }
 
 /* Simple/Advanced mode toggle -- a real expandable row (full-width, top
    hairline, chevron flipped to point the way it will move), not a small
@@ -372,18 +372,18 @@
     width: auto;
     box-sizing: border-box;
     height: 32px;
-    margin-top: 8px;
-    padding: 0 4px;
+    margin-top: 8dp;
+    padding: 0 4dp;
     background: transparent;
     border-width: 1px 0 0 0;
 
-    font-size: 12px;
+    font-size: 12dp;
 }
-.sfx-mode-toggle-chevron {  font-size: 14px; }
+.sfx-mode-toggle-chevron {  font-size: 15dp; }
 /* Advanced -> Simple reads as "go back", not "expand" -- chevron and label
    sit together at the start of the row instead of being pushed to opposite
    ends the way Simple mode's "Advanced settings" row deliberately is. */
-.sfx-mode-toggle-back { justify-content: flex-start; gap: 6px; }
+.sfx-mode-toggle-back { justify-content: flex-start; gap: 6dp; }
 
 /* -- Simple mode: seven macro sliders standing in for the ~40 raw fields --
    Constrained and centered (not stretched edge-to-edge): at full editor
@@ -395,12 +395,12 @@
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 10px;
+    gap: 10dp;
     height: 30px;
 }
-.sfx-macro-label { width: 76px;  font-size: 11px; }
-.sfx-macro-unit { width: 28px;  font-size: 10px; }
-.sfx-macro-input { width: 64px; height: 23px; padding: 2px 6px;  border-width: 1px;  }
+.sfx-macro-label { width: 76px;  font-size: 11dp; }
+.sfx-macro-unit { width: 28px;  font-size: 10dp; }
+.sfx-macro-input { width: 64px; height: 23px; padding: 2dp 6dp;  border-width: 1px;  }
 
 /* The native <input type="range"> (RmlUi's WidgetSlider) driving each macro.
    slidertrack/sliderbar/sliderprogress/sliderarrow* are the same non-DOM
@@ -416,7 +416,7 @@
    - sliderprogress's Y offset is `track's own offset + progress's margin-top`
      -- i.e. ADDED on top of wherever the track already sits, not computed
      independently the way sliderbar's is. Since slidertrack sits at
-     margin-top:9px (centering its 4px track in the 22px input, (22-4)/2=9),
+     margin-top: 10dp (centering its 4dp track in the 24dp input, (22-4)/2=9),
      giving sliderprogress its own margin-top would double-count that and
      render the blue fill below the grey track instead of on top of it. It
      must stay 0 so it lands exactly on the track's own position. */
@@ -428,17 +428,19 @@
 }
 .sfx-macro-slider slidertrack {
     height: 4px;
-    margin-top: 9px;
+    /* ds-exception(spacing): centres 4dp track inside fixed 22dp input; ref=gallery/sfx */
+    margin-top: 9dp;
 
-    border-radius: 2px;
+    border-radius: 2dp;
     transition: background-color 0.1s;
 }
 .sfx-macro-slider sliderbar {
     width: 14px;
     height: 14px;
-    margin-top: 4px;
+    margin-top: 4dp;
 
-    border-radius: 7px;
+    /* ds-exception(radius): radius derives from fixed 14dp thumb geometry; ref=gallery/sfx */
+    border-radius: 7dp;
     border: 2px transparent;
     box-sizing: border-box;
     transition: background-color 0.1s, border-color 0.1s;
@@ -446,7 +448,7 @@
 /* :active is RmlUi's "currently pressed" pseudo-class -- true for the whole
    duration of a drag, giving the thumb a distinct in-progress look beyond
    the plain hover tint. */
-.sfx-macro-slider sliderprogress { height: 4px; margin-top: 0;  border-radius: 2px; }
+.sfx-macro-slider sliderprogress { height: 4px; margin-top: 0;  border-radius: 2dp; }
 /* Compact rows: the increment/decrement stepper arrows would crowd a
    76px-label row that already has a drag track and a typed-value field. */
 .sfx-macro-slider sliderarrowdec, .sfx-macro-slider sliderarrowinc { display: none; }
@@ -456,19 +458,19 @@
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 6px;
+    gap: 6dp;
     width: 100%;
-    margin-bottom: 6px;
+    margin-bottom: 6dp;
 }
 .sfx-section-caret { padding: 0; background: transparent; border-width: 0;  font-family: "tabler-icons"; }
 .sfx-section-head .sfx-section-title { flex: 1; margin-bottom: 0; }
 .sfx-section-toggle { margin-left: auto; }
 .sfx-subsection-toggle {
-    margin: 4px 0 8px 0;
+    margin: 4dp 0 8dp 0;
     padding: 0;
     background: transparent;
     border-width: 0;
 
-    font-size: 10px;
+    font-size: 10dp;
 }
-.sfx-copy-primary { margin-top: 4px; }
+.sfx-copy-primary { margin-top: 4dp; }

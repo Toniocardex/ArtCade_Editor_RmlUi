@@ -45,7 +45,7 @@
     text-align: center;
     background-color: transparent;
     border: 1px transparent;
-    border-radius: 3dp;
+    border-radius: 2dp;
 
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
 }
@@ -71,7 +71,7 @@
     flex-direction: row;
     align-items: center;
     height: 24dp;
-    margin: 1dp 0;
+    margin: 2dp 0;
     padding: 0 4dp;
     border-radius: 2dp;
     transition: background-color 0.1s;
@@ -103,7 +103,7 @@
    up with the name column: 4dp row padding + 16dp icon + 4dp gap. */
 .asset-sub {
     display: block;
-    margin: 0 0 3dp 24dp;
+    margin: 0 0 4dp 24dp;
 
     font-size: 10dp;
     white-space: nowrap;
@@ -130,7 +130,7 @@
     text-align: center;
     font-family: tabler-icons;
     font-size: 11dp;
-    font-weight: normal;
+    font-weight: 400;
 
 }
 .asset-group-label {
@@ -139,10 +139,10 @@
 /* Item count beside a category title. */
 .asset-count {
     margin-left: 6dp;
-    padding: 0 5dp;
+    padding: 0 4dp;
     border-radius: 8dp;
 
-    font-size: 9dp;
+    font-size: 10dp;
     font-weight: 600;
 }
 /* The unified Import dropdown sits above the categories. */
@@ -153,7 +153,7 @@
     width: 100%;
     height: 46dp;
     line-height: 18dp;
-    padding: 5dp 10dp;
+    padding: 4dp 10dp;
     margin: 0;
     text-align: left;
 
@@ -246,21 +246,21 @@
 }
 .viewport-empty-title {
     display: block;
-    font-size: 17dp;
+    font-size: 18dp;
     font-weight: 600;
-    margin-bottom: 7dp;
+    margin-bottom: 8dp;
 }
 .viewport-empty-sub {
     display: block;
     font-size: 12dp;
-    margin-bottom: 18dp;
+    margin-bottom: 16dp;
 }
 .viewport-empty-actions {
     display: flex;
     flex-direction: row;
     justify-content: center;
     gap: 10dp;
-    margin-bottom: 22dp;
+    margin-bottom: 24dp;
 }
 .viewport-empty-btn,
 .viewport-empty-btn-secondary {
@@ -360,7 +360,7 @@
     flex-shrink: 0;
     border-width: 0;
     border-radius: 2dp;
-    font-size: 14dp;
+    font-size: 15dp;
 }
 
 /* Console error/warning tally in the header: reads the log's health without
@@ -391,8 +391,8 @@
     display: inline-block;
     height: 22dp;
     line-height: 22dp;
-    margin-right: 5dp;
-    padding: 0 9dp;
+    margin-right: 4dp;
+    padding: 0 10dp;
     background-color: transparent;
     border-width: 1px;
     border-radius: 2dp;
@@ -470,7 +470,7 @@
 }
 .inspector-empty {
 
-    padding: 14dp 0;
+    padding: 12dp 0;
 }
 
 /* Section eyebrow + bottom hairline (flat, no accent outline). */
@@ -513,7 +513,7 @@
     width: 15dp;
 
     font-family: tabler-icons;
-    font-weight: normal;
+    font-weight: 400;
 }
 .comp-badge {
     display: inline-block;
@@ -525,7 +525,7 @@
 
     border-width: 1px;
 
-    font-size: 9dp;
+    font-size: 10dp;
     font-weight: 600;
     letter-spacing: 0.6dp;
 }
@@ -591,7 +591,7 @@
 .script-attachment-name {
     flex: 1;
     min-width: 0;
-    padding: 5dp 6dp;
+    padding: 4dp 6dp;
 
     background-color: transparent;
     border-width: 0;
@@ -622,7 +622,7 @@
     display: block;
 }
 .mode-option {
-    margin: 0 5dp 5dp 0;
+    margin: 0 4dp 4dp 0;
 }
 
 /* A non-zero diagnostic count reads as a soft warning. */
@@ -648,7 +648,7 @@
 
 .outside-warning {
     display: block;
-    margin: 2dp 0 7dp 0;
+    margin: 2dp 0 8dp 0;
     padding: 6dp 8dp;
     border-left-width: 2dp;
 
@@ -656,7 +656,7 @@
 }
 /* Variant for a warning that opens the panel (locked-layer note): match the
    14dp breathing room a comp-header would give as the first element. */
-.outside-warning.panel-top { margin-top: 14dp; }
+.outside-warning.panel-top { margin-top: 12dp; }
 /* -- Object Variables (ADR-0031) -------------------------------------------
    One block per variable so a list of them reads as several things rather than
    one long ladder of rows. Name and type share the first line, and Reset sits
@@ -693,6 +693,7 @@
 }
 .object-variable-draft-error {
     display: block;
+    /* ds-exception(spacing): aligns validation with the variable-value column; ref=scene */
     margin: 0 0 4dp 72dp;
     font-size: 10dp;
 }
@@ -748,7 +749,7 @@
    recentres the hierarchy-empty-state block it reuses. */
 .tile-palette-empty-state {
     flex: 1;
-    padding: 14dp 18dp;
+    padding: 12dp 16dp;
 }
 .tile-palette-selected {
     display: block;
@@ -776,30 +777,30 @@
 .editor-modal {
     width: 420px;
     max-width: 90%;
-    padding: 18px 20px;
+    padding: 16dp 24dp;
 
     border-width: 1px;
 
 }
 .editor-modal-title {
     display: block;
-    font-size: 16px;
+    font-size: 15dp;
     font-weight: 600;
-    margin-bottom: 8px;
+    margin-bottom: 8dp;
 }
 .editor-modal-copy {
     display: block;
-    font-size: 12px;
+    font-size: 12dp;
 
-    margin-bottom: 10px;
+    margin-bottom: 10dp;
     line-height: 1.45;
     white-space: pre-wrap;
 }
 .editor-modal-hint {
     display: block;
-    font-size: 11px;
+    font-size: 11dp;
 
-    margin-bottom: 16px;
+    margin-bottom: 16dp;
     line-height: 1.4;
     white-space: pre-wrap;
 }
@@ -808,6 +809,6 @@
     flex-direction: row;
     justify-content: flex-end;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 8dp;
 }
 

@@ -97,14 +97,6 @@ std::optional<float> parseOpacityPercent(const std::string& text) {
     return clamp01(*parsed / 100.0f);
 }
 
-std::string formatColorCssRgba(const Vec4& color) {
-    char buf[64];
-    std::snprintf(buf, sizeof(buf), "rgba(%u,%u,%u,%.3f)",
-                  channelToByte(color.r), channelToByte(color.g), channelToByte(color.b),
-                  clamp01(color.a));
-    return buf;
-}
-
 OpacitySliderChangeDisposition classifyOpacitySliderChange(bool dragActive) {
     return dragActive ? OpacitySliderChangeDisposition::PreviewOnly
                       : OpacitySliderChangeDisposition::CommitImmediately;

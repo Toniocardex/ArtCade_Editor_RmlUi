@@ -1,4 +1,5 @@
 #include "editor-native/ui/ui_markup.h"
+#include "editor-native/ui/ui_icons.h"
 
 #include "editor-native/ui/editor_ui.h"   // escapeRml
 
@@ -40,7 +41,7 @@ std::string dropdownTriggerMarkup(const std::string& valueText,
         row += " data-action=\"" + toggleAction + "\" data-arg=\"" + dropdownId + "\"";
     }
     row += ">" + escapeRml(valueText)
-         + "<span class=\"drop-caret\">&#xeb5d;</span></div>";
+         + "<span class=\"drop-caret\">" UI_ICON_EXPAND "</span></div>";
     return row;
 }
 
