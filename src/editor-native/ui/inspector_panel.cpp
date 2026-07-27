@@ -1732,74 +1732,6 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         html += "\" data-action=\"toggle-gauge-screen-space\"></div></div>";
     }
 
-    html += kSectionsEnd;
-
-    // -- Add Component menu (only addable components; one movement driver) -----
-    const bool hasDriver = type
-        && (type->linearMover || type->topDownController || type->platformerController);
-    struct Addable {
-        const char* label;
-        const char* action;
-        bool show;
-        bool enabled;
-        const char* disabledReason;
-    };
-    const Addable addable[] = {
-        // Sprite capability is Object-Type-owned, like the gameplay components.
-        {"Sprite", "add-sprite-renderer",
-            type && !type->spritePresentation && !type->spriteRenderer, true, ""},
-        {"Box Collider 2D", "add-box-collider", type && !collider, true, ""},
-        // The three movement drivers are mutually exclusive: offer none once one exists.
-        {"Top Down Controller", "add-top-down", type && !hasDriver, true, ""},
-        {"Platformer Controller", "add-platformer", type && !hasDriver, true, ""},
-        {"Linear Mover", "add-linear-mover", type && !hasDriver, true, ""},
-        {"Auto Destroy", "add-auto-destroy", type && !autoDestroy, true, ""},
-        {"Text", "add-text", type && !textComp, true, ""},
-        {"Gauge", "add-gauge", type && !gaugeComp, true, ""},
-        {"Camera Target", "add-camera-target",
-            !instanceLocked && !inst->cameraTarget.has_value(), true, ""},
-        // Instance-level like Sprite Renderer; needs at least one tileset to
-        // reference (auto-assigns the first one - the tileset picker above
-        // lets it be changed afterward).
-        {"Tilemap", "add-tilemap-component",
-            !instanceLocked && !inst->tilemap.has_value()
-                && !coordinator.document().data().tilesets.empty(), true, ""},
-    };
-    bool anyAddable = false;
-    for (const Addable& a : addable) anyAddable = anyAddable || a.show;
-
-    if (anyAddable) {
-        std::string trigger = "add-component-btn";
-        if (playing) trigger += " disabled";
-        if (addMenuOpen_ && !playing) trigger += " open";
-        html += "<div class=\"add-component\">";
-        html += "<div class=\"" + trigger + "\" data-action=\"toggle-add-component\">"
-                "<span class=\"icon\">&#xeb0b;</span>Add Component</div>";
-        if (addMenuOpen_ && !playing) {
-            html += "<div class=\"add-list\">";
-            for (const Addable& a : addable) {
-                if (!a.show) continue;
-                html += "<div class=\"add-entry";
-                if (!a.enabled) html += " disabled";
-                html += "\"";
-                if (a.enabled) {
-                    html += " data-action=\"";
-                    html += a.action;
-                    html += "\"";
-                } else {
-                    html += " title=\"";
-                    html += escapeRml(a.disabledReason);
-                    html += "\"";
-                }
-                html += ">";
-                html += a.label;
-                html += "</div>";
-            }
-            html += "</div>";
-        }
-        html += "</div>";
-    }
-
     // -- Object Variables (ADR-0031) -----------------------------------------
     // One section, not two: the definition belongs to the Object Type and the
     // override to this instance, so the same row carries both and the
@@ -1879,6 +1811,74 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         html += "<div class=\"prop-row\"><button class=\"panel-btn";
         if (playing) html += " disabled";
         html += "\" data-action=\"add-object-variable\">+ Add Object Variable</button></div>";
+    }
+
+    html += kSectionsEnd;
+
+    // -- Add Component menu (only addable components; one movement driver) -----
+    const bool hasDriver = type
+        && (type->linearMover || type->topDownController || type->platformerController);
+    struct Addable {
+        const char* label;
+        const char* action;
+        bool show;
+        bool enabled;
+        const char* disabledReason;
+    };
+    const Addable addable[] = {
+        // Sprite capability is Object-Type-owned, like the gameplay components.
+        {"Sprite", "add-sprite-renderer",
+            type && !type->spritePresentation && !type->spriteRenderer, true, ""},
+        {"Box Collider 2D", "add-box-collider", type && !collider, true, ""},
+        // The three movement drivers are mutually exclusive: offer none once one exists.
+        {"Top Down Controller", "add-top-down", type && !hasDriver, true, ""},
+        {"Platformer Controller", "add-platformer", type && !hasDriver, true, ""},
+        {"Linear Mover", "add-linear-mover", type && !hasDriver, true, ""},
+        {"Auto Destroy", "add-auto-destroy", type && !autoDestroy, true, ""},
+        {"Text", "add-text", type && !textComp, true, ""},
+        {"Gauge", "add-gauge", type && !gaugeComp, true, ""},
+        {"Camera Target", "add-camera-target",
+            !instanceLocked && !inst->cameraTarget.has_value(), true, ""},
+        // Instance-level like Sprite Renderer; needs at least one tileset to
+        // reference (auto-assigns the first one - the tileset picker above
+        // lets it be changed afterward).
+        {"Tilemap", "add-tilemap-component",
+            !instanceLocked && !inst->tilemap.has_value()
+                && !coordinator.document().data().tilesets.empty(), true, ""},
+    };
+    bool anyAddable = false;
+    for (const Addable& a : addable) anyAddable = anyAddable || a.show;
+
+    if (anyAddable) {
+        std::string trigger = "add-component-btn";
+        if (playing) trigger += " disabled";
+        if (addMenuOpen_ && !playing) trigger += " open";
+        html += "<div class=\"add-component\">";
+        html += "<div class=\"" + trigger + "\" data-action=\"toggle-add-component\">"
+                "<span class=\"icon\">&#xeb0b;</span>Add Component</div>";
+        if (addMenuOpen_ && !playing) {
+            html += "<div class=\"add-list\">";
+            for (const Addable& a : addable) {
+                if (!a.show) continue;
+                html += "<div class=\"add-entry";
+                if (!a.enabled) html += " disabled";
+                html += "\"";
+                if (a.enabled) {
+                    html += " data-action=\"";
+                    html += a.action;
+                    html += "\"";
+                } else {
+                    html += " title=\"";
+                    html += escapeRml(a.disabledReason);
+                    html += "\"";
+                }
+                html += ">";
+                html += a.label;
+                html += "</div>";
+            }
+            html += "</div>";
+        }
+        html += "</div>";
     }
 
     body->SetInnerRML(finalizeSectionMarkup(html, collapsedSections_));
