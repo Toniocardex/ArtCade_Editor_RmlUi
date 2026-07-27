@@ -13,13 +13,15 @@ namespace ArtCade::AppRenderPasses {
 namespace {
 
 void textAnchorAlign(const std::string& a, int& hOut, int& vOut) {
-    if (a.find("left") != std::string::npos)        hOut = 2;
-    else if (a.find("right") != std::string::npos)  hOut = 0;
+    // renderer.h's drawText contract: align 0=left, 1=center, 2=right;
+    // valign 0=top, 1=middle, 2=bottom.
+    if (a.find("left") != std::string::npos)        hOut = 0;
+    else if (a.find("right") != std::string::npos)  hOut = 2;
     else                                            hOut = 1;
 
     const bool isNewAnchor = a.find('-') != std::string::npos || a == "center";
-    if (a.find("top") != std::string::npos)         vOut = 2;
-    else if (a.find("bottom") != std::string::npos) vOut = 0;
+    if (a.find("top") != std::string::npos)         vOut = 0;
+    else if (a.find("bottom") != std::string::npos) vOut = 2;
     else if (isNewAnchor)                           vOut = 1;
     else                                            vOut = 0;
 }
