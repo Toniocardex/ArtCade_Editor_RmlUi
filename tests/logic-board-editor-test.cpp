@@ -923,6 +923,9 @@ static void testInvalidExpressionKeepsTheTypedText() {
     broken.focusAddress = axis;
     broken.draftText = "random(0, 100";
     broken.errorMessage = "Expected ')'";
+    // The author typed it: without `edited` (050ef94) the renderer treats the
+    // draft as absent and puts the committed value back on screen.
+    broken.edited = true;
     const std::string markup = renderLogicProperties(
         coordinator.document(), nullptr,
         coordinator.document().data().objectTypes.at("Hero")
