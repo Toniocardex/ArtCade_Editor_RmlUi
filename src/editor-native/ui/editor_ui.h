@@ -229,6 +229,8 @@ public:
     bool hasOpenContextMenu() const;
     // Collapse Inspector Add Component / value dropdowns (outside click / viewport).
     void dismissInspectorTransientMenus();
+    // ADR-0035: same idea for the Logic Board's own open dropdown.
+    void dismissLogicBoardTransientMenus();
 
     // Shared themed confirm modal (UI-local; Escape → Cancel).
     enum class ConfirmChoice { Cancel, Secondary, Primary };
@@ -495,15 +497,22 @@ private:
         std::string value;
     };
     std::optional<PendingObjectVariableEditEnd> pendingObjectVariableEnd_;
-    // ADR-0034 spike: Up/Down/Enter/Escape on the Layer dropdown's trigger are
-    // deferred to processFrame for the same reason as the expression field
+    // ADR-0034/0035: Up/Down/Enter/Escape on any Inspector dropdown's trigger
+    // are deferred to processFrame for the same reason as the expression field
     // above — StopPropagation()ing the keydown here is fine (RmlUi's own
-    // dispatch loop just returns), but rebuilding the Inspector's markup while
+    // dispatch loop just returns), but rebuilding the panel's markup while
     // that dispatch is still on the stack, using the very trigger element it
     // would free, is the same use-after-free hazard.
     std::optional<int>                 pendingDropdownHighlightMove_;
     bool                                pendingDropdownHighlightCommit_ = false;
     bool                                pendingDropdownClose_ = false;
+    // Same trio, for the Logic Board's own dropdowns (toggle-logic-dropdown).
+    // Kept separate from the Inspector's: the two panels' commits differ in
+    // shape (Logic Board's carries a data-value the Inspector's never does)
+    // and there is no shared dispatcher object to key a single trio off of.
+    std::optional<int>                 pendingLogicDropdownHighlightMove_;
+    bool                                pendingLogicDropdownHighlightCommit_ = false;
+    bool                                pendingLogicDropdownClose_ = false;
     bool                                logicTypeMenuVisible_ = false;
     bool                                logicMoreMenuVisible_ = false;
     struct PendingEditorConfirm {

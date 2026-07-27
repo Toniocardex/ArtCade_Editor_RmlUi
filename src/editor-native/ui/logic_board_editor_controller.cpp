@@ -89,6 +89,10 @@ void LogicBoardEditorController::closeDropdown() {
     panel_.closeDropdown();
 }
 
+void LogicBoardEditorController::moveDropdownHighlight(int delta) {
+    panel_.moveDropdownHighlight(document_, coordinator_, delta);
+}
+
 void LogicBoardEditorController::discardContextualGlobalVariable() {
     panel_.discardContextualGlobalVariable();
 }

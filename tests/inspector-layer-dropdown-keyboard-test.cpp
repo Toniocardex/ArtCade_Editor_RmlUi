@@ -198,7 +198,11 @@ int main() {
 
     Rml::Element* trigger = findAction(document, "toggle-inspector-dropdown", "layer");
     CHECK(trigger != nullptr);
-    CHECK(trigger && trigger->IsClassSet("kbd-nav"));
+    // ADR-0035: tab-index: auto is on the base .drop-trigger rule now (every
+    // dropdown trigger, not just Layer's), so this checks the computed style
+    // rather than a per-element opt-in marker class.
+    CHECK(trigger
+          && trigger->GetComputedValues().tab_index() == Rml::Style::TabIndex::Auto);
     CHECK(ui.hasOpenContextMenu() == false); // ADR-0034 gap fix baseline: closed, so false.
     click(trigger);
     frame(*context, ui);

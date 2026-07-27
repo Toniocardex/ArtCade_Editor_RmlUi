@@ -179,12 +179,13 @@ EditorActionResult EditorActionDispatcher::executeEnabled(
             ui_.cancelLogicKeyCapture();
             return EditorActionResult::executed();
         case EscapeOwner::ContextMenu:
-            // ADR-0034: an open Inspector dropdown shares this tier with the
-            // floating context menus below (see hasOpenContextMenu()); both
-            // calls are safe to make unconditionally, each is a no-op when
-            // its own thing isn't open.
+            // ADR-0034/0035: an open Inspector or Logic Board dropdown shares
+            // this tier with the floating context menus below (see
+            // hasOpenContextMenu()); all three calls are safe to make
+            // unconditionally, each a no-op when its own thing isn't open.
             ui_.hideContextMenus();
             ui_.dismissInspectorTransientMenus();
+            ui_.dismissLogicBoardTransientMenus();
             return EditorActionResult::executed();
         case EscapeOwner::InlineRename:
             ui_.cancelHierarchyRename();

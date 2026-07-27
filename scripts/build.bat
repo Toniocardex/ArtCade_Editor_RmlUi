@@ -135,6 +135,12 @@ if "!DO_TEST!"=="1" (
     if errorlevel 1 ( popd >nul & echo [FAIL] Inspector Layer Dropdown Keyboard test build failed. & exit /b 1 )
     "!BUILD_DIR!\tests\inspector_layer_dropdown_keyboard_test.exe"
     if errorlevel 1 ( popd >nul & echo [FAIL] inspector_layer_dropdown_keyboard_test failed. & exit /b 1 )
+    rem ADR-0035: Logic Board WHEN trigger-type catalog keyboard nav + Escape gap fix.
+    echo [editor] Building + running logic_board_dropdown_keyboard_test...
+    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target logic_board_dropdown_keyboard_test
+    if errorlevel 1 ( popd >nul & echo [FAIL] Logic Board Dropdown Keyboard test build failed. & exit /b 1 )
+    "!BUILD_DIR!\tests\logic_board_dropdown_keyboard_test.exe"
+    if errorlevel 1 ( popd >nul & echo [FAIL] logic_board_dropdown_keyboard_test failed. & exit /b 1 )
 )
 popd >nul
 

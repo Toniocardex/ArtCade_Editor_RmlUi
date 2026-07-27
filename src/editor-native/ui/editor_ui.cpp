@@ -603,14 +603,14 @@ public:
             }
             return;
         }
-        // ADR-0034 spike: arrow-key highlight, Enter-commit, and Escape-close
-        // for the Layer dropdown, scoped to its own trigger (data-arg
-        // "layer" — the only dropdown that is tab-focusable today, see
-        // controls.rcss .drop-trigger.kbd-nav). Deferred to processFrame for
-        // the same reason as every other block here that ends an edit: Enter
-        // and Escape both rebuild the Inspector, and RmlUi is still using the
-        // focused trigger element when this dispatch returns.
-        if (action == "toggle-inspector-dropdown" && arg == "layer"
+        // ADR-0034/0035: arrow-key highlight, Enter-commit, and Escape-close
+        // for whichever Inspector dropdown is open, scoped to its own trigger
+        // (every .drop-trigger is tab-focusable, see controls.rcss). Deferred
+        // to processFrame for the same reason as every other block here that
+        // ends an edit: Enter and Escape both rebuild the Inspector, and RmlUi
+        // is still using the focused trigger element when this dispatch
+        // returns.
+        if (action == "toggle-inspector-dropdown"
             && type == "keydown" && ui_.inspector_.openDropdownId() == arg) {
             const int key = event.GetParameter<int>("key_identifier", 0);
             if (key == Rml::Input::KI_UP) {
@@ -638,6 +638,39 @@ public:
                 // document-wide Tab-cycling still runs afterward and moves
                 // focus on, exactly like leaving a native <select> with Tab.
                 ui_.pendingDropdownClose_ = true;
+            }
+            return;
+        }
+        // ADR-0035: mirror of the block above for the Logic Board's own
+        // dropdowns (WHEN/IF/THEN block-type catalog, execution mode,
+        // variable type, sprite clip/animation/audio pickers — every
+        // toggle-logic-dropdown trigger). Separate pending state from the
+        // Inspector's; see editor_ui.h for why.
+        if (action == "toggle-logic-dropdown"
+            && type == "keydown" && ui_.logicBoardEditor_.openDropdownId() == arg) {
+            const int key = event.GetParameter<int>("key_identifier", 0);
+            if (key == Rml::Input::KI_UP) {
+                ui_.pendingLogicDropdownHighlightMove_ = -1;
+                event.StopPropagation();
+                return;
+            }
+            if (key == Rml::Input::KI_DOWN) {
+                ui_.pendingLogicDropdownHighlightMove_ = 1;
+                event.StopPropagation();
+                return;
+            }
+            if (key == Rml::Input::KI_RETURN || key == Rml::Input::KI_NUMPADENTER) {
+                ui_.pendingLogicDropdownHighlightCommit_ = true;
+                event.StopPropagation();
+                return;
+            }
+            if (key == Rml::Input::KI_ESCAPE) {
+                ui_.pendingLogicDropdownClose_ = true;
+                event.StopPropagation();
+                return;
+            }
+            if (key == Rml::Input::KI_TAB) {
+                ui_.pendingLogicDropdownClose_ = true;
             }
             return;
         }
@@ -777,6 +810,9 @@ void EditorUi::detach() {
     pendingDropdownHighlightMove_.reset();
     pendingDropdownHighlightCommit_ = false;
     pendingDropdownClose_ = false;
+    pendingLogicDropdownHighlightMove_.reset();
+    pendingLogicDropdownHighlightCommit_ = false;
+    pendingLogicDropdownClose_ = false;
     if (listener_) {
         const auto detachDocument = [&](Rml::ElementDocument* doc) {
             if (!doc) return;
@@ -852,12 +888,28 @@ void EditorUi::processFrame() {
     if (pendingDropdownHighlightCommit_) {
         pendingDropdownHighlightCommit_ = false;
         if (const auto commit = inspector_.dropdownHighlightCommit()) {
-            handleAction(commit->first, commit->second, {});
+            handleAction(commit->action, commit->arg, commit->value);
         }
     }
     if (pendingDropdownClose_) {
         pendingDropdownClose_ = false;
         if (inspector_.hasOpenDropdown()) dismissInspectorTransientMenus();
+    }
+    // ADR-0035: same three, for the Logic Board's own dropdowns.
+    if (pendingLogicDropdownHighlightMove_) {
+        const int delta = *pendingLogicDropdownHighlightMove_;
+        pendingLogicDropdownHighlightMove_.reset();
+        logicBoardEditor_.moveDropdownHighlight(delta);
+    }
+    if (pendingLogicDropdownHighlightCommit_) {
+        pendingLogicDropdownHighlightCommit_ = false;
+        if (const auto commit = logicBoardEditor_.dropdownHighlightCommit()) {
+            handleAction(commit->action, commit->arg, commit->value);
+        }
+    }
+    if (pendingLogicDropdownClose_) {
+        pendingLogicDropdownClose_ = false;
+        dismissLogicBoardTransientMenus();
     }
     if (pendingObjectVariableEnd_) finishPendingObjectVariableEdit();
     if (pendingContextualVariableEnd_) {
@@ -1745,6 +1797,12 @@ void EditorUi::dismissInspectorTransientMenus() {
     inspector_.dismissTransientMenus(document_, coordinator_);
 }
 
+void EditorUi::dismissLogicBoardTransientMenus() {
+    if (!logicBoardEditor_.hasOpenDropdown()) return;
+    logicBoardEditor_.closeDropdown();
+    logicBoardEditor_.refresh();
+}
+
 bool EditorUi::isContextMenuHit(int physicalX, int physicalY) const {
     if (!document_) return false;
     // Full-window confirm modal owns the pointer while open (blocks Scene View).
@@ -2384,12 +2442,13 @@ std::string sfxMacroRow(const SfxMacro& macro, const artcade::sfx::SfxRecipe& re
 }
 
 bool EditorUi::hasOpenContextMenu() const {
-    // ADR-0034 gap fix: an open Inspector dropdown joins the same precedence
-    // tier as the other transient menus below, so Escape closes it instead of
-    // falling through to the global deselect-escape.
+    // ADR-0034/0035 gap fix: an open Inspector or Logic Board dropdown joins
+    // the same precedence tier as the other transient menus below, so Escape
+    // closes it instead of falling through to the global deselect-escape.
     return viewportContextMenuVisible_ || hierarchyContextMenuVisible_
         || assetsContextMenuVisible_ || logicTypeMenuVisible_ || logicMoreMenuVisible_
-        || pendingConfirm_.has_value() || inspector_.hasOpenDropdown();
+        || pendingConfirm_.has_value() || inspector_.hasOpenDropdown()
+        || logicBoardEditor_.hasOpenDropdown();
 }
 
 bool EditorUi::hasOpenConfirm() const {

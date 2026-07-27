@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/types.h"
+#include "editor-native/ui/dropdown_navigation.h"
 
 #include <cstdint>
 #include <optional>
@@ -48,7 +49,17 @@ public:
     void toggleDropdown(Rml::ElementDocument* document,
                         const EditorCoordinator& coordinator,
                         const std::string& dropdownId);
-    void closeDropdown() { openDropdownId_.clear(); }
+    void closeDropdown() { openDropdownId_.clear(); dropdownNav_.resetSession(); }
+    bool hasOpenDropdown() const { return !openDropdownId_.empty(); }
+    const std::string& openDropdownId() const { return openDropdownId_; }
+
+    // ADR-0035: arrow-key cursor within whichever dropdown is open, shared
+    // with InspectorPanel's identical mechanism via DropdownNavigation. Both
+    // mutating methods are const to match this class's refresh()/mutable-state
+    // convention.
+    void moveDropdownHighlight(Rml::ElementDocument* document,
+                               const EditorCoordinator& coordinator, int delta) const;
+    std::optional<DropdownNavEntry> dropdownHighlightCommit() const;
     void beginKeyCapture(Rml::ElementDocument* document,
                          const EditorCoordinator& coordinator,
                          const std::string& propertyAddress);
@@ -198,6 +209,10 @@ private:
     // hook). A stale rule-scoped id (e.g. "key|<removed-rule>") is inert by
     // construction: it simply never matches a dropdown id rendered again.
     mutable std::string openDropdownId_;
+    // ADR-0035: rebuilt fresh every paint by whichever dropdown block is open
+    // (catalogEntries()/dropEntry()); reset alongside every openDropdownId_
+    // clear/reassign above.
+    mutable DropdownNavigation dropdownNav_;
     // ADR-0004 transient key-binding interaction state. Never serialised and
     // cleared with the rendered Logic Board context or Play.
     mutable std::string keyCaptureAddress_;

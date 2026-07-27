@@ -122,6 +122,18 @@ if(MSVC)
     target_link_options(inspector_layer_dropdown_keyboard_test PRIVATE /STACK:16777216)
 endif()
 
+# ADR-0035: Logic Board WHEN trigger-type catalog arrow-key highlight,
+# Enter-commit, Escape-close, and its hasOpenContextMenu() gap fix — same
+# real-element/listener discipline as inspector_layer_dropdown_keyboard_test.
+artcade_test(logic_board_dropdown_keyboard_test
+    logic-board-dropdown-keyboard-test.cpp
+    artcade-editor-ui)
+target_compile_definitions(logic_board_dropdown_keyboard_test PRIVATE
+    ARTCADE_UI_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/src/editor-native/resources/ui")
+if(MSVC)
+    target_link_options(logic_board_dropdown_keyboard_test PRIVATE /STACK:16777216)
+endif()
+
 artcade_test(sfx_synthesizer_test
     ${CMAKE_SOURCE_DIR}/vendor/artcade-runtime/src/modules/sfx/tests/sfx_tests.cpp
     ArtCade::Sfx)

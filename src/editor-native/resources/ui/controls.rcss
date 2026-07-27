@@ -483,12 +483,13 @@
     white-space: nowrap;
     overflow: hidden;
     transition: background-color 0.1s, border-color 0.1s, color 0.1s;
+
+    /* ADR-0034/0035: every dropdown trigger (Inspector and Logic Board) joins
+       the tab order — Tab reaching it and Enter/Space opening it (RmlUi
+       treats tab-index: auto as "click on Enter/Space") is then native
+       behaviour, not new C++. */
+    tab-index: auto;
 }
-/* ADR-0034 spike: only the Scene Layer picker joins the tab order today, via
-   this class on its trigger — Tab reaching it and Enter/Space opening it
-   (RmlUi treats tab-index: auto as "click on Enter/Space") is then native
-   behaviour, not new C++. Other dropdown triggers are unaffected. */
-.drop-trigger.kbd-nav { tab-index: auto; }
 .drop-caret {
     position: absolute;
     top: 0;

@@ -63,11 +63,20 @@ std::string actionArg(const LogicRuleId& ruleId, std::size_t index) {
 // data-value contract enforced by LogicBoardEditorController). `pickArg`, when
 // non-empty, is the addressing key riding
 // alongside (e.g. the rule a Key picker belongs to).
-std::string dropEntry(const std::string& label, const std::string& value, bool isCurrent,
+//
+// ADR-0035: `nav` is the same DropdownNavigation the panel uses for every
+// other dropdown; every call site pushes one entry here so Up/Down/Enter
+// work for free wherever dropEntry() is reused.
+std::string dropEntry(DropdownNavigation& nav,
+                      const std::string& label, const std::string& value, bool isCurrent,
                       const std::string& closeDropdownId, const char* pickAction,
                       const std::string& pickArg) {
+    const std::size_t navIndex = nav.push(isCurrent
+        ? DropdownNavEntry{"toggle-logic-dropdown", closeDropdownId, "", true}
+        : DropdownNavEntry{pickAction, pickArg, value, false});
     std::string html = "<div class=\"drop-entry";
     if (isCurrent) html += " selected";
+    if (nav.isHighlighted(navIndex)) html += " highlighted";
     html += "\"";
     if (isCurrent) {
         html += " data-action=\"toggle-logic-dropdown\" data-arg=\""
@@ -116,7 +125,8 @@ const std::vector<Logic::LogicCategoryId>& catalogCategoryOrder() {
     return order;
 }
 
-std::string catalogEntries(const EntityDef& owner, const Logic::LogicBlockDescriptor* trigger,
+std::string catalogEntries(DropdownNavigation& nav,
+                           const EntityDef& owner, const Logic::LogicBlockDescriptor* trigger,
                            Logic::BlockKind kind, const std::string& currentTypeId,
                            const std::string& dropdownId, const char* selectAction,
                            const std::string& selectArg, bool eventCatalog = false) {
@@ -154,8 +164,18 @@ std::string catalogEntries(const EntityDef& owner, const Logic::LogicBlockDescri
             const bool current = descriptor.typeId == currentTypeId;
             const Logic::LogicBlockAvailability availability =
                 Logic::blockAvailability(owner, descriptor, trigger);
+            // Incompatible entries carry no data-action (same as disabled/
+            // locked rows elsewhere), so they are excluded from arrow-key
+            // navigation the same way: nothing to commit there.
+            std::optional<std::size_t> navIndex;
+            if (current) {
+                navIndex = nav.push({"toggle-logic-dropdown", dropdownId, "", true});
+            } else if (availability.compatible) {
+                navIndex = nav.push({selectAction, selectArg, descriptor.typeId, false});
+            }
             html += "<button class=\"drop-entry logic-catalog-entry";
             if (current) html += " selected";
+            if (navIndex && nav.isHighlighted(*navIndex)) html += " highlighted";
             if (!availability.compatible) html += " disabled";
             html += "\"";
             if (current) {
@@ -256,7 +276,7 @@ std::string variableInitialValue(const GameVariableDefinition& definition) {
 }
 
 std::string variablesDrawer(
-    const EditorCoordinator& coordinator, bool playing,
+    DropdownNavigation& nav, const EditorCoordinator& coordinator, bool playing,
     const std::string& openDropdownId) {
     std::string html =
         "<div class=\"logic-variables-drawer\">"
@@ -302,13 +322,13 @@ std::string variablesDrawer(
                                       typeDropdownId, typeOpen, playing);
         if (typeOpen) {
             html += "<div class=\"drop-list\">";
-            html += dropEntry("Number", "number",
+            html += dropEntry(nav, "Number", "number",
                               variable.type == GameVariableDefinition::Type::Number,
                               typeDropdownId, "set-global-variable-type", variable.key);
-            html += dropEntry("Boolean", "boolean",
+            html += dropEntry(nav, "Boolean", "boolean",
                               variable.type == GameVariableDefinition::Type::Boolean,
                               typeDropdownId, "set-global-variable-type", variable.key);
-            html += dropEntry("String", "string",
+            html += dropEntry(nav, "String", "string",
                               variable.type == GameVariableDefinition::Type::String,
                               typeDropdownId, "set-global-variable-type", variable.key);
             html += "</div>";
@@ -355,6 +375,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     // authoring interaction even when there is no Rml document to repaint.
     if (coordinator.isPlaying()) {
         openDropdownId_.clear();
+        dropdownNav_.resetSession();
         clearKeyBindingEditor();
         discardContextualGlobalVariable();
         pendingRevealRuleId_.clear();
@@ -363,6 +384,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     if (!document) return;
     Rml::Element* root = document->GetElementById("logic-board-panel");
     if (!root) return;
+    // ADR-0035: rebuilt fresh every paint by whichever dropdown block is open.
+    dropdownNav_.clearEntries();
 
     const LogicBoardEditorState& view = coordinator.state().logicBoardEditor;
     const bool playing = coordinator.isPlaying();
@@ -394,6 +417,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         scrollTop_ = 0.f;
         scrollRestorePending_ = false;
         openDropdownId_.clear();
+        dropdownNav_.resetSession();
         clearKeyBindingEditor();
         discardContextualGlobalVariable();
         pendingRevealRuleId_.clear();
@@ -408,6 +432,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     if (lastTab_ != view.tab) {
         lastTab_ = view.tab;
         openDropdownId_.clear();
+        dropdownNav_.resetSession();
         clearKeyBindingEditor();
         discardContextualGlobalVariable();
     }
@@ -486,7 +511,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
               + " are edited by selecting a " + escapeRml(selectedName)
               + " instance</div>";
     }
-    if (variablesDrawerOpen_) html += variablesDrawer(coordinator, playing, openDropdownId_);
+    if (variablesDrawerOpen_) html += variablesDrawer(dropdownNav_, coordinator, playing, openDropdownId_);
     const auto render = [&]() {
         // Where the author left the caret, captured before the markup that
         // holds it is thrown away.
@@ -693,7 +718,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         html += dropdownTriggerMarkup(descriptorLabel(rule.trigger.typeId), "toggle-logic-dropdown",
                                       triggerDropdownId, triggerOpen, playing);
         if (triggerOpen) {
-            html += catalogEntries(objectType, nullptr, Logic::BlockKind::Trigger,
+            html += catalogEntries(dropdownNav_, objectType, nullptr, Logic::BlockKind::Trigger,
                                    rule.trigger.typeId, triggerDropdownId,
                                    "change-logic-trigger", rule.id, /*eventCatalog=*/true);
         }
@@ -720,10 +745,10 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                                       executionOpen, playing, "logic-execution-trigger");
         if (executionOpen) {
             html += "<div class=\"drop-list logic-key-list\">";
-            html += dropEntry("Every occurrence", "every_occurrence",
+            html += dropEntry(dropdownNav_, "Every occurrence", "every_occurrence",
                               rule.executionMode == LogicExecutionMode::EveryOccurrence,
                               executionDropdownId, "set-logic-execution-mode", rule.id);
-            html += dropEntry("Run once per activation", "once_per_activation",
+            html += dropEntry(dropdownNav_, "Run once per activation", "once_per_activation",
                               rule.executionMode == LogicExecutionMode::OncePerActivation,
                               executionDropdownId, "set-logic-execution-mode", rule.id);
             html += "</div>";
@@ -778,7 +803,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 dropdownId, dropdownOpen, playing);
             if (dropdownOpen) {
                 html += catalogEntries(
-                    objectType, Logic::findDescriptor(rule.trigger.typeId),
+                    dropdownNav_, objectType, Logic::findDescriptor(rule.trigger.typeId),
                     Logic::BlockKind::Condition, clause.block.typeId, dropdownId,
                     "change-logic-condition", arg);
             }
@@ -800,7 +825,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
               + escapeRml(addConditionDropdownId) + "\">+ Add Condition</button></div>";
         if (addConditionOpen) {
             html += catalogEntries(
-                objectType, Logic::findDescriptor(rule.trigger.typeId),
+                dropdownNav_, objectType, Logic::findDescriptor(rule.trigger.typeId),
                 Logic::BlockKind::Condition, {}, addConditionDropdownId,
                 "add-logic-condition-type", rule.id);
         }
@@ -832,7 +857,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             html += "\" data-action=\"remove-logic-action\" data-arg=\"" + escapeRml(arg)
                  + "\" title=\"Delete action\">" + iconMarkup("" UI_ICON_DELETE "") + "</button></div>";
             if (dropdownOpen) {
-                html += catalogEntries(objectType, Logic::findDescriptor(rule.trigger.typeId),
+                html += catalogEntries(dropdownNav_, objectType,
+                                       Logic::findDescriptor(rule.trigger.typeId),
                                        Logic::BlockKind::Action, action.typeId, dropdownId,
                                        "change-logic-action", arg);
             }
@@ -871,7 +897,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                             return a->id < b->id;
                         });
                     for (const SpriteAnimationAssetDef* candidate : assets) {
-                        html += dropEntry(animationAssetLabel(*candidate), candidate->id,
+                        html += dropEntry(dropdownNav_, animationAssetLabel(*candidate), candidate->id,
                                           candidate->id == selectedAsset, assetDropdownId,
                                           "set-logic-animation-asset", arg);
                     }
@@ -893,7 +919,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 if (clipOpen && asset) {
                     html += "<div class=\"drop-list logic-key-list\">";
                     for (const SpriteAnimationClipDef& clip : asset->clips) {
-                        html += dropEntry(clipLabel(clip), clip.id, clip.id == selectedClip,
+                        html += dropEntry(dropdownNav_, clipLabel(clip), clip.id, clip.id == selectedClip,
                                           clipDropdownId, "set-logic-animation-clip", arg);
                     }
                     html += "</div>";
@@ -945,6 +971,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                     } else {
                         for (const AudioAssetDef* candidate : assets) {
                             html += dropEntry(
+                                dropdownNav_,
                                 resolveAudioAssetDisplayName(coordinator.document(), *candidate),
                                 candidate->assetId,
                                 candidate->assetId == selectedAudio, audioDropdownId,
@@ -982,7 +1009,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         html += "\" data-action=\"toggle-logic-dropdown\" data-arg=\"" + escapeRml(addActionDropdownId)
              + "\">+ Add Action</button></div>";
         if (addActionOpen) {
-            html += catalogEntries(objectType, Logic::findDescriptor(rule.trigger.typeId),
+            html += catalogEntries(dropdownNav_, objectType,
+                                   Logic::findDescriptor(rule.trigger.typeId),
                                    Logic::BlockKind::Action, {}, addActionDropdownId,
                                    "add-logic-action-type", rule.id);
         }
@@ -1090,7 +1118,20 @@ void LogicBoardPanel::toggleDropdown(Rml::ElementDocument* document,
                                      const EditorCoordinator& coordinator,
                                      const std::string& dropdownId) {
     openDropdownId_ = (openDropdownId_ == dropdownId) ? std::string() : dropdownId;
+    dropdownNav_.resetSession();
     refresh(document, coordinator);
+}
+
+void LogicBoardPanel::moveDropdownHighlight(Rml::ElementDocument* document,
+                                            const EditorCoordinator& coordinator,
+                                            int delta) const {
+    if (openDropdownId_.empty()) return;
+    dropdownNav_.move(delta);
+    refresh(document, coordinator);
+}
+
+std::optional<DropdownNavEntry> LogicBoardPanel::dropdownHighlightCommit() const {
+    return dropdownNav_.commit();
 }
 
 void LogicBoardPanel::beginKeyCapture(Rml::ElementDocument* document,
@@ -1101,6 +1142,7 @@ void LogicBoardPanel::beginKeyCapture(Rml::ElementDocument* document,
     keySearchAddress_.clear();
     keySearchQuery_.clear();
     openDropdownId_.clear();
+    dropdownNav_.resetSession();
     refresh(document, coordinator);
     // The clicked button must not retain RmlUi focus: otherwise Space/Enter
     // can activate that old button before the native capture router sees the
@@ -1117,6 +1159,7 @@ void LogicBoardPanel::toggleKeySearch(Rml::ElementDocument* document,
     if (coordinator.isPlaying() || propertyAddress.empty()) return;
     keyCaptureAddress_.clear();
     openDropdownId_.clear();
+    dropdownNav_.resetSession();
     if (keySearchAddress_ == propertyAddress) {
         keySearchAddress_.clear();
         keySearchQuery_.clear();
@@ -1225,6 +1268,7 @@ void LogicBoardPanel::beginContextualGlobalVariable(
     contextualVariableError_.clear();
     contextualVariableSourceRevision_ = coordinator.document().revision();
     openDropdownId_.clear();
+    dropdownNav_.resetSession();
     clearKeyBindingEditor();
     clearExpressionField();
     refresh(document, coordinator);
@@ -1275,6 +1319,7 @@ void LogicBoardPanel::toggleVariablesDrawer(
     Rml::ElementDocument* document, const EditorCoordinator& coordinator) {
     variablesDrawerOpen_ = !variablesDrawerOpen_;
     openDropdownId_.clear();
+    dropdownNav_.resetSession();
     refresh(document, coordinator);
 }
 
@@ -1296,6 +1341,7 @@ void LogicBoardPanel::toggleRuleCollapsed(Rml::ElementDocument* document,
     // A dropdown open inside a rule about to collapse must not silently
     // reappear open when the rule is later re-expanded.
     openDropdownId_.clear();
+    dropdownNav_.resetSession();
     clearKeyBindingEditor();
     discardContextualGlobalVariable();
     if (collapsedRuleIds_.erase(ruleId) == 0) collapsedRuleIds_.insert(ruleId);
@@ -1306,6 +1352,7 @@ void LogicBoardPanel::collapseAllRules(Rml::ElementDocument* document,
                                        const EditorCoordinator& coordinator) {
     if (const LogicBoardDef* board = currentBoard(coordinator)) {
         openDropdownId_.clear();
+        dropdownNav_.resetSession();
         clearKeyBindingEditor();
         discardContextualGlobalVariable();
         for (const LogicRuleDef& rule : board->rules) collapsedRuleIds_.insert(rule.id);
@@ -1316,6 +1363,7 @@ void LogicBoardPanel::collapseAllRules(Rml::ElementDocument* document,
 void LogicBoardPanel::expandAllRules(Rml::ElementDocument* document,
                                      const EditorCoordinator& coordinator) {
     openDropdownId_.clear();
+    dropdownNav_.resetSession();
     collapsedRuleIds_.clear();
     refresh(document, coordinator);
 }

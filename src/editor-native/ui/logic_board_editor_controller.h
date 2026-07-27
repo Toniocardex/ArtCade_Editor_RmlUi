@@ -35,6 +35,13 @@ public:
     bool isRebuilding() const { return panel_.isRebuilding(); }
     void toggleDropdown(const std::string& dropdownId);
     void closeDropdown();
+    bool hasOpenDropdown() const { return panel_.hasOpenDropdown(); }
+    const std::string& openDropdownId() const { return panel_.openDropdownId(); }
+    // ADR-0035: mirrors InspectorPanel's identical keyboard-nav surface.
+    void moveDropdownHighlight(int delta);
+    std::optional<DropdownNavEntry> dropdownHighlightCommit() const {
+        return panel_.dropdownHighlightCommit();
+    }
     void discardContextualGlobalVariable();
     bool hasContextualGlobalVariableDraft() const;
     bool hasKeyCapture() const;

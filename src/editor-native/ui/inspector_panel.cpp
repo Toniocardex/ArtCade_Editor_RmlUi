@@ -393,7 +393,7 @@ void InspectorPanel::toggleDropdown(Rml::ElementDocument* document,
                                     const EditorCoordinator& coordinator,
                                     const std::string& dropdownId) {
     openDropdownId_ = (openDropdownId_ == dropdownId) ? std::string() : dropdownId;
-    dropdownHighlightIndex_.reset();
+    dropdownNav_.resetSession();
     refresh(document, coordinator);
 }
 
@@ -402,39 +402,20 @@ void InspectorPanel::dismissTransientMenus(Rml::ElementDocument* document,
     if (!addMenuOpen_ && openDropdownId_.empty()) return;
     addMenuOpen_ = false;
     openDropdownId_.clear();
-    dropdownHighlightIndex_.reset();
+    dropdownNav_.resetSession();
     refresh(document, coordinator);
 }
 
 void InspectorPanel::moveDropdownHighlight(Rml::ElementDocument* document,
                                            const EditorCoordinator& coordinator,
                                            int delta) {
-    if (openDropdownId_.empty() || navigableDropdownEntries_.empty()) return;
-    const int count = static_cast<int>(navigableDropdownEntries_.size());
-    // First press starts adjacent to the entry already marked `current`
-    // (falling back to the top of the list) rather than an arbitrary index.
-    int base = 0;
-    if (dropdownHighlightIndex_) {
-        base = *dropdownHighlightIndex_;
-    } else {
-        for (int i = 0; i < count; ++i) {
-            if (navigableDropdownEntries_[static_cast<std::size_t>(i)].current) {
-                base = i;
-                break;
-            }
-        }
-    }
-    dropdownHighlightIndex_ = ((base + delta) % count + count) % count;
+    if (openDropdownId_.empty()) return;
+    dropdownNav_.move(delta);
     refresh(document, coordinator);
 }
 
-std::optional<std::pair<std::string, std::string>>
-InspectorPanel::dropdownHighlightCommit() const {
-    if (!dropdownHighlightIndex_) return std::nullopt;
-    const std::size_t index = static_cast<std::size_t>(*dropdownHighlightIndex_);
-    if (index >= navigableDropdownEntries_.size()) return std::nullopt;
-    const NavigableDropdownEntry& entry = navigableDropdownEntries_[index];
-    return std::make_pair(entry.action, entry.arg);
+std::optional<DropdownNavEntry> InspectorPanel::dropdownHighlightCommit() const {
+    return dropdownNav_.commit();
 }
 
 bool InspectorPanel::isSectionCollapsed(const std::string& sectionId) const {
@@ -451,7 +432,7 @@ void InspectorPanel::toggleSection(Rml::ElementDocument* document,
     // once their containing section disappears.
     addMenuOpen_ = false;
     openDropdownId_.clear();
-    dropdownHighlightIndex_.reset();
+    dropdownNav_.resetSession();
     refresh(document, coordinator);
 }
 
@@ -637,11 +618,10 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     Rml::Element* body = document->GetElementById("inspector-body");
     if (!body) return;
 
-    // ADR-0034 spike: rebuilt fresh every paint by whichever dropdown block is
-    // open (today, only the Scene Layer picker populates it); stays empty
-    // otherwise, so a stale index from a previous open dropdown can't mismatch
-    // this frame's list.
-    navigableDropdownEntries_.clear();
+    // ADR-0034/0035: rebuilt fresh every paint by whichever dropdown block is
+    // open; stays empty otherwise, so a stale index from a previously open
+    // dropdown can't mismatch this frame's list.
+    dropdownNav_.clearEntries();
 
     const EntityId selected = coordinator.selection().primaryEntity;
     const SceneInstanceDef* inst =
@@ -788,11 +768,16 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 html += "<div class=\"drop-list\">";
                 for (const SceneViewportPreset& preset : kSceneViewportPresets) {
                     const bool selected = matchesWholePixelSize(scene->viewportSize, preset.size);
+                    const std::string presetArg =
+                        std::to_string(static_cast<int>(preset.size.x)) + "x"
+                        + std::to_string(static_cast<int>(preset.size.y));
+                    const std::size_t navIndex = dropdownNav_.push(
+                        {"set-scene-viewport-preset", presetArg, "", selected});
                     html += "<div class=\"drop-entry";
                     if (selected) html += " selected";
+                    if (dropdownNav_.isHighlighted(navIndex)) html += " highlighted";
                     html += "\" data-action=\"set-scene-viewport-preset\" data-arg=\""
-                          + std::to_string(static_cast<int>(preset.size.x)) + "x"
-                          + std::to_string(static_cast<int>(preset.size.y)) + "\">";
+                          + presetArg + "\">";
                     if (selected) html += "<span class=\"drop-mark\">&#x25cf;</span> ";
                     html += escapeRml(std::string(preset.label) + " - "
                                       + sceneViewportSizeText(preset.size));
@@ -929,10 +914,10 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     if (selected != lastEntity_) {
         addMenuOpen_ = false;
         openDropdownId_.clear();
-        dropdownHighlightIndex_.reset();
+        dropdownNav_.resetSession();
         lastEntity_ = selected;
     }
-    if (playing) { addMenuOpen_ = false; openDropdownId_.clear(); dropdownHighlightIndex_.reset(); }
+    if (playing) { addMenuOpen_ = false; openDropdownId_.clear(); dropdownNav_.resetSession(); }
     else reconcileOpenDropdownForEntity();
 
     const std::string btn = playing ? "panel-btn disabled" : "panel-btn";
@@ -1005,12 +990,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         for (const SceneLayerDef& l : instScene->layers)
             if (l.id == curLayer) curLayerName = l.name;
         const bool layerOpen = openDropdownId_ == "layer" && !instanceDisabled;
-        // ADR-0034 spike: "kbd-nav" is the only trigger that joins the tab
-        // order today (controls.rcss scopes tab-index: auto to that class),
-        // so Tab reaching this trigger and Enter/Space opening it is native
-        // RmlUi behaviour, not new C++.
-        html += dropdownTrigger("Layer", "layer", curLayerName, layerOpen, instanceDisabled,
-                                "kbd-nav");
+        html += dropdownTrigger("Layer", "layer", curLayerName, layerOpen, instanceDisabled);
         if (layerOpen) {
             html += "<div class=\"drop-list\">";
             const EditorSceneViewState& instSceneView =
@@ -1032,16 +1012,14 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 // arrow-key navigation the same way: nothing to commit there.
                 std::optional<std::size_t> navIndex;
                 if (isCurrent) {
-                    navIndex = navigableDropdownEntries_.size();
-                    navigableDropdownEntries_.push_back(
-                        {"toggle-inspector-dropdown", "layer", /*current=*/true});
+                    navIndex = dropdownNav_.push(
+                        {"toggle-inspector-dropdown", "layer", "", /*current=*/true});
                 } else if (!targetLocked) {
-                    navIndex = navigableDropdownEntries_.size();
-                    navigableDropdownEntries_.push_back(
-                        {"set-entity-layer", l.id, /*current=*/false});
+                    navIndex = dropdownNav_.push(
+                        {"set-entity-layer", l.id, "", /*current=*/false});
                 }
-                const bool highlighted = navIndex.has_value() && dropdownHighlightIndex_
-                    && static_cast<std::size_t>(*dropdownHighlightIndex_) == *navIndex;
+                const bool highlighted = navIndex.has_value()
+                    && dropdownNav_.isHighlighted(*navIndex);
                 html += "<div class=\"drop-entry";
                 if (isCurrent) html += " selected";
                 if (highlighted) html += " highlighted";
@@ -1119,8 +1097,12 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         if (sourceOpen) {
             html += "<div class=\"drop-list\">";
             const bool noneSelected = animationAssetId.empty() && sr.imageAssetId.empty();
+            std::size_t noneNavIndex = dropdownNav_.push(noneSelected
+                ? DropdownNavEntry{"toggle-inspector-dropdown", "sprite-source", "", true}
+                : DropdownNavEntry{"set-sprite-asset", "", "", false});
             html += "<div class=\"drop-entry";
             if (noneSelected) html += " selected";
+            if (dropdownNav_.isHighlighted(noneNavIndex)) html += " highlighted";
             html += noneSelected
                 ? "\" data-action=\"toggle-inspector-dropdown\" data-arg=\"sprite-source\">"
                 : "\" data-action=\"set-sprite-asset\" data-arg=\"\">";
@@ -1143,8 +1125,12 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 for (const ImageAssetDef* asset : pickableImages) {
                     const bool isCurrent =
                         animationAssetId.empty() && asset->assetId == sr.imageAssetId;
+                    const std::size_t navIndex = dropdownNav_.push(isCurrent
+                        ? DropdownNavEntry{"toggle-inspector-dropdown", "sprite-source", "", true}
+                        : DropdownNavEntry{"set-sprite-asset", asset->assetId, "", false});
                     html += "<div class=\"drop-entry";
                     if (isCurrent) html += " selected";
+                    if (dropdownNav_.isHighlighted(navIndex)) html += " highlighted";
                     html += isCurrent
                         ? "\" data-action=\"toggle-inspector-dropdown\" data-arg=\"sprite-source\">"
                         : "\" data-action=\"set-sprite-asset\" data-arg=\""
@@ -1158,8 +1144,12 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 html += "<div class=\"asset-group-title\">Animations</div>";
                 for (const SpriteAnimationAssetDef& asset : animations) {
                     const bool isCurrent = asset.id == animationAssetId;
+                    const std::size_t navIndex = dropdownNav_.push(isCurrent
+                        ? DropdownNavEntry{"toggle-inspector-dropdown", "sprite-source", "", true}
+                        : DropdownNavEntry{"set-sprite-animation", asset.id, "", false});
                     html += "<div class=\"drop-entry";
                     if (isCurrent) html += " selected";
+                    if (dropdownNav_.isHighlighted(navIndex)) html += " highlighted";
                     html += isCurrent
                         ? "\" data-action=\"toggle-inspector-dropdown\" data-arg=\"sprite-source\">"
                         : "\" data-action=\"set-sprite-animation\" data-arg=\""
@@ -1191,8 +1181,12 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                     html += "<div class=\"drop-list\">";
                     for (const SpriteAnimationClipDef& clip : animatorAsset->clips) {
                         const bool current = clip.id == animator.defaultClipId;
+                        const std::size_t navIndex = dropdownNav_.push(current
+                            ? DropdownNavEntry{"toggle-inspector-dropdown", "sprite-default-clip", "", true}
+                            : DropdownNavEntry{"set-sprite-default-clip", clip.id, "", false});
                         html += "<div class=\"drop-entry";
                         if (current) html += " selected";
+                        if (dropdownNav_.isHighlighted(navIndex)) html += " highlighted";
                         html += current
                             ? "\" data-action=\"toggle-inspector-dropdown\" data-arg=\"sprite-default-clip\">"
                             : "\" data-action=\"set-sprite-default-clip\" data-arg=\""
@@ -1254,8 +1248,12 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                     html += "<div class=\"drop-list\">";
                     for (const SpriteAnimationClipDef& clip : animatorAsset->clips) {
                         const bool isCurrent = clip.id == animator.defaultClipId;
+                        const std::size_t navIndex = dropdownNav_.push(isCurrent
+                            ? DropdownNavEntry{"toggle-inspector-dropdown", "animator-default-clip", "", true}
+                            : DropdownNavEntry{"set-animator-default-clip", clip.id, "", false});
                         html += "<div class=\"drop-entry";
                         if (isCurrent) html += " selected";
+                        if (dropdownNav_.isHighlighted(navIndex)) html += " highlighted";
                         html += isCurrent
                             ? "\" data-action=\"toggle-inspector-dropdown\""
                               " data-arg=\"animator-default-clip\">"
@@ -1323,8 +1321,12 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 html += "<div class=\"drop-list\">";
                 for (const TilesetAsset& ts : coordinator.document().data().tilesets) {
                     const bool isCurrent = ts.assetId == tm.tilesetAssetId;
+                    const std::size_t navIndex = dropdownNav_.push(isCurrent
+                        ? DropdownNavEntry{"toggle-inspector-dropdown", "tilemap-tileset", "", true}
+                        : DropdownNavEntry{"set-tilemap-tileset", ts.assetId, "", false});
                     html += "<div class=\"drop-entry";
                     if (isCurrent) html += " selected";
+                    if (dropdownNav_.isHighlighted(navIndex)) html += " highlighted";
                     html += isCurrent
                         ? "\" data-action=\"toggle-inspector-dropdown\" data-arg=\"tilemap-tileset\">"
                         : "\" data-action=\"set-tilemap-tileset\" data-arg=\""
@@ -1414,7 +1416,11 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             if (attachOpen) {
                 html += "<div class=\"drop-list\">";
                 for (const ScriptAssetDef& asset : coordinator.document().data().scriptAssets) {
-                    html += "<div class=\"drop-entry\" data-action=\"attach-script\" data-arg=\""
+                    const std::size_t navIndex = dropdownNav_.push(
+                        {"attach-script", asset.assetId, "", false});
+                    html += "<div class=\"drop-entry";
+                    if (dropdownNav_.isHighlighted(navIndex)) html += " highlighted";
+                    html += "\" data-action=\"attach-script\" data-arg=\""
                           + escapeRml(asset.assetId) + "\">"
                           + escapeRml(assetDisplayName(asset.name, asset.assetId)) + "</div>";
                 }
@@ -1558,24 +1564,23 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         html += dropdownTrigger("Binding", "text-binding", bindingLabel, bindingOpen, playing);
         if (bindingOpen && !playing) {
             html += "<div class=\"drop-list\">";
-            html += "<div class=\"drop-entry";
-            if (bindingNone) html += " selected";
-            html += "\" data-action=\"";
-            html += bindingNone ? "toggle-inspector-dropdown\" data-arg=\"text-binding\""
-                                : "set-text-binding-none\"";
-            html += ">None</div>";
-            html += "<div class=\"drop-entry";
-            if (bindingGlobal) html += " selected";
-            html += "\" data-action=\"";
-            html += bindingGlobal ? "toggle-inspector-dropdown\" data-arg=\"text-binding\""
-                                  : "set-text-binding-global\"";
-            html += ">Global</div>";
-            html += "<div class=\"drop-entry";
-            if (bindingLocal) html += " selected";
-            html += "\" data-action=\"";
-            html += bindingLocal ? "toggle-inspector-dropdown\" data-arg=\"text-binding\""
-                                 : "set-text-binding-local\"";
-            html += ">Local</div>";
+            const auto bindingEntry = [&](bool current, const char* setAction, const char* label) {
+                const std::size_t navIndex = dropdownNav_.push(current
+                    ? DropdownNavEntry{"toggle-inspector-dropdown", "text-binding", "", true}
+                    : DropdownNavEntry{setAction, "", "", false});
+                html += "<div class=\"drop-entry";
+                if (current) html += " selected";
+                if (dropdownNav_.isHighlighted(navIndex)) html += " highlighted";
+                html += "\" data-action=\"";
+                html += current ? "toggle-inspector-dropdown\" data-arg=\"text-binding\""
+                                : (std::string(setAction) + "\"");
+                html += ">";
+                html += label;
+                html += "</div>";
+            };
+            bindingEntry(bindingNone, "set-text-binding-none", "None");
+            bindingEntry(bindingGlobal, "set-text-binding-global", "Global");
+            bindingEntry(bindingLocal, "set-text-binding-local", "Local");
             html += "</div>";
         }
 
@@ -1599,8 +1604,12 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                     if (!isTextFormatCompatibleWithVariableType(format, variable.type)) continue;
                     any = true;
                     const bool isCurrent = variable.key == textComp->bindKey;
+                    const std::size_t navIndex = dropdownNav_.push(isCurrent
+                        ? DropdownNavEntry{"toggle-inspector-dropdown", "text-variable", "", true}
+                        : DropdownNavEntry{"set-text-variable", variable.key, "", false});
                     html += "<div class=\"drop-entry";
                     if (isCurrent) html += " selected";
+                    if (dropdownNav_.isHighlighted(navIndex)) html += " highlighted";
                     html += "\" data-action=\"";
                     if (isCurrent) {
                         html += "toggle-inspector-dropdown\" data-arg=\"text-variable\"";
@@ -1642,8 +1651,15 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 const bool compatible = !boundType
                     || isTextFormatCompatibleWithVariableType(format, *boundType);
                 const bool isCurrent = textComp->format == format;
+                std::optional<std::size_t> navIndex;
+                if (compatible) {
+                    navIndex = dropdownNav_.push(isCurrent
+                        ? DropdownNavEntry{"toggle-inspector-dropdown", "text-format", "", true}
+                        : DropdownNavEntry{"set-text-format", format, "", false});
+                }
                 html += "<div class=\"drop-entry";
                 if (isCurrent) html += " selected";
+                if (navIndex && dropdownNav_.isHighlighted(*navIndex)) html += " highlighted";
                 if (!compatible) html += " disabled";
                 html += "\"";
                 if (compatible) {
@@ -1684,8 +1700,12 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 "bottom-left", "bottom-center", "bottom-right"};
             for (const char* anchor : anchors) {
                 const bool isCurrent = textComp->align == anchor;
+                const std::size_t navIndex = dropdownNav_.push(isCurrent
+                    ? DropdownNavEntry{"toggle-inspector-dropdown", "text-align", "", true}
+                    : DropdownNavEntry{"set-text-align", anchor, "", false});
                 html += "<div class=\"drop-entry";
                 if (isCurrent) html += " selected";
+                if (dropdownNav_.isHighlighted(navIndex)) html += " highlighted";
                 html += "\" data-action=\"";
                 if (isCurrent) {
                     html += "toggle-inspector-dropdown\" data-arg=\"text-align\"";
@@ -1729,24 +1749,23 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                                 gaugeBindingOpen, playing);
         if (gaugeBindingOpen && !playing) {
             html += "<div class=\"drop-list\">";
-            html += "<div class=\"drop-entry";
-            if (gaugeBindingNone) html += " selected";
-            html += "\" data-action=\"";
-            html += gaugeBindingNone ? "toggle-inspector-dropdown\" data-arg=\"gauge-binding\""
-                                     : "set-gauge-binding-none\"";
-            html += ">None</div>";
-            html += "<div class=\"drop-entry";
-            if (gaugeBindingGlobal) html += " selected";
-            html += "\" data-action=\"";
-            html += gaugeBindingGlobal ? "toggle-inspector-dropdown\" data-arg=\"gauge-binding\""
-                                       : "set-gauge-binding-global\"";
-            html += ">Global</div>";
-            html += "<div class=\"drop-entry";
-            if (gaugeBindingLocal) html += " selected";
-            html += "\" data-action=\"";
-            html += gaugeBindingLocal ? "toggle-inspector-dropdown\" data-arg=\"gauge-binding\""
-                                      : "set-gauge-binding-local\"";
-            html += ">Local</div>";
+            const auto gaugeBindingEntry = [&](bool current, const char* setAction, const char* label) {
+                const std::size_t navIndex = dropdownNav_.push(current
+                    ? DropdownNavEntry{"toggle-inspector-dropdown", "gauge-binding", "", true}
+                    : DropdownNavEntry{setAction, "", "", false});
+                html += "<div class=\"drop-entry";
+                if (current) html += " selected";
+                if (dropdownNav_.isHighlighted(navIndex)) html += " highlighted";
+                html += "\" data-action=\"";
+                html += current ? "toggle-inspector-dropdown\" data-arg=\"gauge-binding\""
+                                : (std::string(setAction) + "\"");
+                html += ">";
+                html += label;
+                html += "</div>";
+            };
+            gaugeBindingEntry(gaugeBindingNone, "set-gauge-binding-none", "None");
+            gaugeBindingEntry(gaugeBindingGlobal, "set-gauge-binding-global", "Global");
+            gaugeBindingEntry(gaugeBindingLocal, "set-gauge-binding-local", "Local");
             html += "</div>";
         }
         const bool showGaugeVariable =
@@ -1767,8 +1786,12 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                     if (!isGaugeCompatibleWithVariableType(variable.type)) continue;
                     any = true;
                     const bool isCurrent = variable.key == gaugeComp->bindKey;
+                    const std::size_t navIndex = dropdownNav_.push(isCurrent
+                        ? DropdownNavEntry{"toggle-inspector-dropdown", "gauge-variable", "", true}
+                        : DropdownNavEntry{"set-gauge-variable", variable.key, "", false});
                     html += "<div class=\"drop-entry";
                     if (isCurrent) html += " selected";
+                    if (dropdownNav_.isHighlighted(navIndex)) html += " highlighted";
                     html += "\" data-action=\"";
                     if (isCurrent) {
                         html += "toggle-inspector-dropdown\" data-arg=\"gauge-variable\"";
@@ -1798,18 +1821,22 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         if (dirOpen && !playing) {
             html += "<div class=\"drop-list\">";
             const bool horiz = gaugeComp->direction == "horizontal";
-            html += "<div class=\"drop-entry";
-            if (horiz) html += " selected";
-            html += "\" data-action=\"";
-            html += horiz ? "toggle-inspector-dropdown\" data-arg=\"gauge-direction\""
-                          : "set-gauge-direction\" data-arg=\"horizontal\"";
-            html += ">horizontal</div>";
-            html += "<div class=\"drop-entry";
-            if (!horiz) html += " selected";
-            html += "\" data-action=\"";
-            html += !horiz ? "toggle-inspector-dropdown\" data-arg=\"gauge-direction\""
-                           : "set-gauge-direction\" data-arg=\"vertical\"";
-            html += ">vertical</div>";
+            const auto directionEntry = [&](bool current, const char* value, const char* label) {
+                const std::size_t navIndex = dropdownNav_.push(current
+                    ? DropdownNavEntry{"toggle-inspector-dropdown", "gauge-direction", "", true}
+                    : DropdownNavEntry{"set-gauge-direction", value, "", false});
+                html += "<div class=\"drop-entry";
+                if (current) html += " selected";
+                if (dropdownNav_.isHighlighted(navIndex)) html += " highlighted";
+                html += "\" data-action=\"";
+                html += current ? "toggle-inspector-dropdown\" data-arg=\"gauge-direction\""
+                                : ("set-gauge-direction\" data-arg=\"" + std::string(value) + "\"");
+                html += ">";
+                html += label;
+                html += "</div>";
+            };
+            directionEntry(horiz, "horizontal", "horizontal");
+            directionEntry(!horiz, "vertical", "vertical");
             html += "</div>";
         }
         html += field("Offset X", "commit-gauge-offset-x", num(gaugeComp->offsetX), playing);
@@ -1887,14 +1914,19 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                      {GameVariableDefinition::Type::Number,
                       GameVariableDefinition::Type::Boolean,
                       GameVariableDefinition::Type::String}) {
-                    html += "<div class=\"drop-entry";
-                    if (option == variable.type) html += " selected";
+                    const bool isCurrent = option == variable.type;
                     // Key and type in one arg: a key cannot contain '|'
                     // (project-global-variables-format's charset), so the split
                     // is unambiguous.
+                    const std::string typeArg =
+                        std::string(variableTypeToken(option)) + "|" + safeKey;
+                    const std::size_t navIndex = dropdownNav_.push(
+                        {"set-object-variable-type", typeArg, "", isCurrent});
+                    html += "<div class=\"drop-entry";
+                    if (isCurrent) html += " selected";
+                    if (dropdownNav_.isHighlighted(navIndex)) html += " highlighted";
                     html += "\" data-action=\"set-object-variable-type\" data-arg=\""
-                          + std::string(variableTypeToken(option)) + "|" + safeKey + "\">"
-                          + variableTypeLabel(option) + "</div>";
+                          + typeArg + "\">" + variableTypeLabel(option) + "</div>";
                 }
                 html += "</div>";
             }
@@ -2037,14 +2069,14 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
 void InspectorPanel::reconcileOpenDropdownForScene() {
     if (!openDropdownId_.empty() && !isSceneDropdown(openDropdownId_)) {
         openDropdownId_.clear();
-        dropdownHighlightIndex_.reset();
+        dropdownNav_.resetSession();
     }
 }
 
 void InspectorPanel::reconcileOpenDropdownForEntity() {
     if (!openDropdownId_.empty() && !isEntityDropdown(openDropdownId_)) {
         openDropdownId_.clear();
-        dropdownHighlightIndex_.reset();
+        dropdownNav_.resetSession();
     }
 }
 
