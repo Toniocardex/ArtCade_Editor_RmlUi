@@ -657,6 +657,46 @@
 /* Variant for a warning that opens the panel (locked-layer note): match the
    14dp breathing room a comp-header would give as the first element. */
 .outside-warning.panel-top { margin-top: 14dp; }
+/* -- Object Variables (ADR-0031) -------------------------------------------
+   One block per variable so a list of them reads as several things rather than
+   one long ladder of rows. Name and type share the first line, and Reset sits
+   on the override's own row: both pairs are one decision, and splitting them
+   cost a row each. Colours come from theme.rcss — the separator reuses the
+   Inspector's own border token. */
+.object-variable {
+    display: block;
+    margin: 0 0 4dp 0;
+    padding: 6dp 0 2dp 0;
+}
+.object-variable + .object-variable {
+    border-top-width: 1px;
+}
+.object-variable-head {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 4dp;
+}
+.object-variable-name {
+    flex: 1 1 0;
+    min-width: 0;
+    margin-right: 4dp;
+}
+.object-variable-type {
+    flex: 0 0 88dp;
+    margin-right: 2dp;
+}
+.object-variable-desc {
+    display: block;
+    width: 100%;
+    margin-top: 2dp;
+}
+/* The reset sits beside the value it undoes, not under it. */
+.object-variable-reset {
+    flex: 0 0 auto;
+    margin-left: 4dp;
+}
+
 .type-owned-note {
     display: block;
     margin: 0 0 6dp 0;

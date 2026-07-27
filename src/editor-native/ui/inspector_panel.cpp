@@ -327,7 +327,8 @@ std::string variableValueText(const GameVariableValue& value) {
 std::string variableValueRow(const char* label, GameVariableDefinition::Type type,
                              const GameVariableValue& value, const char* commitAction,
                              const char* toggleAction, const std::string& key,
-                             bool playing, bool present) {
+                             bool playing, bool present,
+                             const std::string& trailing = {}) {
     std::string row = "<div class=\"prop-row\"><span class=\"prop-label\">";
     row += label;
     row += "</span>";
@@ -350,6 +351,7 @@ std::string variableValueRow(const char* label, GameVariableDefinition::Type typ
         if (playing) row += " disabled=\"disabled\"";
         row += "/>";
     }
+    row += trailing;
     row += "</div>";
     return row;
 }
@@ -978,7 +980,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
 
     // -- Transform (instance-owned; structural, no remove) --------------------
     html += header("transform", isSectionCollapsed("transform"),
-                   "&#xf22f;", "Transform", "INSTANCE", "", "", instanceDisabled);
+                   "&#xf22f;", "Transform", "", "", "", instanceDisabled);
     html += fieldWithUnit("Position X", "commit-transform-position-x",
                           num(inst->transform.position.x), "wu", instanceDisabled,
                           "inspector-pos-x");
@@ -1006,7 +1008,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         const bool unifiedSprite = type->spritePresentation.has_value();
         html += header(unifiedSprite ? "sprite" : "sprite-renderer",
                        isSectionCollapsed(unifiedSprite ? "sprite" : "sprite-renderer"),
-                       "&#xeb0a;", unifiedSprite ? "Sprite" : "Sprite Renderer", "OBJECT TYPE", "",
+                       "&#xeb0a;", unifiedSprite ? "Sprite" : "Sprite Renderer", "", "",
                        "remove-sprite-renderer", playing);
         html += typeOwnedLockNote;
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Visible</span>"
@@ -1134,7 +1136,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 && !resolvedAnimator.explicitAutoPlay
                 && !resolvedAnimator.explicitDefaultClip
                 && !resolvedAnimator.explicitAnimationAsset;
-            std::string animatorBadge = "OBJECT TYPE";
+            std::string animatorBadge;
             if (resolvedAnimator.origin == ComponentOrigin::InstanceOverride) {
                 animatorBadge = "INSTANCE OVERRIDE";
             } else if (inherited) {
@@ -1222,7 +1224,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         const TilemapComponent& tm = *inst->tilemap;
         const TilesetAsset* tmTileset = coordinator.document().findTilesetAsset(tm.tilesetAssetId);
         html += header("tilemap", isSectionCollapsed("tilemap"),
-                       "&#xf22f;", "Tilemap", "INSTANCE", "", "remove-tilemap-component", instanceDisabled);
+                       "&#xf22f;", "Tilemap", "", "", "remove-tilemap-component", instanceDisabled);
         const std::string tilesetLabel = tmTileset
             ? assetDisplayName(tmTileset->name, tmTileset->assetId)
             : std::string("(missing)");
@@ -1281,7 +1283,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     // -- Scripts (Object-Type owned; every instance inherits this order) -------
     if (type) {
         html += header("scripts", isSectionCollapsed("scripts"),
-                       "&#xf1b7;", "Scripts", "OBJECT TYPE", "", "", playing);
+                       "&#xf1b7;", "Scripts", "", "", "", playing);
         html += typeOwnedLockNote;
         const ScriptComponent emptyScripts;
         const ScriptComponent& scripts = type->scripts ? *type->scripts : emptyScripts;
@@ -1343,7 +1345,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         (type && type->boxCollider2D) ? &*type->boxCollider2D : nullptr;
     if (collider) {
         html += header("box-collider", isSectionCollapsed("box-collider"),
-                       "&#xeca9;", "Box Collider 2D", "TYPE", "", "remove-box-collider", playing);
+                       "&#xeca9;", "Box Collider 2D", "", "", "remove-box-collider", playing);
         html += typeOwnedLockNote;
         html += "<div class=\"prop-row\"><span class=\"prop-label\">Enabled</span>"
                 "<button class=\"" + btn + "\" data-action=\"toggle-box-enabled\">";
@@ -1376,7 +1378,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         (type && type->linearMover) ? &*type->linearMover : nullptr;
     if (mover) {
         html += header("linear-mover", isSectionCollapsed("linear-mover"),
-                       "&#xf22f;", "Linear Mover", "TYPE", "", "remove-linear-mover", playing);
+                       "&#xf22f;", "Linear Mover", "", "", "remove-linear-mover", playing);
         html += typeOwnedLockNote;
         html += field("Direction X", "commit-mover-dir-x", num(mover->directionX), playing);
         html += field("Direction Y", "commit-mover-dir-y", num(mover->directionY), playing);
@@ -1388,7 +1390,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         (type && type->topDownController) ? &*type->topDownController : nullptr;
     if (controller) {
         html += header("top-down-controller", isSectionCollapsed("top-down-controller"),
-                       "&#xec8e;", "Top Down Controller", "TYPE", "", "remove-top-down", playing);
+                       "&#xec8e;", "Top Down Controller", "", "", "remove-top-down", playing);
         html += typeOwnedLockNote;
         html += field("Speed", "commit-topdown-speed", num(controller->maxSpeed), playing);
         html += field("Acceleration", "commit-topdown-acceleration",
@@ -1407,7 +1409,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         (type && type->platformerController) ? &*type->platformerController : nullptr;
     if (platformer) {
         html += header("platformer-controller", isSectionCollapsed("platformer-controller"),
-                       "&#xec8e;", "Platformer Controller", "TYPE", "", "remove-platformer", playing);
+                       "&#xec8e;", "Platformer Controller", "", "", "remove-platformer", playing);
         html += typeOwnedLockNote;
         html += field("Move Speed", "commit-platformer-move", num(platformer->maxSpeed), playing);
         html += field("Jump Speed", "commit-platformer-jump", num(platformer->jumpForce), playing);
@@ -1421,7 +1423,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     if (inst->cameraTarget.has_value()) {
         const CameraTargetComponent& target = *inst->cameraTarget;
         html += header("camera-target", isSectionCollapsed("camera-target"),
-                       "&#xeb5f;", "Camera Target", "INSTANCE", "",
+                       "&#xeb5f;", "Camera Target", "", "",
                        "remove-camera-target", instanceDisabled);
         html += field("Offset X", "commit-camera-target-offset-x", num(target.offsetX),
                       instanceDisabled);
@@ -1437,7 +1439,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         (type && type->autoDestroy) ? &*type->autoDestroy : nullptr;
     if (autoDestroy) {
         html += header("auto-destroy", isSectionCollapsed("auto-destroy"),
-                       "&#xeb41;", "Auto Destroy", "TYPE", "", "remove-auto-destroy", playing);
+                       "&#xeb41;", "Auto Destroy", "", "", "remove-auto-destroy", playing);
         html += typeOwnedLockNote;
         html += fieldWithUnit("Lifetime", "commit-auto-destroy-lifespan",
                               num(autoDestroy->lifespan), "s", playing);
@@ -1448,7 +1450,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     const TextComponent* textComp = (type && type->text) ? &*type->text : nullptr;
     if (textComp) {
         html += header("text", isSectionCollapsed("text"),
-                       "&#xea95;", "Text", "OBJECT TYPE", "", "remove-text", playing);
+                       "&#xea95;", "Text", "", "", "remove-text", playing);
         html += typeOwnedLockNote;
         html += field("Text", "commit-text-static", textComp->text, playing);
         html += field("Prefix", "commit-text-prefix", textComp->prefix, playing);
@@ -1624,7 +1626,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     const GaugeComponent* gaugeComp = (type && type->gauge) ? &*type->gauge : nullptr;
     if (gaugeComp) {
         html += header("gauge", isSectionCollapsed("gauge"),
-                       "&#xea94;", "Gauge", "OBJECT TYPE", "", "remove-gauge", playing);
+                       "&#xea94;", "Gauge", "", "", "remove-gauge", playing);
         html += typeOwnedLockNote;
         const bool gaugeBindingLocal = gaugeComp->bindScope == "local";
         const bool pickingGaugeGlobalVariable = !gaugeBindingLocal
@@ -1739,9 +1741,14 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     // section would turn one variable into two apparently independent things.
     if (type) {
         html += header("object-variables", isSectionCollapsed("object-variables"),
-                       "&#xeb4c;", "Object Variables", "OBJECT TYPE", "", "", playing);
+                       "&#xeb4c;", "Object Variables", "", "", "", playing);
         html += typeOwnedLockNote;
-        if (type->localVariables.empty()) {
+        // Said once, in prose, instead of twice per variable in labels too long
+        // for the column. With the ownership pills gone this is what carries it.
+        if (!type->localVariables.empty()) {
+            html += "<div class=\"type-owned-note\">Defaults belong to the Object Type and are "
+                    "shared by every instance. An override applies to this one only.</div>";
+        } else {
             html += "<p class=\"inspector-empty\">No object variables yet</p>";
         }
         for (const GameVariableDefinition& variable : type->localVariables) {
@@ -1749,18 +1756,23 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             const std::string typeDropdownId = "object-variable-type|" + variable.key;
             const bool typeOpen = openDropdownId_ == typeDropdownId && !playing;
 
-            html += "<div class=\"prop-row\"><span class=\"prop-label\">Name</span>"
-                    "<input type=\"text\" class=\"prop-input\""
+            // Name, type and delete are one line: they are the variable's
+            // identity, and three stacked rows made a two-variable type read
+            // as a wall.
+            html += "<div class=\"object-variable\"><div class=\"object-variable-head\">"
+                    "<input type=\"text\" class=\"prop-input object-variable-name\""
                     " data-action=\"commit-object-variable-key\" data-arg=\""
                   + safeKey + "\" value=\"" + safeKey + "\"";
             if (playing) html += " disabled=\"disabled\"";
-            html += "/><span class=\"comp-remove";
+            html += "/><div class=\"object-variable-type\">";
+            html += dropdownTriggerMarkup(variableTypeLabel(variable.type),
+                                          "toggle-inspector-dropdown", typeDropdownId,
+                                          typeOpen, playing);
+            html += "</div><span class=\"comp-remove";
             if (playing) html += " disabled";
             html += "\" data-action=\"remove-object-variable\" data-arg=\"" + safeKey
-                  + "\" title=\"Delete object variable\">" + icon("&#xeb41;") + "</span></div>";
-
-            html += dropdownTrigger("Type", typeDropdownId.c_str(),
-                                    variableTypeLabel(variable.type), typeOpen, playing);
+                  + "\" title=\"Delete object variable\">" + icon("&#xeb41;")
+                  + "</span></div>";
             if (typeOpen) {
                 html += "<div class=\"drop-list\">";
                 for (const GameVariableDefinition::Type option :
@@ -1780,7 +1792,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             }
 
             html += variableValueRow(
-                "Object Type default", variable.type, variable.initialValue,
+                "Default", variable.type, variable.initialValue,
                 "commit-object-variable-default", "toggle-object-variable-default",
                 variable.key, playing, /*present=*/true);
 
@@ -1789,21 +1801,20 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             // resolved one.
             const auto overrideIt = inst->localVariableOverrides.find(variable.key);
             const bool hasOverride = overrideIt != inst->localVariableOverrides.end();
+            // Reset belongs beside the value it undoes, not on a row of its own.
             html += variableValueRow(
-                "Instance override", variable.type,
+                "This instance", variable.type,
                 hasOverride ? overrideIt->second : variable.initialValue,
                 "commit-instance-variable-override", "toggle-instance-variable-override",
-                variable.key, playing, hasOverride);
-            html += "<div class=\"prop-row\"><span class=\"prop-label\"></span>"
-                    "<button class=\"panel-btn";
-            if (playing || !hasOverride) html += " disabled";
-            html += "\" data-action=\"reset-instance-variable-override\" data-arg=\"" + safeKey
-                  + "\">Reset</button></div>";
+                variable.key, playing, hasOverride,
+                /*trailing=*/std::string("<button class=\"panel-btn object-variable-reset")
+                    + ((playing || !hasOverride) ? " disabled" : "")
+                    + "\" data-action=\"reset-instance-variable-override\" data-arg=\""
+                    + safeKey + "\" title=\"Use the Object Type default\">Reset</button>");
 
-            html += "<div class=\"prop-row\"><span class=\"prop-label\">Description</span>"
-                    "<input type=\"text\" class=\"prop-input\""
+            html += "<input type=\"text\" class=\"prop-input object-variable-desc\""
                     " data-action=\"commit-object-variable-description\" data-arg=\""
-                  + safeKey + "\" placeholder=\"Optional\" value=\""
+                  + safeKey + "\" placeholder=\"Description\" value=\""
                   + escapeRml(variable.description) + "\"";
             if (playing) html += " disabled=\"disabled\"";
             html += "/></div>";

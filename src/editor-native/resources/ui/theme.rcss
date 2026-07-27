@@ -680,6 +680,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .panel-btn.primary.disabled,
 .prop-copy:hover,
 .prop-input,
+.object-variable + .object-variable,
 .prop-input:disabled,
 .prop-start-badge,
 .script-toolbar-field input,
