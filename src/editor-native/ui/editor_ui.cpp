@@ -3031,6 +3031,11 @@ void EditorUi::handleObjectVariableAction(const std::string& action, const std::
         const bool current = std::get_if<bool>(&definition->initialValue)
                           && std::get<bool>(definition->initialValue);
         run(SetObjectVariableInitialValueCommand{typeId, key, GameVariableValue{!current}});
+    } else if (action == "override-instance-variable") {
+        // Seeded from the shared value, so switching to "this instance" changes
+        // who owns the number, not the number.
+        run(SetInstanceVariableOverrideCommand{sceneId, selected, key,
+                                               definition->initialValue});
     } else if (action == "reset-instance-variable-override") {
         run(ClearInstanceVariableOverrideCommand{sceneId, selected, key});
     } else if (action == "commit-instance-variable-override") {
@@ -3414,6 +3419,7 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
                || action == "commit-object-variable-description"
                || action == "commit-instance-variable-override"
                || action == "toggle-instance-variable-override"
+               || action == "override-instance-variable"
                || action == "reset-instance-variable-override") {
         handleObjectVariableAction(action, arg, value);
     } else if (action == "set-text-binding-none" || action == "set-text-binding-global"

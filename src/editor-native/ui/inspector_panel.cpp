@@ -192,7 +192,11 @@ bool isEntityDropdown(std::string_view dropdownId) {
         || dropdownId == "text-align"
         || dropdownId == "gauge-binding"
         || dropdownId == "gauge-variable"
-        || dropdownId == "gauge-direction";
+        || dropdownId == "gauge-direction"
+        // One per variable, so the key rides in the id: "object-variable-type|<key>".
+        // Without this the refresh that follows the toggle cleared it again and
+        // the list never appeared.
+        || dropdownId.rfind("object-variable-type|", 0) == 0;
 }
 
 std::string truncateDisplayName(const std::string& name, std::size_t maxChars) {
@@ -319,34 +323,33 @@ std::string variableValueText(const GameVariableValue& value) {
 }
 
 /**
- * One value row for either side of a variable. `present` false means the
- * instance has no override: the control shows an em dash rather than the
- * inherited value, so "same as the default" and "overridden to the same value"
- * never look alike.
+ * One editable value row: the Object Type's own, or an instance's override.
+ * Only rendered for a value that exists — an instance without an override gets
+ * an explicit Override button instead of an empty box, because RmlUi has no
+ * placeholder and a blank field said nothing at all.
  */
 std::string variableValueRow(const char* label, GameVariableDefinition::Type type,
                              const GameVariableValue& value, const char* commitAction,
                              const char* toggleAction, const std::string& key,
-                             bool playing, bool present,
-                             const std::string& trailing = {}) {
+                             bool playing, const std::string& trailing = {}) {
     std::string row = "<div class=\"prop-row\"><span class=\"prop-label\">";
     row += label;
     row += "</span>";
     if (type == GameVariableDefinition::Type::Boolean) {
-        const bool on = present && std::get_if<bool>(&value) && std::get<bool>(value);
+        const bool on = std::get_if<bool>(&value) && std::get<bool>(value);
         row += "<button class=\"panel-btn";
         if (on) row += " active";
         if (playing) row += " disabled";
         row += "\" data-action=\"";
         row += toggleAction;
         row += "\" data-arg=\"" + escapeRml(key) + "\">";
-        row += present ? (on ? "True" : "False") : "&#8212;";
+        row += on ? "True" : "False";
         row += "</button>";
     } else {
         row += "<input type=\"text\" class=\"prop-input\" data-action=\"";
         row += commitAction;
-        row += "\" data-arg=\"" + escapeRml(key) + "\" placeholder=\"&#8212;\" value=\"";
-        if (present) row += escapeRml(variableValueText(value));
+        row += "\" data-arg=\"" + escapeRml(key) + "\" value=\"";
+        row += escapeRml(variableValueText(value));
         row += "\"";
         if (playing) row += " disabled=\"disabled\"";
         row += "/>";
@@ -1792,32 +1795,39 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             }
 
             html += variableValueRow(
-                "Default", variable.type, variable.initialValue,
+                "Value", variable.type, variable.initialValue,
                 "commit-object-variable-default", "toggle-object-variable-default",
-                variable.key, playing, /*present=*/true);
+                variable.key, playing);
 
-            // The instance row states the relationship rather than restating
-            // the value: the default above is the definition's, never the
-            // resolved one.
+            // An instance either has its own value or it does not, and the two
+            // states get different controls. A blank box that might be either
+            // is the one thing this row must never be.
             const auto overrideIt = inst->localVariableOverrides.find(variable.key);
-            const bool hasOverride = overrideIt != inst->localVariableOverrides.end();
-            // Reset belongs beside the value it undoes, not on a row of its own.
-            html += variableValueRow(
-                "This instance", variable.type,
-                hasOverride ? overrideIt->second : variable.initialValue,
-                "commit-instance-variable-override", "toggle-instance-variable-override",
-                variable.key, playing, hasOverride,
-                /*trailing=*/std::string("<button class=\"panel-btn object-variable-reset")
-                    + ((playing || !hasOverride) ? " disabled" : "")
-                    + "\" data-action=\"reset-instance-variable-override\" data-arg=\""
-                    + safeKey + "\" title=\"Use the Object Type default\">Reset</button>");
+            if (overrideIt != inst->localVariableOverrides.end()) {
+                // Reset belongs beside the value it undoes, not on its own row.
+                html += variableValueRow(
+                    "This instance", variable.type, overrideIt->second,
+                    "commit-instance-variable-override", "toggle-instance-variable-override",
+                    variable.key, playing,
+                    /*trailing=*/std::string("<button class=\"panel-btn object-variable-reset")
+                        + (playing ? " disabled" : "")
+                        + "\" data-action=\"reset-instance-variable-override\" data-arg=\""
+                        + safeKey + "\" title=\"Go back to the shared value\">Reset</button>");
+            } else {
+                html += "<div class=\"prop-row\"><span class=\"prop-label\">This instance</span>"
+                        "<button class=\"panel-btn";
+                if (playing) html += " disabled";
+                html += "\" data-action=\"override-instance-variable\" data-arg=\"" + safeKey
+                      + "\" title=\"Give this instance a value of its own\">"
+                        "Uses the shared value</button></div>";
+            }
 
-            html += "<input type=\"text\" class=\"prop-input object-variable-desc\""
+            html += "<div class=\"prop-row\"><span class=\"prop-label\">Description</span>"
+                    "<input type=\"text\" class=\"prop-input\""
                     " data-action=\"commit-object-variable-description\" data-arg=\""
-                  + safeKey + "\" placeholder=\"Description\" value=\""
-                  + escapeRml(variable.description) + "\"";
+                  + safeKey + "\" value=\"" + escapeRml(variable.description) + "\"";
             if (playing) html += " disabled=\"disabled\"";
-            html += "/></div>";
+            html += "/></div></div>";
         }
         html += "<div class=\"prop-row\"><button class=\"panel-btn";
         if (playing) html += " disabled";

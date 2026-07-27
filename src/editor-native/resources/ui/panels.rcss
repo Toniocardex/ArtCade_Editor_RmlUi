@@ -686,11 +686,6 @@
     flex: 0 0 88dp;
     margin-right: 2dp;
 }
-.object-variable-desc {
-    display: block;
-    width: 100%;
-    margin-top: 2dp;
-}
 /* The reset sits beside the value it undoes, not under it. */
 .object-variable-reset {
     flex: 0 0 auto;
