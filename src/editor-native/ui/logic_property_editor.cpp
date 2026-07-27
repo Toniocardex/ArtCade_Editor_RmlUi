@@ -267,7 +267,9 @@ std::string renderLogicProperties(
                 // affordance and reverting costs a keystroke.
                 const bool focused = expressionField.focusAddress == axisAddress;
                 const bool hasError = focused && !expressionField.errorMessage.empty();
-                const std::string shown = focused && !expressionField.draftText.empty()
+                // Once the author has typed, the draft is the field's text —
+                // including when they have emptied it.
+                const std::string shown = focused && expressionField.edited
                     ? expressionField.draftText
                     : Logic::formatNumberExpression(
                           expr, Logic::NumberExpressionFormatStyle::Code);

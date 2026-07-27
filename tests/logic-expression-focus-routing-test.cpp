@@ -15,6 +15,7 @@
 // ============================================================================
 
 #include "editor-native/app/editor_coordinator.h"
+#include "editor-native/app/pending_edit.h"
 #include "editor-native/commands/logic_expression_commands.h"
 #include "editor-native/ui/editor_ui.h"
 #include "editor-native/ui/logic_property_editor.h"
@@ -478,6 +479,153 @@ void testEscapeRollsBackAndBlurCommits(Rml::Context& context, Rml::ElementDocume
 }
 
 // ----------------------------------------------------------------------------
+// Engineering Gates §15: a pending edit is resolved before Save/Open/New/Play
+// can look at the document. The draft is local until Enter or blur, and the
+// blur commit is deferred out of RmlUi's dispatch — so when Save asks, neither
+// has run. Without this the author's expression is silently not saved.
+// ----------------------------------------------------------------------------
+void testPendingDraftIsResolvedBeforeSave(Rml::Context& context,
+                                          Rml::ElementDocument& document,
+                                          EditorCoordinator& coordinator, EditorUi& ui) {
+    const LogicBoardDef& board =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicPropertyAddress address{
+        board.rules[0].id, LogicPropertyTarget::Action, 0};
+    const std::string axis = encodeLogicPropertyAddress(address, "position") + "|x";
+
+    LogicNumberExpressionAddress target;
+    target.objectTypeId = "Hero";
+    target.ruleId = board.rules[0].id;
+    target.actionIndex = 0;
+    target.parameterId = "position";
+    target.component = LogicNumericComponent::X;
+    CHECK(coordinator.execute(SetLogicNumberExpressionCommand{
+        target, Logic::parseNumberExpression("0").value}).ok);
+    frame(context, ui);
+
+    // ---- A valid draft is committed, not dropped ---------------------------
+    typeIntoExpressionField(context, document, ui, axis, "scene.width / 2");
+    CHECK(documentExpression(coordinator) == "0");   // still only a draft
+
+    const PendingEditResult resolved = ui.resolvePendingEdits();
+    CHECK(resolved.resolved());
+    CHECK(documentExpression(coordinator) == "scene.width / 2");
+    frame(context, ui);
+
+    // ---- An invalid draft blocks instead of being discarded ----------------
+    typeIntoExpressionField(context, document, ui, axis, "random(0,");
+    const uint64_t before = coordinator.document().revision();
+
+    const PendingEditResult blocked = ui.resolvePendingEdits();
+    CHECK(!blocked.resolved());
+    CHECK(!blocked.message.empty());
+    CHECK(documentExpression(coordinator) == "scene.width / 2");
+    CHECK(coordinator.document().revision() == before);
+    frame(context, ui);
+    // The text the author typed survives, with the reason beside it.
+    CHECK(hasClass(&document, "logic-expression-error"));
+    {
+        bool kept = false;
+        std::vector<Rml::Element*> inputs;
+        collectByClass(&document, "logic-expression-input", inputs);
+        for (Rml::Element* input : inputs)
+            if (attributeOf(input, "data-arg") == axis
+                && attributeOf(input, "value") == "random(0,") kept = true;
+        CHECK(kept);
+    }
+
+    context.ProcessKeyDown(Rml::Input::KI_ESCAPE, 0);
+    frame(context, ui);
+}
+
+// ----------------------------------------------------------------------------
+// Moving straight from one axis to the other. RmlUi blurs X and focuses Y in
+// the same dispatch, and the commit belongs to the field being left — so both
+// halves have to run, in that order, and neither may rebuild the panel while
+// RmlUi is still inside it.
+// ----------------------------------------------------------------------------
+void testMovingBetweenAxesCommitsTheOneBeingLeft(
+    Rml::Context& context, Rml::ElementDocument& document,
+    EditorCoordinator& coordinator, EditorUi& ui) {
+    const LogicBoardDef& board =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicPropertyAddress address{
+        board.rules[0].id, LogicPropertyTarget::Action, 0};
+    const std::string axisX = encodeLogicPropertyAddress(address, "position") + "|x";
+    const std::string axisY = encodeLogicPropertyAddress(address, "position") + "|y";
+
+    typeIntoExpressionField(context, document, ui, axisX, "scene.width");
+
+    Rml::Element* y = nullptr;
+    {
+        std::vector<Rml::Element*> inputs;
+        collectByClass(&document, "logic-expression-input", inputs);
+        for (Rml::Element* input : inputs)
+            if (attributeOf(input, "data-arg") == axisY) y = input;
+    }
+    CHECK(y != nullptr);
+    if (!y) return;
+
+    context.ProcessMouseMove(5, 5, 0);
+    CHECK(y->Focus());
+    frame(context, ui);
+
+    // X took the edit...
+    CHECK(documentExpression(coordinator) == "scene.width");
+    // ...and Y is now the field being authored, with its own list.
+    Rml::Element* focused = document.GetElementById("logic-expression-input");
+    CHECK(focused != nullptr);
+    CHECK(attributeOf(focused, "data-arg") == axisY);
+    CHECK(hasClass(&document, "logic-expression-completions"));
+
+    context.ProcessKeyDown(Rml::Input::KI_ESCAPE, 0);
+    frame(context, ui);
+}
+
+// ----------------------------------------------------------------------------
+// An empty draft is the author starting over, not the absence of a draft. The
+// two are the same value in the render, so clearing a field and then hitting a
+// rebuild put the old text back — with a diagnostic beside it complaining
+// about text no longer on screen.
+// ----------------------------------------------------------------------------
+void testClearedFieldStaysCleared(Rml::Context& context, Rml::ElementDocument& document,
+                                  EditorCoordinator& coordinator, EditorUi& ui) {
+    const LogicBoardDef& board =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    const LogicPropertyAddress address{
+        board.rules[0].id, LogicPropertyTarget::Action, 0};
+    const std::string axis = encodeLogicPropertyAddress(address, "position") + "|x";
+
+    typeIntoExpressionField(context, document, ui, axis, "self.x");
+    // Clear it the way an author does.
+    context.ProcessKeyDown(Rml::Input::KI_A, Rml::Input::KM_CTRL);
+    context.ProcessKeyDown(Rml::Input::KI_BACK, 0);
+    frame(context, ui);
+    CHECK(attributeOf(document.GetElementById("logic-expression-input"), "value").empty());
+
+    // Blur: an empty field cannot parse, so this is a failed commit — which
+    // rebuilds the panel. The field must come back empty, not repopulated.
+    context.ProcessMouseMove(5, 5, 0);
+    Rml::Element* elsewhere = document.GetElementById("logic-toolbar-search");
+    CHECK(elsewhere != nullptr);
+    if (!elsewhere) return;
+    CHECK(elsewhere->Focus());
+    frame(context, ui);
+
+    CHECK(hasClass(&document, "logic-expression-error"));
+    {
+        std::vector<Rml::Element*> inputs;
+        collectByClass(&document, "logic-expression-input", inputs);
+        for (Rml::Element* input : inputs)
+            if (attributeOf(input, "data-arg") == axis)
+                CHECK(attributeOf(input, "value").empty());
+    }
+
+    context.ProcessKeyDown(Rml::Input::KI_ESCAPE, 0);
+    frame(context, ui);
+}
+
+// ----------------------------------------------------------------------------
 // Non-regression: the generic focus baseline still works for `commit-` fields.
 // Narrowing that block must not cost the Escape-restore it exists for.
 // ----------------------------------------------------------------------------
@@ -561,6 +709,9 @@ int main() {
     testFocusOpensTheCompletionList(*context, *document, coordinator, ui);
     testEditingAnExistingExpression(*context, *document, coordinator, ui);
     testEscapeRollsBackAndBlurCommits(*context, *document, coordinator, ui);
+    testPendingDraftIsResolvedBeforeSave(*context, *document, coordinator, ui);
+    testMovingBetweenAxesCommitsTheOneBeingLeft(*context, *document, coordinator, ui);
+    testClearedFieldStaysCleared(*context, *document, coordinator, ui);
 
     // Controllers are detached before the documents they observe, and the
     // documents before the context (Constitution AC-LIFE-001).

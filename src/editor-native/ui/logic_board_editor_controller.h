@@ -59,6 +59,17 @@ private:
     /** ADR-0029: parse @p text and either commit it or show why it failed. */
     void commitExpressionField(const std::string& address, const std::string& text);
 
+public:
+    /**
+     * Commits @p text into the addressed expression parameter. Returns the
+     * parser's complaint when it does not parse — the text stays in the field
+     * with the diagnostic beside it, so the caller can block instead of
+     * discarding what the author wrote (Engineering Gates §15).
+     */
+    std::string commitExpressionText(const std::string& address, const std::string& text);
+
+private:
+
     EditorCoordinator&    coordinator_;
     Rml::ElementDocument* document_ = nullptr;
     LogicBoardPanel       panel_;

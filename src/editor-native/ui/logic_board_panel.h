@@ -78,6 +78,7 @@ public:
         expressionFocusAddress_.clear();
         expressionDraftText_.clear();
         expressionErrorMessage_.clear();
+        expressionEdited_ = false;
     }
     /**
      * True while the panel is replacing its own markup. RmlUi blurs the
@@ -171,6 +172,8 @@ private:
     mutable std::string expressionFocusAddress_;
     mutable std::string expressionDraftText_;
     mutable std::string expressionErrorMessage_;
+    // See LogicExpressionFieldState::edited.
+    mutable bool expressionEdited_ = false;
     // Set when a rebuild replaced the focused expression field; consumed by
     // restoreAfterLayout(). Re-focusing inside render() does not survive:
     // Context::Update() afterwards processes the removal of the element that

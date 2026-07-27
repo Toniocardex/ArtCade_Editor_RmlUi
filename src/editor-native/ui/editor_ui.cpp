@@ -735,11 +735,44 @@ void EditorUi::restoreAfterRmlLayout() {
     logicBoardEditor_.restoreAfterLayout();
 }
 
+PendingEditResult EditorUi::resolvePendingExpressionEdit() {
+    if (!document_) return {};
+    Rml::Context* context = document_->GetContext();
+    Rml::Element* focus = context ? context->GetFocusElement() : nullptr;
+    if (!focus || attribute(focus, "data-action") != "edit-logic-expression") return {};
+
+    // The element is the authority on the text, not the stored draft: the last
+    // keystroke's `change` is still queued for the next processFrame, which
+    // will not run before the caller inspects the document.
+    const std::string address = attribute(focus, "data-arg");
+    auto* control = rmlui_dynamic_cast<Rml::ElementFormControl*>(focus);
+    const std::string value = control ? control->GetValue() : attribute(focus, "value");
+
+    // Committing now supersedes both deferred halves; leaving them queued would
+    // re-apply a stale draft over the value just committed.
+    pendingExpressionEnd_.reset();
+    pendingExpressionDraft_.reset();
+
+    const std::string error = logicBoardEditor_.commitExpressionText(address, value);
+    if (error.empty()) return {};
+    coordinator_.logError(error);
+    return PendingEditResult{PendingEditStatus::Invalid, error};
+}
+
 PendingEditResult EditorUi::resolvePendingEdits() {
     // Finish an Opacity slider drag before commit-* field blur so Save/Play
     // see the previewed alpha (ADR-0020).
     if (inspector_.backgroundOpacityDragActive()) {
         inspector_.commitBackgroundOpacityDrag(document_, coordinator_);
+    }
+
+    // ADR-0029: the expression field's draft never travels through a `commit-`
+    // action, so the loop below cannot see it, and its blur commit is deferred
+    // out of RmlUi's dispatch — neither has run when Save/Open/New/Play asks.
+    // Without this the author's expression is silently left unsaved.
+    if (PendingEditResult expression = resolvePendingExpressionEdit();
+        !expression.resolved()) {
+        return expression;
     }
 
     Rml::Context* visited[3] = {nullptr, nullptr, nullptr};

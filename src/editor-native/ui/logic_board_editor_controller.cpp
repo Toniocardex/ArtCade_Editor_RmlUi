@@ -139,12 +139,17 @@ std::string LogicBoardEditorController::objectTypeMenuEntries() const {
 
 void LogicBoardEditorController::commitExpressionField(const std::string& address,
                                                        const std::string& text) {
+    commitExpressionText(address, text);
+}
+
+std::string LogicBoardEditorController::commitExpressionText(const std::string& address,
+                                                             const std::string& text) {
     const auto& view = coordinator_.state().logicBoardEditor;
-    if (!view.objectTypeId) return;
+    if (!view.objectTypeId) return {};
     const std::optional<PropertyAddress> parsed = parsePropertyAddress(address);
     if (!parsed || (parsed->component != "x" && parsed->component != "y")) {
         coordinator_.logError("Invalid Logic expression address");
-        return;
+        return {};
     }
     const Logic::NumberExpressionParseResult result =
         Logic::parseNumberExpression(text);
@@ -153,7 +158,7 @@ void LogicBoardEditorController::commitExpressionField(const std::string& addres
         // because one paren was missing is the behaviour worth avoiding.
         panel_.setExpressionFailure(document_, coordinator_, address, text,
                                     result.error.message);
-        return;
+        return result.error.message;
     }
     LogicNumberExpressionAddress target;
     target.objectTypeId = *view.objectTypeId;
@@ -165,6 +170,7 @@ void LogicBoardEditorController::commitExpressionField(const std::string& addres
     coordinator_.execute(SetLogicNumberExpressionCommand{target, result.value});
     panel_.clearExpressionField();
     panel_.refresh(document_, coordinator_);
+    return {};
 }
 
 bool LogicBoardEditorController::handleAction(

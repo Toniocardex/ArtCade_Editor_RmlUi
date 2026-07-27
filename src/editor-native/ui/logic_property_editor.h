@@ -40,6 +40,13 @@ struct LogicExpressionFieldState {
     std::string focusAddress;
     std::string draftText;
     std::string errorMessage;
+    /**
+     * Has the author touched the text? An empty `draftText` is otherwise
+     * indistinguishable from "no draft", so clearing a field and then hitting a
+     * rebuild put the old value back — with a diagnostic beside it complaining
+     * about text no longer on screen.
+     */
+    bool edited = false;
 };
 
 /**

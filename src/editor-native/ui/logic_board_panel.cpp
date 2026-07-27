@@ -518,7 +518,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     const LogicKeyBindingEditorState keyBinding{
         keyCaptureAddress_, keySearchAddress_, keySearchQuery_};
     const LogicExpressionFieldState expressionField{
-        expressionFocusAddress_, expressionDraftText_, expressionErrorMessage_};
+        expressionFocusAddress_, expressionDraftText_, expressionErrorMessage_,
+        expressionEdited_};
 
     if (view.tab == LogicBoardTab::GeneratedLua) {
         const Logic::LogicCompileResult compiled = Logic::compileBoard(
@@ -1093,6 +1094,7 @@ void LogicBoardPanel::focusExpressionField(Rml::ElementDocument* document,
     expressionFocusAddress_ = address;
     expressionDraftText_.clear();
     expressionErrorMessage_.clear();
+    expressionEdited_ = false;
     refresh(document, coordinator);
 }
 
@@ -1102,6 +1104,7 @@ void LogicBoardPanel::setExpressionDraft(Rml::ElementDocument* document,
                                          std::string text) {
     if (expressionFocusAddress_ != address) return;
     expressionDraftText_ = std::move(text);
+    expressionEdited_ = true;
     // Typing clears the previous complaint; it is about text that no longer
     // exists. The next commit decides whether there is a new one.
     expressionErrorMessage_.clear();
@@ -1153,6 +1156,7 @@ void LogicBoardPanel::setExpressionFailure(Rml::ElementDocument* document,
     expressionFocusAddress_ = address;
     expressionDraftText_ = std::move(text);
     expressionErrorMessage_ = std::move(message);
+    expressionEdited_ = true;
     refresh(document, coordinator);
 }
 

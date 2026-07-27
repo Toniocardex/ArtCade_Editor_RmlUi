@@ -357,6 +357,9 @@ private:
     bool handleGeneratedSfxAction(const std::string& action, const std::string& arg,
                                   const std::string& value);
     void commitGridCellSize(const std::string& text);
+    // ADR-0029: the expression field is not a `commit-` field, so the general
+    // pending-edit sweep cannot see it. Resolved on its own terms, first.
+    PendingEditResult resolvePendingExpressionEdit();
     void showPendingHierarchyMenu();   // consumes the deferred menu request
     void showPendingAssetMenu();       // same, for the Assets row menu
     // Logic Board's Object Type picker: a floating menu (like the other
