@@ -70,6 +70,7 @@ const std::unordered_set<std::string>& supportedFeatures() {
         "audio.play_sound",
         "scene.restart",
         "scene.go_to",
+        "camera.shake",
         "flow.wait",
         "state.set_number",
         "state.add_number",
@@ -361,6 +362,10 @@ struct LogicRuntime::Impl {
         void sceneGoTo(const std::string& sceneId) {
             if (!impl || !impl->host.requestSceneGoTo(sceneId))
                 throw sol::error("scene_go_to failed for scene: " + sceneId);
+        }
+        void cameraShake(float intensity, float durationSeconds) {
+            if (!impl || !impl->host.cameraShake(intensity, durationSeconds))
+                throw sol::error("camera_shake failed");
         }
         bool isKeyDown(const std::string& keyName) {
             const std::optional<LogicKey> key = logicKeyFromName(keyName);
@@ -729,6 +734,7 @@ bool LogicRuntime::initialize(std::string* error) {
             "state_compare_string", &Impl::ContextProxy::stateCompareString,
             "scene_restart", &Impl::ContextProxy::sceneRestart,
             "scene_go_to", &Impl::ContextProxy::sceneGoTo,
+            "camera_shake", &Impl::ContextProxy::cameraShake,
             "is_key_down", &Impl::ContextProxy::isKeyDown,
             "other_is_object_type", &Impl::ContextProxy::otherIsObjectType,
             "destroy_other", &Impl::ContextProxy::destroyOther,

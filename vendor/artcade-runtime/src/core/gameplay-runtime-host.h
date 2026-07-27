@@ -116,6 +116,12 @@ public:
      * as requestSceneRestart(). Empty ids are rejected with false.
      */
     virtual bool requestSceneGoTo(const SceneId& sceneId) = 0;
+    /**
+     * Adds camera trauma (Logic Camera Shake). Defensive — not corrective:
+     * intensity must be finite in [0, 1]; durationSeconds must be finite and > 0.
+     * intensity == 0 is a successful no-op. Invalid inputs return false.
+     */
+    virtual bool cameraShake(float intensity, float durationSeconds) = 0;
 };
 
 } // namespace ArtCade

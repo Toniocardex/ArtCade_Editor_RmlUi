@@ -456,6 +456,8 @@ void PlaySession::tick(const RuntimeInputSnapshot& input, float dt) {
     runtime_->dispatchInput(frame);
     if (std::isfinite(dt) && dt > 0.f) {
         runtime_->tickFixedStep(dt);
+        // RU02 host-cadence: shake once per frame after simulation may addTrauma.
+        runtime_->updateCameraShake(dt);
     }
     // A scene transition committed inside this tick (transition handler in
     // materialize()) - swap the presentation projection in the same frame.
@@ -482,6 +484,10 @@ std::vector<RenderableEntitySnapshot> PlaySession::renderables() const {
 
 Vec2 PlaySession::cameraCenter() const {
     return runtime_ ? runtime_->cameraCenter() : Vec2{};
+}
+
+Vec2 PlaySession::presentationCameraCenter() const {
+    return runtime_ ? runtime_->presentationCameraCenter() : Vec2{};
 }
 
 } // namespace ArtCade::EditorNative

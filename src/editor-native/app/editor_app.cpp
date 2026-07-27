@@ -1950,7 +1950,7 @@ int EditorApp::run(int argc, char** argv) {
                 renderView = resolvePlayView(PlayViewportProjectionInput{
                     snapshot.worldSize,
                     playSession->scene().viewportSize,
-                    playSession->cameraCenter(),
+                    playSession->presentationCameraCenter(),
                     visibleRect,
                     kSceneFitPadding,
                 });

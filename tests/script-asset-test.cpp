@@ -580,6 +580,7 @@ return { on_start = function(ctx) ctx.self:set_position(9, 10) end }
         }
         bool requestSceneRestart() override { return false; }
         bool requestSceneGoTo(const SceneId&) override { return false; }
+        bool cameraShake(float, float) override { return false; }
     };
 
     const ScriptProgram sandboxed{

@@ -49,8 +49,9 @@ double elapsedMs(Clock::time_point start) {
 // `game` executable target's Application::Modules) - method bodies unchanged,
 // only the declaring header moved so GameplaySession can own an instance.
 RuntimeLogicHostAdapter::RuntimeLogicHostAdapter(
-    Modules::RuntimeEntityGateway& gateway, Modules::Audio& audio)
-    : gateway_(gateway), audio_(audio) {}
+    Modules::RuntimeEntityGateway& gateway, Modules::Audio& audio,
+    Modules::CameraManager& cameraManager)
+    : gateway_(gateway), audio_(audio), cameraManager_(cameraManager) {}
 
 bool RuntimeLogicHostAdapter::setVisible(EntityId owner, bool value) {
     return gateway_.setRuntimeVisible(owner, value);
@@ -239,6 +240,18 @@ bool RuntimeLogicHostAdapter::requestSceneGoTo(const SceneId& sceneId) {
     return true;
 }
 
+bool RuntimeLogicHostAdapter::cameraShake(float intensity, float durationSeconds) {
+    if (!std::isfinite(intensity) || !std::isfinite(durationSeconds)
+        || intensity < 0.f || intensity > 1.f || durationSeconds <= 0.f) {
+        return false;
+    }
+    if (intensity == 0.f) {
+        return true;
+    }
+    cameraManager_.addTrauma(intensity, durationSeconds);
+    return true;
+}
+
 std::optional<RuntimeLogicHostAdapter::PendingSceneRequest>
 RuntimeLogicHostAdapter::takePendingSceneRequest() {
     std::optional<PendingSceneRequest> request = std::move(pendingSceneRequest_);
@@ -366,6 +379,20 @@ Vec2 GameplaySession::cameraCenter() const {
     return world_ ? world_->cameraCenter() : Vec2{};
 }
 
+void GameplaySession::updateCameraShake(float frameDt) {
+    if (!cameraManager_ || !std::isfinite(frameDt) || frameDt <= 0.f) return;
+    if (cameraManager_->trauma() <= 0.f) return;
+    cameraManager_->refreshShakeOffset(frameDt);
+    cameraManager_->decayTrauma(frameDt);
+}
+
+Vec2 GameplaySession::presentationCameraCenter() const {
+    Vec2 center = cameraCenter();
+    if (!cameraManager_) return center;
+    const Vec2 shake = cameraManager_->shakeOffset();
+    return {center.x + shake.x, center.y + shake.y};
+}
+
 // RU-02e-2/D-20: lines moved from Application::initSubsystems()
 // (app_bootstrap.cpp) in the same relative order, same boot-step names, same
 // wiring. `ctx` is Application's own EngineContext, already populated with
@@ -381,7 +408,8 @@ bool GameplaySession::initializeGameplayModules(
     Modules::Audio& audio,
     Modules::Input& input,
     const BootStepFn& bootStep) {
-    logicHost_ = std::make_unique<RuntimeLogicHostAdapter>(*entityGateway_, audio);
+    logicHost_ = std::make_unique<RuntimeLogicHostAdapter>(
+        *entityGateway_, audio, *cameraManager_);
     logicRuntime_ = std::make_unique<Logic::LogicRuntime>(*logicHost_);
 
     logicHost_->setWorld(world_.get());

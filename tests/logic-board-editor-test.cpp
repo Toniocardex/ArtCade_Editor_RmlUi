@@ -2520,6 +2520,7 @@ static void testSetPositionNonFiniteRateLimitedDiagnostics() {
         }
         bool requestSceneRestart() override { return false; }
         bool requestSceneGoTo(const SceneId&) override { return false; }
+        bool cameraShake(float, float) override { return false; }
     };
 
     Host host;

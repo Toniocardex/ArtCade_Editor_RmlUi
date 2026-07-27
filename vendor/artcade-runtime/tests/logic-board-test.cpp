@@ -2,6 +2,7 @@
 #include "modules/logic-core/include/logic-number-expression-format.h"
 #include "modules/logic-runtime/include/logic-runtime.h"
 #include "modules/lua-runtime/include/lua-host.h"
+#include "modules/camera-manager/include/camera-manager.h"
 
 #include <algorithm>
 #include <cmath>
@@ -236,6 +237,21 @@ struct Host final : ILogicRuntimeHost {
     bool requestSceneGoTo(const SceneId& sceneId) override {
         if (sceneId.empty()) return false;
         calls.push_back("scene_go_to:" + sceneId);
+        return true;
+    }
+    bool failCameraShake = false;
+    std::vector<std::pair<float, float>> traumaAdds;
+    bool cameraShake(float intensity, float durationSeconds) override {
+        if (failCameraShake) return false;
+        if (!std::isfinite(intensity) || !std::isfinite(durationSeconds)
+            || intensity < 0.f || intensity > 1.f || durationSeconds <= 0.f) {
+            return false;
+        }
+        calls.push_back("camera_shake:" + std::to_string(intensity) + ":"
+                        + std::to_string(durationSeconds));
+        if (intensity > 0.f) {
+            traumaAdds.emplace_back(intensity, durationSeconds);
+        }
         return true;
     }
 };
@@ -1543,6 +1559,203 @@ static void testSceneActions() {
 
     // Compatibility: an older runtime predating the scene features rejects
     // the program up front (same contract testPlaySoundAction locks in).
+}
+
+static void testCameraShakeAction() {
+    const LogicBlockDescriptor* descriptor = findDescriptor(kCameraShake);
+    CHECK(descriptor != nullptr);
+    if (descriptor) {
+        CHECK(descriptor->kind == BlockKind::Action);
+        CHECK(descriptor->categoryId == "camera");
+        CHECK(descriptor->requiredFeature == "camera.shake");
+        CHECK(descriptor->requiredContext.empty());
+        CHECK(descriptor->catalogOrder == 10);
+        CHECK(descriptor->properties.size() == 2);
+        CHECK(descriptor->properties[0].key == "intensity");
+        CHECK(descriptor->properties[0].numberConstraint
+              == LogicNumberConstraint::UnitInterval);
+        CHECK(descriptor->properties[1].key == "duration");
+        CHECK(descriptor->properties[1].numberConstraint
+              == LogicNumberConstraint::Positive);
+        CHECK(literalNumberValue(std::get<NumberExpression>(
+                  descriptor->properties[0].defaultValue))
+              == std::optional<double>{0.5});
+        CHECK(literalNumberValue(std::get<NumberExpression>(
+                  descriptor->properties[1].defaultValue))
+              == std::optional<double>{0.5});
+    }
+
+    const auto makeBoard = [](double intensity, double duration) {
+        LogicBoardDef board;
+        board.id = "logic:Shake";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        LogicBlockDef action = makeDefaultBlock(kCameraShake, BlockKind::Action);
+        action.properties[0].value = NumberExpression::literal(intensity);
+        action.properties[1].value = NumberExpression::literal(duration);
+        rule.actions = {action};
+        board.rules.push_back(rule);
+        return board;
+    };
+    const auto hasCode = [](const std::vector<LogicDiagnostic>& diagnostics,
+                            const char* code) {
+        return std::any_of(diagnostics.begin(), diagnostics.end(),
+            [&](const LogicDiagnostic& d) { return d.code == code; });
+    };
+
+    CHECK(validateBoard("Hero", makeBoard(0.0, 0.5)).empty());
+    CHECK(validateBoard("Hero", makeBoard(1.0, 0.5)).empty());
+    CHECK(hasCode(validateBoard("Hero", makeBoard(-0.1, 0.5)),
+                  "LB_CAMERA_SHAKE_INTENSITY"));
+    CHECK(hasCode(validateBoard("Hero", makeBoard(1.1, 0.5)),
+                  "LB_CAMERA_SHAKE_INTENSITY"));
+    CHECK(hasCode(validateBoard("Hero", makeBoard(0.5, 0.0)),
+                  "LB_CAMERA_SHAKE_DURATION"));
+    CHECK(hasCode(validateBoard("Hero", makeBoard(0.5, -1.0)),
+                  "LB_CAMERA_SHAKE_DURATION"));
+    CHECK(hasCode(validateBoard("Hero",
+                                makeBoard(std::numeric_limits<double>::quiet_NaN(), 0.5)),
+                  "NE_NON_FINITE"));
+    CHECK(hasCode(validateBoard("Hero",
+                                makeBoard(0.5, std::numeric_limits<double>::infinity())),
+                  "NE_NON_FINITE"));
+
+    {
+        LogicBoardDef board = makeBoard(0.5, 0.5);
+        NumberRandomRangeExpression random;
+        random.minimum = boxNumberExpression(NumberExpression::literal(0.0));
+        random.maximum = boxNumberExpression(NumberExpression::literal(1.0));
+        board.rules[0].actions[0].properties[0].value =
+            NumberExpression{std::move(random)};
+        CHECK(hasCode(validateBoard("Hero", board), "NE_LITERAL_ONLY"));
+        CHECK(!compileBoard("Hero", board).ok());
+    }
+    {
+        LogicBoardDef board = makeBoard(0.5, 0.5);
+        NumberVariableExpression variable;
+        variable.scope = NumberVariableScope::Global;
+        variable.variableId = "ProjectIntensity";
+        board.rules[0].actions[0].properties[0].value =
+            NumberExpression{std::move(variable)};
+        CHECK(hasCode(validateBoard("Hero", board), "NE_LITERAL_ONLY"));
+        CHECK(!compileBoard("Hero", board).ok());
+    }
+
+    {
+        const LogicBoardDef board = makeBoard(0.5, 0.5);
+        LogicCompileResult compiled = compileBoard("Hero", board);
+        CHECK(compiled.ok());
+        CHECK(compiled.programs[0].source.find("context:camera_shake(0.5, 0.5)")
+              != std::string::npos);
+        const auto& features = compiled.programs[0].requiredFeatures;
+        CHECK(std::find(features.begin(), features.end(), "camera.shake")
+              != features.end());
+    }
+
+    {
+        LogicCompileResult compiled = compileBoard("Hero", makeBoard(0.5, 0.5));
+        CHECK(compiled.ok());
+        Host host;
+        LogicRuntime runtime(host);
+        std::string error;
+        CHECK(runtime.loadPrograms(compiled.programs, &error));
+        CHECK(runtime.install("Hero", 1, &error).has_value());
+        runtime.beginFrame();
+        runtime.dispatchStart();
+        CHECK(host.calls.size() == 1);
+        CHECK(host.calls[0].find("camera_shake:") == 0);
+        CHECK(host.traumaAdds.size() == 1);
+        CHECK(std::abs(host.traumaAdds[0].first - 0.5f) < 1e-5f);
+        CHECK(std::abs(host.traumaAdds[0].second - 0.5f) < 1e-5f);
+    }
+
+    {
+        LogicCompileResult compiled = compileBoard("Hero", makeBoard(0.0, 0.5));
+        CHECK(compiled.ok());
+        Host host;
+        LogicRuntime runtime(host);
+        std::string error;
+        CHECK(runtime.loadPrograms(compiled.programs, &error));
+        CHECK(runtime.install("Hero", 1, &error).has_value());
+        runtime.beginFrame();
+        runtime.dispatchStart();
+        CHECK(host.calls.size() == 1);
+        CHECK(host.traumaAdds.empty());
+    }
+
+    {
+        Host host;
+        host.failCameraShake = true;
+        LogicRuntime runtime(host);
+        std::string error;
+        CHECK(runtime.loadPrograms(
+            {customProgram("Hero",
+                           "  context:on_start('r', function()\n"
+                           "    context:camera_shake(0.5, 0.5)\n  end)")},
+            &error));
+        CHECK(runtime.install("Hero", 1, &error).has_value());
+        runtime.beginFrame();
+        runtime.dispatchStart();
+        CHECK(host.calls.empty());
+        CHECK(!runtime.diagnostics().empty());
+        CHECK(std::any_of(runtime.diagnostics().begin(), runtime.diagnostics().end(),
+            [](const std::string& d) {
+                return d.find("camera_shake failed") != std::string::npos;
+            }));
+    }
+
+    {
+        LogicBoardDef board;
+        board.id = "logic:Shake";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        LogicBlockDef first = makeDefaultBlock(kCameraShake, BlockKind::Action);
+        first.properties[0].value = NumberExpression::literal(0.6);
+        first.properties[1].value = NumberExpression::literal(1.0);
+        LogicBlockDef second = makeDefaultBlock(kCameraShake, BlockKind::Action);
+        second.properties[0].value = NumberExpression::literal(0.6);
+        second.properties[1].value = NumberExpression::literal(0.25);
+        rule.actions = {first, second};
+        board.rules.push_back(rule);
+        LogicCompileResult compiled = compileBoard("Hero", board);
+        CHECK(compiled.ok());
+        Host host;
+        LogicRuntime runtime(host);
+        std::string error;
+        CHECK(runtime.loadPrograms(compiled.programs, &error));
+        CHECK(runtime.install("Hero", 1, &error).has_value());
+        runtime.beginFrame();
+        runtime.dispatchStart();
+        CHECK(host.traumaAdds.size() == 2);
+        CHECK(std::abs(host.traumaAdds[0].first - 0.6f) < 1e-5f);
+        CHECK(std::abs(host.traumaAdds[0].second - 1.0f) < 1e-5f);
+        CHECK(std::abs(host.traumaAdds[1].first - 0.6f) < 1e-5f);
+        CHECK(std::abs(host.traumaAdds[1].second - 0.25f) < 1e-5f);
+
+        // Same stacking contract as CameraManager::addTrauma (sum + clamp, last duration).
+        Modules::CameraManager camera;
+        CHECK(camera.init());
+        camera.addTrauma(host.traumaAdds[0].first, host.traumaAdds[0].second);
+        camera.addTrauma(host.traumaAdds[1].first, host.traumaAdds[1].second);
+        CHECK(camera.trauma() == 1.f);
+        camera.shutdown();
+    }
+
+    {
+        Host host;
+        LogicRuntime runtime(host);
+        LogicProgram program = customProgram("Hero", " context:on_start('r', function() end)");
+        program.requiredFeatures = {"camera.shake"};
+        std::string error;
+        CHECK(runtime.loadPrograms({program}, &error));
+    }
+    {
+        Host host;
+        LogicRuntime runtime(host);
+        LogicProgram program = customProgram("Hero", " context:on_start('r', function() end)");
+        program.requiredFeatures = {"camera.shake_future"};
+        std::string error;
+        CHECK(!runtime.loadPrograms({program}, &error));
+        CHECK(!error.empty());
+    }
 }
 
 static void testDestroyOtherAction() {
@@ -2866,6 +3079,7 @@ int main() {
     testConditionOperators();
     testPlaySoundAction();
     testSceneActions();
+    testCameraShakeAction();
     testDestroyOtherAction();
     testCombinedGameplaySmoke();
     testP1EverySecondsAndTick();

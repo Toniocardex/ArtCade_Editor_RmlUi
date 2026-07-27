@@ -274,6 +274,18 @@ void validateBlock(const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
                 validateComponent(v->y);
             }
         }
+        if (block.typeId == kCameraShake
+            && (property.key == "intensity" || property.key == "duration")) {
+            if (const auto* expression = std::get_if<NumberExpression>(&property.value)) {
+                const NumberExpressionValidationResult literalOnly =
+                    requireLiteralNumberExpression(*expression);
+                if (!literalOnly.ok) {
+                    out.push_back(makeError(objectTypeId, board, literalOnly.errorCode,
+                                            literalOnly.message, &rule, &block,
+                                            property.key));
+                }
+            }
+        }
         if (const auto literal = literalNumberOf(&property)) {
                     const double* value = &*literal;
             if (!std::isfinite(*value)) {
@@ -295,6 +307,16 @@ void validateBlock(const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
                            && property.key == "seconds" && *value <= 0.0) {
                     pushSemantic(makeError(objectTypeId, board, "LB_TIMER_INTERVAL",
                                            "Seconds must be greater than 0",
+                                           &rule, &block, property.key));
+                } else if (block.typeId == kCameraShake && property.key == "intensity"
+                           && (*value < 0.0 || *value > 1.0)) {
+                    pushSemantic(makeError(objectTypeId, board, "LB_CAMERA_SHAKE_INTENSITY",
+                                           "Camera Shake intensity must be between 0 and 1",
+                                           &rule, &block, property.key));
+                } else if (block.typeId == kCameraShake && property.key == "duration"
+                           && *value <= 0.0) {
+                    pushSemantic(makeError(objectTypeId, board, "LB_CAMERA_SHAKE_DURATION",
+                                           "Camera Shake duration must be greater than 0",
                                            &rule, &block, property.key));
                 }
             }
@@ -617,6 +639,14 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
         const auto* scene = p ? std::get_if<LogicStringValue>(&p->value) : nullptr;
         lua << "      context:scene_go_to(\""
             << escapeLua(scene ? scene->value : std::string{}) << "\")\n";
+    } else if (action.typeId == kCameraShake) {
+        // Executable validation requires literal intensity/duration; fallbacks
+        // are defensive only and unreachable for a successful compile.
+        const LogicPropertyDef* intensityProp = findProperty(action, "intensity");
+        const LogicPropertyDef* durationProp = findProperty(action, "duration");
+        const double intensity = literalNumberOf(intensityProp).value_or(0.5);
+        const double duration = literalNumberOf(durationProp).value_or(0.5);
+        lua << "      context:camera_shake(" << intensity << ", " << duration << ")\n";
     } else if (action.typeId == kStateSet) {
         const LogicPropertyDef* keyProp = findProperty(action, "key");
         const LogicPropertyDef* valueProp = findProperty(action, "value");
@@ -910,6 +940,14 @@ const std::vector<LogicBlockDescriptor>& registry() {
             {{"sceneId", LogicValueKind::String, LogicStringValue{}, "Scene"}},
             {}, {}, {}, "scene.go_to", false, 20,
             {"load", "change", "switch", "level", "next"}},
+        {kCameraShake, "camera", "Camera Shake",
+            "Adds camera trauma. Repeated calls stack intensity up to 1; "
+            "the latest duration controls the current trauma decay.",
+            BlockKind::Action,
+            {{"intensity", LogicValueKind::Number, NumberExpression::literal(0.5), "Intensity"},
+             {"duration", LogicValueKind::Number, NumberExpression::literal(0.5), "Duration"}},
+            {}, {}, {}, "camera.shake", false, 10,
+            {"shake", "trauma", "screen"}},
         {kWait, "flow", "Wait", "Waits, then continues with the following actions.",
             BlockKind::Action,
             {{"seconds", LogicValueKind::Number, NumberExpression::literal(1.0), "Seconds"}},
@@ -1015,6 +1053,15 @@ const std::vector<LogicBlockDescriptor>& registry() {
                         property.numberConstraint = LogicNumberConstraint::UnitInterval;
                     if (property.key == "axis")
                         property.numberConstraint = LogicNumberConstraint::NormalizedAxis;
+                    if (block.typeId == kCameraShake) {
+                        if (property.key == "intensity") {
+                            property.numberConstraint =
+                                LogicNumberConstraint::UnitInterval;
+                        } else if (property.key == "duration") {
+                            property.numberConstraint =
+                                LogicNumberConstraint::Positive;
+                        }
+                    }
                 } else if (property.valueKind == LogicValueKind::Vec2
                            && property.key == "scale") {
                     property.numberConstraint = LogicNumberConstraint::PositiveVec2;

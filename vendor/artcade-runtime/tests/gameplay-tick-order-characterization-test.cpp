@@ -201,6 +201,7 @@ struct Host final : IGameplayRuntimeHost {
     }
     bool requestSceneRestart() override { return false; }
     bool requestSceneGoTo(const SceneId&) override { return false; }
+    bool cameraShake(float, float) override { return false; }
 };
 
 LogicProgram makeLogicMoveProgram(const std::string& typeId, float axis) {

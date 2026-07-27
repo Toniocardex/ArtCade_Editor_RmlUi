@@ -143,7 +143,8 @@ public:
         SceneId sceneId;
     };
 
-    RuntimeLogicHostAdapter(Modules::RuntimeEntityGateway& gateway, Modules::Audio& audio);
+    RuntimeLogicHostAdapter(Modules::RuntimeEntityGateway& gateway, Modules::Audio& audio,
+                            Modules::CameraManager& cameraManager);
 
     /** World is constructed after this adapter; wired in once available. */
     void setWorld(World* world) { world_ = world; }
@@ -190,12 +191,14 @@ public:
                              float x, float y) override;
     bool requestSceneRestart() override;
     bool requestSceneGoTo(const SceneId& sceneId) override;
+    bool cameraShake(float intensity, float durationSeconds) override;
     /** Returns and clears the queued scene request (flush point only). */
     std::optional<PendingSceneRequest> takePendingSceneRequest();
 
 private:
     Modules::RuntimeEntityGateway& gateway_;
     Modules::Audio& audio_;
+    Modules::CameraManager& cameraManager_;
     World* world_ = nullptr;
     Modules::VariableManager* variables_ = nullptr;
     Modules::Input* input_ = nullptr;
@@ -293,6 +296,16 @@ public:
     const World& debugWorldView() const { return *world_; }
     /** Read-only runtime camera state for non-runtime presentation hosts. */
     Vec2 cameraCenter() const;
+    /**
+     * Host-cadence camera shake (RU02): once per real frame, never inside
+     * tickFixedStep. Refreshes render-only offset then decays trauma.
+     */
+    void updateCameraShake(float frameDt);
+    /**
+     * Authoritative cameraCenter plus current shake offset for presentation
+     * (Editor Play Scene View / equivalent). Does not mutate simulation state.
+     */
+    Vec2 presentationCameraCenter() const;
 
     // D-20: replaces the removed `Modules::Physics& physics()` accessor -
     // Application only ever used it for one thing (applyRuntimeSettings).

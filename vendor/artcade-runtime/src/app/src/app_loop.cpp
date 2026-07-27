@@ -144,7 +144,12 @@ void Application::loopIteration() {
         accumulator_ = 0.f;
     }
 
-    if (mod_->cameraManager->trauma() > 0.f) {
+    // RU02 host-cadence: once per frame (not inside tickFixedStep). Prefer the
+    // session API so Editor Play and standalone share the same entry point.
+    if (mod_->gameplaySession) {
+        const float shakeDt = simulatedDt > 0.f ? simulatedDt : frameTime;
+        mod_->gameplaySession->updateCameraShake(shakeDt);
+    } else if (mod_->cameraManager && mod_->cameraManager->trauma() > 0.f) {
         const float shakeDt = simulatedDt > 0.f ? simulatedDt : frameTime;
         mod_->cameraManager->refreshShakeOffset(shakeDt);
         mod_->cameraManager->decayTrauma(shakeDt);

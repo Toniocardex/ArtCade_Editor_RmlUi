@@ -119,7 +119,7 @@ std::string categoryLabel(const Logic::LogicCategoryId& categoryId) {
 // appended after, in first-seen registry order — rather than being dropped.
 const std::vector<Logic::LogicCategoryId>& catalogCategoryOrder() {
     static const std::vector<Logic::LogicCategoryId> order{
-        "system", "scene", "input", "collision", "entity", "platformer",
+        "system", "scene", "camera", "input", "collision", "entity", "platformer",
         "animation", "audio", "variables", "time", "messages",
     };
     return order;
