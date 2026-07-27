@@ -69,7 +69,7 @@ bool allWhitespace(const std::string& value) {
            });
 }
 
-bool incompleteNumericBuffer(const std::string& value) {
+bool incompleteNumericBufferImpl(const std::string& value) {
     if (value.empty() || allWhitespace(value)) return true;
     if (value == "+" || value == "-" || value == "."
         || value == "+." || value == "-.") {
@@ -97,6 +97,10 @@ PendingEditResult failure(PendingEditStatus status, std::string message) {
 
 } // namespace
 
+bool incompleteNumericEditBuffer(const std::string& value) {
+    return incompleteNumericBufferImpl(value);
+}
+
 PendingEditResult classifyPendingEdit(const std::string& action,
                                       const std::string& value) {
     if (action.rfind("commit-", 0) != 0) return {};
@@ -119,7 +123,7 @@ PendingEditResult classifyPendingEdit(const std::string& action,
     if (action == "commit-scene-background-opacity") {
         std::string raw = value;
         if (!raw.empty() && raw.back() == '%') raw.pop_back();
-        if (incompleteNumericBuffer(raw)) {
+        if (incompleteNumericEditBuffer(raw)) {
             return failure(PendingEditStatus::Incomplete,
                            "Finish the focused opacity value before continuing");
         }
@@ -131,7 +135,7 @@ PendingEditResult classifyPendingEdit(const std::string& action,
     }
 
     if (isNumericCommit(action)) {
-        if (incompleteNumericBuffer(value)) {
+        if (incompleteNumericEditBuffer(value)) {
             return failure(PendingEditStatus::Incomplete,
                            "Finish the focused numeric value before continuing");
         }

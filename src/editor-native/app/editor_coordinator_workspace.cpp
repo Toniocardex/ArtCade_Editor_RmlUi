@@ -17,7 +17,8 @@ constexpr EditorInvalidation kSelectionInvalidation =
     | EditorInvalidation::Viewport | EditorInvalidation::Toolbar;
 
 constexpr EditorInvalidation kSceneChangeInvalidation =
-    kSelectionInvalidation | EditorInvalidation::Toolbar;
+    kSelectionInvalidation | EditorInvalidation::Toolbar
+    | EditorInvalidation::LogicBoard;
 } // namespace
 
 EditorOperationResult EditorCoordinator::apply(const SelectEntityIntent& intent) {

@@ -362,7 +362,7 @@ navigation UI (the *counter* is in scope, the navigation is not) ·
   define — the canonical reader already read them, so only the writer was
   losing data. `ProjectValidator` now rejects both an invalid definition list
   and an override with no matching definition.
-- **A2 — section shipped, two items open.** `OBJECT VARIABLES` renders in the
+- **A2 — done.** `OBJECT VARIABLES` renders in the
   entity Inspector: per variable, name + type + delete on one line, then
   `Value`, then the instance row, then `Description`; plus
   `+ Add Object Variable`. Every action routes through
@@ -389,14 +389,26 @@ navigation UI (the *counter* is in scope, the navigation is not) ·
      after the complete frame that opened it. The same suite covers separate
      default/override mutation, Add/Rename/Description dispatch, one-step Undo,
      and disabled/no-mutation behaviour in Play.
-
-  Open:
-  1. **The buffer lifecycle table is not implemented.** Fields commit on the
-     path the Inspector already uses; Escape-reverts and
-     discard-on-selection-change still need a panel-local draft.
-  2. **Reachability guardrail 2 was never shipped.** The Logic Board still says
-     nothing when its Object Type has no instance in the active scene, so the
-     one case the limited contract cannot serve stays silent.
+  2. **The buffer lifecycle table is implemented as panel-local Inspector
+     state.** Focus starts a draft without a Command or document read-back;
+     Enter and blur validate through the existing A1.1 Command path, Escape
+     restores the authoritative value, and selection change, external
+     Undo/Redo, variable or instance deletion, Replace Project and Start Play
+     discard the draft. Invalid Enter retains the exact buffer, reports an
+     inline error and restores focus; invalid blur rolls back. Routine refresh
+     cannot overwrite a dirty draft. Dynamic Number fields reuse the shared
+     incomplete-token classifier, including empty input, signs, decimal-only
+     input, trailing decimal points and incomplete exponents. The RmlUi routing
+     suite covers these transitions, valid and invalid commit paths, direct
+     pending-edit resolution, deletion/undo, replacement and Play.
+  3. **Reachability guardrail 2 is shipped.** When the Logic Board's Object
+     Type has no instance in the active scene, the header states that its
+     Object Variables are edited by selecting an instance of that type. An
+     instance in another scene deliberately does not suppress the message.
+     Scene changes and structural instance create/delete/undo invalidate the
+     Logic Board projection, so the message cannot remain stale. The real
+     RmlUi routing suite asserts the exact rendered message, its absence when
+     the type is reachable, and both transitions.
 
 - The `Create compatible variable` button in
   `logic_property_editor.cpp:401` still routes to the Project Variables

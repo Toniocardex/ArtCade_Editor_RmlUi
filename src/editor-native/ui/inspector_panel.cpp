@@ -296,6 +296,20 @@ std::string dropdownTrigger(const char* label, const char* dropdownId,
 
 // -- Object Variables (ADR-0031) ---------------------------------------------
 
+bool isObjectVariableTextAction(std::string_view action) {
+    return action == "commit-object-variable-key"
+        || action == "commit-object-variable-default"
+        || action == "commit-object-variable-description"
+        || action == "commit-instance-variable-override";
+}
+
+const GameVariableDefinition* findObjectVariable(const EntityDef& type,
+                                                 const std::string& key) {
+    for (const GameVariableDefinition& variable : type.localVariables)
+        if (variable.key == key) return &variable;
+    return nullptr;
+}
+
 const char* variableTypeLabel(GameVariableDefinition::Type type) {
     switch (type) {
     case GameVariableDefinition::Type::Number:  return "Number";
@@ -331,7 +345,9 @@ std::string variableValueText(const GameVariableValue& value) {
 std::string variableValueRow(const char* label, GameVariableDefinition::Type type,
                              const GameVariableValue& value, const char* commitAction,
                              const char* toggleAction, const std::string& key,
-                             bool playing, const std::string& trailing = {}) {
+                             bool playing, const std::string& trailing = {},
+                             const std::string* draftValue = nullptr,
+                             bool draftInvalid = false) {
     std::string row = "<div class=\"prop-row\"><span class=\"prop-label\">";
     row += label;
     row += "</span>";
@@ -346,10 +362,14 @@ std::string variableValueRow(const char* label, GameVariableDefinition::Type typ
         row += on ? "True" : "False";
         row += "</button>";
     } else {
-        row += "<input type=\"text\" class=\"prop-input\" data-action=\"";
+        row += "<input type=\"text\" class=\"prop-input";
+        if (draftInvalid) row += " object-variable-draft-invalid";
+        row += "\"";
+        if (draftValue) row += " id=\"object-variable-draft-input\"";
+        row += " data-action=\"";
         row += commitAction;
         row += "\" data-arg=\"" + escapeRml(key) + "\" value=\"";
-        row += escapeRml(variableValueText(value));
+        row += escapeRml(draftValue ? *draftValue : variableValueText(value));
         row += "\"";
         if (playing) row += " disabled=\"disabled\"";
         row += "/>";
@@ -585,6 +605,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     const SceneInstanceDef* inst =
         coordinator.document().findInstanceInScene(coordinator.state().activeSceneId,
                                                    selected);
+    reconcileObjectVariableDraft(coordinator);
 
     // No entity selected: show the Scene Inspector for the active scene (same
     // panel, two modes — the authority is the existing activeSceneId, no new
@@ -1754,18 +1775,39 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         } else {
             html += "<p class=\"inspector-empty\">No object variables yet</p>";
         }
+        const auto activeDraft = [&](std::string_view action,
+                                     const std::string& key) -> const ObjectVariableDraft* {
+            if (!objectVariableDraft_
+                || objectVariableDraft_->action != action
+                || objectVariableDraft_->key != key) {
+                return nullptr;
+            }
+            return &*objectVariableDraft_;
+        };
+        const auto appendDraftError = [&](const ObjectVariableDraft* draft) {
+            if (!draft || draft->error.empty()) return;
+            html += "<div class=\"object-variable-draft-error\">"
+                  + escapeRml(draft->error) + "</div>";
+        };
         for (const GameVariableDefinition& variable : type->localVariables) {
             const std::string safeKey = escapeRml(variable.key);
             const std::string typeDropdownId = "object-variable-type|" + variable.key;
             const bool typeOpen = openDropdownId_ == typeDropdownId && !playing;
+            const ObjectVariableDraft* keyDraft =
+                activeDraft("commit-object-variable-key", variable.key);
 
             // Name, type and delete are one line: they are the variable's
             // identity, and three stacked rows made a two-variable type read
             // as a wall.
             html += "<div class=\"object-variable\"><div class=\"object-variable-head\">"
-                    "<input type=\"text\" class=\"prop-input object-variable-name\""
-                    " data-action=\"commit-object-variable-key\" data-arg=\""
-                  + safeKey + "\" value=\"" + safeKey + "\"";
+                    "<input type=\"text\" class=\"prop-input object-variable-name";
+            if (keyDraft && !keyDraft->error.empty())
+                html += " object-variable-draft-invalid";
+            html += "\"";
+            if (keyDraft) html += " id=\"object-variable-draft-input\"";
+            html += " data-action=\"commit-object-variable-key\" data-arg=\""
+                  + safeKey + "\" value=\""
+                  + escapeRml(keyDraft ? keyDraft->value : variable.key) + "\"";
             if (playing) html += " disabled=\"disabled\"";
             html += "/><div class=\"object-variable-type\">";
             html += dropdownTriggerMarkup(variableTypeLabel(variable.type),
@@ -1793,17 +1835,25 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 }
                 html += "</div>";
             }
+            appendDraftError(keyDraft);
 
+            const ObjectVariableDraft* defaultDraft =
+                activeDraft("commit-object-variable-default", variable.key);
             html += variableValueRow(
                 "Value", variable.type, variable.initialValue,
                 "commit-object-variable-default", "toggle-object-variable-default",
-                variable.key, playing);
+                variable.key, playing, {},
+                defaultDraft ? &defaultDraft->value : nullptr,
+                defaultDraft && !defaultDraft->error.empty());
+            appendDraftError(defaultDraft);
 
             // An instance either has its own value or it does not, and the two
             // states get different controls. A blank box that might be either
             // is the one thing this row must never be.
             const auto overrideIt = inst->localVariableOverrides.find(variable.key);
             if (overrideIt != inst->localVariableOverrides.end()) {
+                const ObjectVariableDraft* overrideDraft =
+                    activeDraft("commit-instance-variable-override", variable.key);
                 // Reset belongs beside the value it undoes, not on its own row.
                 html += variableValueRow(
                     "This instance", variable.type, overrideIt->second,
@@ -1812,7 +1862,10 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                     /*trailing=*/std::string("<button class=\"panel-btn object-variable-reset")
                         + (playing ? " disabled" : "")
                         + "\" data-action=\"reset-instance-variable-override\" data-arg=\""
-                        + safeKey + "\" title=\"Go back to the shared value\">Reset</button>");
+                        + safeKey + "\" title=\"Go back to the shared value\">Reset</button>",
+                    overrideDraft ? &overrideDraft->value : nullptr,
+                    overrideDraft && !overrideDraft->error.empty());
+                appendDraftError(overrideDraft);
             } else {
                 html += "<div class=\"prop-row\"><span class=\"prop-label\">This instance</span>"
                         "<button class=\"panel-btn";
@@ -1822,12 +1875,22 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                         "Uses the shared value</button></div>";
             }
 
+            const ObjectVariableDraft* descriptionDraft =
+                activeDraft("commit-object-variable-description", variable.key);
             html += "<div class=\"prop-row\"><span class=\"prop-label\">Description</span>"
-                    "<input type=\"text\" class=\"prop-input\""
-                    " data-action=\"commit-object-variable-description\" data-arg=\""
-                  + safeKey + "\" value=\"" + escapeRml(variable.description) + "\"";
+                    "<input type=\"text\" class=\"prop-input";
+            if (descriptionDraft && !descriptionDraft->error.empty())
+                html += " object-variable-draft-invalid";
+            html += "\"";
+            if (descriptionDraft) html += " id=\"object-variable-draft-input\"";
+            html += " data-action=\"commit-object-variable-description\" data-arg=\""
+                  + safeKey + "\" value=\""
+                  + escapeRml(descriptionDraft ? descriptionDraft->value
+                                               : variable.description) + "\"";
             if (playing) html += " disabled=\"disabled\"";
-            html += "/></div></div>";
+            html += "/></div>";
+            appendDraftError(descriptionDraft);
+            html += "</div>";
         }
         html += "<div class=\"prop-row\"><button class=\"panel-btn";
         if (playing) html += " disabled";
@@ -1902,7 +1965,10 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         html += "</div>";
     }
 
+    objectVariableDraftRebuilding_ = objectVariableDraft_.has_value();
     body->SetInnerRML(finalizeSectionMarkup(html, collapsedSections_));
+    objectVariableDraftRebuilding_ = false;
+    focusObjectVariableDraft(document);
 }
 
 void InspectorPanel::reconcileOpenDropdownForScene() {
@@ -2009,6 +2075,115 @@ void InspectorPanel::cancelBackgroundOpacityDraft() {
 
 bool InspectorPanel::backgroundOpacityDragActive() const {
     return backgroundDraft_ && backgroundDraft_->dragActive;
+}
+
+void InspectorPanel::beginObjectVariableDraft(const EditorCoordinator& coordinator,
+                                              const std::string& action,
+                                              const std::string& arg,
+                                              const std::string& renderedValue) {
+    if (!isObjectVariableTextAction(action) || coordinator.isPlaying()) {
+        objectVariableDraft_.reset();
+        return;
+    }
+
+    const SceneId& sceneId = coordinator.state().activeSceneId;
+    const EntityId entityId = coordinator.selection().primaryEntity;
+    const SceneInstanceDef* instance =
+        coordinator.document().findInstanceInScene(sceneId, entityId);
+    const EntityDef* type = instance
+        ? coordinator.document().findObjectType(instance->objectTypeId) : nullptr;
+    const GameVariableDefinition* definition =
+        type ? findObjectVariable(*type, arg) : nullptr;
+    const bool overrideExists = instance
+        && instance->localVariableOverrides.find(arg)
+            != instance->localVariableOverrides.end();
+    if (!instance || !type || !definition
+        || (action == "commit-instance-variable-override" && !overrideExists)) {
+        objectVariableDraft_.reset();
+        return;
+    }
+
+    if (objectVariableDraft_
+        && objectVariableDraft_->sceneId == sceneId
+        && objectVariableDraft_->entityId == entityId
+        && objectVariableDraft_->objectTypeId == instance->objectTypeId
+        && objectVariableDraft_->sourceRevision == coordinator.document().revision()
+        && objectVariableDraft_->action == action
+        && objectVariableDraft_->key == arg) {
+        // A routine refresh rebuilt and re-focused this same field. Its rendered
+        // value already came from the draft; do not erase an inline error or
+        // replace the text with a document read-back.
+        return;
+    }
+
+    objectVariableDraft_ = ObjectVariableDraft{
+        sceneId,
+        entityId,
+        instance->objectTypeId,
+        coordinator.document().revision(),
+        action,
+        arg,
+        renderedValue,
+        {}};
+}
+
+void InspectorPanel::updateObjectVariableDraft(const std::string& action,
+                                               const std::string& arg,
+                                               const std::string& value) {
+    if (!objectVariableDraft_
+        || objectVariableDraft_->action != action
+        || objectVariableDraft_->key != arg) {
+        return;
+    }
+    objectVariableDraft_->value = value;
+    objectVariableDraft_->error.clear();
+}
+
+std::optional<InspectorPanel::ObjectVariableDraftCommit>
+InspectorPanel::objectVariableDraftCommit() const {
+    if (!objectVariableDraft_) return std::nullopt;
+    return ObjectVariableDraftCommit{
+        objectVariableDraft_->action,
+        objectVariableDraft_->key,
+        objectVariableDraft_->value};
+}
+
+void InspectorPanel::setObjectVariableDraftError(std::string error) {
+    if (objectVariableDraft_) objectVariableDraft_->error = std::move(error);
+}
+
+void InspectorPanel::discardObjectVariableDraft() {
+    objectVariableDraft_.reset();
+}
+
+void InspectorPanel::focusObjectVariableDraft(Rml::ElementDocument* document) {
+    if (!document || !objectVariableDraft_) return;
+    if (Rml::Element* input = document->GetElementById("object-variable-draft-input"))
+        input->Focus(true);
+}
+
+void InspectorPanel::reconcileObjectVariableDraft(
+    const EditorCoordinator& coordinator) {
+    if (!objectVariableDraft_) return;
+    const ObjectVariableDraft& draft = *objectVariableDraft_;
+    const SceneInstanceDef* instance =
+        coordinator.document().findInstanceInScene(draft.sceneId, draft.entityId);
+    const EntityDef* type = instance
+        ? coordinator.document().findObjectType(instance->objectTypeId) : nullptr;
+    const GameVariableDefinition* definition =
+        type ? findObjectVariable(*type, draft.key) : nullptr;
+    const bool invalid =
+        coordinator.isPlaying()
+        || coordinator.state().activeSceneId != draft.sceneId
+        || coordinator.selection().primaryEntity != draft.entityId
+        || coordinator.document().revision() != draft.sourceRevision
+        || !instance
+        || instance->objectTypeId != draft.objectTypeId
+        || !definition
+        || (draft.action == "commit-instance-variable-override"
+            && instance->localVariableOverrides.find(draft.key)
+                == instance->localVariableOverrides.end());
+    if (invalid) objectVariableDraft_.reset();
 }
 
 } // namespace ArtCade::EditorNative

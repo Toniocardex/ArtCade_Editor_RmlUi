@@ -19,6 +19,12 @@ class EditorCoordinator;
 // slider preview — never document data.
 class InspectorPanel {
 public:
+    struct ObjectVariableDraftCommit {
+        std::string action;
+        std::string arg;
+        std::string value;
+    };
+
     void refresh(Rml::ElementDocument* document, const EditorCoordinator& coordinator);
 
     // Toggle / close the in-flow Add Component menu (repaints on toggle).
@@ -79,6 +85,24 @@ public:
     bool backgroundOpacityDragActive() const;
     void cancelBackgroundOpacityDraft();
 
+    // ADR-0031 A2.2: text typed into an Object Variable field is panel-local
+    // until Enter/blur submits its existing Command. The address includes the
+    // selected instance so a selection/replacement can discard it rather than
+    // committing text against a different subject.
+    void beginObjectVariableDraft(const EditorCoordinator& coordinator,
+                                  const std::string& action,
+                                  const std::string& arg,
+                                  const std::string& renderedValue);
+    void updateObjectVariableDraft(const std::string& action,
+                                   const std::string& arg,
+                                   const std::string& value);
+    std::optional<ObjectVariableDraftCommit> objectVariableDraftCommit() const;
+    void setObjectVariableDraftError(std::string error);
+    void discardObjectVariableDraft();
+    bool hasObjectVariableDraft() const { return objectVariableDraft_.has_value(); }
+    bool objectVariableDraftRebuilding() const { return objectVariableDraftRebuilding_; }
+    void focusObjectVariableDraft(Rml::ElementDocument* document);
+
 private:
     struct SceneLayerRenameUiState {
         SceneId     sceneId;
@@ -94,6 +118,17 @@ private:
         bool dragActive = false;
     };
 
+    struct ObjectVariableDraft {
+        SceneId sceneId;
+        EntityId entityId = INVALID_ENTITY;
+        ObjectTypeId objectTypeId;
+        std::uint64_t sourceRevision = 0;
+        std::string action;
+        std::string key;
+        std::string value;
+        std::string error;
+    };
+
     bool reconcileSceneLayerRenameUiState(const EditorCoordinator& coordinator);
     void focusSceneLayerRenameInput(Rml::ElementDocument* document);
     void revealTilemapCellSize(Rml::ElementDocument* document,
@@ -102,6 +137,7 @@ private:
     void reconcileOpenDropdownForScene();
     void reconcileOpenDropdownForEntity();
     void reconcileBackgroundDraft(const EditorCoordinator& coordinator, bool sceneMode);
+    void reconcileObjectVariableDraft(const EditorCoordinator& coordinator);
     void applyBackgroundOpacityPreview(Rml::ElementDocument* document, const Vec4& color);
 
     bool     addMenuOpen_ = false;
@@ -115,6 +151,8 @@ private:
     EntityId lastEntity_ = INVALID_ENTITY;   // detect a selection change to reset the menu
     std::optional<SceneLayerRenameUiState> layerRename_;
     std::optional<SceneBackgroundOpacityDraft> backgroundDraft_;
+    std::optional<ObjectVariableDraft> objectVariableDraft_;
+    bool objectVariableDraftRebuilding_ = false;
 };
 
 } // namespace ArtCade::EditorNative

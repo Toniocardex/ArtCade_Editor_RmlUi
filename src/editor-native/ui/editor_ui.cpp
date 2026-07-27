@@ -178,6 +178,32 @@ bool actionRequiresPendingEditGate(const std::string& action) {
     return std::find(std::begin(actions), std::end(actions), action) != std::end(actions);
 }
 
+bool isObjectVariableTextAction(std::string_view action) {
+    return action == "commit-object-variable-key"
+        || action == "commit-object-variable-default"
+        || action == "commit-object-variable-description"
+        || action == "commit-instance-variable-override";
+}
+
+bool actionDiscardsObjectVariableDraft(std::string_view action) {
+    return action == "select-entity"
+        || action == "select-scene"
+        || action == "deselect-entity"
+        || action == "new-project"
+        || action == "open-project"
+        || action == "open-recent-project"
+        || action == "undo"
+        || action == "redo"
+        || action == "play-project"
+        || action == "play-current-scene"
+        || action == "remove-object-variable"
+        || action == "set-object-variable-type"
+        || action == "toggle-object-variable-default"
+        || action == "toggle-instance-variable-override"
+        || action == "override-instance-variable"
+        || action == "reset-instance-variable-override";
+}
+
 } // namespace
 
 class EditorUi::Listener final : public Rml::EventListener {
@@ -262,6 +288,51 @@ public:
                 ui_.handleScriptCursorChanged();
                 return;
             }
+        }
+        // ADR-0031 A2.2 — Object Variable fields own a real panel-local draft.
+        // Blur is deferred so a following select-entity/select-scene click can
+        // discard it before any Command runs. Rebuilding for validation also
+        // waits for processFrame: RmlUi still uses the focused element after
+        // focus/blur/keydown dispatch returns.
+        if (isObjectVariableTextAction(action)) {
+            if (type == "focus") {
+                // Moving directly between two Inspector fields blurs the first
+                // and focuses the second in one dispatch. Resolve the first
+                // without repainting under RmlUi, then start the second draft.
+                if (ui_.pendingObjectVariableEnd_)
+                    ui_.finishPendingObjectVariableEdit(/*repaint=*/false);
+                ui_.inspector_.beginObjectVariableDraft(
+                    ui_.coordinator_, action, arg, formValue(actionElement, event));
+                return;
+            }
+            if (type == "change") {
+                ui_.inspector_.updateObjectVariableDraft(
+                    action, arg, formValue(actionElement, event));
+                return;
+            }
+            if (type == "blur") {
+                if (ui_.inspector_.objectVariableDraftRebuilding()) return;
+                ui_.pendingObjectVariableEnd_ = EditorUi::PendingObjectVariableEditEnd{
+                    EditorUi::PendingObjectVariableEnd::CommitBlur,
+                    action, arg, formValue(actionElement, event)};
+                return;
+            }
+            if (type == "keydown") {
+                const int key = event.GetParameter<int>("key_identifier", 0);
+                if (key == Rml::Input::KI_RETURN || key == Rml::Input::KI_NUMPADENTER) {
+                    ui_.pendingObjectVariableEnd_ = EditorUi::PendingObjectVariableEditEnd{
+                        EditorUi::PendingObjectVariableEnd::CommitEnter,
+                        action, arg, formValue(actionElement, event)};
+                    event.StopPropagation();
+                } else if (key == Rml::Input::KI_ESCAPE) {
+                    ui_.pendingObjectVariableEnd_ = EditorUi::PendingObjectVariableEditEnd{
+                        EditorUi::PendingObjectVariableEnd::Cancel,
+                        action, arg, {}};
+                    event.StopPropagation();
+                }
+                return;
+            }
+            return;
         }
         // Baseline of the field being edited, captured at focus time. The live
         // "value" attribute cannot serve as the pre-edit reference for change
@@ -630,6 +701,8 @@ void EditorUi::bind() {
 
 void EditorUi::detach() {
     inspector_.cancelBackgroundOpacityDraft();
+    inspector_.discardObjectVariableDraft();
+    pendingObjectVariableEnd_.reset();
     if (listener_) {
         const auto detachDocument = [&](Rml::ElementDocument* doc) {
             if (!doc) return;
@@ -692,6 +765,7 @@ void EditorUi::detach() {
 
 void EditorUi::processFrame() {
     if (!listener_ || !document_) return;
+    if (pendingObjectVariableEnd_) finishPendingObjectVariableEdit();
     // ADR-0029: the expression field's focus, moved out of RmlUi's focus
     // dispatch (see the listener). Runs before the invalidation sweep so the
     // completion list is part of this frame's paint, not the next one.
@@ -760,6 +834,79 @@ PendingEditResult EditorUi::resolvePendingExpressionEdit() {
     return PendingEditResult{PendingEditStatus::Invalid, error};
 }
 
+PendingEditResult EditorUi::resolvePendingObjectVariableEdit() {
+    if (!inspector_.hasObjectVariableDraft()) return {};
+
+    // The control has the newest text until its change event is consumed.
+    if (document_ && document_->GetContext()) {
+        Rml::Element* focus = document_->GetContext()->GetFocusElement();
+        const std::string action = attribute(focus, "data-action");
+        const std::string arg = attribute(focus, "data-arg");
+        if (focus && isObjectVariableTextAction(action)) {
+            auto* control = rmlui_dynamic_cast<Rml::ElementFormControl*>(focus);
+            inspector_.updateObjectVariableDraft(
+                action, arg, control ? control->GetValue() : attribute(focus, "value"));
+        }
+    }
+
+    pendingObjectVariableEnd_.reset();
+    const std::optional<InspectorPanel::ObjectVariableDraftCommit> draft =
+        inspector_.objectVariableDraftCommit();
+    if (!draft) return {};
+    const EditorOperationResult result =
+        handleObjectVariableAction(draft->action, draft->arg, draft->value);
+    if (result.ok) {
+        inspector_.discardObjectVariableDraft();
+        return {};
+    }
+
+    inspector_.setObjectVariableDraftError(result.error);
+    coordinator_.logError(result.error);
+    inspector_.refresh(document_, coordinator_);
+    inspector_.focusObjectVariableDraft(document_);
+    return PendingEditResult{PendingEditStatus::Invalid, result.error};
+}
+
+void EditorUi::finishPendingObjectVariableEdit(bool repaint) {
+    if (!pendingObjectVariableEnd_) return;
+    const PendingObjectVariableEditEnd pending = *pendingObjectVariableEnd_;
+    pendingObjectVariableEnd_.reset();
+
+    if (pending.kind == PendingObjectVariableEnd::Cancel) {
+        inspector_.discardObjectVariableDraft();
+        if (repaint) inspector_.refresh(document_, coordinator_);
+        return;
+    }
+
+    inspector_.updateObjectVariableDraft(pending.action, pending.arg, pending.value);
+    const std::optional<InspectorPanel::ObjectVariableDraftCommit> draft =
+        inspector_.objectVariableDraftCommit();
+    if (!draft) return; // selection/delete/Play already discarded it
+
+    const EditorOperationResult result =
+        handleObjectVariableAction(draft->action, draft->arg, draft->value);
+    if (result.ok) {
+        inspector_.discardObjectVariableDraft();
+        if (repaint && result.invalidation == EditorInvalidation::None)
+            inspector_.refresh(document_, coordinator_);
+        return;
+    }
+
+    coordinator_.logError(result.error);
+    if (pending.kind == PendingObjectVariableEnd::CommitBlur) {
+        // Blur validation failure rolls back to the document. Enter instead
+        // retains the authored text and gives the field an inline diagnostic.
+        inspector_.discardObjectVariableDraft();
+    } else {
+        inspector_.setObjectVariableDraftError(result.error);
+    }
+    if (repaint) {
+        inspector_.refresh(document_, coordinator_);
+        if (pending.kind == PendingObjectVariableEnd::CommitEnter)
+            inspector_.focusObjectVariableDraft(document_);
+    }
+}
+
 PendingEditResult EditorUi::resolvePendingEdits() {
     // Finish an Opacity slider drag before commit-* field blur so Save/Play
     // see the previewed alpha (ADR-0020).
@@ -775,6 +922,10 @@ PendingEditResult EditorUi::resolvePendingEdits() {
         !expression.resolved()) {
         return expression;
     }
+    if (PendingEditResult objectVariable = resolvePendingObjectVariableEdit();
+        !objectVariable.resolved()) {
+        return objectVariable;
+    }
 
     Rml::Context* visited[3] = {nullptr, nullptr, nullptr};
     std::size_t visitedCount = 0;
@@ -788,6 +939,7 @@ PendingEditResult EditorUi::resolvePendingEdits() {
 
         Rml::Element* focus = context->GetFocusElement();
         const std::string action = attribute(focus, "data-action");
+        if (isObjectVariableTextAction(action)) return {}; // resolved above
         if (!focus || action.rfind("commit-", 0) != 0) continue;
 
         auto* control = rmlui_dynamic_cast<Rml::ElementFormControl*>(focus);
@@ -822,6 +974,12 @@ PendingEditResult EditorUi::resolvePendingEdits() {
 
 void EditorUi::applyInvalidations(EditorInvalidation flags) {
     if (flags == EditorInvalidation::None) return;
+    if (has(flags, EditorInvalidation::Project)) {
+        // A replacement invalidates every draft address even when the incoming
+        // document happens to carry the same revision and ids.
+        inspector_.discardObjectVariableDraft();
+        pendingObjectVariableEnd_.reset();
+    }
     if (has(flags, EditorInvalidation::Hierarchy) || has(flags, EditorInvalidation::Project))
         hierarchy_.refresh(document_, coordinator_);
     if (has(flags, EditorInvalidation::Inspector)) {
@@ -2786,6 +2944,8 @@ void EditorUi::commitGridCellSize(const std::string& text) {
 
 void EditorUi::handleAction(const std::string& action, const std::string& arg,
                             const std::string& value) {
+    if (actionDiscardsObjectVariableDraft(action)) discardObjectVariableDraft();
+
     // ADR-0024: migrated actions share dispatcher + ActionStateResolver.
     // PendingEditPolicy is applied inside the dispatcher (not the string gate).
     if (editorActionInvoke_) {
@@ -2927,26 +3087,24 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
  * through different ones so a keystroke in either row can never write the
  * other's field.
  */
-void EditorUi::handleObjectVariableAction(const std::string& action, const std::string& arg,
-                                          const std::string& value) {
+EditorOperationResult EditorUi::handleObjectVariableAction(
+    const std::string& action, const std::string& arg, const std::string& value) {
     const SceneId sceneId = coordinator_.state().activeSceneId;
     const EntityId selected = coordinator_.selection().primaryEntity;
     const SceneInstanceDef* instance =
         coordinator_.document().findInstanceInScene(sceneId, selected);
     if (!instance) {
-        coordinator_.logError("Select an instance to edit its object variables");
-        return;
+        return EditorOperationResult::failure(
+            "Select an instance to edit its object variables");
     }
     const ObjectTypeId typeId = instance->objectTypeId;
     const EntityDef* type = coordinator_.document().findObjectType(typeId);
     if (!type) {
-        coordinator_.logError("Unknown object type");
-        return;
+        return EditorOperationResult::failure("Unknown object type");
     }
 
-    const auto run = [this](auto command) {
-        const EditorOperationResult result = coordinator_.execute(std::move(command));
-        if (!result.ok) coordinator_.logError(result.error);
+    const auto run = [this](auto command) -> EditorOperationResult {
+        return coordinator_.execute(std::move(command));
     };
     const auto findDefinition = [&](const std::string& key) -> const GameVariableDefinition* {
         for (const GameVariableDefinition& definition : type->localVariables) {
@@ -2960,6 +3118,7 @@ void EditorUi::handleObjectVariableAction(const std::string& action, const std::
                                 const std::string& text) -> std::optional<GameVariableValue> {
         switch (declared) {
         case GameVariableDefinition::Type::Number: {
+            if (incompleteNumericEditBuffer(text)) return std::nullopt;
             try {
                 std::size_t consumed = 0;
                 const double parsed = std::stod(text, &consumed);
@@ -2988,63 +3147,66 @@ void EditorUi::handleObjectVariableAction(const std::string& action, const std::
         definition.key = key;
         definition.type = GameVariableDefinition::Type::Number;
         definition.initialValue = 0.0;
-        run(AddObjectVariableCommand{typeId, std::move(definition)});
-        return;
+        return run(AddObjectVariableCommand{typeId, std::move(definition)});
     }
 
     const GameVariableDefinition* definition = nullptr;
     std::string key = arg;
     if (action == "set-object-variable-type") {
         const std::size_t split = arg.find('|');
-        if (split == std::string::npos) return;
+        if (split == std::string::npos)
+            return EditorOperationResult::failure("Invalid object variable type selection");
         key = arg.substr(split + 1);
         definition = findDefinition(key);
-        if (!definition) return;
+        if (!definition)
+            return EditorOperationResult::failure("Unknown object variable: " + key);
         const std::string token = arg.substr(0, split);
+        if (token != "number" && token != "boolean" && token != "string")
+            return EditorOperationResult::failure("Unknown object variable type: " + token);
         const GameVariableDefinition::Type next =
             token == "boolean" ? GameVariableDefinition::Type::Boolean
             : token == "string" ? GameVariableDefinition::Type::String
                                 : GameVariableDefinition::Type::Number;
-        run(SetObjectVariableTypeCommand{typeId, key, next});
-        return;
+        return run(SetObjectVariableTypeCommand{typeId, key, next});
     }
 
     definition = findDefinition(key);
-    if (!definition) return;
+    if (!definition)
+        return EditorOperationResult::failure("Unknown object variable: " + key);
     const GameVariableDefinition::Type declared = definition->type;
 
     if (action == "remove-object-variable") {
-        run(RemoveObjectVariableCommand{typeId, key});
+        return run(RemoveObjectVariableCommand{typeId, key});
     } else if (action == "commit-object-variable-key") {
-        if (value == key) return;
-        run(RenameObjectVariableCommand{typeId, key, value});
+        if (value == key)
+            return EditorOperationResult::success(EditorInvalidation::None);
+        return run(RenameObjectVariableCommand{typeId, key, value});
     } else if (action == "commit-object-variable-description") {
-        run(SetObjectVariableDescriptionCommand{typeId, key, value});
+        return run(SetObjectVariableDescriptionCommand{typeId, key, value});
     } else if (action == "commit-object-variable-default") {
         const std::optional<GameVariableValue> parsed = parseValue(declared, value);
-        if (!parsed) {
-            coordinator_.logError("Value does not match the object variable type");
-            return;
-        }
-        run(SetObjectVariableInitialValueCommand{typeId, key, *parsed});
+        if (!parsed)
+            return EditorOperationResult::failure(
+                "Value does not match the object variable type");
+        return run(SetObjectVariableInitialValueCommand{typeId, key, *parsed});
     } else if (action == "toggle-object-variable-default") {
         const bool current = std::get_if<bool>(&definition->initialValue)
                           && std::get<bool>(definition->initialValue);
-        run(SetObjectVariableInitialValueCommand{typeId, key, GameVariableValue{!current}});
+        return run(SetObjectVariableInitialValueCommand{
+            typeId, key, GameVariableValue{!current}});
     } else if (action == "override-instance-variable") {
         // Seeded from the shared value, so switching to "this instance" changes
         // who owns the number, not the number.
-        run(SetInstanceVariableOverrideCommand{sceneId, selected, key,
-                                               definition->initialValue});
+        return run(SetInstanceVariableOverrideCommand{
+            sceneId, selected, key, definition->initialValue});
     } else if (action == "reset-instance-variable-override") {
-        run(ClearInstanceVariableOverrideCommand{sceneId, selected, key});
+        return run(ClearInstanceVariableOverrideCommand{sceneId, selected, key});
     } else if (action == "commit-instance-variable-override") {
         const std::optional<GameVariableValue> parsed = parseValue(declared, value);
-        if (!parsed) {
-            coordinator_.logError("Value does not match the object variable type");
-            return;
-        }
-        run(SetInstanceVariableOverrideCommand{sceneId, selected, key, *parsed});
+        if (!parsed)
+            return EditorOperationResult::failure(
+                "Value does not match the object variable type");
+        return run(SetInstanceVariableOverrideCommand{sceneId, selected, key, *parsed});
     } else if (action == "toggle-instance-variable-override") {
         // Toggling with no override starts from the value the instance shows,
         // which is the Object Type default.
@@ -3052,9 +3214,10 @@ void EditorUi::handleObjectVariableAction(const std::string& action, const std::
         const GameVariableValue& effective = existing != instance->localVariableOverrides.end()
             ? existing->second : definition->initialValue;
         const bool current = std::get_if<bool>(&effective) && std::get<bool>(effective);
-        run(SetInstanceVariableOverrideCommand{sceneId, selected, key,
-                                               GameVariableValue{!current}});
+        return run(SetInstanceVariableOverrideCommand{
+            sceneId, selected, key, GameVariableValue{!current}});
     }
+    return EditorOperationResult::failure("Unknown object variable action: " + action);
 }
 
 bool EditorUi::handleInspectorAction(const std::string& action, const std::string& arg,
@@ -3421,7 +3584,9 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
                || action == "toggle-instance-variable-override"
                || action == "override-instance-variable"
                || action == "reset-instance-variable-override") {
-        handleObjectVariableAction(action, arg, value);
+        const EditorOperationResult result =
+            handleObjectVariableAction(action, arg, value);
+        if (!result.ok) coordinator_.logError(result.error);
     } else if (action == "set-text-binding-none" || action == "set-text-binding-global"
                || action == "set-text-binding-local" || action == "set-text-variable"
                || action == "set-text-format" || action == "set-text-align"
@@ -4526,6 +4691,11 @@ bool EditorUi::cancelSceneBackgroundOpacityDragIfNeeded() {
     if (!inspector_.backgroundOpacityDragActive()) return false;
     cancelSceneBackgroundOpacityDrag();
     return true;
+}
+
+void EditorUi::discardObjectVariableDraft() {
+    pendingObjectVariableEnd_.reset();
+    inspector_.discardObjectVariableDraft();
 }
 
 } // namespace ArtCade::EditorNative

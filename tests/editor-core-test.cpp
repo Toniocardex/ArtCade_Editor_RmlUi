@@ -1715,7 +1715,8 @@ int main() {
         CHECK(r.change.entityId == 100);
         CHECK(c.consumeInvalidations()
               == (EditorInvalidation::Hierarchy | EditorInvalidation::Inspector
-                  | EditorInvalidation::Viewport | EditorInvalidation::Toolbar));
+                  | EditorInvalidation::Viewport | EditorInvalidation::Toolbar
+                  | EditorInvalidation::LogicBoard));
         const SceneInstanceDef* added = c.document().findInstanceInScene(kSceneA, 100);
         CHECK(added != nullptr);
         CHECK(added->objectTypeId == "Enemy");
@@ -2057,12 +2058,13 @@ int main() {
         EditorCoordinator c{makeDoc()};
         c.consumeInvalidations();
         CHECK(addEntity(c).ok);
-        // CreateEntity declares Hierarchy|Inspector|Viewport (the Scene
-        // Inspector shows the entity count); selection unchanged and active
-        // scene valid, so reconciliation adds nothing.
+        // CreateEntity declares Hierarchy|Inspector|Viewport|LogicBoard: the
+        // Scene Inspector shows the entity count and ADR-0031 A2.3 projects
+        // active-scene reachability in the Logic Board header.
         CHECK(c.consumeInvalidations()
               == (EditorInvalidation::Hierarchy | EditorInvalidation::Inspector
-                  | EditorInvalidation::Viewport | EditorInvalidation::Toolbar));
+                  | EditorInvalidation::Viewport | EditorInvalidation::Toolbar
+                  | EditorInvalidation::LogicBoard));
     }
 
     // -- (4) Add Entity without an active scene mutates nothing -----------------

@@ -30,6 +30,12 @@
    resizes this header. */
 .logic-type-trigger { flex: 0 1 240dp; min-width: 140dp; max-width: 240dp; }
 .logic-owner { margin-top: 3dp;  font-size: 11dp; letter-spacing: 0.5dp; }
+.logic-object-variables-reachability {
+    display: block;
+    padding: 7dp 14dp;
+    border-bottom-width: 1px;
+    font-size: 11dp;
+}
 /* "..." menu (Remove Logic Board) — deliberately its own class, not reusing
    .comp-remove or .logic-btn.danger verbatim: it sits right next to the
    Object Type picker and must read as calm/secondary until interacted with,
@@ -79,7 +85,7 @@
 }
 .logic-variables-head-actions .logic-btn { margin: 0 6dp 0 0; }
 /* Quiet chevron collapse — same language as .logic-rule-caret / section
-   carets (expanded = chevron-up). Not a second primary action next to
+   carets (expanded = chevron-down). Not a second primary action next to
    + Variable. */
 .logic-variables-collapse {
     display: inline-block;

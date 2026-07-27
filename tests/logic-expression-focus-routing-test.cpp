@@ -16,6 +16,7 @@
 
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/app/pending_edit.h"
+#include "editor-native/commands/entity_commands.h"
 #include "editor-native/commands/logic_expression_commands.h"
 #include "editor-native/ui/editor_ui.h"
 #include "editor-native/ui/logic_property_editor.h"
@@ -132,6 +133,14 @@ ProjectDoc makeProjectWithSetPosition() {
     hero.logicBoard = std::move(board);
     doc.objectTypes.emplace("Hero", hero);
 
+    // This type deliberately has an instance only in another scene. ADR-0031
+    // A2.3 must report that it cannot be reached through the active scene's
+    // instance-selected Inspector.
+    EntityDef remoteCoin;
+    remoteCoin.name = "Coin";
+    remoteCoin.className = "Coin";
+    doc.objectTypes.emplace("RemoteCoin", remoteCoin);
+
     SceneDef scene;
     scene.id = "scene-1";
     scene.name = "Scene 1";
@@ -146,8 +155,78 @@ ProjectDoc makeProjectWithSetPosition() {
     scene.instances.push_back(instance);
     scene.entityIds.push_back(1);
     doc.scenes.emplace(scene.id, scene);
+
+    SceneDef remoteScene;
+    remoteScene.id = "scene-2";
+    remoteScene.name = "Scene 2";
+    remoteScene.worldSize = {512.f, 320.f};
+    remoteScene.defaultLayerId = "layer-1";
+    remoteScene.layers.push_back(SceneLayerDef{"layer-1", "Layer 1"});
+    SceneInstanceDef remoteInstance;
+    remoteInstance.id = 2;
+    remoteInstance.objectTypeId = "RemoteCoin";
+    remoteInstance.instanceName = "Coin 1";
+    remoteInstance.layerId = "layer-1";
+    remoteScene.instances.push_back(remoteInstance);
+    remoteScene.entityIds.push_back(2);
+    doc.scenes.emplace(remoteScene.id, remoteScene);
+
     doc.activeSceneId = scene.id;
     return doc;
+}
+
+// ----------------------------------------------------------------------------
+// ADR-0031 A2.3 — the limited Inspector reachability contract is explicit.
+// ----------------------------------------------------------------------------
+void testObjectVariableReachabilityGuardrail(
+    Rml::Context& context, Rml::ElementDocument& document,
+    EditorCoordinator& coordinator, EditorUi& ui) {
+    const uint64_t revisionBeforeNavigation = coordinator.document().revision();
+    const std::size_t undoBeforeNavigation = coordinator.undoSize();
+
+    CHECK(coordinator.apply(OpenLogicBoardIntent{"RemoteCoin"}).ok);
+    frame(context, ui);
+
+    Rml::Element* note =
+        document.GetElementById("logic-object-variables-reachability");
+    CHECK(note != nullptr);
+    if (note) {
+        CHECK(note->GetInnerRML()
+              == "Object variables for Coin are edited by selecting a Coin instance");
+        CHECK(attributeOf(note, "data-action").empty());
+    }
+    // The instance in scene-2 must not make the type look reachable from
+    // scene-1, and rendering the warning is workspace projection only.
+    CHECK(coordinator.state().activeSceneId == "scene-1");
+    CHECK(coordinator.document().revision() == revisionBeforeNavigation);
+    CHECK(coordinator.undoSize() == undoBeforeNavigation);
+
+    // Switching to the scene that owns an instance removes the warning. The
+    // scene Intent must invalidate LogicBoard or the old message stays stale.
+    const EditorOperationResult switched =
+        coordinator.apply(SelectSceneIntent{"scene-2"});
+    CHECK(switched.ok);
+    CHECK(has(switched.invalidation, EditorInvalidation::LogicBoard));
+    frame(context, ui);
+    CHECK(document.GetElementById("logic-object-variables-reachability") == nullptr);
+
+    // Structural mutation and history repaint the same projection.
+    const EditorOperationResult removed =
+        coordinator.execute(DeleteEntityCommand{"scene-2", 2});
+    CHECK(removed.ok);
+    CHECK(has(removed.invalidation, EditorInvalidation::LogicBoard));
+    frame(context, ui);
+    CHECK(document.GetElementById("logic-object-variables-reachability") != nullptr);
+
+    CHECK(coordinator.undo().ok);
+    frame(context, ui);
+    CHECK(document.GetElementById("logic-object-variables-reachability") == nullptr);
+
+    // Restore the fixture context and lock the non-warning case too.
+    CHECK(coordinator.apply(SelectSceneIntent{"scene-1"}).ok);
+    CHECK(coordinator.apply(OpenLogicBoardIntent{"Hero"}).ok);
+    frame(context, ui);
+    CHECK(document.GetElementById("logic-object-variables-reachability") == nullptr);
 }
 
 // ----------------------------------------------------------------------------
@@ -706,6 +785,8 @@ int main() {
 
     // Scene workspace first: the grid field lives in the Scene toolbar.
     testCommitFieldKeepsItsFocusBaseline(*context, *document);
+    testObjectVariableReachabilityGuardrail(
+        *context, *document, coordinator, ui);
     testFocusOpensTheCompletionList(*context, *document, coordinator, ui);
     testEditingAnExistingExpression(*context, *document, coordinator, ui);
     testEscapeRollsBackAndBlurCommits(*context, *document, coordinator, ui);

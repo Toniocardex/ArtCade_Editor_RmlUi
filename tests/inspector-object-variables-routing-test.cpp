@@ -16,6 +16,8 @@
 // ============================================================================
 
 #include "editor-native/app/editor_coordinator.h"
+#include "editor-native/commands/entity_commands.h"
+#include "editor-native/model/project_document.h"
 #include "editor-native/ui/editor_ui.h"
 
 #include <RmlUi/Core.h>
@@ -86,6 +88,12 @@ void collectByClass(Rml::Element* root, const std::string& className,
         collectByClass(root->GetChild(i), className, out);
 }
 
+bool hasClass(Rml::Element* root, const std::string& className) {
+    std::vector<Rml::Element*> hits;
+    collectByClass(root, className, hits);
+    return !hits.empty();
+}
+
 void click(Rml::Element* element) {
     CHECK(element != nullptr);
     if (!element) return;
@@ -108,7 +116,34 @@ void commitWithEnter(Rml::Context& context, Rml::Element* element,
     element->DispatchEvent(Rml::EventId::Keydown, parameters);
 }
 
-ProjectDoc makeObjectVariablesProject() {
+void setDraftValue(Rml::Context& context, Rml::Element* element,
+                   const std::string& value) {
+    CHECK(element != nullptr);
+    if (!element) return;
+    auto* control = rmlui_dynamic_cast<Rml::ElementFormControl*>(element);
+    CHECK(control != nullptr);
+    if (!control) return;
+    CHECK(element->Focus());
+    context.Update();
+    control->SetValue(value);
+    Rml::Dictionary parameters;
+    element->DispatchEvent(Rml::EventId::Change, parameters);
+}
+
+void pressKey(Rml::Element* element, Rml::Input::KeyIdentifier key) {
+    CHECK(element != nullptr);
+    if (!element) return;
+    Rml::Dictionary parameters;
+    parameters["key_identifier"] = static_cast<int>(key);
+    element->DispatchEvent(Rml::EventId::Keydown, parameters);
+}
+
+std::string fieldValue(Rml::Element* element) {
+    auto* control = rmlui_dynamic_cast<Rml::ElementFormControl*>(element);
+    return control ? control->GetValue() : std::string();
+}
+
+ProjectDoc makeObjectVariablesProject(double healthValue = 100.0) {
     ProjectDoc doc;
     doc.formatVersion = 11;
     doc.projectName = "Inspector Object Variables";
@@ -119,7 +154,7 @@ ProjectDoc makeObjectVariablesProject() {
     hero.spriteRenderer = SpriteRendererComponent{{}, true};
     hero.localVariables.push_back(GameVariableDefinition{
         "Health", GameVariableDefinition::Type::Number,
-        GameVariableValue{100.0}, "Starting health"});
+        GameVariableValue{healthValue}, "Starting health"});
     hero.localVariables.push_back(GameVariableDefinition{
         "Collected", GameVariableDefinition::Type::Boolean,
         GameVariableValue{false}, "Whether this item was collected"});
@@ -138,7 +173,13 @@ ProjectDoc makeObjectVariablesProject() {
     instance.layerId = "layer-1";
     instance.localVariableOverrides.emplace("Collected", GameVariableValue{true});
     scene.instances.push_back(instance);
+    SceneInstanceDef second = instance;
+    second.id = 2;
+    second.instanceName = "Hero 2";
+    second.localVariableOverrides.clear();
+    scene.instances.push_back(second);
     scene.entityIds.push_back(1);
+    scene.entityIds.push_back(2);
     doc.scenes.emplace(scene.id, scene);
     doc.activeSceneId = scene.id;
     return doc;
@@ -296,13 +337,217 @@ void testAddRenameAndDescriptionDispatch(
           && variable(coordinator, "Speed")->description == "Movement speed");
 }
 
+void testDraftSurvivesRoutineRefreshAndEscape(
+    Rml::Context& context, Rml::ElementDocument& document,
+    EditorCoordinator& coordinator, EditorUi& ui) {
+    const uint64_t revisionBefore = coordinator.document().revision();
+    Rml::Element* field =
+        findAction(&document, "commit-object-variable-default", "Health");
+    setDraftValue(context, field, "222");
+    CHECK(variable(coordinator, "Health")
+          && std::get<double>(variable(coordinator, "Health")->initialValue) == 125.5);
+    CHECK(coordinator.document().revision() == revisionBefore);
+
+    // Selecting the already-selected entity is an Inspector refresh, not a
+    // subject change. The raw draft must win over the document projection.
+    CHECK(coordinator.apply(SelectEntityIntent{1}).ok);
+    frame(context, ui);
+    field = findAction(&document, "commit-object-variable-default", "Health");
+    CHECK(fieldValue(field) == "222");
+    CHECK(coordinator.document().revision() == revisionBefore);
+
+    pressKey(field, Rml::Input::KI_ESCAPE);
+    field = nullptr;
+    frame(context, ui);
+    field = findAction(&document, "commit-object-variable-default", "Health");
+    CHECK(fieldValue(field) == "125.5");
+    CHECK(coordinator.document().revision() == revisionBefore);
+}
+
+void testInvalidEnterRetainsDraftAndBlurReverts(
+    Rml::Context& context, Rml::ElementDocument& document,
+    EditorCoordinator& coordinator, EditorUi& ui) {
+    const uint64_t revisionBefore = coordinator.document().revision();
+    const std::vector<std::string> invalidNumbers{
+        "", "-", ".", "12.", "NaN", "inf", "12px", "1e9999"};
+    for (const std::string& invalid : invalidNumbers) {
+        Rml::Element* field =
+            findAction(&document, "commit-object-variable-default", "Health");
+        setDraftValue(context, field, invalid);
+        pressKey(field, Rml::Input::KI_RETURN);
+        field = nullptr;
+        frame(context, ui);
+
+        field = findAction(&document, "commit-object-variable-default", "Health");
+        CHECK(fieldValue(field) == invalid);
+        CHECK(field && field->IsClassSet("object-variable-draft-invalid"));
+        CHECK(hasClass(&document, "object-variable-draft-error"));
+        CHECK(context.GetFocusElement() == field);
+        CHECK(coordinator.document().revision() == revisionBefore);
+        CHECK(variable(coordinator, "Health")
+              && std::get<double>(variable(coordinator, "Health")->initialValue) == 125.5);
+
+        pressKey(field, Rml::Input::KI_ESCAPE);
+        frame(context, ui);
+    }
+
+    // The key has its own semantic validation. Empty never reaches a Command
+    // that mutates, and Enter keeps the exact buffer available for correction.
+    Rml::Element* key =
+        findAction(&document, "commit-object-variable-key", "Health");
+    setDraftValue(context, key, "");
+    pressKey(key, Rml::Input::KI_RETURN);
+    key = nullptr;
+    frame(context, ui);
+    key = findAction(&document, "commit-object-variable-key", "Health");
+    CHECK(fieldValue(key).empty());
+    CHECK(key && key->IsClassSet("object-variable-draft-invalid"));
+    CHECK(variable(coordinator, "Health") != nullptr);
+    pressKey(key, Rml::Input::KI_ESCAPE);
+    frame(context, ui);
+
+    // Invalid blur differs from Enter: it abandons the raw text and redraws
+    // the authoritative value without leaving an inline error behind.
+    Rml::Element* field =
+        findAction(&document, "commit-object-variable-default", "Health");
+    setDraftValue(context, field, "12px");
+    Rml::Element* elsewhere = document.GetElementById("logic-toolbar-search");
+    CHECK(elsewhere != nullptr);
+    if (elsewhere) CHECK(elsewhere->Focus());
+    frame(context, ui);
+    field = findAction(&document, "commit-object-variable-default", "Health");
+    CHECK(fieldValue(field) == "125.5");
+    CHECK(!hasClass(&document, "object-variable-draft-error"));
+    CHECK(coordinator.document().revision() == revisionBefore);
+
+    // Description is String: an empty value is complete and valid.
+    Rml::Element* description =
+        findAction(&document, "commit-object-variable-description", "Speed");
+    commitWithEnter(context, description, "");
+    frame(context, ui);
+    CHECK(variable(coordinator, "Speed")
+          && variable(coordinator, "Speed")->description.empty());
+}
+
+void testValidBlurAndExternalHistoryDiscardDraft(
+    Rml::Context& context, Rml::ElementDocument& document,
+    EditorCoordinator& coordinator, EditorUi& ui) {
+    Rml::Element* field =
+        findAction(&document, "commit-object-variable-default", "Health");
+    setDraftValue(context, field, "140");
+    Rml::Element* elsewhere = document.GetElementById("logic-toolbar-search");
+    CHECK(elsewhere != nullptr);
+    if (elsewhere) CHECK(elsewhere->Focus());
+    frame(context, ui);
+    CHECK(variable(coordinator, "Health")
+          && std::get<double>(variable(coordinator, "Health")->initialValue) == 140.0);
+
+    field = findAction(&document, "commit-object-variable-default", "Health");
+    setDraftValue(context, field, "222");
+    CHECK(coordinator.undo().ok);
+    frame(context, ui);
+    field = findAction(&document, "commit-object-variable-default", "Health");
+    CHECK(fieldValue(field) == "125.5");
+    CHECK(variable(coordinator, "Health")
+          && std::get<double>(variable(coordinator, "Health")->initialValue) == 125.5);
+
+    setDraftValue(context, field, "333");
+    CHECK(coordinator.redo().ok);
+    frame(context, ui);
+    field = findAction(&document, "commit-object-variable-default", "Health");
+    CHECK(fieldValue(field) == "140");
+    CHECK(variable(coordinator, "Health")
+          && std::get<double>(variable(coordinator, "Health")->initialValue) == 140.0);
+
+    CHECK(coordinator.undo().ok);
+    frame(context, ui);
+}
+
+void testPendingEditGateCommitsValidAndBlocksInvalid(
+    Rml::Context& context, Rml::ElementDocument& document,
+    EditorCoordinator& coordinator, EditorUi& ui) {
+    Rml::Element* field =
+        findAction(&document, "commit-object-variable-default", "Health");
+    setDraftValue(context, field, "135");
+    CHECK(ui.resolvePendingEdits().resolved());
+    CHECK(variable(coordinator, "Health")
+          && std::get<double>(variable(coordinator, "Health")->initialValue) == 135.0);
+    frame(context, ui);
+    CHECK(coordinator.undo().ok);
+    frame(context, ui);
+
+    field = findAction(&document, "commit-object-variable-default", "Health");
+    setDraftValue(context, field, "NaN");
+    const uint64_t revisionBefore = coordinator.document().revision();
+    CHECK(!ui.resolvePendingEdits().resolved());
+    CHECK(coordinator.document().revision() == revisionBefore);
+    field = findAction(&document, "commit-object-variable-default", "Health");
+    CHECK(fieldValue(field) == "NaN");
+    CHECK(field && field->IsClassSet("object-variable-draft-invalid"));
+    CHECK(context.GetFocusElement() == field);
+    pressKey(field, Rml::Input::KI_ESCAPE);
+    frame(context, ui);
+}
+
+void testSelectionAndDeletionDiscardDraft(
+    Rml::Context& context, Rml::ElementDocument& document,
+    EditorCoordinator& coordinator, EditorUi& ui) {
+    Rml::Element* field =
+        findAction(&document, "commit-object-variable-default", "Health");
+    setDraftValue(context, field, "222");
+    ui.handleAction("select-entity", "2", {});
+    frame(context, ui);
+    CHECK(coordinator.selection().primaryEntity == 2);
+    field = findAction(&document, "commit-object-variable-default", "Health");
+    CHECK(fieldValue(field) == "125.5");
+    CHECK(variable(coordinator, "Health")
+          && std::get<double>(variable(coordinator, "Health")->initialValue) == 125.5);
+
+    ui.handleAction("select-entity", "1", {});
+    frame(context, ui);
+
+    Rml::Element* description =
+        findAction(&document, "commit-object-variable-description", "Speed");
+    setDraftValue(context, description, "must be discarded");
+    click(findAction(&document, "remove-object-variable", "Speed"));
+    frame(context, ui);
+    CHECK(variable(coordinator, "Speed") == nullptr);
+    CHECK(coordinator.undo().ok);
+    frame(context, ui);
+    CHECK(variable(coordinator, "Speed") != nullptr);
+
+    field = findAction(&document, "commit-object-variable-default", "Health");
+    setDraftValue(context, field, "444");
+    CHECK(coordinator.execute(DeleteEntityCommand{"scene-1", 1}).ok);
+    frame(context, ui);
+    CHECK(selectedInstance(coordinator) == nullptr);
+    CHECK(variable(coordinator, "Health")
+          && std::get<double>(variable(coordinator, "Health")->initialValue) == 125.5);
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.apply(SelectEntityIntent{1}).ok);
+    frame(context, ui);
+    field = findAction(&document, "commit-object-variable-default", "Health");
+    CHECK(fieldValue(field) == "125.5");
+}
+
 void testPlayDisablesAndGuardsAuthoring(
     Rml::Context& context, Rml::ElementDocument& document,
     EditorCoordinator& coordinator, EditorUi& ui) {
     const uint64_t revisionBefore = coordinator.document().revision();
-    CHECK(coordinator.playCurrentScene().ok);
+    const double defaultBefore =
+        std::get<double>(variable(coordinator, "Health")->initialValue);
+    Rml::Element* draft =
+        findAction(&document, "commit-object-variable-default", "Health");
+    setDraftValue(context, draft, "999");
+    ui.setPlayHandlers(
+        [&] { coordinator.playProject(); },
+        [&] { coordinator.playCurrentScene(); });
+    ui.handleAction("play-current-scene", {}, {});
     frame(context, ui);
     CHECK(coordinator.isPlaying());
+    CHECK(coordinator.document().revision() == revisionBefore);
+    CHECK(variable(coordinator, "Health")
+          && std::get<double>(variable(coordinator, "Health")->initialValue) == defaultBefore);
 
     Rml::Element* add = findAction(&document, "add-object-variable");
     CHECK(add != nullptr);
@@ -321,6 +566,27 @@ void testPlayDisablesAndGuardsAuthoring(
 
     CHECK(coordinator.stopPlaying().ok);
     frame(context, ui);
+    Rml::Element* health =
+        findAction(&document, "commit-object-variable-default", "Health");
+    CHECK(fieldValue(health) == "125.5");
+}
+
+void testReplaceProjectDiscardsDraft(
+    Rml::Context& context, Rml::ElementDocument& document,
+    EditorCoordinator& coordinator, EditorUi& ui) {
+    Rml::Element* field =
+        findAction(&document, "commit-object-variable-default", "Health");
+    setDraftValue(context, field, "888");
+
+    CHECK(coordinator.replaceProject(
+        ProjectDocument{makeObjectVariablesProject(77.0)}).ok);
+    frame(context, ui);
+    CHECK(variable(coordinator, "Health")
+          && std::get<double>(variable(coordinator, "Health")->initialValue) == 77.0);
+    CHECK(coordinator.apply(SelectEntityIntent{1}).ok);
+    frame(context, ui);
+    field = findAction(&document, "commit-object-variable-default", "Health");
+    CHECK(fieldValue(field) == "77");
 }
 
 } // namespace
@@ -371,7 +637,14 @@ int main() {
     testTypeDropdownSurvivesItsOpeningFrame(*context, *document, coordinator, ui);
     testDefaultAndOverrideDispatchStaySeparate(*context, *document, coordinator, ui);
     testAddRenameAndDescriptionDispatch(*context, *document, coordinator, ui);
+    testDraftSurvivesRoutineRefreshAndEscape(*context, *document, coordinator, ui);
+    testInvalidEnterRetainsDraftAndBlurReverts(*context, *document, coordinator, ui);
+    testValidBlurAndExternalHistoryDiscardDraft(*context, *document, coordinator, ui);
+    testPendingEditGateCommitsValidAndBlocksInvalid(
+        *context, *document, coordinator, ui);
+    testSelectionAndDeletionDiscardDraft(*context, *document, coordinator, ui);
     testPlayDisablesAndGuardsAuthoring(*context, *document, coordinator, ui);
+    testReplaceProjectDiscardsDraft(*context, *document, coordinator, ui);
 
     ui.detach();
     Rml::Shutdown();

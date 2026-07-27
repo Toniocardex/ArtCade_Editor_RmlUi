@@ -13,13 +13,12 @@ constexpr EditorInvalidation kPositionInvalidation =
     EditorInvalidation::Inspector | EditorInvalidation::Viewport;
 constexpr EditorInvalidation kRenameInvalidation =
     EditorInvalidation::Hierarchy | EditorInvalidation::Inspector;
-// Inspector included: the Scene Inspector renders structural facts (the
-// Entities count, the Outside-bounds diagnostic), so an instance created or
-// removed while no entity is selected must refresh it too - otherwise the
-// shown count goes stale until the next unrelated Inspector invalidation.
+// Inspector and Logic Board both render structural facts: the Scene Inspector
+// shows entity count/outside-bounds diagnostics, while ADR-0031 A2.3 reports
+// whether the board's Object Type has an instance in the active scene.
 constexpr EditorInvalidation kStructureInvalidation =
     EditorInvalidation::Hierarchy | EditorInvalidation::Inspector
-    | EditorInvalidation::Viewport;
+    | EditorInvalidation::Viewport | EditorInvalidation::LogicBoard;
 } // namespace
 
 // ----------------------------------------------------------------------------

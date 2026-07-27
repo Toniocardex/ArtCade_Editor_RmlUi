@@ -24,6 +24,11 @@ struct PendingEditResult {
 PendingEditResult classifyPendingEdit(const std::string& action,
                                       const std::string& value);
 
+// Shared by typed fields whose numeric-ness is known only from their dynamic
+// model (for example an Object Variable). Distinguishes a live partial token
+// such as "-", "12." or "1e-" from a complete value before parsing.
+bool incompleteNumericEditBuffer(const std::string& value);
+
 // False when Escape (or an unchanged edit) restored exactly the value rendered
 // into the field. Layer rename is excluded because its handler also owns the
 // inline-rename UI state and must close that state on an unchanged commit.

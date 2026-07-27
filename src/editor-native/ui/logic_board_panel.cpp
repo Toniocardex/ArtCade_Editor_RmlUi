@@ -268,7 +268,7 @@ std::string variablesDrawer(
     html += "\" data-action=\"add-global-variable\">+ Variable</button>"
             "<button class=\"logic-variables-collapse\" data-action=\"toggle-global-variables\" "
             "title=\"Hide Project Variables\">"
-          + iconMarkup("&#xeb5f;") + "</button></div></div>";
+          + iconMarkup("&#xeb5d;") + "</button></div></div>";
 
     const auto& variables = coordinator.document().data().globalVariables;
     if (variables.empty()) {
@@ -415,6 +415,13 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     const std::string selectedName = selectedType && !selectedType->name.empty()
         ? selectedType->name : selectedId;
     const std::size_t sharedCount = selectedId.empty() ? 0 : instanceCountFor(selectedId);
+    const SceneDef* activeScene =
+        coordinator.document().findScene(coordinator.state().activeSceneId);
+    const bool hasInstanceInActiveScene = selectedType && activeScene
+        && std::any_of(activeScene->instances.begin(), activeScene->instances.end(),
+                       [&](const SceneInstanceDef& instance) {
+                           return instance.objectTypeId == selectedId;
+                       });
 
     const bool selectedHasBoard = selectedType && selectedType->logicBoard.has_value();
     std::string html = "<div class=\"logic-head\"><div class=\"logic-heading\">"
@@ -459,6 +466,16 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     }
     html += "</span></div>"; // .logic-heading
     html += "</div>"; // .logic-head
+    if (selectedType && !hasInstanceInActiveScene) {
+        // ADR-0031 A2.3: Slice A can author Object Variables only through a
+        // selected instance. State that limitation at the Logic Board instead
+        // of offering navigation that cannot reach this type in this scene.
+        html += "<div id=\"logic-object-variables-reachability\""
+                " class=\"logic-object-variables-reachability logic-muted\">"
+                "Object variables for " + escapeRml(selectedName)
+              + " are edited by selecting a " + escapeRml(selectedName)
+              + " instance</div>";
+    }
     if (variablesDrawerOpen_) html += variablesDrawer(coordinator, playing, openDropdownId_);
     const auto render = [&]() {
         // Where the author left the caret, captured before the markup that

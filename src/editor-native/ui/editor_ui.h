@@ -37,6 +37,7 @@ namespace ArtCade::EditorNative {
 
 class EditorCoordinator;
 enum class AssetKind;   // defined in app/asset_import.h
+struct EditorOperationResult;
 struct ViewportPointerReadout;
 
 // Target kind of the hierarchy context menu (scene tab vs entity row).
@@ -77,9 +78,10 @@ public:
     void restoreAfterRmlLayout();
     bool isBound() const { return listener_ != nullptr; }
 
-    // Commit the focused data-action="commit-*" field through its normal blur
-    // path before Save/New/Open/Close/Play or selection navigation can inspect
-    // stale document state. Invalid/incomplete buffers retain focus and block.
+    // Resolve the focused authoring field before a higher-level action inspects
+    // document state. Ordinary commit-* fields commit; ADR-0031 Object Variable
+    // drafts are explicitly discarded by selection, Replace Project and Play.
+    // Invalid/incomplete buffers retain focus and block when commit is required.
     PendingEditResult resolvePendingEdits();
 
     bool isPlaying() const;
@@ -312,6 +314,8 @@ public:
     void cancelSceneBackgroundOpacityDrag();
     /** Escape / global cancel: restores draft if active. Returns true when handled. */
     bool cancelSceneBackgroundOpacityDragIfNeeded();
+    /** ADR-0031: Play/selection/replace discard Object Variable text drafts. */
+    void discardObjectVariableDraft();
 
     // Static textarea event bridge. Text remains authoritative in
     // ScriptEditorState; these calls never create EditorCommands.
@@ -342,8 +346,9 @@ private:
     bool handleInspectorAction(const std::string& action, const std::string& arg,
                                const std::string& value, EntityId selected);
     /** Object variable definitions and instance overrides (ADR-0031 A2). */
-    void handleObjectVariableAction(const std::string& action, const std::string& arg,
-                                    const std::string& value);
+    EditorOperationResult handleObjectVariableAction(const std::string& action,
+                                                     const std::string& arg,
+                                                     const std::string& value);
 
     void applyInvalidations(EditorInvalidation flags);
     void refreshToolbar();
@@ -363,6 +368,8 @@ private:
     // ADR-0029: the expression field is not a `commit-` field, so the general
     // pending-edit sweep cannot see it. Resolved on its own terms, first.
     PendingEditResult resolvePendingExpressionEdit();
+    PendingEditResult resolvePendingObjectVariableEdit();
+    void finishPendingObjectVariableEdit(bool repaint = true);
     void showPendingHierarchyMenu();   // consumes the deferred menu request
     void showPendingAssetMenu();       // same, for the Assets row menu
     // Logic Board's Object Type picker: a floating menu (like the other
@@ -471,6 +478,14 @@ private:
         std::string value;
     };
     std::optional<PendingExpressionEditEnd> pendingExpressionEnd_;
+    enum class PendingObjectVariableEnd { CommitEnter, CommitBlur, Cancel };
+    struct PendingObjectVariableEditEnd {
+        PendingObjectVariableEnd kind = PendingObjectVariableEnd::CommitBlur;
+        std::string action;
+        std::string arg;
+        std::string value;
+    };
+    std::optional<PendingObjectVariableEditEnd> pendingObjectVariableEnd_;
     bool                                logicTypeMenuVisible_ = false;
     bool                                logicMoreMenuVisible_ = false;
     struct PendingEditorConfirm {

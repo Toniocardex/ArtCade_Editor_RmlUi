@@ -691,6 +691,11 @@
     flex: 0 0 auto;
     margin-left: 4dp;
 }
+.object-variable-draft-error {
+    display: block;
+    margin: 0 0 4dp 72dp;
+    font-size: 10dp;
+}
 
 .type-owned-note {
     display: block;

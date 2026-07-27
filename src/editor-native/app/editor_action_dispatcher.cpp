@@ -33,6 +33,16 @@ EditorActionResult EditorActionDispatcher::execute(const EditorActionRequest& re
     const EditorActionDescriptor* desc = findActionDescriptor(request.action);
     if (!desc) return EditorActionResult::failed("Unknown action");
 
+    // ADR-0031 A2.2: Object Variable drafts are authoring scratch state, not
+    // pending changes to carry across Replace Project or into Play. Other
+    // focused fields retain their existing CommitThenExecute policy.
+    if (request.action == EditorActionId::NewProject
+        || request.action == EditorActionId::OpenProject
+        || request.action == EditorActionId::PlayProject
+        || request.action == EditorActionId::PlayCurrentScene) {
+        ui_.discardObjectVariableDraft();
+    }
+
     switch (desc->pendingEditPolicy) {
     case PendingEditPolicy::Ignore:
         break;

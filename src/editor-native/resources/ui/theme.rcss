@@ -631,6 +631,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .inspector-scene-context,
 .logic-col-head,
 .logic-head,
+.logic-object-variables-reachability,
 .logic-rule-head,
 .logic-variables-drawer,
 .panel-header,
@@ -1222,6 +1223,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 /* danger-border */
 .logic-expression-error,
 .logic-expression-input.invalid,
+.object-variable-draft-invalid,
 #btn-console-error.active,
 #btn-stop:hover,
 .console-clear-btn:hover,
@@ -1268,6 +1270,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 /* danger-text */
 .logic-expression-error,
 #btn-console-error.active,
+.object-variable-draft-error,
 #btn-stop,
 .comp-remove:hover,
 .console-clear-btn:hover,
