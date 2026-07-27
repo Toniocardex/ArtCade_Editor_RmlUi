@@ -171,7 +171,7 @@ is not mistaken for the state of the world:
 | Part | State |
 |---|---|
 | `Code` style, parser, round-trip test, completion vocabulary | Done (`ea062e8`) |
-| The value field as the editor: typing, completions, inline errors | Done (`2cf5770`) on Set Position; generic property editor reused by later Vec2 flips |
+| The value field as the editor: typing, completions, inline errors | Written `2cf5770`, **reachable only from `b3a3ad0`** — see below |
 | Modal, node tree, palette, Apply/Cancel draft removed | Done (`cb607e3`) |
 | Vec2 policy + codegen: `translate_by.offset`, `set_velocity.velocity` | Done (`14b1c18`) — expression field via generic property editor |
 | Vec2 still `LiteralOnly`: `set_scale.scale`, `spawn.position` | Unchanged (correct for LiteralOnly) |
@@ -181,6 +181,57 @@ is not mistaken for the state of the world:
 Set Position, Move By, and Set Velocity offer the expression text field.
 Set Scale and Spawn keep plain numeric axes. The nine scalars still need the
 indivisible `LogicValue` NumberExpression arm + schema bump described below.
+
+### The field was written before it worked
+
+This row read "Done" for two weeks while the completion list had never once
+appeared in a shipped build. The row is kept, corrected, rather than quietly
+fixed, because the way it was wrong is the useful part.
+
+The focus event never reached the panel: an unconditional `if (type ==
+"focus") return;` in the router, written for the commit fields' pre-edit
+baseline, sat above the branch that ADR-0029 added later and swallowed every
+focus. Everything downstream was correct and unreachable — including the
+typing filter, since the draft setter is guarded by the focus address that was
+never set. The only way to see the list was to commit text that failed to
+parse, which sets the address as a side effect.
+
+Nothing caught it because every test called
+`handleAction("focus-logic-expression", …)` directly, below the router, and
+the screenshot harness invoked the action rather than focusing the element —
+so it photographed a state the application could not produce. Both now start
+from the element (`tests/logic-expression-focus-routing-test.cpp`,
+`--shot-expression`).
+
+Making the event reachable then exposed three defects that had never run:
+
+- **Rebuilding the panel inside an RmlUi input dispatch is a use-after-free.**
+  `Element::Focus()` keeps using `this` after `Context::OnFocusChange`
+  returns, and the text widget keeps using its element after emitting
+  `change`. RmlUi guards its own dispatch loop with observer pointers; it does
+  not guard the caller. Focus, draft, and the end of an edit (Enter, Escape,
+  blur) are therefore recorded on the event and applied in `processFrame`.
+- **A rebuild blurs the field it destroys**, which the router could not tell
+  from the author leaving it. Committing on that blur cleared the state the
+  rebuild was rendering, so the list cancelled itself. The question "is this
+  our own rebuild?" must be asked when the event fires, not when the deferred
+  action runs — by then the rebuild has finished and the answer is always no.
+- **Typing must not rebuild the panel at all.** A keystroke now replaces the
+  completion entries and nothing else. Rebuilding threw away the element being
+  typed into, and the caret with it, so Backspace landed at offset 0 and
+  deleted nothing: the field looked editable and refused to edit. The caret is
+  captured and restored across the rebuilds that remain.
+
+The durable rule: **no panel rebuild inside an RmlUi input dispatch, and no
+markup rebuild of a field while it is being typed into.**
+
+### Known gap
+
+An uncommitted draft is not resolved before Save / Open / New / Play.
+`resolvePendingEdits()` only inspects a focused element whose `data-action`
+starts with `commit-`, and this field declares `edit-logic-expression`, so the
+guard skips it entirely. Gates §15 requires the opposite. Tracked as the next
+slice.
 
 Three of the nine carry a static range check (volume, playback speed, and the
 excluded timer interval); the rule for those is in the section above and is the
@@ -211,3 +262,17 @@ unusable for anyone who has not memorised the vocabulary.
 under this ADR it is half of a round-trip, and a formatting change that is not
 matched in the parser corrupts what the author typed. The round-trip test is the
 guard, and it is not optional.
+
+It also becomes *readable*. The `Code` formatter first wrapped every binary
+node — sound for a round trip that does not want to reason about precedence,
+invisible while `Code` was a serialisation detail, and wrong once the field
+shows that text: `self.x + 10` came back as `(self.x + 10)`, with a pair added
+per nesting level. It now tracks binding strength and keeps only the
+parentheses the tree needs, which are the ones an author would have written
+(`56d0e1d`). The round trip is unchanged and still exercised over the whole
+node catalogue.
+
+The draft is deliberately **not** normalised as the author types. A
+half-written expression usually has no tree to format, so the text would snap
+only on the keystrokes that happen to parse; and rewriting text under the
+caret is the defect above, reintroduced on purpose.
