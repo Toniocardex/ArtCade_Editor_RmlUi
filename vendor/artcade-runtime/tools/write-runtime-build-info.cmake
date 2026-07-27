@@ -9,8 +9,8 @@ endif()
 set(_json "{
   \"engineVersion\": \"2.0.0\",
   \"runtimeBuildId\": \"local\",
-  \"projectFormatMin\": 10,
-  \"projectFormatMax\": 10,
+  \"projectFormatMin\": 11,
+  \"projectFormatMax\": 11,
   \"assetKeyId\": \"${ASSET_KEY_ID}\"
 }
 ")
