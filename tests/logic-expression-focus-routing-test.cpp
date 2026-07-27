@@ -178,6 +178,13 @@ ProjectDoc makeProjectWithSetPosition() {
             property.value = LogicVariableReference{"flag"};
     board.rules.push_back(std::move(booleanRule));
 
+    LogicRuleDef stringRule = Logic::makeDefaultRule("rule-state-string");
+    stringRule.trigger = {Logic::kOnStart, {}};
+    LogicBlockDef stringCondition =
+        Logic::makeDefaultBlock(Logic::kStateCompareString, Logic::BlockKind::Condition);
+    stringRule.conditions.push_back({LogicConditionJoin::And, false, std::move(stringCondition)});
+    board.rules.push_back(std::move(stringRule));
+
     hero.logicBoard = std::move(board);
     hero.localVariables.push_back(GameVariableDefinition{
         "localScore", GameVariableDefinition::Type::Number, 0.0,
@@ -383,6 +390,36 @@ void testContextualProjectVariableCreation(
     CHECK(std::get<bool>(
         coordinator.document().data().globalVariables.back().initialValue)
         == false);
+
+    const std::string stringAddress = "rule-state-string|c|0|key";
+    const std::string stringDropdown = "property|" + stringAddress;
+    click(findByAttribute(&document, "data-arg", stringDropdown));
+    frame(context, ui);
+    entries.clear();
+    collectByClass(&document, "drop-entry", entries);
+    std::string stringList;
+    for (Rml::Element* entry : entries) {
+        const std::string arg = attributeOf(entry, "data-arg");
+        if (arg == stringAddress || arg == stringDropdown)
+            stringList += entry->GetInnerRML();
+    }
+    CHECK(stringList.find("title") != std::string::npos);
+    CHECK(stringList.find("Create String Project Variable") != std::string::npos);
+    CHECK(stringList.find("score") == std::string::npos);
+    CHECK(stringList.find("flag") == std::string::npos);
+
+    Rml::Element* createString = createEntryFor(&document, stringAddress);
+    CHECK(createString != nullptr);
+    CHECK(attributeOf(createString, "data-value") == "string");
+    click(createString);
+    frame(context, ui);
+    input = document.GetElementById("logic-context-variable-name-input");
+    setDraftValue(context, input, "caption");
+    pressKey(input, Rml::Input::KI_RETURN);
+    frame(context, ui);
+    CHECK(coordinator.document().data().globalVariables.back().key == "caption");
+    CHECK(coordinator.document().data().globalVariables.back().type
+          == GameVariableDefinition::Type::String);
 
     input = openContextualCreator(context, document, ui, numberAddress);
     const uint64_t beforeEscape = coordinator.document().revision();

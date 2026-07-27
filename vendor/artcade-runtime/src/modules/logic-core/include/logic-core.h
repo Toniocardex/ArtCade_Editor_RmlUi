@@ -59,6 +59,8 @@ inline constexpr const char* kStateSet = "state.set";
 inline constexpr const char* kStateAdd = "state.add";
 inline constexpr const char* kStateSubtract = "state.subtract";
 inline constexpr const char* kStateCompare = "state.compare";
+inline constexpr const char* kStateCompareBoolean = "state.compare_boolean";
+inline constexpr const char* kStateCompareString = "state.compare_string";
 inline constexpr const char* kStateToggle = "state.toggle";
 
 using LogicBlockTypeId = std::string;

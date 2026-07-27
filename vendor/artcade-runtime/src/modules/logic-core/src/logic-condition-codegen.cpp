@@ -59,6 +59,36 @@ std::string conditionExpression(const LogicBlockDef& condition,
                    << escapeLua(key ? key->id : std::string{}) << "\", \""
                    << escapeLua(comparison ? comparison->value : std::string{"=="})
                    << "\", " << value << ")";
+    } else if (condition.typeId == kStateCompareBoolean) {
+        const LogicPropertyDef* keyProperty = findProperty(condition, "key");
+        const LogicPropertyDef* expectedProperty = findProperty(condition, "expected");
+        const auto* key = keyProperty
+            ? std::get_if<LogicVariableReference>(&keyProperty->value)
+            : nullptr;
+        const bool expected = expectedProperty ? std::get<bool>(expectedProperty->value) : true;
+        expression << "context:state_compare_boolean(\""
+                   << escapeLua(key ? key->id : std::string{}) << "\", "
+                   << (expected ? "true" : "false") << ")";
+    } else if (condition.typeId == kStateCompareString) {
+        const LogicPropertyDef* keyProperty = findProperty(condition, "key");
+        const LogicPropertyDef* operatorProperty = findProperty(condition, "op");
+        const LogicPropertyDef* valueProperty = findProperty(condition, "value");
+        const auto* key = keyProperty
+            ? std::get_if<LogicVariableReference>(&keyProperty->value)
+            : nullptr;
+        const auto* comparison = operatorProperty
+            ? std::get_if<LogicStringValue>(&operatorProperty->value)
+            : nullptr;
+        const auto* literal = valueProperty
+            ? std::get_if<LogicStringValue>(&valueProperty->value)
+            : nullptr;
+        // All three are escapeLua()'d: value is an arbitrary author-typed
+        // literal, not a numeric literal like Compare Number's.
+        expression << "context:state_compare_string(\""
+                   << escapeLua(key ? key->id : std::string{}) << "\", \""
+                   << escapeLua(comparison ? comparison->value : std::string{"=="})
+                   << "\", \""
+                   << escapeLua(literal ? literal->value : std::string{}) << "\")";
     }
     if (const LogicBlockDescriptor* descriptor = findDescriptor(condition.typeId)) {
         if (!descriptor->requiredFeature.empty()) {

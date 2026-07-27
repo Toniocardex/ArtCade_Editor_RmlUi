@@ -447,7 +447,9 @@ std::string renderLogicProperties(
                                " data-action=\"begin-contextual-global-variable\" data-arg=\""
                              + escapeRml(encoded) + "\" data-value=\""
                              + (*required == GameVariableDefinition::Type::Boolean
-                                    ? std::string("boolean") : std::string("number"))
+                                    ? std::string("boolean")
+                                    : *required == GameVariableDefinition::Type::String
+                                        ? std::string("string") : std::string("number"))
                              + "\">" + escapeRml(createLabel) + "</button>";
                     const std::string closedLabel = selected.empty()
                         ? std::string("Create ") + variableTypeLabel(*required)

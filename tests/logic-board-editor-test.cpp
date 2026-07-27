@@ -2507,6 +2507,12 @@ static void testSetPositionNonFiniteRateLimitedDiagnostics() {
         std::optional<double> getStateNumber(const GameVariableId&) const override {
             return std::nullopt;
         }
+        std::optional<bool> getStateBoolean(const GameVariableId&) const override {
+            return std::nullopt;
+        }
+        std::optional<std::string> getStateString(const GameVariableId&) const override {
+            return std::nullopt;
+        }
         bool setVelocity(EntityId, Vec2) override { return true; }
         bool isKeyDown(LogicKey) override { return false; }
         EntityId spawnObjectType(EntityId, const ObjectTypeId&, float, float) override {

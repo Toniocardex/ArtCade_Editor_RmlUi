@@ -335,13 +335,17 @@ controller. Nessun reverse-sync verso `ProjectDocument`.
   sono stati introdotti e richiedono una slice/schema dedicati.
 
 **Completato:** modello/serializer, validator, materializzazione, host runtime,
-Condition Number `state.compare`, Actions Number `state.set`, `state.add`,
-`state.subtract`, Action Boolean `state.toggle`, picker filtrato per tipo,
-property editor generico, Command e test.
+Condition Number `state.compare`, Condition Boolean `state.compare_boolean`,
+Condition String `state.compare_string` (`==`/`!=`, exact case-sensitive match),
+Actions Number `state.set`, `state.add`, `state.subtract`, Action Boolean
+`state.toggle`, picker filtrato per tipo, property editor generico, Command e
+test.
 
-**Rimane:** Condition Boolean/String e Action String complete, eventuali limiti
-tipizzati e la decisione/schema per override iniziali di istanza. Nessuna modifica
-runtime torna nell'authoring senza un futuro Command esplicito di Apply Runtime Changes.
+**Rimane:** Action String, eventuali limiti tipizzati e la decisione/schema per
+override iniziali di istanza. `Other Has Tag` è rinviato a una slice separata:
+richiede un concetto di Tag sull'Object Type che oggi non esiste nel dominio.
+Nessuna modifica runtime torna nell'authoring senza un futuro Command esplicito
+di Apply Runtime Changes.
 
 **Demo/DoD corrente:** un blocco decrementa una variabile Number nella
 PlaySession; Undo/Redo agisce sulle definizioni authoring, non sui valori runtime;

@@ -181,6 +181,12 @@ struct Host final : IGameplayRuntimeHost {
     std::optional<double> getStateNumber(const GameVariableId& id) const override {
         return variables.tryGetNumber(id);
     }
+    std::optional<bool> getStateBoolean(const GameVariableId& id) const override {
+        return variables.tryGetBool(id);
+    }
+    std::optional<std::string> getStateString(const GameVariableId& id) const override {
+        return variables.tryGetString(id);
+    }
     bool setVelocity(EntityId owner, Vec2 velocity) override {
         Transform t{};
         if (!gateway.getTransform(owner, t)) return false;

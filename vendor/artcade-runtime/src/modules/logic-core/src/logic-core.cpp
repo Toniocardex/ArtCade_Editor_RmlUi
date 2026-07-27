@@ -329,7 +329,8 @@ void validateBlock(const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
         }
         if ((block.typeId == kStateSet || block.typeId == kStateAdd
              || block.typeId == kStateSubtract || block.typeId == kStateCompare
-             || block.typeId == kStateToggle)
+             || block.typeId == kStateToggle || block.typeId == kStateCompareBoolean
+             || block.typeId == kStateCompareString)
             && property.key == "key") {
             const auto* ref = std::get_if<LogicVariableReference>(&property.value);
             const auto required = requiredVariableType(block.typeId);
@@ -346,7 +347,9 @@ void validateBlock(const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
                            findGlobalVariable(*project, ref->id)) {
                 if (required && def->type != *required) {
                     const char* need = (*required == GameVariableDefinition::Type::Boolean)
-                        ? "Boolean" : "Number";
+                        ? "Boolean"
+                        : (*required == GameVariableDefinition::Type::String)
+                            ? "String" : "Number";
                     pushSemantic(makeError(
                         objectTypeId, board, "LB_VARIABLE_TYPE_MISMATCH",
                         std::string("This Logic block requires a ") + need + " variable.",
@@ -361,14 +364,20 @@ void validateBlock(const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
                 pushSemantic(std::move(diagnostic));
             }
         }
-        if (block.typeId == kStateCompare && property.key == "op") {
+        if ((block.typeId == kStateCompare || block.typeId == kStateCompareString)
+            && property.key == "op") {
             const auto* op = std::get_if<LogicStringValue>(&property.value);
+            const bool allowOrdering = block.typeId == kStateCompare;
             const bool ok = op
-                && (op->value == "==" || op->value == "!=" || op->value == "<"
-                    || op->value == "<=" || op->value == ">" || op->value == ">=");
+                && (op->value == "==" || op->value == "!="
+                    || (allowOrdering
+                        && (op->value == "<" || op->value == "<=" || op->value == ">"
+                            || op->value == ">=")));
             if (!ok) {
                 pushSemantic(makeError(objectTypeId, board, "LB_COMPARE_OP",
-                                       "Compare operator must be == != < <= > >=",
+                                       allowOrdering
+                                           ? "Compare operator must be == != < <= > >="
+                                           : "Compare operator must be == or !=",
                                        &rule, &block, property.key));
             }
         }
@@ -927,6 +936,25 @@ const std::vector<LogicBlockDescriptor>& registry() {
             {}, {}, {LogicContextCapability::Self}, "state.compare_number", false, 40,
             {"variable", "equals", "compare"},
             LogicTriggerActivationKind::Level},
+        {kStateCompareBoolean, "state", "Compare Boolean",
+            "Compares a project Boolean variable.",
+            BlockKind::Condition,
+            // No operator: `expected` also covers the Event-slot case, where
+            // there is no clause to negate.
+            {{"key", LogicValueKind::Variable, LogicVariableReference{}, "Variable"},
+             {"expected", LogicValueKind::Bool, true, "Expected"}},
+            {}, {}, {LogicContextCapability::Self}, "state.compare_boolean", false, 42,
+            {"variable", "boolean", "equals", "compare"},
+            LogicTriggerActivationKind::Level},
+        {kStateCompareString, "state", "Compare String",
+            "Compares a project String variable. Exact, case-sensitive match.",
+            BlockKind::Condition,
+            {{"key", LogicValueKind::Variable, LogicVariableReference{}, "Variable"},
+             {"op", LogicValueKind::String, LogicStringValue{"=="}, "Operator"},
+             {"value", LogicValueKind::String, LogicStringValue{}, "Value"}},
+            {}, {}, {LogicContextCapability::Self}, "state.compare_string", false, 44,
+            {"variable", "string", "text", "equals", "compare"},
+            LogicTriggerActivationKind::Level},
         {kStateToggle, "state", "Toggle Boolean", "Toggles a project Boolean variable.",
             BlockKind::Action,
             {{"key", LogicValueKind::Variable, LogicVariableReference{}, "Variable"}},
@@ -957,6 +985,9 @@ const std::vector<LogicBlockDescriptor>& registry() {
                 } else if (block.typeId == kStateCompare && property.key == "op") {
                     property.semantic = LogicPropertySemantic::CompareOperator;
                     property.options = {"==", "!=", "<", "<=", ">", ">="};
+                } else if (block.typeId == kStateCompareString && property.key == "op") {
+                    property.semantic = LogicPropertySemantic::CompareOperator;
+                    property.options = {"==", "!="};
                 } else if (block.typeId == kTopDownMove && property.key == "direction") {
                     property.semantic = LogicPropertySemantic::TopDownDirection;
                     property.options = {"Left", "Right", "Up", "Down"};
@@ -969,6 +1000,9 @@ const std::vector<LogicBlockDescriptor>& registry() {
                 } else if (block.typeId == kPlatformerMotionState && property.key == "state") {
                     property.semantic = LogicPropertySemantic::PlatformerMotionState;
                     property.options = {"Stopped", "Moving", "Jumping", "Falling"};
+                }
+                if (block.typeId == kStateCompareString && property.key == "value") {
+                    property.allowEmpty = true;
                 }
 
                 if (property.valueKind == LogicValueKind::Number) {
@@ -1054,7 +1088,9 @@ std::optional<GameVariableDefinition::Type> requiredVariableType(
         || typeId == kStateCompare) {
         return GameVariableDefinition::Type::Number;
     }
-    if (typeId == kStateToggle) return GameVariableDefinition::Type::Boolean;
+    if (typeId == kStateToggle || typeId == kStateCompareBoolean)
+        return GameVariableDefinition::Type::Boolean;
+    if (typeId == kStateCompareString) return GameVariableDefinition::Type::String;
     return std::nullopt;
 }
 
@@ -1271,6 +1307,14 @@ std::string firstLogicErrorMessage(const std::vector<LogicDiagnostic>& diagnosti
     return {};
 }
 
+namespace {
+bool isLevelConditionTrigger(const LogicBlockTypeId& typeId) {
+    const LogicBlockDescriptor* descriptor = findDescriptor(typeId);
+    return descriptor && descriptor->kind == BlockKind::Condition
+        && descriptor->activationKind == LogicTriggerActivationKind::Level;
+}
+} // namespace
+
 LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
                                 const LogicBoardDef& board,
                                 const EntityDef* owner,
@@ -1327,11 +1371,7 @@ LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
                 : rule.trigger.typeId == kKeyHeld ? "on_key_held" : "on_key_pressed";
             lua << "  context:" << registerMethod << "(\"" << escapeLua(rule.id) << "\", \""
                 << logicKeyName(std::get<LogicKey>(key->value)) << "\", function()\n";
-        } else if (rule.trigger.typeId == kIsGrounded || rule.trigger.typeId == kIsFalling
-                   || rule.trigger.typeId == kPlatformerMotionState
-                   || rule.trigger.typeId == kIsVisible
-                   || rule.trigger.typeId == kKeyDown
-                   || rule.trigger.typeId == kStateCompare) {
+        } else if (isLevelConditionTrigger(rule.trigger.typeId)) {
             lua << "  context:on_update(\"" << escapeLua(rule.id) << "\", function()\n";
             result.requiresTick = true;
         } else {
@@ -1365,11 +1405,7 @@ LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
                         + escapeLua(type->value) + "\")";
                     features.insert("collision.other_type");
                 }
-            } else if (rule.trigger.typeId == kIsGrounded || rule.trigger.typeId == kIsFalling
-                       || rule.trigger.typeId == kPlatformerMotionState
-                       || rule.trigger.typeId == kIsVisible
-                       || rule.trigger.typeId == kKeyDown
-                       || rule.trigger.typeId == kStateCompare) {
+            } else if (isLevelConditionTrigger(rule.trigger.typeId)) {
                 whenActive = emitConditionExpression(rule.trigger, features);
             }
             const std::string conditionsExpr =
@@ -1399,11 +1435,7 @@ LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
                 ++guardDepth;
                 features.insert("collision.other_type");
             }
-        } else if (rule.trigger.typeId == kIsGrounded || rule.trigger.typeId == kIsFalling
-                   || rule.trigger.typeId == kPlatformerMotionState
-                   || rule.trigger.typeId == kIsVisible
-                   || rule.trigger.typeId == kKeyDown
-                   || rule.trigger.typeId == kStateCompare) {
+        } else if (isLevelConditionTrigger(rule.trigger.typeId)) {
             lua << "    if " << emitConditionExpression(rule.trigger, features) << " then\n";
             ++guardDepth;
         }

@@ -79,6 +79,14 @@ public:
      */
     virtual std::optional<double> getStateNumber(const GameVariableId& id) const = 0;
     /**
+     * Reads a catalog Boolean global. Unknown key or wrong type → nullopt.
+     */
+    virtual std::optional<bool> getStateBoolean(const GameVariableId& id) const = 0;
+    /**
+     * Reads a catalog String global. Unknown key or wrong type → nullopt.
+     */
+    virtual std::optional<std::string> getStateString(const GameVariableId& id) const = 0;
+    /**
      * Reads a Number local variable on @p owner. Unknown key or wrong type →
      * nullopt. Default: unavailable (hosts that materialize locals override).
      */

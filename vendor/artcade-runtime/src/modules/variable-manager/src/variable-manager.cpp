@@ -151,6 +151,32 @@ std::optional<double> VariableManager::tryGetNumber(const GameVariableId& id) co
     return std::get<double>(valueIt->second);
 }
 
+std::optional<bool> VariableManager::tryGetBool(const GameVariableId& id) const {
+    auto typeIt = globalTypes_.find(id);
+    if (typeIt == globalTypes_.end()
+        || typeIt->second != GameVariableDefinition::Type::Boolean) {
+        return std::nullopt;
+    }
+    auto valueIt = vars_.find(id);
+    if (valueIt == vars_.end() || !std::holds_alternative<bool>(valueIt->second)) {
+        return std::nullopt;
+    }
+    return std::get<bool>(valueIt->second);
+}
+
+std::optional<std::string> VariableManager::tryGetString(const GameVariableId& id) const {
+    auto typeIt = globalTypes_.find(id);
+    if (typeIt == globalTypes_.end()
+        || typeIt->second != GameVariableDefinition::Type::String) {
+        return std::nullopt;
+    }
+    auto valueIt = vars_.find(id);
+    if (valueIt == vars_.end() || !std::holds_alternative<std::string>(valueIt->second)) {
+        return std::nullopt;
+    }
+    return std::get<std::string>(valueIt->second);
+}
+
 VariableMutationResult VariableManager::setGlobal(
     const GameVariableId& id, const Value& value) {
     VariableMutationResult result;

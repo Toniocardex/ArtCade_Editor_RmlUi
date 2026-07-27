@@ -180,6 +180,8 @@ public:
     bool addStateNumber(const GameVariableId& id, double delta) override;
     bool toggleStateBoolean(const GameVariableId& id) override;
     std::optional<double> getStateNumber(const GameVariableId& id) const override;
+    std::optional<bool> getStateBoolean(const GameVariableId& id) const override;
+    std::optional<std::string> getStateString(const GameVariableId& id) const override;
     std::optional<double> getLocalNumber(EntityId owner,
                                          const GameVariableId& id) const override;
     bool setVelocity(EntityId owner, Vec2 velocity) override;

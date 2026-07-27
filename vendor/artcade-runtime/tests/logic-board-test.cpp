@@ -38,6 +38,7 @@ struct Host final : ILogicRuntimeHost {
     std::unordered_map<EntityId, Vec2> positions;
     std::unordered_map<std::string, double> state;
     std::unordered_map<std::string, bool> boolState;
+    std::unordered_map<std::string, std::string> stringState;
     bool keyDown = false;
     /** Pre-declare a Number key (mirrors VariableManager catalog materialization). */
     void declareNumber(const GameVariableId& id, double initial = 0.0) {
@@ -46,6 +47,10 @@ struct Host final : ILogicRuntimeHost {
     /** Pre-declare a Boolean key (mirrors VariableManager catalog materialization). */
     void declareBoolean(const GameVariableId& id, bool initial = false) {
         boolState[id] = initial;
+    }
+    /** Pre-declare a String key (mirrors VariableManager catalog materialization). */
+    void declareString(const GameVariableId& id, std::string initial = {}) {
+        stringState[id] = std::move(initial);
     }
     bool setVisible(EntityId owner, bool value) override {
         calls.push_back("visible:" + std::to_string(owner) + ":" + (value ? "1" : "0"));
@@ -174,6 +179,16 @@ struct Host final : ILogicRuntimeHost {
     std::optional<double> getStateNumber(const GameVariableId& id) const override {
         const auto it = state.find(id);
         if (it == state.end()) return std::nullopt;
+        return it->second;
+    }
+    std::optional<bool> getStateBoolean(const GameVariableId& id) const override {
+        const auto it = boolState.find(id);
+        if (it == boolState.end()) return std::nullopt;
+        return it->second;
+    }
+    std::optional<std::string> getStateString(const GameVariableId& id) const override {
+        const auto it = stringState.find(id);
+        if (it == stringState.end()) return std::nullopt;
         return it->second;
     }
     bool setVelocity(EntityId owner, Vec2 velocity) override {
@@ -1049,6 +1064,26 @@ static LogicBlockDef makeKeyDownCondition(LogicKey key) {
     return condition;
 }
 
+static LogicBlockDef makeStateCompareBooleanCondition(const std::string& key, bool expected) {
+    LogicBlockDef condition = makeDefaultBlock(kStateCompareBoolean, BlockKind::Condition);
+    for (LogicPropertyDef& property : condition.properties) {
+        if (property.key == "key") property.value = LogicVariableReference{key};
+        else if (property.key == "expected") property.value = expected;
+    }
+    return condition;
+}
+
+static LogicBlockDef makeStateCompareStringCondition(
+    const std::string& key, const std::string& op, const std::string& value) {
+    LogicBlockDef condition = makeDefaultBlock(kStateCompareString, BlockKind::Condition);
+    for (LogicPropertyDef& property : condition.properties) {
+        if (property.key == "key") property.value = LogicVariableReference{key};
+        else if (property.key == "op") property.value = LogicStringValue{op};
+        else if (property.key == "value") property.value = LogicStringValue{value};
+    }
+    return condition;
+}
+
 static LogicBoardDef makeOperatorBoard(std::vector<LogicConditionClause> conditions) {
     LogicBoardDef board;
     board.id = "logic:Operators";
@@ -1120,10 +1155,14 @@ static void testDescriptorSemanticMetadataConsistency() {
             if (property.semantic == LogicPropertySemantic::StaticAudioAsset)
                 CHECK(property.key == "audioAssetId");
             if (property.semantic == LogicPropertySemantic::CompareOperator) {
-                CHECK(block.typeId == kStateCompare);
+                CHECK(block.typeId == kStateCompare || block.typeId == kStateCompareString);
                 CHECK(property.key == "op");
-                CHECK(property.options
-                      == std::vector<std::string>({"==", "!=", "<", "<=", ">", ">="}));
+                if (block.typeId == kStateCompare) {
+                    CHECK(property.options
+                          == std::vector<std::string>({"==", "!=", "<", "<=", ">", ">="}));
+                } else {
+                    CHECK(property.options == std::vector<std::string>({"==", "!="}));
+                }
             } else if (property.semantic == LogicPropertySemantic::TopDownDirection) {
                 CHECK(block.typeId == kTopDownMove);
                 CHECK(property.key == "direction");
@@ -1147,8 +1186,12 @@ static void testDescriptorSemanticMetadataConsistency() {
                 CHECK(property.options.empty());
             }
             if (property.allowEmpty) {
-                CHECK(property.semantic == LogicPropertySemantic::ObjectTypeReference);
-                CHECK(block.typeId == kCollisionEnter || block.typeId == kCollisionExit);
+                if (property.semantic == LogicPropertySemantic::ObjectTypeReference) {
+                    CHECK(block.typeId == kCollisionEnter || block.typeId == kCollisionExit);
+                } else {
+                    CHECK(block.typeId == kStateCompareString);
+                    CHECK(property.key == "value");
+                }
             }
 
             if (property.valueKind == LogicValueKind::Number)
@@ -2120,6 +2163,342 @@ static void testStateVariableAndToggle() {
     }
 }
 
+static void testStateCompareBooleanAndString() {
+    CHECK(findDescriptor(kStateCompareBoolean)->activationKind
+          == LogicTriggerActivationKind::Level);
+    CHECK(findDescriptor(kStateCompareString)->activationKind
+          == LogicTriggerActivationKind::Level);
+    CHECK(requiredVariableType(kStateCompareBoolean)
+          == GameVariableDefinition::Type::Boolean);
+    CHECK(requiredVariableType(kStateCompareString)
+          == GameVariableDefinition::Type::String);
+    CHECK(isEventEligible(*findDescriptor(kStateCompareBoolean)));
+    CHECK(isEventEligible(*findDescriptor(kStateCompareString)));
+
+    ProjectDoc project;
+    project.globalVariables.push_back(
+        {"flag", GameVariableDefinition::Type::Boolean, false, {}});
+    project.globalVariables.push_back(
+        {"label", GameVariableDefinition::Type::String, std::string{}, {}});
+    project.globalVariables.push_back(
+        {"score", GameVariableDefinition::Type::Number, 0.0, {}});
+
+    // Path: plain clause condition.
+    {
+        LogicBoardDef board;
+        board.id = "logic:CompareBool";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        rule.trigger = {kKeyPressed, {{"key", LogicKey::Space}}};
+        rule.conditions = {makeClause(makeStateCompareBooleanCondition("flag", true))};
+        rule.actions[0] = {kSetVisible,
+            {{"target", LogicEntityReference{}}, {"visible", false}}};
+        board.rules.push_back(rule);
+
+        CHECK(validateBoard("Bool", board, nullptr, &project).empty());
+        LogicCompileResult compiled = compileBoard("Bool", board, nullptr, &project);
+        CHECK(compiled.ok());
+        CHECK(compiled.programs[0].source.find(
+            "state_compare_boolean(\"flag\", true)") != std::string::npos);
+
+        Host host;
+        host.declareBoolean("flag", false);
+        LogicRuntime runtime(host);
+        std::string error;
+        CHECK(runtime.loadPrograms(compiled.programs, &error));
+        CHECK(runtime.install("Bool", 1, &error).has_value());
+        runtime.beginFrame();
+        runtime.dispatchKeyPressed(LogicKey::Space);
+        CHECK(host.calls.empty());
+        host.boolState["flag"] = true;
+        runtime.beginFrame();
+        runtime.dispatchKeyPressed(LogicKey::Space);
+        CHECK(host.calls.size() == 1);
+    }
+    {
+        LogicBoardDef board = makeOperatorBoard(
+            {makeClause(makeStateCompareBooleanCondition("flag", false))});
+        LogicCompileResult compiled = compileBoard("Operators", board, nullptr, &project);
+        CHECK(compiled.ok());
+        CHECK(compiled.programs[0].source.find(
+            "state_compare_boolean(\"flag\", false)") != std::string::npos);
+
+        LogicBoardDef negated = makeOperatorBoard({makeClause(
+            makeStateCompareBooleanCondition("flag", false), LogicConditionJoin::And, true)});
+        LogicCompileResult negatedCompiled =
+            compileBoard("Operators", negated, nullptr, &project);
+        CHECK(negatedCompiled.ok());
+        CHECK(negatedCompiled.programs[0].source.find(
+            "not (context:state_compare_boolean(\"flag\", false))") != std::string::npos);
+    }
+
+    // Path: used directly in the Event/trigger slot (on_update dispatch).
+    {
+        LogicBoardDef board;
+        board.id = "logic:BoolEvent";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        rule.trigger = makeStateCompareBooleanCondition("flag", true);
+        rule.actions[0] = {kSetVisible,
+            {{"target", LogicEntityReference{}}, {"visible", false}}};
+        board.rules.push_back(rule);
+
+        CHECK(validateBoard("Bool", board, nullptr, &project).empty());
+        LogicCompileResult compiled = compileBoard("Bool", board, nullptr, &project);
+        CHECK(compiled.ok());
+        CHECK(compiled.requiresTick);
+        CHECK(compiled.programs[0].source.find("on_update") != std::string::npos);
+        CHECK(compiled.programs[0].source.find(
+            "if context:state_compare_boolean(\"flag\", true) then") != std::string::npos);
+
+        Host host;
+        host.declareBoolean("flag", false);
+        LogicRuntime runtime(host);
+        std::string error;
+        CHECK(runtime.loadPrograms(compiled.programs, &error));
+        CHECK(runtime.install("Bool", 1, &error).has_value());
+        runtime.beginFrame();
+        runtime.dispatchTick(1.f / 60.f);
+        CHECK(host.calls.empty());
+        host.boolState["flag"] = true;
+        runtime.beginFrame();
+        runtime.dispatchTick(1.f / 60.f);
+        CHECK(host.calls.size() == 1);
+    }
+
+    // Path: used as the rule trigger with OncePerActivation (when_active latch).
+    {
+        LogicBoardDef board;
+        board.id = "logic:BoolOnce";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        rule.trigger = makeStateCompareBooleanCondition("flag", true);
+        rule.executionMode = LogicExecutionMode::OncePerActivation;
+        rule.actions[0] = {kSetVisible,
+            {{"target", LogicEntityReference{}}, {"visible", false}}};
+        board.rules.push_back(rule);
+
+        LogicCompileResult compiled = compileBoard("Bool", board, nullptr, &project);
+        CHECK(compiled.ok());
+        CHECK(compiled.programs[0].source.find("should_execute") != std::string::npos);
+        CHECK(compiled.programs[0].source.find(
+            "local when_active = context:state_compare_boolean(\"flag\", true)")
+            != std::string::npos);
+
+        Host host;
+        host.declareBoolean("flag", false);
+        LogicRuntime runtime(host);
+        std::string error;
+        CHECK(runtime.loadPrograms(compiled.programs, &error));
+        CHECK(runtime.install("Bool", 1, &error).has_value());
+        runtime.beginFrame();
+        runtime.dispatchTick(1.f / 60.f);
+        CHECK(host.calls.empty());
+        host.boolState["flag"] = true;
+        runtime.beginFrame();
+        runtime.dispatchTick(1.f / 60.f);
+        CHECK(host.calls.size() == 1);
+        runtime.beginFrame();
+        runtime.dispatchTick(1.f / 60.f);
+        CHECK(host.calls.size() == 1); // latched while still true
+    }
+
+    // String: plain clause, case-sensitive exact match, whitespace preserved.
+    {
+        LogicBoardDef board;
+        board.id = "logic:CompareString";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        rule.trigger = {kKeyPressed, {{"key", LogicKey::Space}}};
+        rule.conditions = {makeClause(
+            makeStateCompareStringCondition("label", "==", "Coin"))};
+        rule.actions[0] = {kSetVisible,
+            {{"target", LogicEntityReference{}}, {"visible", false}}};
+        board.rules.push_back(rule);
+
+        CHECK(validateBoard("Str", board, nullptr, &project).empty());
+        LogicCompileResult compiled = compileBoard("Str", board, nullptr, &project);
+        CHECK(compiled.ok());
+        CHECK(compiled.programs[0].source.find(
+            "state_compare_string(\"label\", \"==\", \"Coin\")") != std::string::npos);
+
+        Host host;
+        host.declareString("label", "coin");
+        LogicRuntime runtime(host);
+        std::string error;
+        CHECK(runtime.loadPrograms(compiled.programs, &error));
+        CHECK(runtime.install("Str", 1, &error).has_value());
+        runtime.beginFrame();
+        runtime.dispatchKeyPressed(LogicKey::Space);
+        CHECK(host.calls.empty()); // case-sensitive: "coin" != "Coin"
+
+        host.stringState["label"] = " Coin";
+        runtime.beginFrame();
+        runtime.dispatchKeyPressed(LogicKey::Space);
+        CHECK(host.calls.empty()); // leading space preserved, not trimmed
+
+        host.stringState["label"] = "Coin";
+        runtime.beginFrame();
+        runtime.dispatchKeyPressed(LogicKey::Space);
+        CHECK(host.calls.size() == 1);
+    }
+
+    // String: used directly in the Event/trigger slot.
+    {
+        LogicBoardDef board;
+        board.id = "logic:StringEvent";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        rule.trigger = makeStateCompareStringCondition("label", "!=", "Idle");
+        rule.actions[0] = {kSetVisible,
+            {{"target", LogicEntityReference{}}, {"visible", false}}};
+        board.rules.push_back(rule);
+
+        CHECK(validateBoard("Str", board, nullptr, &project).empty());
+        LogicCompileResult compiled = compileBoard("Str", board, nullptr, &project);
+        CHECK(compiled.ok());
+        CHECK(compiled.requiresTick);
+        CHECK(compiled.programs[0].source.find(
+            "if context:state_compare_string(\"label\", \"!=\", \"Idle\") then")
+            != std::string::npos);
+
+        Host host;
+        host.declareString("label", "Idle");
+        LogicRuntime runtime(host);
+        std::string error;
+        CHECK(runtime.loadPrograms(compiled.programs, &error));
+        CHECK(runtime.install("Str", 1, &error).has_value());
+        runtime.beginFrame();
+        runtime.dispatchTick(1.f / 60.f);
+        CHECK(host.calls.empty());
+        host.stringState["label"] = "Running";
+        runtime.beginFrame();
+        runtime.dispatchTick(1.f / 60.f);
+        CHECK(host.calls.size() == 1);
+    }
+
+    // String: used as trigger with OncePerActivation.
+    {
+        LogicBoardDef board;
+        board.id = "logic:StringOnce";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        rule.trigger = makeStateCompareStringCondition("label", "==", "Win");
+        rule.executionMode = LogicExecutionMode::OncePerActivation;
+        rule.actions[0] = {kSetVisible,
+            {{"target", LogicEntityReference{}}, {"visible", false}}};
+        board.rules.push_back(rule);
+
+        LogicCompileResult compiled = compileBoard("Str", board, nullptr, &project);
+        CHECK(compiled.ok());
+        CHECK(compiled.programs[0].source.find(
+            "local when_active = context:state_compare_string(\"label\", \"==\", \"Win\")")
+            != std::string::npos);
+
+        Host host;
+        host.declareString("label", "");
+        LogicRuntime runtime(host);
+        std::string error;
+        CHECK(runtime.loadPrograms(compiled.programs, &error));
+        CHECK(runtime.install("Str", 1, &error).has_value());
+        runtime.beginFrame();
+        runtime.dispatchTick(1.f / 60.f);
+        CHECK(host.calls.empty());
+        host.stringState["label"] = "Win";
+        runtime.beginFrame();
+        runtime.dispatchTick(1.f / 60.f);
+        CHECK(host.calls.size() == 1);
+    }
+
+    // Escaping round trip: quote, backslash, newline, tab, empty, UTF-8.
+    {
+        const std::vector<std::string> cases = {
+            "He said \"go\"", "back\\slash", "line\nbreak", "tab\ttab", "",
+            "caf\xC3\xA9",
+        };
+        for (const std::string& value : cases) {
+            LogicBoardDef board = makeOperatorBoard(
+                {makeClause(makeStateCompareStringCondition("label", "==", value))});
+            LogicCompileResult compiled = compileBoard("Operators", board, nullptr, &project);
+            CHECK(compiled.ok());
+
+            Host host;
+            host.declareString("label", value);
+            LogicRuntime runtime(host);
+            std::string error;
+            CHECK(runtime.loadPrograms(compiled.programs, &error));
+            CHECK(runtime.install("Operators", 1, &error).has_value());
+            runtime.beginFrame();
+            runtime.dispatchKeyPressed(LogicKey::Space);
+            CHECK(host.calls.size() == 1);
+        }
+    }
+
+    // Runtime host: missing/present/mismatch.
+    {
+        Host host;
+        CHECK(!host.getStateBoolean("missing").has_value());
+        CHECK(!host.getStateString("missing").has_value());
+        host.declareBoolean("flag", true);
+        host.declareString("label", "Coin");
+        CHECK(host.getStateBoolean("flag") == true);
+        CHECK(host.getStateString("label") == "Coin");
+    }
+
+    // Validation negatives.
+    {
+        LogicBoardDef board;
+        board.id = "logic:BoolInvalid";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        rule.conditions = {makeClause(makeDefaultBlock(kStateCompareBoolean, BlockKind::Condition))};
+        board.rules.push_back(rule);
+        const auto diags = validateBoard("BoolInvalid", board, nullptr, &project,
+                                         LogicValidationPurpose::AuthoringDiagnostics);
+        CHECK(std::any_of(diags.begin(), diags.end(), [](const LogicDiagnostic& d) {
+            return d.code == "LB_VARIABLE_REFERENCE_EMPTY";
+        }));
+    }
+    {
+        LogicBoardDef board;
+        board.id = "logic:BoolMismatch";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        rule.conditions = {makeClause(makeStateCompareBooleanCondition("score", true))};
+        board.rules.push_back(rule);
+        const auto diags = validateBoard("BoolMismatch", board, nullptr, &project,
+                                         LogicValidationPurpose::AuthoringDiagnostics);
+        CHECK(std::any_of(diags.begin(), diags.end(), [](const LogicDiagnostic& d) {
+            return d.code == "LB_VARIABLE_TYPE_MISMATCH"
+                && d.message.find("Boolean variable") != std::string::npos;
+        }));
+    }
+    {
+        LogicBoardDef board;
+        board.id = "logic:StringMismatch";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        rule.conditions = {makeClause(makeStateCompareStringCondition("score", "==", "x"))};
+        board.rules.push_back(rule);
+        const auto diags = validateBoard("StringMismatch", board, nullptr, &project,
+                                         LogicValidationPurpose::AuthoringDiagnostics);
+        CHECK(std::any_of(diags.begin(), diags.end(), [](const LogicDiagnostic& d) {
+            return d.code == "LB_VARIABLE_TYPE_MISMATCH"
+                && d.message.find("String variable") != std::string::npos;
+        }));
+    }
+    {
+        LogicBlockDef cond = makeStateCompareStringCondition("label", "<", "x");
+        LogicBoardDef board = makeOperatorBoard({makeClause(cond)});
+        const auto diags = validateBoard("Operators", board, nullptr, &project,
+                                         LogicValidationPurpose::AuthoringDiagnostics);
+        CHECK(std::any_of(diags.begin(), diags.end(), [](const LogicDiagnostic& d) {
+            return d.code == "LB_COMPARE_OP";
+        }));
+    }
+    {
+        // Empty value is a legitimate literal, not a diagnostic.
+        LogicBlockDef cond = makeStateCompareStringCondition("label", "==", "");
+        LogicBoardDef board = makeOperatorBoard({makeClause(cond)});
+        const auto diags = validateBoard("Operators", board, nullptr, &project,
+                                         LogicValidationPurpose::AuthoringDiagnostics);
+        CHECK(std::none_of(diags.begin(), diags.end(), [](const LogicDiagnostic& d) {
+            return d.severity == DiagnosticSeverity::Error;
+        }));
+    }
+}
+
 static void testOncePerActivationExecutionMode() {
     CHECK(findDescriptor(kIsFalling)->activationKind == LogicTriggerActivationKind::Level);
     CHECK(findDescriptor(kEveryFrame)->activationKind == LogicTriggerActivationKind::Level);
@@ -2492,6 +2871,7 @@ int main() {
     testP1EverySecondsAndTick();
     testP1StateAndWaitAndVelocity();
     testStateVariableAndToggle();
+    testStateCompareBooleanAndString();
     testP1KeyDownCondition();
     testP1SpawnInstallFailure();
     testScalarExpressionValueSurvivesJson();

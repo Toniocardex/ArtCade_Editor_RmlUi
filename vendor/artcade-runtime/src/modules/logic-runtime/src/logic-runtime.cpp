@@ -75,6 +75,8 @@ const std::unordered_set<std::string>& supportedFeatures() {
         "state.add_number",
         "state.toggle_boolean",
         "state.compare_number",
+        "state.compare_boolean",
+        "state.compare_string",
         "logic.execution.once_per_activation",
     };
     return value;
@@ -336,6 +338,21 @@ struct LogicRuntime::Impl {
             if (op == ">") return *current > value;
             if (op == ">=") return *current >= value;
             throw sol::error("Unsupported state_compare_number operator: " + op);
+        }
+        bool stateCompareBoolean(const std::string& key, bool expected) {
+            if (!impl) return false;
+            const auto current = impl->host.getStateBoolean(key);
+            if (!current) return false;
+            return *current == expected;
+        }
+        bool stateCompareString(const std::string& key, const std::string& op,
+                                const std::string& value) {
+            if (!impl) return false;
+            const auto current = impl->host.getStateString(key);
+            if (!current) return false;
+            if (op == "==") return *current == value;
+            if (op == "!=") return *current != value;
+            throw sol::error("Unsupported state_compare_string operator: " + op);
         }
         void sceneRestart() {
             if (!impl || !impl->host.requestSceneRestart())
@@ -708,6 +725,8 @@ bool LogicRuntime::initialize(std::string* error) {
             "state_add_number", &Impl::ContextProxy::stateAddNumber,
             "state_toggle_boolean", &Impl::ContextProxy::stateToggleBoolean,
             "state_compare_number", &Impl::ContextProxy::stateCompareNumber,
+            "state_compare_boolean", &Impl::ContextProxy::stateCompareBoolean,
+            "state_compare_string", &Impl::ContextProxy::stateCompareString,
             "scene_restart", &Impl::ContextProxy::sceneRestart,
             "scene_go_to", &Impl::ContextProxy::sceneGoTo,
             "is_key_down", &Impl::ContextProxy::isKeyDown,

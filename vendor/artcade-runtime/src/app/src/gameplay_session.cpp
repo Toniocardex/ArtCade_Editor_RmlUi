@@ -183,6 +183,14 @@ std::optional<double> RuntimeLogicHostAdapter::getStateNumber(const GameVariable
     if (!variables_) return std::nullopt;
     return variables_->tryGetNumber(id);
 }
+std::optional<bool> RuntimeLogicHostAdapter::getStateBoolean(const GameVariableId& id) const {
+    if (!variables_) return std::nullopt;
+    return variables_->tryGetBool(id);
+}
+std::optional<std::string> RuntimeLogicHostAdapter::getStateString(const GameVariableId& id) const {
+    if (!variables_) return std::nullopt;
+    return variables_->tryGetString(id);
+}
 std::optional<double> RuntimeLogicHostAdapter::getLocalNumber(
     EntityId owner, const GameVariableId& id) const {
     if (!variables_ || !variables_->entityExists(owner, id)) return std::nullopt;

@@ -101,6 +101,10 @@ public:
      * Number value if the key exists and is Number; otherwise nullopt.
      */
     std::optional<double> tryGetNumber(const GameVariableId& id) const;
+    /** Boolean value if the key exists and is Boolean; otherwise nullopt. */
+    std::optional<bool> tryGetBool(const GameVariableId& id) const;
+    /** String value if the key exists and is String; otherwise nullopt. */
+    std::optional<std::string> tryGetString(const GameVariableId& id) const;
 
     // ------------------------------------------------------------------ set (strict)
 
