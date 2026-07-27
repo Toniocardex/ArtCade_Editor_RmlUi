@@ -47,6 +47,7 @@
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/Elements/ElementFormControl.h>
+#include <RmlUi/Core/Elements/ElementFormControlInput.h>
 #include <RmlUi/Core/Elements/ElementFormControlTextArea.h>
 #include <RmlUi/Core/Event.h>
 #include <RmlUi/Core/EventListener.h>
@@ -220,6 +221,25 @@ public:
                 const bool shift = event.GetParameter<int>("shift_key", 0) != 0;
                 ui_.handleHelpTabKey(shift);
                 event.StopImmediatePropagation();
+                return;
+            }
+        }
+
+        // A double-click on any single-line text/number property field selects
+        // the whole value, overriding RmlUi's native WidgetTextInput::
+        // ExpandSelection() (word-by-character-class selection, runs first in
+        // the capture phase on the input itself). That native behaviour is
+        // correct for prose but not for short property values: a name like
+        // "Entity 4" has a space, so the native double-click only selects
+        // "Entity" or "4" depending on which side of the space was clicked,
+        // never the whole field - not what a property editor's users expect.
+        // Scoped to ElementFormControlInput only (single-line fields); the
+        // multi-line Script Editor textarea keeps native word-select, which is
+        // the right behaviour for prose/code.
+        if (type == "dblclick") {
+            if (auto* input = rmlui_dynamic_cast<Rml::ElementFormControlInput*>(
+                    event.GetTargetElement())) {
+                input->SetSelectionRange(0, static_cast<int>(input->GetValue().size()));
                 return;
             }
         }
