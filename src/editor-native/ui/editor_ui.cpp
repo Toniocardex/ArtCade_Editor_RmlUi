@@ -603,6 +603,44 @@ public:
             }
             return;
         }
+        // ADR-0034 spike: arrow-key highlight, Enter-commit, and Escape-close
+        // for the Layer dropdown, scoped to its own trigger (data-arg
+        // "layer" — the only dropdown that is tab-focusable today, see
+        // controls.rcss .drop-trigger.kbd-nav). Deferred to processFrame for
+        // the same reason as every other block here that ends an edit: Enter
+        // and Escape both rebuild the Inspector, and RmlUi is still using the
+        // focused trigger element when this dispatch returns.
+        if (action == "toggle-inspector-dropdown" && arg == "layer"
+            && type == "keydown" && ui_.inspector_.openDropdownId() == arg) {
+            const int key = event.GetParameter<int>("key_identifier", 0);
+            if (key == Rml::Input::KI_UP) {
+                ui_.pendingDropdownHighlightMove_ = -1;
+                event.StopPropagation();
+                return;
+            }
+            if (key == Rml::Input::KI_DOWN) {
+                ui_.pendingDropdownHighlightMove_ = 1;
+                event.StopPropagation();
+                return;
+            }
+            if (key == Rml::Input::KI_RETURN || key == Rml::Input::KI_NUMPADENTER) {
+                ui_.pendingDropdownHighlightCommit_ = true;
+                event.StopPropagation();
+                return;
+            }
+            if (key == Rml::Input::KI_ESCAPE) {
+                ui_.pendingDropdownClose_ = true;
+                event.StopPropagation();
+                return;
+            }
+            if (key == Rml::Input::KI_TAB) {
+                // Close but do not stop propagation: RmlUi's own native
+                // document-wide Tab-cycling still runs afterward and moves
+                // focus on, exactly like leaving a native <select> with Tab.
+                ui_.pendingDropdownClose_ = true;
+            }
+            return;
+        }
         // Text edits stay local while typing. Commit only on blur or explicit Enter.
         if (isCommit) {
             const int key = event.GetParameter<int>("key_identifier", 0);
@@ -736,6 +774,9 @@ void EditorUi::detach() {
     inspector_.discardObjectVariableDraft();
     pendingObjectVariableEnd_.reset();
     pendingContextualVariableEnd_.reset();
+    pendingDropdownHighlightMove_.reset();
+    pendingDropdownHighlightCommit_ = false;
+    pendingDropdownClose_ = false;
     if (listener_) {
         const auto detachDocument = [&](Rml::ElementDocument* doc) {
             if (!doc) return;
@@ -798,6 +839,26 @@ void EditorUi::detach() {
 
 void EditorUi::processFrame() {
     if (!listener_ || !document_) return;
+    // ADR-0034 spike: Layer dropdown Up/Down/Enter/Escape, deferred out of the
+    // keydown dispatch above. Enter's commit reuses the exact (action, arg)
+    // pair a click on that .drop-entry already dispatches — handleAction's
+    // existing "set-entity-layer" / "toggle-inspector-dropdown" branches
+    // already close the dropdown themselves, matching click parity.
+    if (pendingDropdownHighlightMove_) {
+        const int delta = *pendingDropdownHighlightMove_;
+        pendingDropdownHighlightMove_.reset();
+        inspector_.moveDropdownHighlight(document_, coordinator_, delta);
+    }
+    if (pendingDropdownHighlightCommit_) {
+        pendingDropdownHighlightCommit_ = false;
+        if (const auto commit = inspector_.dropdownHighlightCommit()) {
+            handleAction(commit->first, commit->second, {});
+        }
+    }
+    if (pendingDropdownClose_) {
+        pendingDropdownClose_ = false;
+        if (inspector_.hasOpenDropdown()) dismissInspectorTransientMenus();
+    }
     if (pendingObjectVariableEnd_) finishPendingObjectVariableEdit();
     if (pendingContextualVariableEnd_) {
         const PendingContextualVariableEditEnd pending =
@@ -2323,9 +2384,12 @@ std::string sfxMacroRow(const SfxMacro& macro, const artcade::sfx::SfxRecipe& re
 }
 
 bool EditorUi::hasOpenContextMenu() const {
+    // ADR-0034 gap fix: an open Inspector dropdown joins the same precedence
+    // tier as the other transient menus below, so Escape closes it instead of
+    // falling through to the global deselect-escape.
     return viewportContextMenuVisible_ || hierarchyContextMenuVisible_
         || assetsContextMenuVisible_ || logicTypeMenuVisible_ || logicMoreMenuVisible_
-        || pendingConfirm_.has_value();
+        || pendingConfirm_.has_value() || inspector_.hasOpenDropdown();
 }
 
 bool EditorUi::hasOpenConfirm() const {

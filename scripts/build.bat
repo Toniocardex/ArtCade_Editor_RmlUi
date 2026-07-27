@@ -128,6 +128,13 @@ if "!DO_TEST!"=="1" (
     if errorlevel 1 ( popd >nul & echo [FAIL] Inspector Object Variables test build failed. & exit /b 1 )
     "!BUILD_DIR!\tests\inspector_object_variables_routing_test.exe"
     if errorlevel 1 ( popd >nul & echo [FAIL] inspector_object_variables_routing_test failed. & exit /b 1 )
+    rem ADR-0034 spike: Layer dropdown arrow-key highlight, Enter-commit,
+    rem Escape-close, and the hasOpenContextMenu() gap fix.
+    echo [editor] Building + running inspector_layer_dropdown_keyboard_test...
+    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target inspector_layer_dropdown_keyboard_test
+    if errorlevel 1 ( popd >nul & echo [FAIL] Inspector Layer Dropdown Keyboard test build failed. & exit /b 1 )
+    "!BUILD_DIR!\tests\inspector_layer_dropdown_keyboard_test.exe"
+    if errorlevel 1 ( popd >nul & echo [FAIL] inspector_layer_dropdown_keyboard_test failed. & exit /b 1 )
 )
 popd >nul
 

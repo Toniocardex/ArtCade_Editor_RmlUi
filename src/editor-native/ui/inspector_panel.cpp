@@ -285,12 +285,13 @@ const SceneLayerDef* findLayer(const SceneDef& scene, const std::string& layerId
 // region). Wraps the panel-agnostic dropdownTriggerMarkup() in the
 // Inspector's own prop-row/prop-label shell and its dedicated toggle action.
 std::string dropdownTrigger(const char* label, const char* dropdownId,
-                            const std::string& valueText, bool open, bool disabled) {
+                            const std::string& valueText, bool open, bool disabled,
+                            const std::string& extraClass = "") {
     std::string row = "<div class=\"prop-row\"><span class=\"prop-label\">";
     row += label;
     row += "</span>";
     row += dropdownTriggerMarkup(valueText, "toggle-inspector-dropdown", dropdownId,
-                                 open, disabled);
+                                 open, disabled, extraClass);
     row += "</div>";
     return row;
 }
@@ -392,6 +393,7 @@ void InspectorPanel::toggleDropdown(Rml::ElementDocument* document,
                                     const EditorCoordinator& coordinator,
                                     const std::string& dropdownId) {
     openDropdownId_ = (openDropdownId_ == dropdownId) ? std::string() : dropdownId;
+    dropdownHighlightIndex_.reset();
     refresh(document, coordinator);
 }
 
@@ -400,7 +402,39 @@ void InspectorPanel::dismissTransientMenus(Rml::ElementDocument* document,
     if (!addMenuOpen_ && openDropdownId_.empty()) return;
     addMenuOpen_ = false;
     openDropdownId_.clear();
+    dropdownHighlightIndex_.reset();
     refresh(document, coordinator);
+}
+
+void InspectorPanel::moveDropdownHighlight(Rml::ElementDocument* document,
+                                           const EditorCoordinator& coordinator,
+                                           int delta) {
+    if (openDropdownId_.empty() || navigableDropdownEntries_.empty()) return;
+    const int count = static_cast<int>(navigableDropdownEntries_.size());
+    // First press starts adjacent to the entry already marked `current`
+    // (falling back to the top of the list) rather than an arbitrary index.
+    int base = 0;
+    if (dropdownHighlightIndex_) {
+        base = *dropdownHighlightIndex_;
+    } else {
+        for (int i = 0; i < count; ++i) {
+            if (navigableDropdownEntries_[static_cast<std::size_t>(i)].current) {
+                base = i;
+                break;
+            }
+        }
+    }
+    dropdownHighlightIndex_ = ((base + delta) % count + count) % count;
+    refresh(document, coordinator);
+}
+
+std::optional<std::pair<std::string, std::string>>
+InspectorPanel::dropdownHighlightCommit() const {
+    if (!dropdownHighlightIndex_) return std::nullopt;
+    const std::size_t index = static_cast<std::size_t>(*dropdownHighlightIndex_);
+    if (index >= navigableDropdownEntries_.size()) return std::nullopt;
+    const NavigableDropdownEntry& entry = navigableDropdownEntries_[index];
+    return std::make_pair(entry.action, entry.arg);
 }
 
 bool InspectorPanel::isSectionCollapsed(const std::string& sectionId) const {
@@ -417,6 +451,7 @@ void InspectorPanel::toggleSection(Rml::ElementDocument* document,
     // once their containing section disappears.
     addMenuOpen_ = false;
     openDropdownId_.clear();
+    dropdownHighlightIndex_.reset();
     refresh(document, coordinator);
 }
 
@@ -601,6 +636,12 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     if (!document) return;
     Rml::Element* body = document->GetElementById("inspector-body");
     if (!body) return;
+
+    // ADR-0034 spike: rebuilt fresh every paint by whichever dropdown block is
+    // open (today, only the Scene Layer picker populates it); stays empty
+    // otherwise, so a stale index from a previous open dropdown can't mismatch
+    // this frame's list.
+    navigableDropdownEntries_.clear();
 
     const EntityId selected = coordinator.selection().primaryEntity;
     const SceneInstanceDef* inst =
@@ -888,9 +929,10 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     if (selected != lastEntity_) {
         addMenuOpen_ = false;
         openDropdownId_.clear();
+        dropdownHighlightIndex_.reset();
         lastEntity_ = selected;
     }
-    if (playing) { addMenuOpen_ = false; openDropdownId_.clear(); }
+    if (playing) { addMenuOpen_ = false; openDropdownId_.clear(); dropdownHighlightIndex_.reset(); }
     else reconcileOpenDropdownForEntity();
 
     const std::string btn = playing ? "panel-btn disabled" : "panel-btn";
@@ -963,7 +1005,12 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         for (const SceneLayerDef& l : instScene->layers)
             if (l.id == curLayer) curLayerName = l.name;
         const bool layerOpen = openDropdownId_ == "layer" && !instanceDisabled;
-        html += dropdownTrigger("Layer", "layer", curLayerName, layerOpen, instanceDisabled);
+        // ADR-0034 spike: "kbd-nav" is the only trigger that joins the tab
+        // order today (controls.rcss scopes tab-index: auto to that class),
+        // so Tab reaching this trigger and Enter/Space opening it is native
+        // RmlUi behaviour, not new C++.
+        html += dropdownTrigger("Layer", "layer", curLayerName, layerOpen, instanceDisabled,
+                                "kbd-nav");
         if (layerOpen) {
             html += "<div class=\"drop-list\">";
             const EditorSceneViewState& instSceneView =
@@ -979,8 +1026,25 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 // via instanceDisabled (computed above from isInstanceLayerLocked).
                 const bool targetLocked = !isCurrent && l.locked;
                 const bool targetHidden = instSceneView.hiddenLayerIds.count(l.id) > 0;
+                // Locked entries carry no data-action (a click on them just
+                // closes the list - see the action.empty() branch in
+                // EditorUi::Listener::ProcessEvent), so they are excluded from
+                // arrow-key navigation the same way: nothing to commit there.
+                std::optional<std::size_t> navIndex;
+                if (isCurrent) {
+                    navIndex = navigableDropdownEntries_.size();
+                    navigableDropdownEntries_.push_back(
+                        {"toggle-inspector-dropdown", "layer", /*current=*/true});
+                } else if (!targetLocked) {
+                    navIndex = navigableDropdownEntries_.size();
+                    navigableDropdownEntries_.push_back(
+                        {"set-entity-layer", l.id, /*current=*/false});
+                }
+                const bool highlighted = navIndex.has_value() && dropdownHighlightIndex_
+                    && static_cast<std::size_t>(*dropdownHighlightIndex_) == *navIndex;
                 html += "<div class=\"drop-entry";
                 if (isCurrent) html += " selected";
+                if (highlighted) html += " highlighted";
                 if (targetLocked) html += " disabled";
                 html += "\"";
                 if (isCurrent) {
@@ -1973,12 +2037,14 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
 void InspectorPanel::reconcileOpenDropdownForScene() {
     if (!openDropdownId_.empty() && !isSceneDropdown(openDropdownId_)) {
         openDropdownId_.clear();
+        dropdownHighlightIndex_.reset();
     }
 }
 
 void InspectorPanel::reconcileOpenDropdownForEntity() {
     if (!openDropdownId_.empty() && !isEntityDropdown(openDropdownId_)) {
         openDropdownId_.clear();
+        dropdownHighlightIndex_.reset();
     }
 }
 

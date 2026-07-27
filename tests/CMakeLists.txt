@@ -110,6 +110,18 @@ if(MSVC)
     target_link_options(inspector_object_variables_routing_test PRIVATE /STACK:16777216)
 endif()
 
+# ADR-0034 spike: Layer dropdown arrow-key highlight, Enter-commit, Escape-
+# close, and the hasOpenContextMenu() gap fix — same real-element/listener
+# discipline as inspector_object_variables_routing_test above.
+artcade_test(inspector_layer_dropdown_keyboard_test
+    inspector-layer-dropdown-keyboard-test.cpp
+    artcade-editor-ui)
+target_compile_definitions(inspector_layer_dropdown_keyboard_test PRIVATE
+    ARTCADE_UI_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/src/editor-native/resources/ui")
+if(MSVC)
+    target_link_options(inspector_layer_dropdown_keyboard_test PRIVATE /STACK:16777216)
+endif()
+
 artcade_test(sfx_synthesizer_test
     ${CMAKE_SOURCE_DIR}/vendor/artcade-runtime/src/modules/sfx/tests/sfx_tests.cpp
     ArtCade::Sfx)

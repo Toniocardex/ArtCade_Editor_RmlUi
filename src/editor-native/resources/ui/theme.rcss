@@ -97,7 +97,9 @@
    .context-entry   Flex row: icon + label + optional .context-shortcut.
                     Text is always inside a span.
    .drop-entry      Block row inside .drop-list; `.selected` marks the current
-                    value, `.disabled` blocks the pick.
+                    value, `.disabled` blocks the pick, `.highlighted` is the
+                    ADR-0034 arrow-key cursor (reuses surface-hover, distinct
+                    from `.selected`'s surface-selected).
    .panel-btn       Transparent-fill button. 65 uses across 12 files — treat
                     as public API. `.primary` promotes it to the accent CTA
                     everywhere, not only inside `.editor-modal-actions` as it
@@ -297,6 +299,7 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 .comp-help:hover,
 .console-collapse-btn:hover,
 .context-entry:hover,
+.drop-entry.highlighted,
 .drop-entry:hover,
 .layer-btn:hover,
 .layer-group-header:hover,

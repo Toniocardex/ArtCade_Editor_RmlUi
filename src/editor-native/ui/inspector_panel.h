@@ -37,14 +37,28 @@ public:
     // which then re-renders with the list collapsed (same pattern as closeAddMenu).
     void toggleDropdown(Rml::ElementDocument* document, const EditorCoordinator& coordinator,
                         const std::string& dropdownId);
-    void closeDropdowns() { openDropdownId_.clear(); }
+    void closeDropdowns() { openDropdownId_.clear(); dropdownHighlightIndex_.reset(); }
     // Open a value dropdown without toggling (e.g. Binding → Variable after a scope pick).
-    void setOpenDropdown(std::string dropdownId) { openDropdownId_ = std::move(dropdownId); }
+    void setOpenDropdown(std::string dropdownId) {
+        openDropdownId_ = std::move(dropdownId);
+        dropdownHighlightIndex_.reset();
+    }
     bool hasOpenDropdown() const { return !openDropdownId_.empty(); }
+    const std::string& openDropdownId() const { return openDropdownId_; }
     bool hasOpenAddMenu() const { return addMenuOpen_; }
     /** Close Add Component / value dropdowns and repaint when either was open. */
     void dismissTransientMenus(Rml::ElementDocument* document,
                                const EditorCoordinator& coordinator);
+
+    // ADR-0034 spike: arrow-key cursor within whichever dropdown is open,
+    // scoped today to the Scene Layer picker. `delta` is +1 (Down) or -1 (Up);
+    // wraps at the ends of navigableDropdownEntries_ (same order rendered).
+    void moveDropdownHighlight(Rml::ElementDocument* document,
+                               const EditorCoordinator& coordinator, int delta);
+    // The (action, arg) pair the highlighted entry would dispatch on Enter —
+    // the exact pair its .drop-entry click handler already uses — or nullopt
+    // when no dropdown is open or nothing is highlighted yet.
+    std::optional<std::pair<std::string, std::string>> dropdownHighlightCommit() const;
 
     // Session-local presentation state. The section id is accepted only from
     // the fixed Inspector catalog; toggling never mutates editor or project
@@ -139,6 +153,18 @@ private:
     void reconcileBackgroundDraft(const EditorCoordinator& coordinator, bool sceneMode);
     void reconcileObjectVariableDraft(const EditorCoordinator& coordinator);
     void applyBackgroundOpacityPreview(Rml::ElementDocument* document, const Vec4& color);
+
+    // ADR-0034 spike: one navigable entry per pickable .drop-entry, rebuilt by
+    // refresh() in the same order the Layer dropdown renders them (targetLocked
+    // entries excluded, matching Enter/click parity). dropdownHighlightIndex_
+    // indexes into this list and is meaningless once openDropdownId_ changes.
+    struct NavigableDropdownEntry {
+        std::string action;
+        std::string arg;
+        bool current = false;
+    };
+    std::vector<NavigableDropdownEntry> navigableDropdownEntries_;
+    std::optional<int> dropdownHighlightIndex_;
 
     bool     addMenuOpen_ = false;
     std::string openDropdownId_;             // open value dropdown ("" = none)

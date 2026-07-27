@@ -495,6 +495,15 @@ private:
         std::string value;
     };
     std::optional<PendingObjectVariableEditEnd> pendingObjectVariableEnd_;
+    // ADR-0034 spike: Up/Down/Enter/Escape on the Layer dropdown's trigger are
+    // deferred to processFrame for the same reason as the expression field
+    // above — StopPropagation()ing the keydown here is fine (RmlUi's own
+    // dispatch loop just returns), but rebuilding the Inspector's markup while
+    // that dispatch is still on the stack, using the very trigger element it
+    // would free, is the same use-after-free hazard.
+    std::optional<int>                 pendingDropdownHighlightMove_;
+    bool                                pendingDropdownHighlightCommit_ = false;
+    bool                                pendingDropdownClose_ = false;
     bool                                logicTypeMenuVisible_ = false;
     bool                                logicMoreMenuVisible_ = false;
     struct PendingEditorConfirm {
