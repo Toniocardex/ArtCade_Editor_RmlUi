@@ -362,21 +362,37 @@ navigation UI (the *counter* is in scope, the navigation is not) ·
   define — the canonical reader already read them, so only the writer was
   losing data. `ProjectValidator` now rejects both an invalid definition list
   and an override with no matching definition.
-- **A2 — section shipped, coverage pending.** `OBJECT VARIABLES` renders in the
-  entity Inspector with the `OBJECT TYPE` badge: per variable a name field, a
-  type dropdown, `Object Type default`, `Instance override` (an em dash when
-  unset, so "same as the default" and "overridden to the same value" never look
-  alike), Reset, and a description; plus `+ Add Object Variable`. Every action
-  routes through `EditorUi::handleObjectVariableAction` into one A1.1 Command,
-  and the two rows never write each other's field. Disabled during Play like
-  every other document mutation.
-  Not yet covered: no test drives the rendering or the action dispatch — the
-  Commands underneath are covered by A1.1, the wiring is not. An EditorUi-level
-  test in the shape of `logic_expression_focus_routing_test` is the follow-up.
-  Also still open from the ADR's own lifecycle table: the draft buffers. The
-  fields commit on the RmlUi change/blur path the Inspector already uses; the
-  explicit Escape-reverts and discard-on-selection-change rules are not
-  implemented as a panel-local draft yet.
+- **A2 — section shipped, three items open.** `OBJECT VARIABLES` renders in the
+  entity Inspector: per variable, name + type + delete on one line, then
+  `Value`, then the instance row, then `Description`; plus
+  `+ Add Object Variable`. Every action routes through
+  `EditorUi::handleObjectVariableAction` into one A1.1 Command, and the two
+  value rows never write each other's field. Disabled during Play.
+
+  The presentation moved on from what this ADR first sketched, and the reasons
+  are worth keeping. The `OBJECT TYPE` badge is gone along with every other
+  ownership pill: five of them stacked down the panel restated where data
+  lives, in two different words for the same thing. Ownership is now stated
+  once in prose under the header, which is also what let the row labels shrink
+  from `Object Type default` / `Instance override` — both wrapped onto two
+  lines at the Inspector's width. RmlUi has no `placeholder` attribute, so the
+  em dash planned for an unset override never rendered and an empty box could
+  not say whether an override existed; that row is a `Uses the shared value`
+  button instead, which also gives the act of overriding somewhere to happen.
+
+  Open:
+  1. **No test drives the rendering or the dispatch.** The Commands are covered
+     by A1.1, the wiring is not, and two bugs shipped past ~5,000 green
+     assertions because of it: section markers rendering as visible text, and a
+     type dropdown that closed on the same frame it opened. An EditorUi-level
+     test in the shape of `logic_expression_focus_routing_test` is the fix.
+  2. **The buffer lifecycle table is not implemented.** Fields commit on the
+     path the Inspector already uses; Escape-reverts and
+     discard-on-selection-change still need a panel-local draft.
+  3. **Reachability guardrail 2 was never shipped.** The Logic Board still says
+     nothing when its Object Type has no instance in the active scene, so the
+     one case the limited contract cannot serve stays silent.
+
 - The `Create compatible variable` button in
   `logic_property_editor.cpp:401` still routes to the Project Variables
   drawer. It becomes the typed contextual creation of Slice B; Slice 0
