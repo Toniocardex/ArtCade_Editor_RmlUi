@@ -131,8 +131,12 @@ int main() {
     CHECK(decoded.ok);
         CHECK(decoded.value.data().formatVersion == 11);
     CHECK(ProjectValidator::validate(decoded.value).ok);
-    CHECK(generatedSfxRecipesEqual(
-        decoded.value.findGeneratedSfx("sfx-jump")->recipe, recipe));
+    // Guarded: a reader that drops the whole catalog used to crash the suite
+    // here instead of failing it, which cost the rest of these checks too.
+    const artcade::sfx::GeneratedSfxDef* decodedSfx =
+        decoded.value.findGeneratedSfx("sfx-jump");
+    CHECK(decodedSfx != nullptr);
+    CHECK(decodedSfx && generatedSfxRecipesEqual(decodedSfx->recipe, recipe));
 
     CHECK(!coordinator.execute(
         CreateGeneratedSfxCommand{"sfx-jump-2", "jump", recipe}).ok);

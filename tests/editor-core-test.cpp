@@ -525,6 +525,15 @@ int main() {
         score.description = "player score";
         doc.globalVariables.push_back(score);
 
+        // The runtime never loads a script asset catalog, so ProjectJson has no
+        // reader for it: the canonical path has to read it itself or a
+        // conformant file comes back with every script gone.
+        ScriptAssetDef script;
+        script.assetId = "script-hero";
+        script.name = "hero.lua";
+        script.sourcePath = "assets/scripts/hero.lua";
+        doc.scriptAssets.push_back(script);
+
         const SerializeResult serialized = ProjectSerializer::serialize(ProjectDocument{doc});
         CHECK(serialized.ok);
         CHECK(serialized.value.find("\"formatVersion\": 11") != std::string::npos);
@@ -547,6 +556,14 @@ int main() {
             CHECK(typeIt->second.logicBoard && typeIt->second.logicBoard->rules.size() == 1);
         }
         CHECK(roundTripped.scenes.count("ru01-scene") == 1);
+        // Exactly one: read_project_header already reads scriptAssets, so a
+        // second reader on this path would duplicate the catalog rather than
+        // rescue it.
+        CHECK(roundTripped.scriptAssets.size() == 1);
+        if (roundTripped.scriptAssets.size() == 1) {
+            CHECK(roundTripped.scriptAssets[0].assetId == "script-hero");
+            CHECK(roundTripped.scriptAssets[0].sourcePath == "assets/scripts/hero.lua");
+        }
     }
 
     // -- ADR-0031: object variable definitions and instance overrides survive a

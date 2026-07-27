@@ -314,6 +314,31 @@ std::string readAssetPath(const nlohmann::json& object) {
     return path;
 }
 
+/**
+ * A generated-SFX recipe is authoring-only: the runtime consumes the .wav the
+ * recipe produced, never the recipe, so `ProjectJson::read_*` has no reader for
+ * it and the canonical path has to read it here. It used to skip the section
+ * entirely, dropping every recipe from any file conformant enough to take that
+ * path — a save away from losing the whole catalog.
+ *
+ * `scriptAssets` needs no equivalent: `read_project_header` already reads it
+ * (project-meta-json.cpp), because the runtime does load Lua.
+ */
+bool readGeneratedSfxCatalog(const nlohmann::json& root, ProjectDoc& doc, std::string& error) {
+    const nlohmann::json* generatedSfx = optionalArray(root, "generatedSfx", "generatedSfx");
+    if (!generatedSfx) return true;
+    for (const auto& item : *generatedSfx) {
+        requireObject(item, "generatedSfx[]");
+        auto decoded = artcade::sfx::deserializeRecipeJson(item.dump());
+        if (!decoded.ok()) {
+            error = "Generated SFX recipe is invalid: " + decoded.error().message;
+            return false;
+        }
+        doc.generatedSfx.push_back(decoded.takeValue());
+    }
+    return true;
+}
+
 bool isPortableAssetPath(const std::string& sourcePath) {
     return isSafeProjectRelativePath(std::filesystem::u8path(sourcePath));
 }
@@ -1442,6 +1467,9 @@ DeserializeResult deserializeCanonical(const nlohmann::json& root) {
     ProjectJson::read_sprite_animation_assets(root, doc.spriteAnimationAssets);
     ProjectJson::read_audio_assets(root, doc.audioAssets);
     ProjectJson::read_font_assets(root, doc.fontAssets);
+    if (!readGeneratedSfxCatalog(root, doc, error)) {
+        return DeserializeResult::failure(error);
+    }
 
     // The runtime schema accepts the component shape, while the native editor
     // also owns authoring-time numeric invariants. Apply them on the canonical
@@ -1962,19 +1990,6 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
         }
     }
 
-    if (const nlohmann::json* generatedSfx = optionalArray(
-            root, "generatedSfx", "generatedSfx")) {
-        for (const auto& item : *generatedSfx) {
-            requireObject(item, "generatedSfx[]");
-            auto decoded = artcade::sfx::deserializeRecipeJson(item.dump());
-            if (!decoded.ok()) {
-                return DeserializeResult::failure(
-                    "Generated SFX recipe is invalid: " + decoded.error().message);
-            }
-            doc.generatedSfx.push_back(decoded.takeValue());
-        }
-    }
-
     if (const nlohmann::json* fontAssets = optionalArray(root, "fontAssets", "fontAssets")) {
         for (const auto& item : *fontAssets) {
             requireObject(item, "fontAssets[]");
@@ -1993,6 +2008,13 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
             }
             asset.glyphPreset = *parsed;
             doc.fontAssets.push_back(std::move(asset));
+        }
+    }
+
+    {
+        std::string catalogError;
+        if (!readGeneratedSfxCatalog(root, doc, catalogError)) {
+            return DeserializeResult::failure(catalogError);
         }
     }
 
