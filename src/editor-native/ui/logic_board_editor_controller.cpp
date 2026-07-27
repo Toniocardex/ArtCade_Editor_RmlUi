@@ -540,9 +540,17 @@ bool LogicBoardEditorController::handleAction(
         GameVariableDefinition definition;
         definition.key = draft->key;
         definition.type = draft->requiredType;
-        definition.initialValue =
-            draft->requiredType == GameVariableDefinition::Type::Boolean
-                ? GameVariableValue{false} : GameVariableValue{0.0};
+        switch (draft->requiredType) {
+        case GameVariableDefinition::Type::Boolean:
+            definition.initialValue = GameVariableValue{false};
+            break;
+        case GameVariableDefinition::Type::String:
+            definition.initialValue = GameVariableValue{std::string{}};
+            break;
+        case GameVariableDefinition::Type::Number:
+            definition.initialValue = GameVariableValue{0.0};
+            break;
+        }
         const EditorOperationResult result = coordinator_.execute(
             CreateAndAssignGlobalVariableCommand{
                 objectTypeId, address->ruleId, address->target, address->index,
