@@ -98,6 +98,18 @@ if(MSVC)
     target_link_options(logic_expression_focus_routing_test PRIVATE /STACK:16777216)
 endif()
 
+# ADR-0031 A2: real Inspector rendering and event dispatch for Object
+# Variables. Covers the section-marker and same-frame dropdown regressions at
+# the EditorUi/RmlUi seam rather than calling the panel or router directly.
+artcade_test(inspector_object_variables_routing_test
+    inspector-object-variables-routing-test.cpp
+    artcade-editor-ui)
+target_compile_definitions(inspector_object_variables_routing_test PRIVATE
+    ARTCADE_UI_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/src/editor-native/resources/ui")
+if(MSVC)
+    target_link_options(inspector_object_variables_routing_test PRIVATE /STACK:16777216)
+endif()
+
 artcade_test(sfx_synthesizer_test
     ${CMAKE_SOURCE_DIR}/vendor/artcade-runtime/src/modules/sfx/tests/sfx_tests.cpp
     ArtCade::Sfx)

@@ -121,6 +121,13 @@ if "!DO_TEST!"=="1" (
     if errorlevel 1 ( popd >nul & echo [FAIL] Expression focus test build failed. & exit /b 1 )
     "!BUILD_DIR!\tests\logic_expression_focus_routing_test.exe"
     if errorlevel 1 ( popd >nul & echo [FAIL] logic_expression_focus_routing_test failed. & exit /b 1 )
+    rem ADR-0031 A2: drives real Inspector rendering and Object Variables events
+    rem through EditorUi, including the section-marker and dropdown regressions.
+    echo [editor] Building + running inspector_object_variables_routing_test...
+    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target inspector_object_variables_routing_test
+    if errorlevel 1 ( popd >nul & echo [FAIL] Inspector Object Variables test build failed. & exit /b 1 )
+    "!BUILD_DIR!\tests\inspector_object_variables_routing_test.exe"
+    if errorlevel 1 ( popd >nul & echo [FAIL] inspector_object_variables_routing_test failed. & exit /b 1 )
 )
 popd >nul
 

@@ -362,7 +362,7 @@ navigation UI (the *counter* is in scope, the navigation is not) ·
   define — the canonical reader already read them, so only the writer was
   losing data. `ProjectValidator` now rejects both an invalid definition list
   and an override with no matching definition.
-- **A2 — section shipped, three items open.** `OBJECT VARIABLES` renders in the
+- **A2 — section shipped, two items open.** `OBJECT VARIABLES` renders in the
   entity Inspector: per variable, name + type + delete on one line, then
   `Value`, then the instance row, then `Description`; plus
   `+ Add Object Variable`. Every action routes through
@@ -380,16 +380,21 @@ navigation UI (the *counter* is in scope, the navigation is not) ·
   not say whether an override existed; that row is a `Uses the shared value`
   button instead, which also gives the act of overriding somewhere to happen.
 
+  Closed:
+  1. **Rendering and dispatch are now driven through real RmlUi elements.**
+     `inspector_object_variables_routing_test` loads `editor_shell.rml`, crosses
+     `EditorUi`'s single listener, and asserts both the rebuilt element tree and
+     the authoritative document. It locks the two observed regressions: section
+     markers never survive as visible text, and the type dropdown remains open
+     after the complete frame that opened it. The same suite covers separate
+     default/override mutation, Add/Rename/Description dispatch, one-step Undo,
+     and disabled/no-mutation behaviour in Play.
+
   Open:
-  1. **No test drives the rendering or the dispatch.** The Commands are covered
-     by A1.1, the wiring is not, and two bugs shipped past ~5,000 green
-     assertions because of it: section markers rendering as visible text, and a
-     type dropdown that closed on the same frame it opened. An EditorUi-level
-     test in the shape of `logic_expression_focus_routing_test` is the fix.
-  2. **The buffer lifecycle table is not implemented.** Fields commit on the
+  1. **The buffer lifecycle table is not implemented.** Fields commit on the
      path the Inspector already uses; Escape-reverts and
      discard-on-selection-change still need a panel-local draft.
-  3. **Reachability guardrail 2 was never shipped.** The Logic Board still says
+  2. **Reachability guardrail 2 was never shipped.** The Logic Board still says
      nothing when its Object Type has no instance in the active scene, so the
      one case the limited contract cannot serve stays silent.
 
