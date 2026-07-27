@@ -111,9 +111,14 @@ class RemoveAutoDestroyCommand;
 class SetAutoDestroyLifespanCommand;
 class SetObjectTypeTextComponentCommand;
 class SetObjectTypeGaugeComponentCommand;
-class RenameObjectTypeLocalVariableCommand;
-class RemoveObjectTypeLocalVariableCommand;
-class SetObjectTypeLocalVariableTypeCommand;
+class AddObjectVariableCommand;
+class RemoveObjectVariableCommand;
+class RenameObjectVariableCommand;
+class SetObjectVariableTypeCommand;
+class SetObjectVariableInitialValueCommand;
+class SetObjectVariableDescriptionCommand;
+class SetInstanceVariableOverrideCommand;
+class ClearInstanceVariableOverrideCommand;
 
 // =============================================================================
 // ProjectDocument — the single authoring authority of the native editor.
@@ -246,9 +251,15 @@ private:
     friend class SetAutoDestroyLifespanCommand;
     friend class SetObjectTypeTextComponentCommand;
     friend class SetObjectTypeGaugeComponentCommand;
-    friend class RenameObjectTypeLocalVariableCommand;
-    friend class RemoveObjectTypeLocalVariableCommand;
-    friend class SetObjectTypeLocalVariableTypeCommand;
+    // Object variables (ADR-0031)
+    friend class AddObjectVariableCommand;
+    friend class RemoveObjectVariableCommand;
+    friend class RenameObjectVariableCommand;
+    friend class SetObjectVariableTypeCommand;
+    friend class SetObjectVariableInitialValueCommand;
+    friend class SetObjectVariableDescriptionCommand;
+    friend class SetInstanceVariableOverrideCommand;
+    friend class ClearInstanceVariableOverrideCommand;
     friend class AddCameraTargetCommand;
     friend class RemoveCameraTargetCommand;
     friend class SetCameraTargetOffsetCommand;

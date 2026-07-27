@@ -358,6 +358,24 @@ bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
     if (value.contains("transform")) out.transform = readTransform(value["transform"]);
     out.visible = readBool(value, "visible", out.visible, "scenes[].instances[].visible");
     out.layerId = readString(value, "layerId", "layer_id");
+    // Read by JSON type only: which key is legal, and with which type, is the
+    // Object Type's answer, and it is not loaded yet. See
+    // normalizeInstanceVariableOverrides.
+    if (const nlohmann::json* overrides = optionalObject(
+            value, "localVariableOverrides", "scenes[].instances[].localVariableOverrides")) {
+        for (auto entry = overrides->begin(); entry != overrides->end(); ++entry) {
+            if (entry->is_number()) {
+                out.localVariableOverrides[entry.key()] = entry->get<double>();
+            } else if (entry->is_boolean()) {
+                out.localVariableOverrides[entry.key()] = entry->get<bool>();
+            } else if (entry->is_string()) {
+                out.localVariableOverrides[entry.key()] = entry->get<std::string>();
+            } else {
+                invalidField("scenes[].instances[].localVariableOverrides." + entry.key(),
+                             "number, boolean, or string");
+            }
+        }
+    }
     if (const nlohmann::json* spriteValue = optionalObject(
             value, "spritePresentationOverride",
             "scenes[].instances[].spritePresentationOverride")) {
@@ -681,6 +699,81 @@ SpritePresentationSource readSpritePresentationSource(const nlohmann::json& valu
     throw JsonReadError("Invalid project field '" + field + ".kind': unknown Sprite source");
 }
 
+// ADR-0031. One encoding for both variable scopes: the runtime's reader
+// (entity-json.cpp read_variable_definitions) accepts exactly this shape, so
+// project variables and an Object Type's own variables stay one contract.
+nlohmann::json variableDefinitionToJson(const GameVariableDefinition& definition) {
+    nlohmann::json entry{
+        {"key", definition.key},
+        {"type", definition.type == GameVariableDefinition::Type::Number ? "number"
+            : definition.type == GameVariableDefinition::Type::Boolean ? "boolean" : "string"},
+    };
+    std::visit([&entry](const auto& value) { entry["initialValue"] = value; },
+               definition.initialValue);
+    if (!definition.description.empty()) entry["description"] = definition.description;
+    return entry;
+}
+
+void readVariableDefinitions(const nlohmann::json& array, const std::string& field,
+                             std::vector<GameVariableDefinition>& out) {
+    out.clear();
+    for (const auto& item : array) {
+        requireObject(item, field + "[]");
+        GameVariableDefinition definition;
+        definition.key = readString(item, "key", nullptr);
+        const std::string type = readString(item, "type", nullptr);
+        const nlohmann::json* initial = findMember(item, "initialValue");
+        if (!initial) invalidField(field + "[].initialValue", "a value");
+        if (type == "number" && initial->is_number()) {
+            definition.type = GameVariableDefinition::Type::Number;
+            definition.initialValue = initial->get<double>();
+        } else if (type == "boolean" && initial->is_boolean()) {
+            definition.type = GameVariableDefinition::Type::Boolean;
+            definition.initialValue = initial->get<bool>();
+        } else if (type == "string" && initial->is_string()) {
+            definition.type = GameVariableDefinition::Type::String;
+            definition.initialValue = initial->get<std::string>();
+        } else {
+            invalidField(field + "[].initialValue", "a value matching its type");
+        }
+        definition.description = readString(item, "description", nullptr);
+        out.push_back(std::move(definition));
+    }
+}
+
+/**
+ * An override only means something next to the definition it overrides, and
+ * the two arrive from different parts of the file. Once both are read, drop
+ * every override whose Object Type no longer declares that key, or declares it
+ * with another type — the runtime drops them the same way, and keeping them
+ * would leave the document carrying values nothing can resolve.
+ */
+void normalizeInstanceVariableOverrides(ProjectDoc& document) {
+    for (auto& [sceneId, scene] : document.scenes) {
+        (void)sceneId;
+        for (SceneInstanceDef& instance : scene.instances) {
+            if (instance.localVariableOverrides.empty()) continue;
+            const auto typeIt = document.objectTypes.find(instance.objectTypeId);
+            if (typeIt == document.objectTypes.end()) {
+                instance.localVariableOverrides.clear();
+                continue;
+            }
+            const std::vector<GameVariableDefinition>& definitions =
+                typeIt->second.localVariables;
+            for (auto it = instance.localVariableOverrides.begin();
+                 it != instance.localVariableOverrides.end();) {
+                const auto definition = std::find_if(
+                    definitions.begin(), definitions.end(),
+                    [&](const GameVariableDefinition& def) { return def.key == it->first; });
+                const bool usable = definition != definitions.end()
+                    && ProjectJson::game_variable_value_matches_type(
+                           it->second, definition->type);
+                it = usable ? std::next(it) : instance.localVariableOverrides.erase(it);
+            }
+        }
+    }
+}
+
 nlohmann::json instanceToJson(const SceneInstanceDef& instance) {
     nlohmann::json json{
         {"id", instance.id},
@@ -754,6 +847,13 @@ nlohmann::json instanceToJson(const SceneInstanceDef& instance) {
             {"offsetY", instance.cameraTarget->offsetY},
             {"followSpeed", instance.cameraTarget->followSpeed},
         };
+    }
+    if (!instance.localVariableOverrides.empty()) {
+        nlohmann::json overrides = nlohmann::json::object();
+        for (const auto& [key, value] : instance.localVariableOverrides) {
+            std::visit([&overrides, &key](const auto& raw) { overrides[key] = raw; }, value);
+        }
+        json["localVariableOverrides"] = std::move(overrides);
     }
     return json;
 }
@@ -868,6 +968,13 @@ nlohmann::json objectTypeToJson(const std::string& id, const EntityDef& def) {
     }
     if (def.gauge.has_value()) {
         json["gauge"] = ProjectJson::gaugeComponentToJson(*def.gauge);
+    }
+    if (!def.localVariables.empty()) {
+        nlohmann::json variables = nlohmann::json::array();
+        for (const GameVariableDefinition& definition : def.localVariables) {
+            variables.push_back(variableDefinitionToJson(definition));
+        }
+        json["localVariables"] = std::move(variables);
     }
     return json;
 }
@@ -1374,6 +1481,7 @@ DeserializeResult deserializeCanonical(const nlohmann::json& root) {
         }
     }
 
+    normalizeInstanceVariableOverrides(doc);
     return DeserializeResult::success(ProjectDocument{std::move(doc)});
 }
 
@@ -1440,6 +1548,11 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
             }
             def.name = readString(item, "name", nullptr, id);
             def.visible = readBool(item, "visible", true, "objectTypes[].visible");
+            if (const nlohmann::json* variables = optionalArray(
+                    item, "localVariables", "objectTypes[].localVariables")) {
+                readVariableDefinitions(*variables, "objectTypes[].localVariables",
+                                        def.localVariables);
+            }
             if (const nlohmann::json* presentationValue = optionalObject(
                     item, "spritePresentation", "objectTypes[].spritePresentation")) {
                 SpritePresentationComponent presentation;
@@ -1911,6 +2024,7 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
             cameraTargetId = instance.id;
         }
     }
+    normalizeInstanceVariableOverrides(doc);
     return DeserializeResult::success(ProjectDocument{std::move(doc)});
     } catch (const JsonReadError& error) {
         return DeserializeResult::failure(error.what());
@@ -1942,15 +2056,7 @@ SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
 
     nlohmann::json globalVariables = nlohmann::json::array();
     for (const GameVariableDefinition& def : doc.globalVariables) {
-        nlohmann::json entry{
-            {"key", def.key},
-            {"type", def.type == GameVariableDefinition::Type::Number ? "number"
-                : def.type == GameVariableDefinition::Type::Boolean ? "boolean" : "string"},
-        };
-        std::visit([&entry](const auto& value) { entry["initialValue"] = value; },
-                   def.initialValue);
-        if (!def.description.empty()) entry["description"] = def.description;
-        globalVariables.push_back(std::move(entry));
+        globalVariables.push_back(variableDefinitionToJson(def));
     }
 
     nlohmann::json objectTypes = nlohmann::json::array();
@@ -2114,6 +2220,14 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
     }
 
     for (const auto& [objectTypeId, type] : data.objectTypes) {
+        // ADR-0031: an Object Type's own variables answer to the same key and
+        // type rules as the project's.
+        std::string objectVariableError;
+        if (!ProjectJson::validate_game_variable_definitions(
+                type.localVariables, objectVariableError)) {
+            return DeserializeResult::failure(
+                "Object type \"" + objectTypeId + "\": " + objectVariableError);
+        }
         if (type.logicBoard) {
             const auto diagnostics =
                 Logic::validateBoard(objectTypeId, *type.logicBoard, &type, &data,
@@ -2630,6 +2744,32 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
             && def.boxCollider2D->mode == BoxColliderMode::OneWayPlatform) {
             return DeserializeResult::failure(
                 "OneWayPlatform does not support movement drivers");
+        }
+    }
+
+    // ADR-0031: an instance overrides a value, it never defines a variable.
+    for (const auto& [sceneId, scene] : data.scenes) {
+        for (const SceneInstanceDef& instance : scene.instances) {
+            if (instance.localVariableOverrides.empty()) continue;
+            const auto typeIt = data.objectTypes.find(instance.objectTypeId);
+            for (const auto& [key, value] : instance.localVariableOverrides) {
+                const GameVariableDefinition* definition = nullptr;
+                if (typeIt != data.objectTypes.end()) {
+                    for (const GameVariableDefinition& candidate : typeIt->second.localVariables) {
+                        if (candidate.key == key) { definition = &candidate; break; }
+                    }
+                }
+                if (!definition) {
+                    return DeserializeResult::failure(
+                        "Scene \"" + sceneId + "\" overrides variable \"" + key
+                        + "\" that object type \"" + instance.objectTypeId + "\" does not define");
+                }
+                if (!ProjectJson::game_variable_value_matches_type(value, definition->type)) {
+                    return DeserializeResult::failure(
+                        "Scene \"" + sceneId + "\" override of \"" + key
+                        + "\" does not match the object variable type");
+                }
+            }
         }
     }
 

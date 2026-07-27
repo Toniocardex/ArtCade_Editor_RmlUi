@@ -20,8 +20,10 @@ bool is_valid_game_variable_key_char(char character)
         || (character >= '0' && character <= '9') || character == '.' || character == '-';
 }
 
-bool variable_value_matches_type(const GameVariableValue &value,
-                                 GameVariableDefinition::Type type)
+} // namespace
+
+bool game_variable_value_matches_type(const GameVariableValue &value,
+                                      GameVariableDefinition::Type type)
 {
     switch (type) {
     case GameVariableDefinition::Type::Number:
@@ -35,7 +37,26 @@ bool variable_value_matches_type(const GameVariableValue &value,
     return false;
 }
 
-} // namespace
+bool validate_game_variable_definitions(const std::vector<GameVariableDefinition> &variables,
+                                        std::string &error_message)
+{
+    std::unordered_set<GameVariableId> keys;
+    for (const GameVariableDefinition &definition : variables) {
+        if (!is_valid_game_variable_key(definition.key, error_message)) {
+            return false;
+        }
+        if (!keys.insert(definition.key).second) {
+            error_message = "Duplicate variable key \"" + definition.key + "\".";
+            return false;
+        }
+        if (!game_variable_value_matches_type(definition.initialValue, definition.type)) {
+            error_message = "Variable \"" + definition.key
+                            + "\" has an initialValue incompatible with its type.";
+            return false;
+        }
+    }
+    return true;
+}
 
 bool is_valid_game_variable_key(const std::string &key, std::string &error_message)
 {
@@ -63,23 +84,11 @@ bool is_valid_game_variable_key(const std::string &key, std::string &error_messa
 bool validate_current_global_variables_document(const std::vector<GameVariableDefinition> &variables,
                                                 std::string &error_message)
 {
-    std::unordered_set<GameVariableId> keys;
-    for (const GameVariableDefinition &definition : variables) {
-        if (!is_valid_game_variable_key(definition.key, error_message)) {
-            return false;
-        }
-        if (!keys.insert(definition.key).second) {
-            error_message = "Project contains duplicate global variable key \""
-                            + definition.key + "\".";
-            return false;
-        }
-        if (!variable_value_matches_type(definition.initialValue, definition.type)) {
-            error_message = "Global variable \"" + definition.key
-                            + "\" has an initialValue incompatible with its type.";
-            return false;
-        }
+    if (validate_game_variable_definitions(variables, error_message)) {
+        return true;
     }
-    return true;
+    error_message = "Project variables: " + error_message;
+    return false;
 }
 
 bool validate_current_global_variables_json(const nlohmann::json &raw,

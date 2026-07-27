@@ -60,7 +60,7 @@ add_library(artcade-editor-core STATIC
     editor-native/commands/logic_board_commands.cpp
     editor-native/commands/logic_expression_commands.cpp
     editor-native/commands/global_variable_commands.cpp
-    editor-native/commands/local_variable_commands.cpp
+    editor-native/commands/object_variable_commands.cpp
     editor-native/commands/text_component_commands.cpp
     editor-native/commands/gauge_component_commands.cpp
     editor-native/commands/entity_commands.cpp

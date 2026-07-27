@@ -549,6 +549,80 @@ int main() {
         CHECK(roundTripped.scenes.count("ru01-scene") == 1);
     }
 
+    // -- ADR-0031: object variable definitions and instance overrides survive a
+    // save. The writer emitted neither before A1.1, so authoring them would
+    // have looked like it worked until the next load. An override whose key
+    // the Object Type does not define is dropped on read, exactly as the
+    // runtime drops it - the definition is the only authority on what exists.
+    {
+        ProjectDoc doc;
+        doc.projectName = "Object Variables";
+        doc.activeSceneId = "ov-scene";
+
+        EntityDef coin;
+        coin.className = "Coin";
+        coin.name = "Coin";
+        coin.localVariables.push_back(
+            GameVariableDefinition{"Value", GameVariableDefinition::Type::Number, 10.0, "Score"});
+        coin.localVariables.push_back(
+            GameVariableDefinition{"Collected", GameVariableDefinition::Type::Boolean, false, {}});
+        doc.objectTypes.emplace("Coin", coin);
+
+        SceneDef scene;
+        scene.id = "ov-scene";
+        scene.name = "OV Scene";
+        scene.layers.push_back(SceneLayerDef{"layer-1", "Layer 1", false});
+        scene.defaultLayerId = "layer-1";
+        SceneInstanceDef instance;
+        instance.id = 1;
+        instance.objectTypeId = "Coin";
+        instance.instanceName = "Coin 1";
+        instance.layerId = "layer-1";
+        instance.localVariableOverrides["Value"] = 25.0;
+        instance.localVariableOverrides["Collected"] = true;
+        instance.localVariableOverrides["Stale"] = std::string{"gone"};
+        scene.instances.push_back(instance);
+        doc.scenes.emplace(scene.id, scene);
+
+        const SerializeResult serialized = ProjectSerializer::serialize(ProjectDocument{doc});
+        CHECK(serialized.ok);
+        CHECK(serialized.value.find("\"localVariables\"") != std::string::npos);
+        CHECK(serialized.value.find("\"localVariableOverrides\"") != std::string::npos);
+
+        const DeserializeResult deserialized = ProjectSerializer::deserialize(serialized.value);
+        CHECK(deserialized.ok);
+        const ProjectDoc& back = deserialized.value.data();
+
+        const auto coinIt = back.objectTypes.find("Coin");
+        CHECK(coinIt != back.objectTypes.end());
+        if (coinIt != back.objectTypes.end()) {
+            CHECK(coinIt->second.localVariables.size() == 2);
+            if (coinIt->second.localVariables.size() == 2) {
+                CHECK(coinIt->second.localVariables[0].key == "Value");
+                CHECK(coinIt->second.localVariables[0].type
+                      == GameVariableDefinition::Type::Number);
+                CHECK(std::get<double>(coinIt->second.localVariables[0].initialValue) == 10.0);
+                CHECK(coinIt->second.localVariables[0].description == "Score");
+                CHECK(coinIt->second.localVariables[1].key == "Collected");
+                CHECK(coinIt->second.localVariables[1].type
+                      == GameVariableDefinition::Type::Boolean);
+            }
+        }
+
+        const auto sceneIt = back.scenes.find("ov-scene");
+        CHECK(sceneIt != back.scenes.end());
+        if (sceneIt != back.scenes.end() && sceneIt->second.instances.size() == 1) {
+            const auto& overrides = sceneIt->second.instances[0].localVariableOverrides;
+            CHECK(overrides.size() == 2);
+            CHECK(overrides.count("Value") == 1);
+            CHECK(overrides.count("Value") == 1
+                  && std::get<double>(overrides.at("Value")) == 25.0);
+            CHECK(overrides.count("Collected") == 1
+                  && std::get<bool>(overrides.at("Collected")) == true);
+            CHECK(overrides.count("Stale") == 0);
+        }
+    }
+
     // -- v3 migration promotes the two legacy sprite records to v10 Sprite ---
     {
         const std::string v3 = R"json({

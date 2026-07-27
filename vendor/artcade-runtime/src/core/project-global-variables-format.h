@@ -18,6 +18,24 @@ namespace ArtCade::ProjectJson {
 bool is_valid_game_variable_key(const std::string &key, std::string &error_message);
 
 /**
+ * True when @p value holds the alternative @p type requires, and — for
+ * numbers — a finite one.
+ */
+bool game_variable_value_matches_type(const GameVariableValue &value,
+                                      GameVariableDefinition::Type type);
+
+/**
+ * Validates one list of variable definitions: valid unique keys, each initial
+ * value matching its type. Scope-neutral, so project variables and an Object
+ * Type's own variables (ADR-0031) answer to the same rules; the caller names
+ * the owner when it reports the error.
+ * @param variables     definitions to validate.
+ * @param error_message receives the first validation error.
+ */
+bool validate_game_variable_definitions(const std::vector<GameVariableDefinition> &variables,
+                                        std::string &error_message);
+
+/**
  * Validates current-format persisted global variables before serialization.
  * @param variables     ProjectDoc definitions to validate.
  * @param error_message receives the first validation error.

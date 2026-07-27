@@ -3,7 +3,7 @@
 #include "editor-native/commands/audio_asset_commands.h"
 #include "editor-native/commands/global_variable_commands.h"
 #include "editor-native/commands/logic_board_commands.h"
-#include "editor-native/commands/local_variable_commands.h"
+#include "editor-native/commands/object_variable_commands.h"
 #include "editor-native/commands/logic_expression_commands.h"
 #include "editor-native/commands/top_down_controller_commands.h"
 #include "editor-native/model/logic_component_references.h"
@@ -2743,31 +2743,170 @@ static void testExpressionReferencesCountAsReferences() {
     CHECK(coordinator.redo().ok);
 
     // -- object scope ---------------------------------------------------------
-    CHECK(countObjectTypeLocalVariableReferences(coordinator.document(), "Hero", "Speed") == 1);
+    CHECK(countObjectVariableReferences(coordinator.document(), "Hero", "Speed") == 1);
     // The two scopes never see each other: a local node named GoalX would be a
     // different variable, and the project walk must not claim it.
-    CHECK(countObjectTypeLocalVariableReferences(coordinator.document(), "Hero", "GoalX") == 0);
+    CHECK(countObjectVariableReferences(coordinator.document(), "Hero", "GoalX") == 0);
     CHECK(countGlobalVariableReferences(coordinator.document(), "Speed") == 0);
 
     const uint64_t beforeLocalBlocked = coordinator.document().revision();
-    CHECK(!coordinator.execute(RemoveObjectTypeLocalVariableCommand{"Hero", "Speed"}).ok);
-    CHECK(!coordinator.execute(SetObjectTypeLocalVariableTypeCommand{
+    CHECK(!coordinator.execute(RemoveObjectVariableCommand{"Hero", "Speed"}).ok);
+    CHECK(!coordinator.execute(SetObjectVariableTypeCommand{
         "Hero", "Speed", GameVariableDefinition::Type::String}).ok);
     CHECK(coordinator.document().revision() == beforeLocalBlocked);
 
     CHECK(coordinator.execute(
-        RenameObjectTypeLocalVariableCommand{"Hero", "Speed", "Velocity"}).ok);
+        RenameObjectVariableCommand{"Hero", "Speed", "Velocity"}).ok);
     const NumberVariableExpression* localRenamed =
         clampedAddVariable(*positionComponent(coordinator, LogicNumericComponent::Y));
     CHECK(localRenamed != nullptr);
     CHECK(localRenamed && localRenamed->variableId == "Velocity");
     CHECK(localRenamed && localRenamed->scope == NumberVariableScope::Local);
-    CHECK(countObjectTypeLocalVariableReferences(
+    CHECK(countObjectVariableReferences(
         coordinator.document(), "Hero", "Velocity") == 1);
     CHECK(coordinator.undo().ok);
     const NumberVariableExpression* localRestored =
         clampedAddVariable(*positionComponent(coordinator, LogicNumericComponent::Y));
     CHECK(localRestored && localRestored->variableId == "Speed");
+}
+
+// ADR-0031 A1.1. The definition belongs to the Object Type and the override to
+// the instance; the override is dependent state, so it follows a rename and
+// dies with the definition — but only after being captured, or undo would hand
+// back a definition whose instance values had silently evaporated.
+static const GameVariableDefinition* heroVariable(const EditorCoordinator& coordinator,
+                                                  const GameVariableId& key) {
+    const EntityDef& hero = coordinator.document().data().objectTypes.at("Hero");
+    for (const GameVariableDefinition& definition : hero.localVariables) {
+        if (definition.key == key) return &definition;
+    }
+    return nullptr;
+}
+
+static std::optional<GameVariableValue> heroInstanceValue(const EditorCoordinator& coordinator,
+                                                          const GameVariableId& key) {
+    const ProjectDoc& data = coordinator.document().data();
+    const SceneDef& scene = data.scenes.at("scene-1");
+    return resolveObjectVariableValue(data.objectTypes.at("Hero"), scene.instances[0], key);
+}
+
+static bool heroInstanceHasOverride(const EditorCoordinator& coordinator,
+                                    const GameVariableId& key) {
+    const SceneDef& scene = coordinator.document().data().scenes.at("scene-1");
+    return scene.instances[0].localVariableOverrides.count(key) != 0;
+}
+
+static void testObjectVariableDefinitionsAndOverrides() {
+    EditorCoordinator coordinator{makeProjectData()};
+
+    const GameVariableDefinition health{
+        "Health", GameVariableDefinition::Type::Number, 100.0, "Starting health"};
+    CHECK(coordinator.execute(AddObjectVariableCommand{"Hero", health}).ok);
+    CHECK(heroVariable(coordinator, "Health") != nullptr);
+    CHECK(coordinator.undo().ok);
+    CHECK(heroVariable(coordinator, "Health") == nullptr);
+    CHECK(coordinator.redo().ok);
+    CHECK(heroVariable(coordinator, "Health") != nullptr);
+
+    // -- invariants: nothing invalid reaches the document ----------------------
+    const uint64_t beforeInvalid = coordinator.document().revision();
+    CHECK(!coordinator.execute(AddObjectVariableCommand{"Hero", health}).ok);
+    const GameVariableDefinition badKey{
+        "1bad", GameVariableDefinition::Type::Number, 0.0, {}};
+    CHECK(!coordinator.execute(AddObjectVariableCommand{"Hero", badKey}).ok);
+    const GameVariableDefinition nonFinite{
+        "Broken", GameVariableDefinition::Type::Number, HUGE_VAL, {}};
+    CHECK(!coordinator.execute(AddObjectVariableCommand{"Hero", nonFinite}).ok);
+    const GameVariableDefinition mismatched{
+        "Mismatched", GameVariableDefinition::Type::Number, std::string{"nope"}, {}};
+    CHECK(!coordinator.execute(AddObjectVariableCommand{"Hero", mismatched}).ok);
+    CHECK(!coordinator.execute(AddObjectVariableCommand{"Ghost", health}).ok);
+    CHECK(!coordinator.execute(SetObjectVariableInitialValueCommand{
+        "Hero", "Health", std::string{"lots"}}).ok);
+    CHECK(coordinator.document().revision() == beforeInvalid);
+
+    // -- the instance may only override, never define --------------------------
+    CHECK(!coordinator.execute(SetInstanceVariableOverrideCommand{
+        "scene-1", 1, "Undefined", 5.0}).ok);
+    CHECK(!coordinator.execute(SetInstanceVariableOverrideCommand{
+        "scene-1", 1, "Health", true}).ok);
+    CHECK(!coordinator.execute(SetInstanceVariableOverrideCommand{
+        "scene-1", 99, "Health", 5.0}).ok);
+    CHECK(coordinator.document().revision() == beforeInvalid);
+
+    // -- the effective value is derived, never stored --------------------------
+    const auto defaulted = heroInstanceValue(coordinator, "Health");
+    CHECK(defaulted.has_value() && std::get<double>(*defaulted) == 100.0);
+    CHECK(coordinator.execute(SetInstanceVariableOverrideCommand{
+        "scene-1", 1, "Health", 25.0}).ok);
+    const auto overridden = heroInstanceValue(coordinator, "Health");
+    CHECK(overridden.has_value() && std::get<double>(*overridden) == 25.0);
+    CHECK(std::get<double>(heroVariable(coordinator, "Health")->initialValue) == 100.0);
+    CHECK(coordinator.undo().ok);
+    CHECK(!heroInstanceHasOverride(coordinator, "Health"));
+    CHECK(coordinator.redo().ok);
+    CHECK(heroInstanceHasOverride(coordinator, "Health"));
+
+    CHECK(coordinator.execute(SetObjectVariableDescriptionCommand{
+        "Hero", "Health", "Hit points"}).ok);
+    CHECK(heroVariable(coordinator, "Health")->description == "Hit points");
+    CHECK(coordinator.undo().ok);
+    CHECK(heroVariable(coordinator, "Health")->description == "Starting health");
+    CHECK(coordinator.redo().ok);
+
+    // -- rename: the override follows the key ---------------------------------
+    CHECK(coordinator.execute(RenameObjectVariableCommand{"Hero", "Health", "Hitpoints"}).ok);
+    CHECK(heroVariable(coordinator, "Hitpoints") != nullptr);
+    CHECK(heroInstanceHasOverride(coordinator, "Hitpoints"));
+    CHECK(!heroInstanceHasOverride(coordinator, "Health"));
+    const auto renamedValue = heroInstanceValue(coordinator, "Hitpoints");
+    CHECK(renamedValue.has_value() && std::get<double>(*renamedValue) == 25.0);
+    CHECK(coordinator.undo().ok);
+    CHECK(heroInstanceHasOverride(coordinator, "Health"));
+    CHECK(coordinator.redo().ok);
+    CHECK(heroInstanceHasOverride(coordinator, "Hitpoints"));
+
+    // -- type change: the override cannot survive it, and undo brings it back --
+    CHECK(coordinator.execute(SetObjectVariableTypeCommand{
+        "Hero", "Hitpoints", GameVariableDefinition::Type::Boolean}).ok);
+    CHECK(!heroInstanceHasOverride(coordinator, "Hitpoints"));
+    CHECK(std::get<bool>(heroVariable(coordinator, "Hitpoints")->initialValue) == false);
+    CHECK(coordinator.undo().ok);
+    CHECK(heroInstanceHasOverride(coordinator, "Hitpoints"));
+    const auto restoredValue = heroInstanceValue(coordinator, "Hitpoints");
+    CHECK(restoredValue.has_value() && std::get<double>(*restoredValue) == 25.0);
+    CHECK(coordinator.redo().ok);
+    CHECK(!heroInstanceHasOverride(coordinator, "Hitpoints"));
+    CHECK(coordinator.undo().ok);
+
+    // -- delete: same contract --------------------------------------------------
+    CHECK(coordinator.execute(RemoveObjectVariableCommand{"Hero", "Hitpoints"}).ok);
+    CHECK(heroVariable(coordinator, "Hitpoints") == nullptr);
+    CHECK(!heroInstanceHasOverride(coordinator, "Hitpoints"));
+    CHECK(coordinator.undo().ok);
+    CHECK(heroVariable(coordinator, "Hitpoints") != nullptr);
+    CHECK(heroInstanceHasOverride(coordinator, "Hitpoints"));
+    const auto afterUndo = heroInstanceValue(coordinator, "Hitpoints");
+    CHECK(afterUndo.has_value() && std::get<double>(*afterUndo) == 25.0);
+    CHECK(coordinator.redo().ok);
+    CHECK(heroVariable(coordinator, "Hitpoints") == nullptr);
+    CHECK(coordinator.undo().ok);
+
+    // -- reset drops the override, the default takes over ----------------------
+    CHECK(coordinator.execute(ClearInstanceVariableOverrideCommand{
+        "scene-1", 1, "Hitpoints"}).ok);
+    CHECK(!heroInstanceHasOverride(coordinator, "Hitpoints"));
+    const auto fellBack = heroInstanceValue(coordinator, "Hitpoints");
+    CHECK(fellBack.has_value() && std::get<double>(*fellBack) == 100.0);
+    CHECK(coordinator.undo().ok);
+    CHECK(heroInstanceHasOverride(coordinator, "Hitpoints"));
+    // Clearing what is not there changes nothing and costs no undo entry.
+    CHECK(coordinator.execute(ClearInstanceVariableOverrideCommand{
+        "scene-1", 1, "Hitpoints"}).ok);
+    const std::size_t undoSize = coordinator.undoSize();
+    CHECK(coordinator.execute(ClearInstanceVariableOverrideCommand{
+        "scene-1", 1, "Hitpoints"}).ok);
+    CHECK(coordinator.undoSize() == undoSize);
 }
 
 int main() {
@@ -2810,6 +2949,7 @@ int main() {
     testSetPositionPropertyEditorIsATypedField();
     testSetLogicNumberExpressionCommandAcceptsGlobalVariable();
     testExpressionReferencesCountAsReferences();
+    testObjectVariableDefinitionsAndOverrides();
     std::cout << "logic-board-editor-test: " << passed << " passed, "
               << failed << " failed\n";
     return failed == 0 ? 0 : 1;

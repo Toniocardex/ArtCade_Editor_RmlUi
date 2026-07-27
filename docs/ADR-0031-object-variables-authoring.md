@@ -350,12 +350,20 @@ navigation UI (the *counter* is in scope, the navigation is not) ·
   `local_variable_commands.cpp` migrated — the object-scope commands landed
   with their own presentation-only walk just before this slice, and leaving it
   would have kept exactly the two walkers this decision exists to prevent.
-- **A1.1 — not started.** Two defects to fix there, found while migrating:
-  `RemoveObjectTypeLocalVariableCommand` and
-  `SetObjectTypeLocalVariableTypeCommand` both erase instance overrides in
-  `apply()` and neither restores them in `undo()`. Not yet observable, because
-  the editor still does not persist overrides (finding 2).
-- **A2 — not started**; blocked on A1.
+- **A1.1 — done.** `commands/object_variable_commands.*` holds the whole
+  `ObjectVariable…` family; the three `ObjectTypeLocalVariable…` commands were
+  absorbed, not left beside it. The two defects found while migrating A1.0 —
+  Remove and the type change erased instance overrides in `apply()` and
+  restored nothing in `undo()` — are fixed by capturing the erased overrides
+  (scene, instance, value) and restoring them, guarded so redo does not
+  re-capture. Persistence writes `objectTypes[].localVariables` and
+  `scenes[].instances[].localVariableOverrides`, the fallback reader reads
+  both, and one normalization pass drops overrides the Object Type does not
+  define — the canonical reader already read them, so only the writer was
+  losing data. `ProjectValidator` now rejects both an invalid definition list
+  and an override with no matching definition.
+- **A2 — not started.** All eight commands are unreferenced by any UI until it
+  lands.
 - The `Create compatible variable` button in
   `logic_property_editor.cpp:401` still routes to the Project Variables
   drawer. It becomes the typed contextual creation of Slice B; Slice 0
