@@ -1144,7 +1144,7 @@ static void testTopDownMovementViaLogicInput() {
 
     const Logic::LogicBlockDescriptor* facing = Logic::findDescriptor(Logic::kSpriteSetFacing);
     CHECK(facing != nullptr);
-    CHECK(facing->displayName == std::string("Flip Horizontal"));
+    CHECK(facing->displayName == std::string("Set Flip"));
     CHECK(facing->properties.size() == 1);
     CHECK(facing->properties[0].semantic == Logic::LogicPropertySemantic::SpriteFacing);
     const std::vector<std::string> facingOptions{"Left", "Right"};

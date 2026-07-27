@@ -946,7 +946,7 @@ static void testSpriteSetFacingAction() {
     const LogicBlockDescriptor* descriptor = findDescriptor(kSpriteSetFacing);
     CHECK(descriptor != nullptr);
     CHECK(descriptor->kind == BlockKind::Action);
-    CHECK(descriptor->displayName == std::string("Flip Horizontal"));
+    CHECK(descriptor->displayName == std::string("Set Flip"));
     CHECK(descriptor->properties.size() == 1);
     CHECK(descriptor->properties[0].semantic == LogicPropertySemantic::SpriteFacing);
     CHECK(descriptor->properties[0].options
