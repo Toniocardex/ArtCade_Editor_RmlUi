@@ -355,6 +355,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     if (coordinator.isPlaying()) {
         openDropdownId_.clear();
         clearKeyBindingEditor();
+        discardContextualGlobalVariable();
         pendingRevealRuleId_.clear();
         scrollRestorePending_ = false;
     }
@@ -393,13 +394,21 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         scrollRestorePending_ = false;
         openDropdownId_.clear();
         clearKeyBindingEditor();
+        discardContextualGlobalVariable();
         pendingRevealRuleId_.clear();
         collapsedRuleIds_.clear();
+    }
+    if (hasContextualGlobalVariableDraft()
+        && (contextualVariableObjectTypeId_ != selectedId
+            || contextualVariableSourceRevision_
+                != coordinator.document().revision())) {
+        discardContextualGlobalVariable();
     }
     if (lastTab_ != view.tab) {
         lastTab_ = view.tab;
         openDropdownId_.clear();
         clearKeyBindingEditor();
+        discardContextualGlobalVariable();
     }
 
     const auto instanceCountFor = [&](const ObjectTypeId& objectTypeId) {
@@ -510,6 +519,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         // so the field would come back visible but dead to typing. The restore
         // is deferred to restoreAfterLayout(), which runs after that update.
         expressionFocusRestorePending_ = !expressionFocusAddress_.empty();
+        contextualVariableFocusRestorePending_ =
+            hasContextualGlobalVariableDraft();
         syncResponsiveClass(document);
     };
 
@@ -537,6 +548,13 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     const LogicExpressionFieldState expressionField{
         expressionFocusAddress_, expressionDraftText_, expressionErrorMessage_,
         expressionEdited_};
+    LogicVariableCreationFieldState variableCreation;
+    if (hasContextualGlobalVariableDraft()) {
+        variableCreation.propertyAddress = contextualVariableAddress_;
+        variableCreation.key = contextualVariableKey_;
+        variableCreation.errorMessage = contextualVariableError_;
+        variableCreation.requiredType = contextualVariableRequiredType_;
+    }
 
     if (view.tab == LogicBoardTab::GeneratedLua) {
         const Logic::LogicCompileResult compiled = Logic::compileBoard(
@@ -681,7 +699,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         html += renderLogicProperties(
             coordinator.document(), selectedType, rule.trigger,
             LogicPropertyAddress{rule.id, LogicPropertyTarget::Trigger, 0},
-            openDropdownId_, keyBinding, expressionField, playing);
+            openDropdownId_, keyBinding, expressionField, playing,
+            variableCreation);
         html += "</div>"; // .logic-block (WHEN trigger)
         if (rule.executionMode == LogicExecutionMode::OncePerActivation) {
             // Projected into WHEN; never stored in rule.conditions[].
@@ -766,7 +785,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 coordinator.document(), selectedType, clause.block,
                 LogicPropertyAddress{
                     rule.id, LogicPropertyTarget::Condition, conditionIndex},
-                openDropdownId_, keyBinding, expressionField, playing);
+                openDropdownId_, keyBinding, expressionField, playing,
+                variableCreation);
             html += "</div>";
         }
         html += "</div>";
@@ -948,7 +968,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                     coordinator.document(), selectedType, action,
                     LogicPropertyAddress{
                         rule.id, LogicPropertyTarget::Action, actionIndex},
-                    openDropdownId_, keyBinding, expressionField, playing);
+                    openDropdownId_, keyBinding, expressionField, playing,
+                    variableCreation);
             }
             html += "</div>";
         }
@@ -1030,6 +1051,19 @@ void LogicBoardPanel::restoreAfterLayout(Rml::ElementDocument* document,
                 const int stop = expressionCaretEnd_ < 0
                     ? end : std::min(expressionCaretEnd_, end);
                 control->SetSelectionRange(start, stop);
+            }
+        }
+    }
+
+    if (contextualVariableFocusRestorePending_) {
+        contextualVariableFocusRestorePending_ = false;
+        if (Rml::Element* input =
+                document->GetElementById("logic-context-variable-name-input")) {
+            input->Focus(true);
+            if (auto* control =
+                    rmlui_dynamic_cast<Rml::ElementFormControlInput*>(input)) {
+                const int end = static_cast<int>(control->GetValue().size());
+                control->SetSelectionRange(end, end);
             }
         }
     }
@@ -1177,6 +1211,58 @@ void LogicBoardPanel::setExpressionFailure(Rml::ElementDocument* document,
     refresh(document, coordinator);
 }
 
+void LogicBoardPanel::beginContextualGlobalVariable(
+    Rml::ElementDocument* document, const EditorCoordinator& coordinator,
+    const ObjectTypeId& objectTypeId, const std::string& propertyAddress,
+    GameVariableDefinition::Type requiredType, std::string suggestedKey) {
+    if (coordinator.isPlaying() || objectTypeId.empty()
+        || propertyAddress.empty()) return;
+    contextualVariableObjectTypeId_ = objectTypeId;
+    contextualVariableAddress_ = propertyAddress;
+    contextualVariableRequiredType_ = requiredType;
+    contextualVariableKey_ = std::move(suggestedKey);
+    contextualVariableError_.clear();
+    contextualVariableSourceRevision_ = coordinator.document().revision();
+    openDropdownId_.clear();
+    clearKeyBindingEditor();
+    clearExpressionField();
+    refresh(document, coordinator);
+}
+
+void LogicBoardPanel::setContextualGlobalVariableKey(
+    Rml::ElementDocument* document, const std::string& propertyAddress,
+    std::string key) {
+    if (contextualVariableAddress_ != propertyAddress) return;
+    contextualVariableKey_ = std::move(key);
+    contextualVariableError_.clear();
+    // Typing is presentation-only and must not rebuild the input mid-dispatch.
+    if (!document) return;
+    if (Rml::Element* input =
+            document->GetElementById("logic-context-variable-name-input")) {
+        input->SetClass("invalid", false);
+    }
+    if (Rml::Element* error =
+            document->GetElementById("logic-context-variable-error")) {
+        error->SetInnerRML("");
+    }
+}
+
+void LogicBoardPanel::setContextualGlobalVariableError(
+    Rml::ElementDocument* document, const EditorCoordinator& coordinator,
+    const std::string& propertyAddress, std::string message) {
+    if (contextualVariableAddress_ != propertyAddress) return;
+    contextualVariableError_ = std::move(message);
+    refresh(document, coordinator);
+}
+
+std::optional<ContextualGlobalVariableDraft>
+LogicBoardPanel::contextualGlobalVariableDraft() const {
+    if (!hasContextualGlobalVariableDraft()) return std::nullopt;
+    return ContextualGlobalVariableDraft{
+        contextualVariableObjectTypeId_, contextualVariableAddress_,
+        contextualVariableRequiredType_, contextualVariableKey_};
+}
+
 void LogicBoardPanel::cancelKeyCapture(Rml::ElementDocument* document,
                                        const EditorCoordinator& coordinator) {
     if (keyCaptureAddress_.empty()) return;
@@ -1210,6 +1296,7 @@ void LogicBoardPanel::toggleRuleCollapsed(Rml::ElementDocument* document,
     // reappear open when the rule is later re-expanded.
     openDropdownId_.clear();
     clearKeyBindingEditor();
+    discardContextualGlobalVariable();
     if (collapsedRuleIds_.erase(ruleId) == 0) collapsedRuleIds_.insert(ruleId);
     refresh(document, coordinator);
 }
@@ -1219,6 +1306,7 @@ void LogicBoardPanel::collapseAllRules(Rml::ElementDocument* document,
     if (const LogicBoardDef* board = currentBoard(coordinator)) {
         openDropdownId_.clear();
         clearKeyBindingEditor();
+        discardContextualGlobalVariable();
         for (const LogicRuleDef& rule : board->rules) collapsedRuleIds_.insert(rule.id);
     }
     refresh(document, coordinator);

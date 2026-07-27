@@ -436,6 +436,40 @@
     transition: border-color 0.1s;
 }
 .logic-value-input:last-child { margin-right: 0; }
+.logic-context-variable-create {
+    flex: 1;
+    min-width: 0;
+    display: block;
+}
+.logic-context-variable-fields,
+.logic-context-variable-actions {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+.logic-context-variable-name { margin-right: 6dp; }
+.logic-context-variable-type {
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    min-width: 64dp;
+    height: 26dp;
+    line-height: 24dp;
+    padding: 0 7dp;
+    border-width: 1px;
+    border-radius: 2dp;
+    text-align: center;
+    font-size: 11dp;
+}
+.logic-context-variable-actions { margin-top: 5dp; }
+.logic-context-variable-actions .logic-btn { margin-right: 5dp; }
+.logic-context-variable-error {
+    display: block;
+    margin-top: 5dp;
+    padding: 3dp 6dp;
+    border-width: 1px;
+    border-radius: 2dp;
+    font-size: 11dp;
+}
 .logic-action-row { display: flex; flex-direction: row; align-items: center; }
 .logic-action-main { flex: 1; }
 .logic-diagnostic { display: block; margin: 5dp 10dp; padding: 7dp;   border-width: 0dp; text-align: left; font-size: 12dp; width: 100%; }

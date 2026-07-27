@@ -35,6 +35,8 @@ public:
     bool isRebuilding() const { return panel_.isRebuilding(); }
     void toggleDropdown(const std::string& dropdownId);
     void closeDropdown();
+    void discardContextualGlobalVariable();
+    bool hasContextualGlobalVariableDraft() const;
     bool hasKeyCapture() const;
     bool captureKey(LogicKey key);
     bool cancelKeyCapture();

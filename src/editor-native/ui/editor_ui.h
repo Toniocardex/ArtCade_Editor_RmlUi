@@ -478,6 +478,15 @@ private:
         std::string value;
     };
     std::optional<PendingExpressionEditEnd> pendingExpressionEnd_;
+    enum class PendingContextualVariableEnd { Confirm, Cancel };
+    struct PendingContextualVariableEditEnd {
+        PendingContextualVariableEnd kind =
+            PendingContextualVariableEnd::Confirm;
+        std::string address;
+        std::string value;
+    };
+    std::optional<PendingContextualVariableEditEnd>
+        pendingContextualVariableEnd_;
     enum class PendingObjectVariableEnd { CommitEnter, CommitBlur, Cancel };
     struct PendingObjectVariableEditEnd {
         PendingObjectVariableEnd kind = PendingObjectVariableEnd::CommitBlur;

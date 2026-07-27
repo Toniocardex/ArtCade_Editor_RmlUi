@@ -105,6 +105,35 @@ bool hasClass(Rml::Element* root, const std::string& className) {
     return !hits.empty();
 }
 
+void click(Rml::Element* element) {
+    CHECK(element != nullptr);
+    if (!element) return;
+    Rml::Dictionary parameters;
+    element->DispatchEvent(Rml::EventId::Click, parameters);
+}
+
+void setDraftValue(Rml::Context& context, Rml::Element* element,
+                   const std::string& value) {
+    CHECK(element != nullptr);
+    if (!element) return;
+    auto* control = rmlui_dynamic_cast<Rml::ElementFormControl*>(element);
+    CHECK(control != nullptr);
+    if (!control) return;
+    CHECK(element->Focus());
+    context.Update();
+    control->SetValue(value);
+    Rml::Dictionary parameters;
+    element->DispatchEvent(Rml::EventId::Change, parameters);
+}
+
+void pressKey(Rml::Element* element, Rml::Input::KeyIdentifier key) {
+    CHECK(element != nullptr);
+    if (!element) return;
+    Rml::Dictionary parameters;
+    parameters["key_identifier"] = static_cast<int>(key);
+    element->DispatchEvent(Rml::EventId::Keydown, parameters);
+}
+
 /** Concatenated inner text of the completion list, for "is `random` offered?". */
 std::string completionText(Rml::Element* root) {
     std::vector<Rml::Element*> lists;
@@ -130,8 +159,35 @@ ProjectDoc makeProjectWithSetPosition() {
     rule.trigger = {Logic::kOnStart, {}};
     rule.actions[0] = Logic::makeDefaultBlock(Logic::kSetPosition, Logic::BlockKind::Action);
     board.rules.push_back(std::move(rule));
+
+    LogicRuleDef numberRule = Logic::makeDefaultRule("rule-state-number");
+    numberRule.trigger = {Logic::kOnStart, {}};
+    numberRule.actions[0] =
+        Logic::makeDefaultBlock(Logic::kStateAdd, Logic::BlockKind::Action);
+    for (LogicPropertyDef& property : numberRule.actions[0].properties)
+        if (property.key == "key")
+            property.value = LogicVariableReference{"score"};
+    board.rules.push_back(std::move(numberRule));
+
+    LogicRuleDef booleanRule = Logic::makeDefaultRule("rule-state-boolean");
+    booleanRule.trigger = {Logic::kOnStart, {}};
+    booleanRule.actions[0] =
+        Logic::makeDefaultBlock(Logic::kStateToggle, Logic::BlockKind::Action);
+    for (LogicPropertyDef& property : booleanRule.actions[0].properties)
+        if (property.key == "key")
+            property.value = LogicVariableReference{"flag"};
+    board.rules.push_back(std::move(booleanRule));
+
     hero.logicBoard = std::move(board);
+    hero.localVariables.push_back(GameVariableDefinition{
+        "localScore", GameVariableDefinition::Type::Number, 0.0,
+        "Must never enter the Project Variable picker"});
     doc.objectTypes.emplace("Hero", hero);
+    doc.globalVariables = {
+        {"score", GameVariableDefinition::Type::Number, 0.0, {}},
+        {"flag", GameVariableDefinition::Type::Boolean, false, {}},
+        {"title", GameVariableDefinition::Type::String, std::string{}, {}},
+    };
 
     // This type deliberately has an instance only in another scene. ADR-0031
     // A2.3 must report that it cannot be reached through the active scene's
@@ -173,6 +229,221 @@ ProjectDoc makeProjectWithSetPosition() {
 
     doc.activeSceneId = scene.id;
     return doc;
+}
+
+Rml::Element* createEntryFor(Rml::Element* root, const std::string& address) {
+    std::vector<Rml::Element*> entries;
+    collectByClass(root, "drop-entry", entries);
+    for (Rml::Element* entry : entries) {
+        if (attributeOf(entry, "data-action")
+                == "begin-contextual-global-variable"
+            && attributeOf(entry, "data-arg") == address) {
+            return entry;
+        }
+    }
+    return nullptr;
+}
+
+Rml::Element* openContextualCreator(
+    Rml::Context& context, Rml::ElementDocument& document, EditorUi& ui,
+    const std::string& address) {
+    click(findByAttribute(
+        &document, "data-arg", "property|" + address));
+    frame(context, ui);
+    click(createEntryFor(&document, address));
+    frame(context, ui);
+    return document.GetElementById("logic-context-variable-name-input");
+}
+
+// ADR-0032 — typed picker and contextual create+assign through real RmlUi.
+void testContextualProjectVariableCreation(
+    Rml::Context& context, Rml::ElementDocument& document,
+    EditorCoordinator& coordinator, EditorUi& ui) {
+    CHECK(coordinator.apply(OpenLogicBoardIntent{"Hero"}).ok);
+    frame(context, ui);
+
+    const std::string numberAddress = "rule-state-number|a|0|key";
+    const std::string numberDropdown = "property|" + numberAddress;
+    Rml::Element* numberTrigger =
+        findByAttribute(&document, "data-arg", numberDropdown);
+    CHECK(numberTrigger != nullptr);
+    CHECK(attributeOf(numberTrigger, "data-action")
+          == "toggle-logic-dropdown");
+    click(numberTrigger);
+    frame(context, ui);
+
+    std::vector<Rml::Element*> entries;
+    collectByClass(&document, "drop-entry", entries);
+    std::string numberList;
+    for (Rml::Element* entry : entries) {
+        const std::string arg = attributeOf(entry, "data-arg");
+        if (arg == numberAddress || arg == numberDropdown)
+            numberList += entry->GetInnerRML();
+    }
+    CHECK(numberList.find("score") != std::string::npos);
+    CHECK(numberList.find("Create Number Project Variable") != std::string::npos);
+    CHECK(numberList.find("flag") == std::string::npos);
+    CHECK(numberList.find("title") == std::string::npos);
+    CHECK(numberList.find("localScore") == std::string::npos);
+
+    Rml::Element* createNumber = createEntryFor(&document, numberAddress);
+    CHECK(createNumber != nullptr);
+    CHECK(attributeOf(createNumber, "data-value") == "number");
+    click(createNumber);
+    frame(context, ui);
+
+    Rml::Element* input =
+        document.GetElementById("logic-context-variable-name-input");
+    CHECK(input != nullptr);
+    CHECK(attributeOf(input, "data-arg") == numberAddress);
+    const uint64_t draftRevision = coordinator.document().revision();
+    const std::size_t draftUndo = coordinator.undoSize();
+
+    setDraftValue(context, input, "score");
+    Rml::Element* elsewhere = document.GetElementById("logic-toolbar-search");
+    CHECK(elsewhere != nullptr);
+    if (elsewhere) CHECK(elsewhere->Focus());
+    frame(context, ui);
+    CHECK(coordinator.document().revision() == draftRevision);
+    CHECK(coordinator.undoSize() == draftUndo);
+    CHECK(document.GetElementById("logic-context-variable-name-input") != nullptr);
+
+    input = document.GetElementById("logic-context-variable-name-input");
+    if (input) CHECK(input->Focus());
+    pressKey(input, Rml::Input::KI_RETURN);
+    frame(context, ui);
+    CHECK(coordinator.document().revision() == draftRevision);
+    CHECK(document.GetElementById("logic-context-variable-error") != nullptr);
+    input = document.GetElementById("logic-context-variable-name-input");
+    CHECK(input != nullptr);
+    CHECK(context.GetFocusElement() == input);
+    if (auto* control =
+            rmlui_dynamic_cast<Rml::ElementFormControl*>(input)) {
+        CHECK(control->GetValue() == "score");
+    } else {
+        CHECK(false);
+    }
+
+    setDraftValue(context, input, "bonus");
+    click(findByAttribute(
+        &document, "data-action", "confirm-contextual-global-variable"));
+    frame(context, ui);
+    // Revision uses a monotonic high-water mark across Undo, so a prior Undo
+    // may make the next single commit jump by more than one.
+    CHECK(coordinator.document().revision() != draftRevision);
+    CHECK(coordinator.undoSize() == draftUndo + 1);
+    CHECK(document.GetElementById("logic-context-variable-name-input") == nullptr);
+    CHECK(coordinator.document().data().globalVariables.back().key == "bonus");
+    const LogicBoardDef& afterCreate =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(std::get<LogicVariableReference>(
+        Logic::findProperty(afterCreate.rules[1].actions[0], "key")->value).id
+        == "bonus");
+
+    CHECK(coordinator.undo().ok);
+    frame(context, ui);
+    CHECK(coordinator.document().data().globalVariables.size() == 3);
+    const LogicBoardDef& afterUndo =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(std::get<LogicVariableReference>(
+        Logic::findProperty(afterUndo.rules[1].actions[0], "key")->value).id
+        == "score");
+    CHECK(coordinator.redo().ok);
+    frame(context, ui);
+
+    const std::string booleanAddress = "rule-state-boolean|a|0|key";
+    const std::string booleanDropdown = "property|" + booleanAddress;
+    click(findByAttribute(&document, "data-arg", booleanDropdown));
+    frame(context, ui);
+    entries.clear();
+    collectByClass(&document, "drop-entry", entries);
+    std::string booleanList;
+    for (Rml::Element* entry : entries) {
+        const std::string arg = attributeOf(entry, "data-arg");
+        if (arg == booleanAddress || arg == booleanDropdown)
+            booleanList += entry->GetInnerRML();
+    }
+    CHECK(booleanList.find("flag") != std::string::npos);
+    CHECK(booleanList.find("Create Boolean Project Variable") != std::string::npos);
+    CHECK(booleanList.find("score") == std::string::npos);
+    CHECK(booleanList.find("bonus") == std::string::npos);
+
+    Rml::Element* createBoolean = createEntryFor(&document, booleanAddress);
+    CHECK(createBoolean != nullptr);
+    CHECK(attributeOf(createBoolean, "data-value") == "boolean");
+    click(createBoolean);
+    frame(context, ui);
+    input = document.GetElementById("logic-context-variable-name-input");
+    setDraftValue(context, input, "armed");
+    pressKey(input, Rml::Input::KI_RETURN);
+    frame(context, ui);
+    CHECK(coordinator.document().data().globalVariables.back().key == "armed");
+    CHECK(coordinator.document().data().globalVariables.back().type
+          == GameVariableDefinition::Type::Boolean);
+    CHECK(std::get<bool>(
+        coordinator.document().data().globalVariables.back().initialValue)
+        == false);
+
+    input = openContextualCreator(context, document, ui, numberAddress);
+    const uint64_t beforeEscape = coordinator.document().revision();
+    const std::size_t undoBeforeEscape = coordinator.undoSize();
+    pressKey(input, Rml::Input::KI_ESCAPE);
+    frame(context, ui);
+    CHECK(document.GetElementById("logic-context-variable-name-input") == nullptr);
+    CHECK(coordinator.document().revision() == beforeEscape);
+    CHECK(coordinator.undoSize() == undoBeforeEscape);
+
+    input = openContextualCreator(context, document, ui, numberAddress);
+    CHECK(input != nullptr);
+    click(findByAttribute(
+        &document, "data-action", "cancel-contextual-global-variable"));
+    frame(context, ui);
+    CHECK(document.GetElementById("logic-context-variable-name-input") == nullptr);
+    CHECK(coordinator.document().revision() == beforeEscape);
+    CHECK(coordinator.undoSize() == undoBeforeEscape);
+
+    input = openContextualCreator(context, document, ui, numberAddress);
+    CHECK(input != nullptr);
+    CHECK(coordinator.apply(OpenLogicBoardIntent{"RemoteCoin"}).ok);
+    frame(context, ui);
+    CHECK(document.GetElementById("logic-context-variable-name-input") == nullptr);
+    CHECK(coordinator.apply(OpenLogicBoardIntent{"Hero"}).ok);
+    frame(context, ui);
+
+    input = openContextualCreator(context, document, ui, numberAddress);
+    CHECK(input != nullptr);
+    CHECK(coordinator.undo().ok);
+    frame(context, ui);
+    CHECK(document.GetElementById("logic-context-variable-name-input") == nullptr);
+    CHECK(coordinator.redo().ok);
+    frame(context, ui);
+
+    input = openContextualCreator(context, document, ui, numberAddress);
+    CHECK(input != nullptr);
+    CHECK(coordinator.playCurrentScene().ok);
+    frame(context, ui);
+    CHECK(document.GetElementById("logic-context-variable-name-input") == nullptr);
+    numberTrigger = nullptr;
+    {
+        std::vector<Rml::Element*> triggers;
+        collectByClass(&document, "drop-trigger", triggers);
+        for (Rml::Element* trigger : triggers) {
+            if (trigger->GetInnerRML().find("bonus") != std::string::npos
+                && trigger->IsClassSet("disabled")) {
+                numberTrigger = trigger;
+            }
+        }
+    }
+    CHECK(numberTrigger != nullptr);
+    CHECK(coordinator.stopPlaying().ok);
+    frame(context, ui);
+
+    input = openContextualCreator(context, document, ui, numberAddress);
+    CHECK(input != nullptr);
+    ProjectDocument replacement{coordinator.document().data()};
+    CHECK(coordinator.replaceProject(std::move(replacement)).ok);
+    frame(context, ui);
+    CHECK(document.GetElementById("logic-context-variable-name-input") == nullptr);
 }
 
 // ----------------------------------------------------------------------------
@@ -786,6 +1057,8 @@ int main() {
     // Scene workspace first: the grid field lives in the Scene toolbar.
     testCommitFieldKeepsItsFocusBaseline(*context, *document);
     testObjectVariableReachabilityGuardrail(
+        *context, *document, coordinator, ui);
+    testContextualProjectVariableCreation(
         *context, *document, coordinator, ui);
     testFocusOpensTheCompletionList(*context, *document, coordinator, ui);
     testEditingAnExistingExpression(*context, *document, coordinator, ui);

@@ -49,6 +49,15 @@ struct LogicExpressionFieldState {
     bool edited = false;
 };
 
+/** ADR-0032 panel-local state for the contextual Project Variable creator. */
+struct LogicVariableCreationFieldState {
+    std::string propertyAddress;
+    std::string key;
+    std::string errorMessage;
+    GameVariableDefinition::Type requiredType =
+        GameVariableDefinition::Type::Number;
+};
+
 /**
  * The completion list's entries for @p draftText (ADR-0029).
  *
@@ -90,6 +99,7 @@ std::string renderLogicProperties(
     const std::string& openDropdownId,
     const LogicKeyBindingEditorState& keyBinding,
     const LogicExpressionFieldState& expressionField,
-    bool playing);
+    bool playing,
+    const LogicVariableCreationFieldState& variableCreation = {});
 
 } // namespace ArtCade::EditorNative

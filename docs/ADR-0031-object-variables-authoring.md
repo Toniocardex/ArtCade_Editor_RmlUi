@@ -12,7 +12,8 @@ editor persistence of both fields; variable reference counting shared with
 [ADR-0017](ADR-0017-coordinator-document-core-boundaries.md),
 [ADR-0020](ADR-0020-scene-background-color-inspector.md) (Inspector section +
 draft-buffer precedent), [ADR-0028](ADR-0028-logic-number-expressions.md),
-[ADR-0029](ADR-0029-expression-text-authoring.md)
+[ADR-0029](ADR-0029-expression-text-authoring.md),
+[ADR-0032](ADR-0032-contextual-project-variable-creation.md) (Slice B)
 
 ## Context
 
@@ -282,8 +283,9 @@ Two guardrails make the limitation honest rather than silent:
 Residual limitation, accepted and recorded: an Object Type whose instances live
 only in another scene cannot have its variables edited from the current one.
 The dead end that matters — needing a variable while authoring a rule — is
-closed by Slice B's contextual creation, which executes the A1 Command directly
-and does not depend on any Inspector surface existing.
+specified separately by
+[ADR-0032](ADR-0032-contextual-project-variable-creation.md): contextual
+creation does not depend on any Inspector surface existing.
 
 The alternative (Object Type as a first-class inspectable subject) is
 semantically better and remains the intended end state, but it requires an
@@ -311,8 +313,9 @@ in the controller; only a valid commit produces an Intent.
 
 ## Non-goals
 
-Contextual picker and create-and-assign macro command (Slice B) · new Project
-surface and relocation of the Project Variables table (Slice C) · Scene
+Contextual picker and create-and-assign macro command
+([Slice B / ADR-0032](ADR-0032-contextual-project-variable-creation.md)) · new
+Project surface and relocation of the Project Variables table (Slice C) · Scene
 Variables · runtime `variable-manager` changes · runtime evaluation in the
 editor · Inspector redesign · compact Project Variables list · Find References
 navigation UI (the *counter* is in scope, the navigation is not) ·
@@ -410,10 +413,13 @@ navigation UI (the *counter* is in scope, the navigation is not) ·
      RmlUi routing suite asserts the exact rendered message, its absence when
      the type is reachable, and both transitions.
 
-- The `Create compatible variable` button in
-  `logic_property_editor.cpp:401` still routes to the Project Variables
-  drawer. It becomes the typed contextual creation of Slice B; Slice 0
-  deliberately left it alone.
+- **Slice B — done.** Every `GlobalVariable` property now has the typed Project
+  Variable picker and contextual creator specified by
+  [ADR-0032](ADR-0032-contextual-project-variable-creation.md). Creation and
+  assignment commit through one staged Command and one history entry; the
+  panel-local draft implements the specified validation, focus, discard, Play,
+  and Replace Project lifecycle. The former `Create compatible variable`
+  drawer detour is gone.
 
 ## Consequences
 

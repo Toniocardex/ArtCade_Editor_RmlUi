@@ -64,6 +64,15 @@ std::string dropdown(const std::string& label, const std::string& dropdownId,
     return html;
 }
 
+const char* variableTypeLabel(GameVariableDefinition::Type type) {
+    switch (type) {
+    case GameVariableDefinition::Type::Number: return "Number";
+    case GameVariableDefinition::Type::Boolean: return "Boolean";
+    case GameVariableDefinition::Type::String: return "String";
+    }
+    return "Variable";
+}
+
 std::string stringValue(const LogicPropertyDef* property) {
     if (!property) return {};
     if (const auto* value = std::get_if<LogicStringValue>(&property->value)) return value->value;
@@ -190,7 +199,8 @@ std::string renderLogicProperties(
     const std::string& openDropdownId,
     const LogicKeyBindingEditorState& keyBinding,
     const LogicExpressionFieldState& expressionField,
-    bool playing) {
+    bool playing,
+    const LogicVariableCreationFieldState& variableCreation) {
     const Logic::LogicBlockDescriptor* descriptor = Logic::findDescriptor(block.typeId);
     if (!descriptor) return {};
 
@@ -393,18 +403,63 @@ std::string renderLogicProperties(
         } else if (property.semantic == Logic::LogicPropertySemantic::GlobalVariable) {
             const std::string selected = stringValue(current);
             const auto required = Logic::requiredVariableType(block.typeId);
-            std::string entries;
-            for (const GameVariableDefinition& variable : document.data().globalVariables) {
-                if (required && variable.type != *required) continue;
-                entries += entry(variable.key, variable.key, variable.key == selected,
-                                 dropdownId, encoded);
-            }
-            if (entries.empty()) {
-                html += "<button class=\"logic-btn\" data-action=\"toggle-global-variables\">"
-                        "Create compatible variable</button>";
+            if (required && variableCreation.propertyAddress == encoded
+                && variableCreation.requiredType == *required) {
+                const bool invalid = !variableCreation.errorMessage.empty();
+                html += "<div class=\"logic-context-variable-create\">"
+                        "<div class=\"logic-context-variable-fields\">"
+                        "<input id=\"logic-context-variable-name-input\" type=\"text\""
+                        " class=\"logic-value-input logic-context-variable-name";
+                if (invalid) html += " invalid";
+                html += "\" data-action=\"edit-contextual-global-variable-key\" data-arg=\""
+                      + escapeRml(encoded) + "\" value=\""
+                      + escapeRml(variableCreation.key) + "\"/>"
+                        "<span class=\"logic-context-variable-type\">"
+                      + std::string(variableTypeLabel(*required))
+                      + "</span></div>"
+                        "<div class=\"logic-context-variable-actions\">"
+                        "<button class=\"logic-btn primary\""
+                        " data-action=\"confirm-contextual-global-variable\" data-arg=\""
+                      + escapeRml(encoded) + "\">Create</button>"
+                        "<button class=\"logic-btn\""
+                        " data-action=\"cancel-contextual-global-variable\" data-arg=\""
+                      + escapeRml(encoded) + "\">Cancel</button></div>";
+                if (invalid) {
+                    html += "<div id=\"logic-context-variable-error\""
+                            " class=\"logic-context-variable-error\">"
+                          + escapeRml(variableCreation.errorMessage) + "</div>";
+                }
+                html += "</div>";
             } else {
-                html += dropdown(selected.empty() ? "Select variable" : selected,
-                                 dropdownId, entries, open, playing);
+                std::string entries;
+                if (required) {
+                    for (const GameVariableDefinition& variable
+                         : document.data().globalVariables) {
+                        if (variable.type != *required) continue;
+                        entries += entry(
+                            variable.key, variable.key, variable.key == selected,
+                            dropdownId, encoded);
+                    }
+                    const std::string createLabel =
+                        std::string("+ Create ") + variableTypeLabel(*required)
+                        + " Project Variable…";
+                    entries += "<button class=\"drop-entry logic-variable-create-entry\""
+                               " data-action=\"begin-contextual-global-variable\" data-arg=\""
+                             + escapeRml(encoded) + "\" data-value=\""
+                             + (*required == GameVariableDefinition::Type::Boolean
+                                    ? std::string("boolean") : std::string("number"))
+                             + "\">" + escapeRml(createLabel) + "</button>";
+                    const std::string closedLabel = selected.empty()
+                        ? std::string("Create ") + variableTypeLabel(*required)
+                            + " Project Variable…"
+                        : selected;
+                    html += dropdown(
+                        closedLabel, dropdownId, entries, open, playing);
+                } else {
+                    html += dropdown(
+                        selected.empty() ? "Select variable" : selected,
+                        dropdownId, entries, open, playing);
+                }
             }
         } else if (property.semantic == Logic::LogicPropertySemantic::SpriteAnimationAsset) {
             const std::string selected = stringValue(current);

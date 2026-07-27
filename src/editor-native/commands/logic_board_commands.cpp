@@ -3,6 +3,7 @@
 #include "editor-native/model/logic_component_references.h"
 #include "editor-native/model/project_document.h"
 #include "logic-core.h"
+#include "project-global-variables-format.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -12,6 +13,9 @@ namespace ArtCade::EditorNative {
 namespace {
 
 constexpr EditorInvalidation kLogicInvalidation = EditorInvalidation::LogicBoard;
+constexpr EditorInvalidation kContextVariableInvalidation =
+    EditorInvalidation::LogicBoard | EditorInvalidation::Inspector
+    | EditorInvalidation::Viewport;
 
 const LogicBoardDef* boardOf(const ProjectDocument& document, const ObjectTypeId& id) {
     const EntityDef* type = document.findObjectType(id);
@@ -22,6 +26,46 @@ LogicRuleDef* ruleOf(LogicBoardDef& board, const LogicRuleId& id) {
     const auto it = std::find_if(board.rules.begin(), board.rules.end(),
         [&](const LogicRuleDef& rule) { return rule.id == id; });
     return it == board.rules.end() ? nullptr : &*it;
+}
+
+LogicBlockDef* blockOf(LogicRuleDef& rule, LogicPropertyTarget target,
+                       std::size_t blockIndex) {
+    switch (target) {
+    case LogicPropertyTarget::Trigger:
+        return &rule.trigger;
+    case LogicPropertyTarget::Action:
+        return blockIndex < rule.actions.size() ? &rule.actions[blockIndex] : nullptr;
+    case LogicPropertyTarget::Condition:
+        return blockIndex < rule.conditions.size()
+            ? &rule.conditions[blockIndex].block : nullptr;
+    }
+    return nullptr;
+}
+
+EntityDef* objectTypeOf(ProjectDoc& project, const ObjectTypeId& id) {
+    const auto it = project.objectTypes.find(id);
+    return it == project.objectTypes.end() ? nullptr : &it->second;
+}
+
+std::string stagedValidationError(const ProjectDoc& project,
+                                  const ObjectTypeId& objectTypeId,
+                                  const EntityDef& objectType,
+                                  const LogicBoardDef& board) {
+    return Logic::firstLogicErrorMessage(Logic::validateBoard(
+        objectTypeId, board, &objectType, &project,
+        Logic::LogicValidationPurpose::StructuralCommit));
+}
+
+const Logic::LogicPropertyDescriptor* descriptorProperty(
+    const LogicBlockDef& block, const std::string& key) {
+    const Logic::LogicBlockDescriptor* descriptor = Logic::findDescriptor(block.typeId);
+    if (!descriptor) return nullptr;
+    const auto it = std::find_if(
+        descriptor->properties.begin(), descriptor->properties.end(),
+        [&](const Logic::LogicPropertyDescriptor& property) {
+            return property.key == key;
+        });
+    return it == descriptor->properties.end() ? nullptr : &*it;
 }
 
 bool sameBoard(const LogicBoardDef& a, const LogicBoardDef& b) {
@@ -524,6 +568,139 @@ EditorOperationResult SetLogicPropertyCommand::apply(ProjectDocument& document) 
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult SetLogicPropertyCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
+
+CreateAndAssignGlobalVariableCommand::CreateAndAssignGlobalVariableCommand(
+    ObjectTypeId objectTypeId, LogicRuleId ruleId, LogicPropertyTarget target,
+    std::size_t blockIndex, std::string propertyKey,
+    GameVariableDefinition definition)
+    : objectTypeId_(std::move(objectTypeId)), ruleId_(std::move(ruleId)),
+      target_(target), blockIndex_(blockIndex),
+      propertyKey_(std::move(propertyKey)), definition_(std::move(definition)) {}
+
+EditorOperationResult CreateAndAssignGlobalVariableCommand::apply(
+    ProjectDocument& document) {
+    ProjectDoc staged = document.data();
+    EntityDef* objectType = objectTypeOf(staged, objectTypeId_);
+    if (!objectType) return EditorOperationResult::failure("Unknown Object Type");
+    if (!objectType->logicBoard)
+        return EditorOperationResult::failure("Object Type has no Logic Board");
+
+    LogicRuleDef* rule = ruleOf(*objectType->logicBoard, ruleId_);
+    if (!rule) return EditorOperationResult::failure("Unknown Logic rule");
+    LogicBlockDef* block = blockOf(*rule, target_, blockIndex_);
+    if (!block) return EditorOperationResult::failure("Unknown Logic block");
+
+    const auto property = std::find_if(
+        block->properties.begin(), block->properties.end(),
+        [&](const LogicPropertyDef& candidate) {
+            return candidate.key == propertyKey_;
+        });
+    if (property == block->properties.end())
+        return EditorOperationResult::failure("Unknown Logic property");
+
+    const Logic::LogicPropertyDescriptor* propertyDescriptor =
+        descriptorProperty(*block, propertyKey_);
+    if (!propertyDescriptor
+        || propertyDescriptor->semantic
+            != Logic::LogicPropertySemantic::GlobalVariable
+        || propertyDescriptor->valueKind != Logic::LogicValueKind::Variable) {
+        return EditorOperationResult::failure(
+            "Logic property is not a project variable reference");
+    }
+
+    const auto requiredType = Logic::requiredVariableType(block->typeId);
+    if (!requiredType || *requiredType != definition_.type)
+        return EditorOperationResult::failure(
+            "Project variable type is incompatible with this Logic block");
+    if (!std::holds_alternative<LogicVariableReference>(property->value))
+        return EditorOperationResult::failure(
+            "Logic property has an invalid value kind");
+
+    const auto duplicate = std::find_if(
+        staged.globalVariables.begin(), staged.globalVariables.end(),
+        [&](const GameVariableDefinition& variable) {
+            return variable.key == definition_.key;
+        });
+    if (duplicate != staged.globalVariables.end())
+        return EditorOperationResult::failure("Global variable key already exists");
+
+    const LogicValue capturedPrevious = property->value;
+    staged.globalVariables.push_back(definition_);
+    std::string error;
+    if (!ProjectJson::validate_current_global_variables_document(
+            staged.globalVariables, error)) {
+        return EditorOperationResult::failure(error);
+    }
+
+    property->value = LogicVariableReference{definition_.key};
+    if (const std::string boardError = stagedValidationError(
+            staged, objectTypeId_, *objectType, *objectType->logicBoard);
+        !boardError.empty()) {
+        return EditorOperationResult::failure(boardError);
+    }
+
+    if (!previousValue_) previousValue_ = capturedPrevious;
+    document.commitStagedCommand(std::move(staged));
+    return EditorOperationResult::success(
+        kContextVariableInvalidation, DomainChange::projectChanged());
+}
+
+EditorOperationResult CreateAndAssignGlobalVariableCommand::undo(
+    ProjectDocument& document) {
+    if (!previousValue_)
+        return EditorOperationResult::failure(
+            "Cannot undo project variable creation before apply");
+
+    ProjectDoc staged = document.data();
+    EntityDef* objectType = objectTypeOf(staged, objectTypeId_);
+    if (!objectType || !objectType->logicBoard)
+        return EditorOperationResult::failure(
+            "Cannot undo: Logic Board no longer exists");
+    LogicRuleDef* rule = ruleOf(*objectType->logicBoard, ruleId_);
+    LogicBlockDef* block = rule ? blockOf(*rule, target_, blockIndex_) : nullptr;
+    if (!block)
+        return EditorOperationResult::failure(
+            "Cannot undo: Logic block no longer exists");
+    const auto property = std::find_if(
+        block->properties.begin(), block->properties.end(),
+        [&](const LogicPropertyDef& candidate) {
+            return candidate.key == propertyKey_;
+        });
+    if (property == block->properties.end())
+        return EditorOperationResult::failure(
+            "Cannot undo: Logic property no longer exists");
+    const auto* currentReference =
+        std::get_if<LogicVariableReference>(&property->value);
+    if (!currentReference || currentReference->id != definition_.key)
+        return EditorOperationResult::failure(
+            "Cannot undo: Logic property no longer references the created variable");
+
+    const auto variable = std::find_if(
+        staged.globalVariables.begin(), staged.globalVariables.end(),
+        [&](const GameVariableDefinition& candidate) {
+            return candidate.key == definition_.key;
+        });
+    if (variable == staged.globalVariables.end())
+        return EditorOperationResult::failure(
+            "Cannot undo: created project variable no longer exists");
+
+    property->value = *previousValue_;
+    staged.globalVariables.erase(variable);
+    std::string error;
+    if (!ProjectJson::validate_current_global_variables_document(
+            staged.globalVariables, error)) {
+        return EditorOperationResult::failure(error);
+    }
+    if (const std::string boardError = stagedValidationError(
+            staged, objectTypeId_, *objectType, *objectType->logicBoard);
+        !boardError.empty()) {
+        return EditorOperationResult::failure(boardError);
+    }
+
+    document.commitStagedCommand(std::move(staged));
+    return EditorOperationResult::success(
+        kContextVariableInvalidation, DomainChange::projectChanged());
+}
 
 SetLogicAnimationClipCommand::SetLogicAnimationClipCommand(
     ObjectTypeId id, LogicRuleId ruleId, std::size_t actionIndex,

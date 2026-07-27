@@ -2,6 +2,7 @@
 
 #include "core/types.h"
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -13,6 +14,14 @@ namespace ArtCade::EditorNative {
 
 class EditorCoordinator;
 enum class LogicBoardTab;
+
+struct ContextualGlobalVariableDraft {
+    ObjectTypeId objectTypeId;
+    std::string propertyAddress;
+    GameVariableDefinition::Type requiredType =
+        GameVariableDefinition::Type::Number;
+    std::string key;
+};
 
 // Dedicated projection for the complex Object-Type-owned Logic Board editor.
 // It owns no authoring state and rebuilds only on LogicBoard invalidation.
@@ -92,6 +101,32 @@ public:
     const std::string& expressionFocusAddress() const { return expressionFocusAddress_; }
     const std::string& expressionDraftText() const { return expressionDraftText_; }
     const std::string& expressionErrorMessage() const { return expressionErrorMessage_; }
+
+    // ADR-0032 contextual creator. All typing stays panel-local; only the
+    // controller's explicit confirm path constructs a Command.
+    void beginContextualGlobalVariable(
+        Rml::ElementDocument* document, const EditorCoordinator& coordinator,
+        const ObjectTypeId& objectTypeId, const std::string& propertyAddress,
+        GameVariableDefinition::Type requiredType, std::string suggestedKey);
+    void setContextualGlobalVariableKey(
+        Rml::ElementDocument* document, const std::string& propertyAddress,
+        std::string key);
+    void setContextualGlobalVariableError(
+        Rml::ElementDocument* document, const EditorCoordinator& coordinator,
+        const std::string& propertyAddress, std::string message);
+    std::optional<ContextualGlobalVariableDraft>
+        contextualGlobalVariableDraft() const;
+    bool hasContextualGlobalVariableDraft() const {
+        return !contextualVariableAddress_.empty();
+    }
+    void discardContextualGlobalVariable() const {
+        contextualVariableObjectTypeId_.clear();
+        contextualVariableAddress_.clear();
+        contextualVariableKey_.clear();
+        contextualVariableError_.clear();
+        contextualVariableSourceRevision_ = 0;
+        contextualVariableFocusRestorePending_ = false;
+    }
 
     void toggleVariablesDrawer(
         Rml::ElementDocument* document, const EditorCoordinator& coordinator);
@@ -185,6 +220,15 @@ private:
     // and refuses to delete. -1 means "no capture; place it at the end".
     mutable int expressionCaretStart_ = -1;
     mutable int expressionCaretEnd_ = -1;
+    // ADR-0032 panel-local contextual Project Variable creator.
+    mutable ObjectTypeId contextualVariableObjectTypeId_;
+    mutable std::string contextualVariableAddress_;
+    mutable GameVariableDefinition::Type contextualVariableRequiredType_ =
+        GameVariableDefinition::Type::Number;
+    mutable std::string contextualVariableKey_;
+    mutable std::string contextualVariableError_;
+    mutable uint64_t contextualVariableSourceRevision_ = 0;
+    mutable bool contextualVariableFocusRestorePending_ = false;
     // True only while SetInnerRML is replacing the panel's markup. Destroying
     // the focused element makes RmlUi emit a blur for it, which is
     // indistinguishable at the router from the author leaving the field — see

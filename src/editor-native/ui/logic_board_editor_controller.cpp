@@ -69,6 +69,7 @@ LogicBoardEditorController::LogicBoardEditorController(
 void LogicBoardEditorController::detach() {
     panel_.closeDropdown();
     panel_.clearKeyBindingEditor();
+    panel_.discardContextualGlobalVariable();
     document_ = nullptr;
 }
 
@@ -86,6 +87,14 @@ void LogicBoardEditorController::toggleDropdown(const std::string& dropdownId) {
 
 void LogicBoardEditorController::closeDropdown() {
     panel_.closeDropdown();
+}
+
+void LogicBoardEditorController::discardContextualGlobalVariable() {
+    panel_.discardContextualGlobalVariable();
+}
+
+bool LogicBoardEditorController::hasContextualGlobalVariableDraft() const {
+    return panel_.hasContextualGlobalVariableDraft();
 }
 
 bool LogicBoardEditorController::hasKeyCapture() const {
@@ -218,6 +227,15 @@ bool LogicBoardEditorController::handleAction(
         panel_.toggleVariablesDrawer(document_, coordinator_);
         return true;
     }
+    if (action == "edit-contextual-global-variable-key") {
+        panel_.setContextualGlobalVariableKey(document_, arg, value);
+        return true;
+    }
+    if (action == "cancel-contextual-global-variable") {
+        panel_.discardContextualGlobalVariable();
+        panel_.refresh(document_, coordinator_);
+        return true;
+    }
     // ADR-0029 — the expression field. Focus and typing are presentation only;
     // only commit reaches a command.
     if (action == "focus-logic-expression") {
@@ -314,7 +332,8 @@ bool LogicBoardEditorController::handleAction(
         || action == "set-logic-event-collision-object-type"
         || action == "set-logic-animation-asset" || action == "set-logic-animation-clip"
         || action == "set-logic-execution-mode"
-        || action == "pick-logic-property" || action == "pick-logic-key-binding") {
+        || action == "pick-logic-property" || action == "pick-logic-key-binding"
+        || action == "begin-contextual-global-variable") {
         panel_.closeDropdown();
     }
     if (action == "pick-logic-key-binding") panel_.clearKeyBindingEditor();
@@ -376,7 +395,9 @@ bool LogicBoardEditorController::handleAction(
         || action == "pick-logic-property" || action == "pick-logic-key-binding"
         || action == "commit-logic-property"
         || action == "set-logic-property-bool"
-        || action == "commit-logic-property-component";
+        || action == "commit-logic-property-component"
+        || action == "begin-contextual-global-variable"
+        || action == "confirm-contextual-global-variable";
     if (coordinator_.isPlaying() && authoringAction) return true;
 
     if (action == "create-logic-board") {
@@ -456,6 +477,84 @@ bool LogicBoardEditorController::handleAction(
             objectTypeId, address.ruleId, address.target, address.index,
             address.key, std::move(propertyValue)});
     };
+
+    if (action == "begin-contextual-global-variable"
+        || action == "confirm-contextual-global-variable") {
+        const std::optional<PropertyAddress> address = parsePropertyAddress(arg);
+        const LogicBlockDef* block = address ? blockAt(*address) : nullptr;
+        const Logic::LogicBlockDescriptor* descriptor =
+            block ? Logic::findDescriptor(block->typeId) : nullptr;
+        const Logic::LogicPropertyDescriptor* propertyDescriptor = nullptr;
+        if (descriptor && address) {
+            const auto property = std::find_if(
+                descriptor->properties.begin(), descriptor->properties.end(),
+                [&](const Logic::LogicPropertyDescriptor& candidate) {
+                    return candidate.key == address->key;
+                });
+            if (property != descriptor->properties.end())
+                propertyDescriptor = &*property;
+        }
+        const auto requiredType =
+            block ? Logic::requiredVariableType(block->typeId) : std::nullopt;
+        if (!address || !block || !propertyDescriptor
+            || propertyDescriptor->semantic
+                != Logic::LogicPropertySemantic::GlobalVariable
+            || propertyDescriptor->valueKind != Logic::LogicValueKind::Variable
+            || !requiredType) {
+            coordinator_.logError(
+                "This Logic property cannot create a Project Variable");
+            panel_.discardContextualGlobalVariable();
+            panel_.refresh(document_, coordinator_);
+            return true;
+        }
+
+        if (action == "begin-contextual-global-variable") {
+            std::string suggestedKey;
+            for (int n = 1;; ++n) {
+                suggestedKey = "variable-" + std::to_string(n);
+                const bool taken = std::any_of(
+                    coordinator_.document().data().globalVariables.begin(),
+                    coordinator_.document().data().globalVariables.end(),
+                    [&](const GameVariableDefinition& variable) {
+                        return variable.key == suggestedKey;
+                    });
+                if (!taken) break;
+            }
+            panel_.beginContextualGlobalVariable(
+                document_, coordinator_, objectTypeId, arg, *requiredType,
+                std::move(suggestedKey));
+            return true;
+        }
+
+        const auto draft = panel_.contextualGlobalVariableDraft();
+        if (!draft || draft->objectTypeId != objectTypeId
+            || draft->propertyAddress != arg
+            || draft->requiredType != *requiredType) {
+            coordinator_.logError(
+                "Contextual Project Variable draft is no longer valid");
+            panel_.discardContextualGlobalVariable();
+            panel_.refresh(document_, coordinator_);
+            return true;
+        }
+
+        GameVariableDefinition definition;
+        definition.key = draft->key;
+        definition.type = draft->requiredType;
+        definition.initialValue =
+            draft->requiredType == GameVariableDefinition::Type::Boolean
+                ? GameVariableValue{false} : GameVariableValue{0.0};
+        const EditorOperationResult result = coordinator_.execute(
+            CreateAndAssignGlobalVariableCommand{
+                objectTypeId, address->ruleId, address->target, address->index,
+                address->key, std::move(definition)});
+        if (result.ok) {
+            panel_.discardContextualGlobalVariable();
+        } else {
+            panel_.setContextualGlobalVariableError(
+                document_, coordinator_, arg, result.error);
+        }
+        return true;
+    }
 
     if (action == "add-logic-condition-type") {
         coordinator_.apply(AddLogicConditionTypeIntent{objectTypeId, arg, value});

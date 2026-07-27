@@ -20,6 +20,7 @@ class AddLinearMoverCommand;
 class RemoveBoxColliderCommand;
 class RemoveLinearMoverCommand;
 class RenameEntityCommand;
+class CreateAndAssignGlobalVariableCommand;
 class SetEntityTransformCommand;
 struct AuthoredTransformPatch;
 class SetBoxColliderEnabledCommand;
@@ -349,6 +350,7 @@ private:
     friend class SetLogicConditionJoinCommand;
     friend class SetLogicConditionNegatedCommand;
     friend class SetLogicPropertyCommand;
+    friend class CreateAndAssignGlobalVariableCommand;
     friend class SetLogicAnimationClipCommand;
     friend class SetLogicNumberExpressionCommand;
     friend class RepairIncompatibleLogicCommand;

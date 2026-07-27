@@ -426,6 +426,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-key-search-cancel,
 .logic-key-search-toggle,
 .logic-expression-completions,
+.logic-context-variable-type,
 .logic-toggle,
 .logic-value-input,
 .logic-variable-description,
@@ -672,6 +673,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-empty,
 .logic-rule,
 .logic-expression-completions,
+.logic-context-variable-type,
 .logic-toggle,
 .logic-toolbar-search,
 .logic-value-input,
@@ -910,6 +912,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-key-search-toggle,
 .logic-more-trigger,
 .logic-muted,
+.logic-context-variable-type,
 .logic-owner,
 .logic-rule-head:hover .logic-rule-caret,
 .logic-expression-completion-label,
@@ -1223,6 +1226,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 /* danger-border */
 .logic-expression-error,
 .logic-expression-input.invalid,
+.logic-context-variable-error,
+.logic-context-variable-name.invalid,
 .object-variable-draft-invalid,
 #btn-console-error.active,
 #btn-stop:hover,
@@ -1241,6 +1246,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 
 /* danger-surface */
 .logic-expression-error,
+.logic-context-variable-error,
 .editor-modal-actions .panel-btn.danger,
 .editor-modal-actions .panel-btn.danger:hover {
     background: #2a1f20;
@@ -1269,6 +1275,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 
 /* danger-text */
 .logic-expression-error,
+.logic-context-variable-error,
 #btn-console-error.active,
 .object-variable-draft-error,
 #btn-stop,

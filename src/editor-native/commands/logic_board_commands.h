@@ -219,6 +219,29 @@ private:
     std::optional<LogicBoardDef> before_;
 };
 
+/**
+ * ADR-0032 — atomically creates one project variable and assigns it to one
+ * GlobalVariable property. Apply/undo each publish exactly one staged project.
+ */
+class CreateAndAssignGlobalVariableCommand final : public EditorCommand {
+public:
+    CreateAndAssignGlobalVariableCommand(
+        ObjectTypeId objectTypeId, LogicRuleId ruleId,
+        LogicPropertyTarget target, std::size_t blockIndex,
+        std::string propertyKey, GameVariableDefinition definition);
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "CreateAndAssignGlobalVariable"; }
+private:
+    ObjectTypeId objectTypeId_;
+    LogicRuleId ruleId_;
+    LogicPropertyTarget target_ = LogicPropertyTarget::Trigger;
+    std::size_t blockIndex_ = 0;
+    std::string propertyKey_;
+    GameVariableDefinition definition_;
+    std::optional<LogicValue> previousValue_;
+};
+
 class SetLogicAnimationClipCommand final : public EditorCommand {
 public:
     SetLogicAnimationClipCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,

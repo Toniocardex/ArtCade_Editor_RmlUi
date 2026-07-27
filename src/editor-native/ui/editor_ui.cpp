@@ -470,6 +470,37 @@ public:
             return;
         }
 
+        // ADR-0032: this text is a panel-local creation draft. Blur is
+        // deliberately inert; Enter/Create commits and Escape/Cancel discards.
+        // The keydown end is deferred because either path rebuilds the Logic
+        // Board and must not destroy the input while RmlUi is dispatching it.
+        if (action == "edit-contextual-global-variable-key") {
+            if (type == "change") {
+                ui_.handleAction(
+                    action, arg, formValue(actionElement, event));
+                return;
+            }
+            if (type == "blur" || type == "focus") return;
+            if (type == "keydown") {
+                const int key = event.GetParameter<int>("key_identifier", 0);
+                if (key == Rml::Input::KI_RETURN
+                    || key == Rml::Input::KI_NUMPADENTER) {
+                    ui_.pendingContextualVariableEnd_ =
+                        EditorUi::PendingContextualVariableEditEnd{
+                            EditorUi::PendingContextualVariableEnd::Confirm,
+                            arg, formValue(actionElement, event)};
+                    event.StopPropagation();
+                } else if (key == Rml::Input::KI_ESCAPE) {
+                    ui_.pendingContextualVariableEnd_ =
+                        EditorUi::PendingContextualVariableEditEnd{
+                            EditorUi::PendingContextualVariableEnd::Cancel,
+                            arg, {}};
+                    event.StopPropagation();
+                }
+            }
+            return;
+        }
+
         // Hierarchy context menu triggers carry the click position; the show is
         // deferred to processFrame (see requestHierarchyContextMenu).
         if (type == "click"
@@ -703,6 +734,7 @@ void EditorUi::detach() {
     inspector_.cancelBackgroundOpacityDraft();
     inspector_.discardObjectVariableDraft();
     pendingObjectVariableEnd_.reset();
+    pendingContextualVariableEnd_.reset();
     if (listener_) {
         const auto detachDocument = [&](Rml::ElementDocument* doc) {
             if (!doc) return;
@@ -766,6 +798,21 @@ void EditorUi::detach() {
 void EditorUi::processFrame() {
     if (!listener_ || !document_) return;
     if (pendingObjectVariableEnd_) finishPendingObjectVariableEdit();
+    if (pendingContextualVariableEnd_) {
+        const PendingContextualVariableEditEnd pending =
+            *pendingContextualVariableEnd_;
+        pendingContextualVariableEnd_.reset();
+        if (pending.kind == PendingContextualVariableEnd::Confirm) {
+            handleAction(
+                "edit-contextual-global-variable-key", pending.address,
+                pending.value);
+            handleAction(
+                "confirm-contextual-global-variable", pending.address, {});
+        } else {
+            handleAction(
+                "cancel-contextual-global-variable", pending.address, {});
+        }
+    }
     // ADR-0029: the expression field's focus, moved out of RmlUi's focus
     // dispatch (see the listener). Runs before the invalidation sweep so the
     // completion list is part of this frame's paint, not the next one.
@@ -979,6 +1026,8 @@ void EditorUi::applyInvalidations(EditorInvalidation flags) {
         // document happens to carry the same revision and ids.
         inspector_.discardObjectVariableDraft();
         pendingObjectVariableEnd_.reset();
+        logicBoardEditor_.discardContextualGlobalVariable();
+        pendingContextualVariableEnd_.reset();
     }
     if (has(flags, EditorInvalidation::Hierarchy) || has(flags, EditorInvalidation::Project))
         hierarchy_.refresh(document_, coordinator_);
@@ -2945,6 +2994,13 @@ void EditorUi::commitGridCellSize(const std::string& text) {
 void EditorUi::handleAction(const std::string& action, const std::string& arg,
                             const std::string& value) {
     if (actionDiscardsObjectVariableDraft(action)) discardObjectVariableDraft();
+    if (action == "undo" || action == "redo") {
+        // ADR-0032: history navigation invalidates a contextual property's
+        // captured prior value even if Undo+Redo returns to the same revision
+        // before the next repaint.
+        logicBoardEditor_.discardContextualGlobalVariable();
+        pendingContextualVariableEnd_.reset();
+    }
 
     // ADR-0024: migrated actions share dispatcher + ActionStateResolver.
     // PendingEditPolicy is applied inside the dispatcher (not the string gate).

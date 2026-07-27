@@ -346,6 +346,108 @@ static void testGlobalVariableCommands() {
     CHECK(coordinator.document().data().globalVariables[0].key == "doorOpen");
 }
 
+static void testCreateAndAssignGlobalVariableCommand() {
+    ProjectDoc project = makeProjectData();
+    project.globalVariables = {
+        {"score", GameVariableDefinition::Type::Number, 1.0, "Existing score"},
+        {"doorOpen", GameVariableDefinition::Type::Boolean, false, "Existing flag"},
+    };
+    EditorCoordinator coordinator{std::move(project)};
+    CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
+    const LogicBoardDef& empty =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
+    rule.actions[0] =
+        Logic::makeDefaultBlock(Logic::kStateAdd, Logic::BlockKind::Action);
+    for (LogicPropertyDef& property : rule.actions[0].properties)
+        if (property.key == "key")
+            property.value = LogicVariableReference{"score"};
+    rule.actions.push_back(
+        Logic::makeDefaultBlock(Logic::kStateToggle, Logic::BlockKind::Action));
+    for (LogicPropertyDef& property : rule.actions[1].properties)
+        if (property.key == "key")
+            property.value = LogicVariableReference{"doorOpen"};
+    CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
+
+    const std::size_t beforeCreateUndo = coordinator.undoSize();
+    const uint64_t beforeCreateRevision = coordinator.document().revision();
+    const auto created = coordinator.execute(CreateAndAssignGlobalVariableCommand{
+        "Hero", rule.id, LogicPropertyTarget::Action, 0, "key",
+        {"health", GameVariableDefinition::Type::Number, 0.0, {}}});
+    CHECK(created.ok);
+    CHECK(has(created.invalidation, EditorInvalidation::LogicBoard));
+    CHECK(has(created.invalidation, EditorInvalidation::Inspector));
+    CHECK(has(created.invalidation, EditorInvalidation::Viewport));
+    CHECK(coordinator.document().revision() == beforeCreateRevision + 1);
+    CHECK(coordinator.undoSize() == beforeCreateUndo + 1);
+    CHECK(coordinator.document().data().globalVariables.back().key == "health");
+    const auto& createdBoard =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(std::get<LogicVariableReference>(
+        Logic::findProperty(createdBoard.rules[0].actions[0], "key")->value).id
+        == "health");
+
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().data().globalVariables.size() == 2);
+    const auto& undoneBoard =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(std::get<LogicVariableReference>(
+        Logic::findProperty(undoneBoard.rules[0].actions[0], "key")->value).id
+        == "score");
+    CHECK(coordinator.redo().ok);
+    CHECK(coordinator.document().data().globalVariables.back().key == "health");
+    const auto& redoneBoard =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(std::get<LogicVariableReference>(
+        Logic::findProperty(redoneBoard.rules[0].actions[0], "key")->value).id
+        == "health");
+
+    const std::size_t beforeBooleanUndo = coordinator.undoSize();
+    CHECK(coordinator.execute(CreateAndAssignGlobalVariableCommand{
+        "Hero", rule.id, LogicPropertyTarget::Action, 1, "key",
+        {"enabled", GameVariableDefinition::Type::Boolean, false, {}}}).ok);
+    CHECK(coordinator.undoSize() == beforeBooleanUndo + 1);
+    CHECK(coordinator.document().data().globalVariables.back().type
+          == GameVariableDefinition::Type::Boolean);
+    const auto& booleanBoard =
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard;
+    CHECK(std::get<LogicVariableReference>(
+        Logic::findProperty(booleanBoard.rules[0].actions[1], "key")->value).id
+        == "enabled");
+
+    const uint64_t beforeFailures = coordinator.document().revision();
+    const std::size_t undoBeforeFailures = coordinator.undoSize();
+    const std::size_t variableCountBeforeFailures =
+        coordinator.document().data().globalVariables.size();
+    CHECK(!coordinator.execute(CreateAndAssignGlobalVariableCommand{
+        "Hero", rule.id, LogicPropertyTarget::Action, 0, "key",
+        {"wrongType", GameVariableDefinition::Type::Boolean, false, {}}}).ok);
+    CHECK(!coordinator.execute(CreateAndAssignGlobalVariableCommand{
+        "Hero", rule.id, LogicPropertyTarget::Action, 0, "amount",
+        {"notSemantic", GameVariableDefinition::Type::Number, 0.0, {}}}).ok);
+    CHECK(!coordinator.execute(CreateAndAssignGlobalVariableCommand{
+        "Hero", "missing", LogicPropertyTarget::Action, 0, "key",
+        {"missingRule", GameVariableDefinition::Type::Number, 0.0, {}}}).ok);
+    CHECK(!coordinator.execute(CreateAndAssignGlobalVariableCommand{
+        "Hero", rule.id, LogicPropertyTarget::Action, 0, "key",
+        {"health", GameVariableDefinition::Type::Number, 0.0, {}}}).ok);
+    CHECK(!coordinator.execute(CreateAndAssignGlobalVariableCommand{
+        "Hero", rule.id, LogicPropertyTarget::Action, 0, "key",
+        {"1bad", GameVariableDefinition::Type::Number, 0.0, {}}}).ok);
+    CHECK(coordinator.document().revision() == beforeFailures);
+    CHECK(coordinator.undoSize() == undoBeforeFailures);
+    CHECK(coordinator.document().data().globalVariables.size()
+          == variableCountBeforeFailures);
+
+    CHECK(coordinator.playCurrentScene().ok);
+    const uint64_t playingRevision = coordinator.document().revision();
+    CHECK(!coordinator.execute(CreateAndAssignGlobalVariableCommand{
+        "Hero", rule.id, LogicPropertyTarget::Action, 0, "key",
+        {"duringPlay", GameVariableDefinition::Type::Number, 0.0, {}}}).ok);
+    CHECK(coordinator.document().revision() == playingRevision);
+    CHECK(coordinator.stopPlaying().ok);
+}
+
 static void testConditionCommands() {
     ProjectDoc project = makeProjectData();
     project.objectTypes.at("Hero").platformerController = PlatformerControllerComponent{};
@@ -2917,6 +3019,7 @@ int main() {
     testIncompatibleBoardRecovery();
     testDuplicateLogicRule();
     testGlobalVariableCommands();
+    testCreateAndAssignGlobalVariableCommand();
     testConditionCommands();
     testConditionControllerAndGenericProperties();
     testConditionCompatibility();
