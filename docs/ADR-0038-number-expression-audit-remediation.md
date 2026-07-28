@@ -481,5 +481,6 @@ Implemented.
   predating `logic.number.round` can load Lua that calls it. Not traced
   through the export pipeline's template min/max — flagged for review rather
   than assumed, per the open question.
-- Not verified: WASM target build (no toolchain available in this
-  environment).
+- WASM target verified: `vendor\artcade-runtime\build_wasm.bat` builds clean
+  (`game.js` / `game.wasm`, Emscripten/Ninja/Release), including
+  `artcade-logic-core` and `artcade-logic-runtime` with this change.
