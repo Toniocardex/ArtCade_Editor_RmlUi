@@ -118,6 +118,26 @@ struct GameplayInputFrame {
     std::vector<LogicKey> held;
 };
 
+// ADR-0039 §7/§8: separates "scopes installed" from "On Start dispatched"
+// so a caller (Application's startup phase machine, a scene transition) can
+// prepare a scene's Logic/Script scopes without gameplay callbacks firing,
+// then activate them atomically once. Full transition table:
+//
+//   Empty     + prepare -> Prepared
+//   Prepared  + prepare -> reject
+//   Started   + prepare -> reject
+//   Prepared  + start   -> Started
+//   Empty     + start   -> reject
+//   Started   + start   -> reject
+//   any       + reset   -> Empty  (new World/scene, project replace, editor
+//                                  enter/exit Play, scene transition/restart,
+//                                  shutdown, or a failed prepare)
+enum class GameplayActivationState {
+    Empty,
+    Prepared,
+    Started,
+};
+
 // RU-02e-2: minimal stand-in kept in its own translation unit-visible spot
 // (moved verbatim from app_modules.h, previously private to the `game`
 // executable target) so GameplaySession can own an instance directly.
@@ -362,9 +382,36 @@ public:
     // host/asset-loading work) and stores them for installScriptScopesForActiveScene.
     void setScriptCatalog(std::unordered_map<AssetId, Scripts::ScriptProgram> programs,
                           std::unordered_map<ObjectTypeId, std::vector<ScriptAttachmentDef>> attachments);
+    // ADR-0039 §7: install-only now - neither dispatches Logic nor Script
+    // On Start. installLogicScopeForEntity() is unaffected (runtime spawns,
+    // always mid-simulation, dispatches only that entity's own Start).
     bool installLogicScopesForActiveScene();
     bool installLogicScopeForEntity(EntityId entityId);
     bool installScriptScopesForActiveScene();
+
+    // ADR-0039 §7/§8: the prepare/start split. prepareActiveSceneGameplay()
+    // installs the active scene's Logic and Script scopes and requires
+    // Empty; on partial failure it tears down whatever it installed and
+    // leaves activationState_ at Empty (§9). startPreparedActiveSceneGameplay()
+    // requires Prepared, dispatches Logic then Script On Start exactly once,
+    // and moves to Started. Both reject (log + return false) outside their
+    // required state rather than silently no-op-ing - see
+    // reportActivationContractViolation().
+    bool prepareActiveSceneGameplay();
+    bool startPreparedActiveSceneGameplay();
+
+    // Resets the activation state machine to Empty without touching scope
+    // data directly - prepareActiveSceneGameplay() itself discards/reinstalls
+    // scopes as its own first step (§7 "discard any previous scopes"), so
+    // this only needs to clear the FSM guard. Call at every reset boundary
+    // in §8 that does not already go through loadProject() (which starts
+    // from a freshly-constructed, already-Empty session) or shutdown (which
+    // resets via shutdownLogicModules()): scene transitions/restarts and any
+    // future editor project-replace path that re-activates a scene outside
+    // loadProject().
+    void resetGameplayActivationState() {
+        activationState_ = GameplayActivationState::Empty;
+    }
 
     // RU-02d: dispatches one host-built input frame to Logic and Script
     // through the same immutable snapshot, then flushes queued destroys and
@@ -469,6 +516,20 @@ public:
 private:
     void dispatchGameplayCollisionTransitions();
 
+    // ADR-0039 §9: failure-path teardown for prepareActiveSceneGameplay() -
+    // cancels any Logic scopes already installed and discards the Script
+    // runtime, mirroring installLogicScopesForActiveScene()'s own reset step
+    // so a partial failure never leaves scopes bound to a scene that never
+    // activates. Leaves activationState_ untouched; callers set it.
+    void clearPreparedGameplayScopes();
+    // ADR-0039 §8: logs a prepare()/start() call made from the wrong
+    // activation state, with enough context (state, operation) to diagnose
+    // the misuse without a debugger. This is a programming-contract
+    // violation on the host/caller side, not a runtime/user-content error -
+    // see ADR-0039 §18 for that distinction (Lua/Logic errors inside an
+    // author's own On Start stay non-fatal diagnostics, unrelated to this).
+    void reportActivationContractViolation(const char* reason) const;
+
     std::unique_ptr<Modules::EventBus> eventBus_;
     std::unique_ptr<Modules::TimeManager> timeManager_;
     std::unique_ptr<Modules::VariableManager> variableManager_;
@@ -505,6 +566,10 @@ private:
     IRuntimeProfilerSink* profilerPort_ = nullptr;
 
     PhysicsMode physicsMode_ = PhysicsMode::Auto;
+    // ADR-0039 §7/§8: Empty at construction, reset to Empty by
+    // shutdownLogicModules() - matches the reset-boundary list needing no
+    // other constructor/destructor-adjacent wiring.
+    GameplayActivationState activationState_ = GameplayActivationState::Empty;
     std::set<std::pair<EntityId, EntityId>> activeGameplayCollisionPairs_;
     // RU-03: accumulated by tickFixedStep(), drained by drainScriptDiagnostics().
     std::vector<Scripts::ScriptRuntimeDiagnostic> pendingScriptDiagnostics_;

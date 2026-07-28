@@ -2,23 +2,31 @@
 
 #include <raylib.h>
 #include <algorithm>
+#include <cmath>
 
 namespace ArtCade::Modules {
 
 namespace {
 constexpr float kSplashDuration = 4.5f;
 constexpr float kFadeDuration   = 0.5f;
+// ADR-0039 §6: owned by SplashState, not duplicated as a loop constant -
+// bounds a single update() so a suspended process/paused debugger cannot
+// complete the splash instantly on resume.
+constexpr float kMaxPresentationStep = 0.25f;
 }
 
 SplashState::SplashState(const std::string& tier)
     : licenseTier_(tier) {}
 
-void SplashState::update(float dt) {
-    timer_ += dt;
-}
-
-bool SplashState::isDone() const {
-    return timer_ >= kSplashDuration;
+bool SplashState::update(float dt) {
+    if (!std::isfinite(dt) || dt <= 0.f) return false;
+    if (completionReported_) return false;
+    timer_ += std::min(dt, kMaxPresentationStep);
+    if (timer_ >= kSplashDuration) {
+        completionReported_ = true;
+        return true;
+    }
+    return false;
 }
 
 void SplashState::render(int screenWidth, int screenHeight) const {

@@ -21,6 +21,32 @@ enum class ViewportPolicy {
     NativePlay,    /**< viewportSize window; camera lens = viewport */
 };
 
+/**
+ * GameplayStartupPhase (ADR-0039) — scoped to standalone executable startup
+ * only, not the whole application lifecycle. `Inactive` is also the
+ * permanent state for Editor Play and WASM edit-mode preview, which never
+ * call loadProject() and so never move off it; only the standalone
+ * "game"/WASM-export loadProject() path enters Splash or Activating.
+ *
+ *   Inactive   - no standalone startup sequence in progress (default; also
+ *                Editor Play/WASM preview's permanent state).
+ *   Splash     - standalone startup is blocked on the splash.
+ *   Activating - On Start dispatch is running; simulation is still blocked.
+ *   Complete   - the normal loop is allowed to simulate.
+ *
+ * Deliberately does not span shutdown (`running_` is already that
+ * authority) or a "preparing" step (loadProject() is synchronous and
+ * returns before mainLoop() starts, so there is no rendered frame for it)
+ * or a "failed" value (structural failures use the project's existing
+ * error-return convention; see ADR-0039 §18).
+ */
+enum class GameplayStartupPhase {
+    Inactive,
+    Splash,
+    Activating,
+    Complete,
+};
+
 
 /**
  * Application - top-level orchestrator (Layer 4).
@@ -111,9 +137,39 @@ private:
     void shutdownModules();
     void mainLoop();
     void loopIteration();      // One frame, shared by native and WASM loops.
-    /** Per-render-frame tail: profiler counts, draw, console flush, input reset. */
-    void tickFrameEnd();
+
+    // ADR-0039 §4: general frame-time sanitization (finite, non-negative).
+    // SplashState additionally owns its own max-presentation-step clamp -
+    // this only guards against NaN/negative/huge deltas reaching anything.
+    float sanitizeFrameDt(float rawFrameDt) const;
+
+    // ADR-0039 §11-13: one tick function per GameplayStartupPhase value that
+    // corresponds to a rendered frame (Inactive and Complete share
+    // tickGameplay - Inactive only differs by the WASM edit-mode gate
+    // tickGameplay already checks internally).
+    void tickSplash(float frameDt);
+    void tickGameplayActivation();
+    void tickGameplay(float frameDt);
+
+    /** Prints buffered Script/Logic diagnostics (ADR-0039 §18: shared by
+     *  tickGameplay and tickGameplayActivation so an authored-content error
+     *  during On Start is visible immediately, not delayed to first tick). */
+    void drainGameplayDiagnostics();
+
+    /** Per-render-frame tail: profiler counts, draw, console flush, input
+     *  reset. Takes the frame's phase frozen at the top of loopIteration()
+     *  (ADR-0039 §4) so tick and render always agree on which phase produced
+     *  them, instead of tickSplash() being able to flip startupPhase_ mid-frame
+     *  and this function reading the new value before the frame that earned
+     *  it has actually run. */
+    void tickFrameEnd(GameplayStartupPhase framePhase);
     void renderActiveScene();
+    /** Splash-exclusive render (ADR-0039 §16): no scene pipeline, no
+     *  PresentationSnapshot - a raw raylib frame bracket, same as
+     *  SplashState::render()'s own direct raylib draw calls. Unreachable
+     *  under ARTCADE_WASM: WASM's Application::run() never calls
+     *  loadProject(), the only place startupPhase_ becomes Splash. */
+    void renderSplashFrame();
 
     /**
      * Post-mutation handler registered with EditorAPI (composition root).
@@ -156,7 +212,11 @@ private:
     bool  running_          = false;
     PhysicsMode physicsMode_ = PhysicsMode::Auto;
     std::string licenseTier_ = "free";      // from ProjectDoc, used by SplashState
-    std::unique_ptr<::ArtCade::Modules::SplashState> splash_;  // FREE-tier watermark overlay
+    // ADR-0039: startup-only state machine; default Inactive is also Editor
+    // Play/WASM preview's permanent value (see GameplayStartupPhase above).
+    GameplayStartupPhase startupPhase_ = GameplayStartupPhase::Inactive;
+    // FREE-tier splash overlay; owned only while startupPhase_ == Splash.
+    std::unique_ptr<::ArtCade::Modules::SplashState> splash_;
     std::unordered_map<int, ::ArtCade::Vec4> tileColors_;  // Phase D2: id → render colour
     std::unordered_map<std::string, ::ArtCade::TilesetAsset> tilesets_;  // Phase F3
 

@@ -8,7 +8,6 @@
 #include "render_pass_id.h"
 #include "render_pipeline.h"
 #include "view_render_features.h"
-#include "../../modules/game-state/include/splash-state.h"
 
 #include "passes/debug_pass.h"
 #include "passes/grid_pass.h"
@@ -204,11 +203,9 @@ void Application::renderActiveScene() {
     if (!worldPassEnded)
         mod_->renderer->endWorldPass();
     mod_->renderer->endScreenPass();
-    if (splash_) {
-        splash_->render(
-            static_cast<int>(mod_->renderer->windowWidth()),
-            static_cast<int>(mod_->renderer->windowHeight()));
-    }
+    // ADR-0039 §16: the splash is exclusive of scene rendering now - drawn
+    // only by Application::renderSplashFrame() while the startup phase is
+    // Splash, never layered on top of the scene here.
     mod_->renderer->presentScreen();
     mod_->renderer->setGameCameraModifiers({});
 }
