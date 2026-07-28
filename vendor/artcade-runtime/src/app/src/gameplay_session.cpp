@@ -544,8 +544,9 @@ bool GameplaySession::installLogicScopesForActiveScene() {
         }
         logicScopes_.emplace(id, *token);
     }
-    logicRuntime_->beginFrame();
-    logicRuntime_->dispatchStart();
+    // ADR-0039 §7: On Start dispatch moved to startPreparedActiveSceneGameplay() -
+    // this installs scopes only, so a caller can prepare a scene without any
+    // gameplay callback firing yet.
     return true;
 }
 
@@ -586,8 +587,64 @@ bool GameplaySession::installScriptScopesForActiveScene() {
             }
         }
     }
-    scriptRuntime_->dispatchStart();
+    // ADR-0039 §7: On Start dispatch moved to startPreparedActiveSceneGameplay().
     return true;
+}
+
+// ADR-0039 §7/§8/§9.
+bool GameplaySession::prepareActiveSceneGameplay() {
+    if (activationState_ != GameplayActivationState::Empty) {
+        reportActivationContractViolation("prepare requires Empty state");
+        return false;
+    }
+
+    if (!installLogicScopesForActiveScene()) {
+        clearPreparedGameplayScopes();
+        return false;
+    }
+
+    if (!installScriptScopesForActiveScene()) {
+        clearPreparedGameplayScopes();
+        return false;
+    }
+
+    activationState_ = GameplayActivationState::Prepared;
+    return true;
+}
+
+bool GameplaySession::startPreparedActiveSceneGameplay() {
+    if (activationState_ != GameplayActivationState::Prepared) {
+        reportActivationContractViolation("start requires Prepared state");
+        return false;
+    }
+
+    if (logicRuntime_) {
+        logicRuntime_->beginFrame();
+        logicRuntime_->dispatchStart();
+    }
+    if (scriptRuntime_) {
+        scriptRuntime_->dispatchStart();
+    }
+
+    activationState_ = GameplayActivationState::Started;
+    return true;
+}
+
+void GameplaySession::clearPreparedGameplayScopes() {
+    if (logicRuntime_) {
+        for (const auto& [entityId, token] : logicScopes_) {
+            (void)entityId;
+            logicRuntime_->cancelScope(token);
+        }
+    }
+    logicScopes_.clear();
+    clearScriptRuntime();
+}
+
+void GameplaySession::reportActivationContractViolation(const char* reason) const {
+    std::cerr << "[GameplaySession] activation contract violation: " << reason
+              << " (current state="
+              << static_cast<int>(activationState_) << ")\n";
 }
 
 void GameplaySession::shutdownGraph() {
@@ -620,6 +677,9 @@ void GameplaySession::shutdownLogicModules() {
     // - same relative position, now internal since the maps moved in too.
     logicScopes_.clear();
     logicObjectTypes_.clear();
+    // ADR-0039 §8: application shutdown is one of the binding reset
+    // boundaries for the activation state machine.
+    activationState_ = GameplayActivationState::Empty;
 }
 
 // RU-02e-3: matches the original Application-side

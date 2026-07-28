@@ -312,8 +312,11 @@ bool Application::loadProject(const std::string& projectPath) {
         appendAnimationClipsFromAssets(*mod_->spriteAnimator, doc.spriteAnimationAssets);
     }
     if (mod_->audio) mod_->audio->setRuntimeAssetCatalog(doc.audioAssets);
-    if (!mod_->gameplaySession->installLogicScopesForActiveScene()) return false;
-    if (!mod_->gameplaySession->installScriptScopesForActiveScene()) return false;
+    // ADR-0039 §10: prepares Logic/Script scopes only - no On Start here.
+    // Activation is deferred to Application::tickGameplayActivation(), once
+    // the startup phase (splash or immediate activation, decided below by
+    // license tier) reaches Activating.
+    if (!mod_->gameplaySession->prepareActiveSceneGameplay()) return false;
     applyRuntimeSettings(runtimeSettingsFromProjectDoc(doc), ViewportPolicy::NativePlay);
 
     tileColors_.clear();
@@ -371,11 +374,20 @@ bool Application::loadProject(const std::string& projectPath) {
     }
 
     licenseTier_ = doc.licenseTier;
-    if (licenseTier_ == "free") {
-        splash_ = std::make_unique<ArtCade::Modules::SplashState>("free");
-    }
     if (mod_->dialogManager) {
         mod_->dialogManager->loadDialogsFromDirectory(mod_->assetLoader->projectRoot());
+    }
+
+    // ADR-0039 §10/§20 (Free/Pro policy v1): Free blocks standalone startup
+    // on the splash; every other tier activates gameplay on the very next
+    // frame. Editor/WASM builds never call loadProject() (see
+    // app.cpp::run()), so startupPhase_ stays Inactive there regardless.
+    if (licenseTier_ == "free") {
+        splash_ = std::make_unique<ArtCade::Modules::SplashState>("free");
+        startupPhase_ = GameplayStartupPhase::Splash;
+    } else {
+        splash_.reset();
+        startupPhase_ = GameplayStartupPhase::Activating;
     }
 
     std::cout << "[App] Project loaded: " << doc.projectName

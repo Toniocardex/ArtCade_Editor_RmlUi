@@ -309,8 +309,18 @@ std::optional<PlaySession> PlaySession::materialize(
             PhysicsMode::Auto, ctx, /*presentationRenderer=*/nullptr, bootStep,
             [runtime, transitionSignal](const Modules::SceneTransitionResult& result) {
                 if (!result.changed) return;
-                runtime->installLogicScopesForActiveScene();
-                runtime->installScriptScopesForActiveScene();
+                // ADR-0039 §17: prepare and start immediately - scene
+                // transitions never go through a startup phase machine
+                // (that only gates the standalone executable's first
+                // splash, which Editor Play never shows, ADR-0039 §20).
+                // Unconditional reset because this is the sole scene-
+                // transition call site outside materialize()'s own initial
+                // activation below, mirroring Application::
+                // handleSceneTransition (app_scene_lifecycle.cpp).
+                runtime->resetGameplayActivationState();
+                if (runtime->prepareActiveSceneGameplay()) {
+                    runtime->startPreparedActiveSceneGameplay();
+                }
                 transitionSignal->changed = true;
                 transitionSignal->sceneId = result.sceneId;
             })) {
@@ -355,12 +365,16 @@ std::optional<PlaySession> PlaySession::materialize(
     appendAnimationClipsFromAssets(
         session.runtime_->spriteAnimator(), doc.spriteAnimationAssets);
     session.runtime_->loadWorldProject(doc);
-    if (!session.runtime_->installLogicScopesForActiveScene()) {
-        if (error) *error = "Cannot start Play: failed to install Logic Board scopes";
+    // ADR-0039 §7/§10: prepare installs scopes only; start dispatches Logic/
+    // Script On Start. Editor Play has no splash/startup phase to defer
+    // through (§20), so both run back-to-back here, matching the previous
+    // single-install-call behavior exactly.
+    if (!session.runtime_->prepareActiveSceneGameplay()) {
+        if (error) *error = "Cannot start Play: failed to prepare Logic/Script scopes";
         return std::nullopt;
     }
-    if (!session.runtime_->installScriptScopesForActiveScene()) {
-        if (error) *error = "Cannot start Play: failed to install Script scopes";
+    if (!session.runtime_->startPreparedActiveSceneGameplay()) {
+        if (error) *error = "Cannot start Play: failed to start Logic/Script scopes";
         return std::nullopt;
     }
 
