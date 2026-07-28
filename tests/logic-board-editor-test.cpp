@@ -2524,7 +2524,9 @@ static void testSetPositionNonFiniteRateLimitedDiagnostics() {
     };
 
     Host host;
-    Logic::LogicRuntime runtime(host);
+    // ADR-0037: sessionSeed is mandatory, no default; a fixed constant is
+    // fine here since this test does not depend on randomness.
+    Logic::LogicRuntime runtime(host, 0x12345678u);
     std::string error;
     CHECK(runtime.loadPrograms(compiled.programs, &error));
     CHECK(runtime.install("Hero", 7, &error).has_value());
