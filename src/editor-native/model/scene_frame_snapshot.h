@@ -30,6 +30,11 @@ struct SceneFrameEntity {
     SceneFrameRect bounds;
     bool selected = false;
     float rotationRadians = 0.f;
+    // SceneInstanceDef::visible ("Entity Visible" in the Inspector) — Edit
+    // mode still draws an invisible entity (dimmed), matching the runtime's
+    // own inEditMode-dims/actual-gameplay-hides split. Never a hard omission
+    // here; that would make the entity impossible to select while editing.
+    bool visibleInGame = true;
 };
 
 struct SceneFrameSprite {
@@ -46,6 +51,9 @@ struct SceneFrameSprite {
     bool flipX = false;
     /** Runtime/authored vertical mirror (raylib: negative source height). */
     bool flipY = false;
+    // See SceneFrameEntity::visibleInGame — the owning instance's root
+    // visibility, independent of this component's own `visible`.
+    bool visibleInGame = true;
 };
 
 struct SceneFrameTilemapCell {
@@ -58,6 +66,8 @@ struct SceneFrameTilemap {
     AssetId imageAssetId;   // the tileset's underlying image (TextureCache key)
     std::vector<SceneFrameTilemapCell> cells;   // one per populated cell; empty if unpainted
     bool selected = false;
+    // See SceneFrameEntity::visibleInGame.
+    bool visibleInGame = true;
 };
 
 struct SceneFrameText {
@@ -73,6 +83,8 @@ struct SceneFrameText {
     // default CanvasFont (ADR-0036). Play/export resolve the same field
     // (TextComponent::fontPath) independently through Modules::FontCache.
     std::string fontPath;
+    // See SceneFrameEntity::visibleInGame.
+    bool visibleInGame = true;
 };
 
 struct SceneFrameGauge {
@@ -85,6 +97,8 @@ struct SceneFrameGauge {
     float ratio = 1.f;
     std::string direction = "horizontal";
     bool screenSpace = false;
+    // See SceneFrameEntity::visibleInGame.
+    bool visibleInGame = true;
 };
 
 struct SceneFrameSnapshot {

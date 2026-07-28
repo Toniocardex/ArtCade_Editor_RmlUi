@@ -24,6 +24,12 @@ struct PixelRect {
     bool valid() const { return width > 0 && height > 0; }
 };
 
+// An "Entity Visible"-off instance still draws in Edit mode, dimmed, rather
+// than disappearing (it must stay selectable while editing) - it is only
+// truly invisible in an actual running game. Matches
+// scene_entities_pass.cpp's own inEditMode-dims/gameplay-hides constant.
+constexpr float kInvisibleInGameDimAlpha = 0.45f;
+
 // Intersection of the viewport with the scene's on-screen rectangle, so world
 // drawing is clipped to the scene surface rather than the whole panel.
 PixelRect sceneScissor(const ViewportRect& rect, Vector2 topLeft, Vector2 bottomRight) {
@@ -305,13 +311,19 @@ void SceneView::render(const SceneFrameSnapshot& frame,
         const bool hasTilemap = hasVisibleTilemapCells(frame, entity.entityId);
         const bool hasText = hasTextVisual(frame, entity.entityId);
         const bool hasGauge = hasGaugeVisual(frame, entity.entityId);
+        const unsigned char dimAlpha = entity.visibleInGame
+            ? static_cast<unsigned char>(255)
+            : static_cast<unsigned char>(255.f * kInvisibleInGameDimAlpha);
+        const Color tint{255, 255, 255, dimAlpha};
         if (!hasSprite && !hasTilemap && !hasText && !hasGauge) {
             const SceneFrameTransform2D xf = visualOf(entity.bounds, entity.rotationRadians);
             const float degrees = entity.rotationRadians * kRadToDeg;
             const Vector2 origin{entity.bounds.width * 0.5f, entity.bounds.height * 0.5f};
-            DrawRectanglePro(pivotDestination(entity.bounds, origin), origin, degrees,
-                             toColor(entity.fillColor, 0.92f));
-            drawOrientedOutline(xf, 1.f / cam.zoom, Color{12, 14, 18, 200});
+            Color fill = toColor(entity.fillColor, 0.92f);
+            fill.a = static_cast<unsigned char>(fill.a * (dimAlpha / 255.f));
+            DrawRectanglePro(pivotDestination(entity.bounds, origin), origin, degrees, fill);
+            drawOrientedOutline(xf, 1.f / cam.zoom,
+                                Color{12, 14, 18, static_cast<unsigned char>(200 * (dimAlpha / 255.f))});
             continue;
         }
         if (hasTilemap) {
@@ -322,7 +334,7 @@ void SceneView::render(const SceneFrameSnapshot& frame,
                     for (const SceneFrameTilemapCell& cell : tilemap.cells) {
                         DrawTexturePro(resource->texture,
                                       toRectangle(tilemapAtlasSourceRect(cell.source)),
-                                      toRectangle(cell.destination), Vector2{0.f, 0.f}, 0.f, WHITE);
+                                      toRectangle(cell.destination), Vector2{0.f, 0.f}, 0.f, tint);
                     }
                 }
                 break;   // one Tilemap component per entity
@@ -346,7 +358,7 @@ void SceneView::render(const SceneFrameSnapshot& frame,
                     const Vector2 origin{sprite.origin.x, sprite.origin.y};
                     DrawTexturePro(resource->texture, source,
                                   pivotDestination(sprite.destination, origin), origin,
-                                  sprite.rotationRadians * kRadToDeg, WHITE);
+                                  sprite.rotationRadians * kRadToDeg, tint);
                 }
                 break;   // one SpriteRenderer per entity
             }
@@ -355,16 +367,21 @@ void SceneView::render(const SceneFrameSnapshot& frame,
             if (gauge.entityId != entity.entityId || gauge.screenSpace) continue;
             const Rectangle bg{
                 gauge.anchorPosition.x, gauge.anchorPosition.y, gauge.width, gauge.height};
-            DrawRectangleRec(bg, toColor(gauge.bgColor));
+            const float dim = gauge.visibleInGame ? 1.f : kInvisibleInGameDimAlpha;
+            Vec4 bgColor = gauge.bgColor;
+            bgColor.a *= dim;
+            Vec4 fillColor = gauge.fillColor;
+            fillColor.a *= dim;
+            DrawRectangleRec(bg, toColor(bgColor));
             if (gauge.direction == "vertical") {
                 const float fh = gauge.height * gauge.ratio;
                 DrawRectangleRec(
                     Rectangle{bg.x, bg.y + (gauge.height - fh), gauge.width, fh},
-                    toColor(gauge.fillColor));
+                    toColor(fillColor));
             } else {
                 DrawRectangleRec(
                     Rectangle{bg.x, bg.y, gauge.width * gauge.ratio, gauge.height},
-                    toColor(gauge.fillColor));
+                    toColor(fillColor));
             }
         }
         for (const SceneFrameText& text : frame.texts) {
@@ -373,6 +390,7 @@ void SceneView::render(const SceneFrameSnapshot& frame,
             const TextVisualLayout layout = layoutSceneFrameText(text, glyphFont);
             Vec4 color = text.color;
             color.a *= text.layerOpacity;
+            if (!text.visibleInGame) color.a *= kInvisibleInGameDimAlpha;
             drawCanvasText(glyphFont, text.displayText, layout.drawPosition.x,
                            layout.drawPosition.y, static_cast<float>(text.size), toColor(color));
         }
@@ -452,14 +470,19 @@ void SceneView::render(const SceneFrameSnapshot& frame,
         if (!gauge.screenSpace) continue;
         const float x = static_cast<float>(rect.x) + gauge.anchorPosition.x;
         const float y = static_cast<float>(rect.y) + gauge.anchorPosition.y;
-        DrawRectangleRec(Rectangle{x, y, gauge.width, gauge.height}, toColor(gauge.bgColor));
+        const float dim = gauge.visibleInGame ? 1.f : kInvisibleInGameDimAlpha;
+        Vec4 bgColor = gauge.bgColor;
+        bgColor.a *= dim;
+        Vec4 fillColor = gauge.fillColor;
+        fillColor.a *= dim;
+        DrawRectangleRec(Rectangle{x, y, gauge.width, gauge.height}, toColor(bgColor));
         if (gauge.direction == "vertical") {
             const float fh = gauge.height * gauge.ratio;
             DrawRectangleRec(Rectangle{x, y + (gauge.height - fh), gauge.width, fh},
-                             toColor(gauge.fillColor));
+                             toColor(fillColor));
         } else {
             DrawRectangleRec(Rectangle{x, y, gauge.width * gauge.ratio, gauge.height},
-                             toColor(gauge.fillColor));
+                             toColor(fillColor));
         }
     }
     for (const SceneFrameText& text : frame.texts) {
@@ -473,6 +496,7 @@ void SceneView::render(const SceneFrameSnapshot& frame,
         const TextVisualLayout layout = layoutSceneFrameText(viewportText, glyphFont);
         Vec4 color = text.color;
         color.a *= text.layerOpacity;
+        if (!text.visibleInGame) color.a *= kInvisibleInGameDimAlpha;
         drawCanvasText(glyphFont, text.displayText, layout.drawPosition.x,
                        layout.drawPosition.y, static_cast<float>(text.size), toColor(color));
     }

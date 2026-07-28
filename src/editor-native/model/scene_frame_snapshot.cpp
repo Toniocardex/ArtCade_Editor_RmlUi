@@ -111,24 +111,37 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
     snapshot.worldSize = scene->worldSize;
     snapshot.backgroundColor = scene->backgroundColor;
 
-    std::unordered_set<EntityId> visible;   // for filtering the collider overlay
+    std::unordered_set<EntityId> emitted;   // for filtering the collider overlay
     const auto emit = [&](const SceneInstanceDef& inst) {
         const SceneFrameTransform2D xf = instanceVisual(inst.transform);
         const SceneFrameRect bounds = unrotatedRect(xf);
         const Vec3* fill = fillFor(document, inst.objectTypeId);
         const bool selected = inst.id == selectedEntity;
-        snapshot.entities.push_back(SceneFrameEntity{
+        // SceneInstanceDef::visible ("Entity Visible" in the Inspector) is the
+        // root authoring visibility. Edit mode still draws every visual owned
+        // by the instance when it's off - placeholder, sprite, tilemap, text,
+        // gauge - just dimmed (visibleInGame=false), the same inEditMode-dims/
+        // actual-gameplay-hides split scene_entities_pass.cpp already uses for
+        // Play. A hard omission here would make the entity unselectable while
+        // editing, which is what the Layer Manager's hidden-layer toggle
+        // (a separate, editor-only declutter concept) deliberately does
+        // instead - see the loop below.
+        SceneFrameEntity entityEntry{
             inst.id, inst.instanceName,
-            fill ? *fill : Vec3{0.47f, 0.49f, 0.52f}, bounds, selected, xf.rotationRadians});
+            fill ? *fill : Vec3{0.47f, 0.49f, 0.52f}, bounds, selected, xf.rotationRadians};
+        entityEntry.visibleInGame = inst.visible;
+        snapshot.entities.push_back(entityEntry);
         const SpriteRenderView sprite = resolveSpriteRenderer(document, sceneId, inst.id);
         if (sprite.present && !sprite.assetId.empty()) {
-            snapshot.sprites.push_back(SceneFrameSprite{
+            SceneFrameSprite spriteEntry{
                 inst.id, sprite.assetId, bounds,
                 Vec2{bounds.width * 0.5f, bounds.height * 0.5f},
                 sprite.visible, selected,
                 SceneFrameRect{sprite.sourceRect.x, sprite.sourceRect.y,
                                sprite.sourceRect.w, sprite.sourceRect.h},
-                sprite.hasSourceRect, xf.rotationRadians});
+                sprite.hasSourceRect, xf.rotationRadians};
+            spriteEntry.visibleInGame = inst.visible;
+            snapshot.sprites.push_back(spriteEntry);
         }
         if (inst.tilemap.has_value()) {
             // A dangling tilesetAssetId shouldn't survive validation, but if one
@@ -136,10 +149,12 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
             // emitted with a blank image id the renderer would need to guard.
             if (const TilesetAsset* tileset =
                     document.findTilesetAsset(inst.tilemap->tilesetAssetId)) {
-                snapshot.tilemaps.push_back(SceneFrameTilemap{
+                SceneFrameTilemap tilemapEntry{
                     inst.id, tileset->imageAssetId,
                     tilemapRenderCells(*inst.tilemap, *tileset, inst.transform.position),
-                    selected});
+                    selected};
+                tilemapEntry.visibleInGame = inst.visible;
+                snapshot.tilemaps.push_back(std::move(tilemapEntry));
             }
         }
         const EntityDef* type = document.findObjectType(inst.objectTypeId);
@@ -161,6 +176,7 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
             entry.screenSpace = type->text->screenSpace;
             entry.layerOpacity = 1.f;
             entry.fontPath = type->text->fontPath;
+            entry.visibleInGame = inst.visible;
             snapshot.texts.push_back(std::move(entry));
         }
         if (type && type->gauge && type->gauge->width > 0.f && type->gauge->height > 0.f) {
@@ -175,7 +191,7 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
             }
             float ratio = type->gauge->maxValue > 0.f ? value / type->gauge->maxValue : 0.f;
             ratio = std::clamp(ratio, 0.f, 1.f);
-            snapshot.gauges.push_back(SceneFrameGauge{
+            SceneFrameGauge gaugeEntry{
                 inst.id,
                 Vec2{inst.transform.position.x + type->gauge->offsetX,
                      inst.transform.position.y + type->gauge->offsetY},
@@ -186,27 +202,31 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
                 ratio,
                 type->gauge->direction,
                 type->gauge->screenSpace,
-            });
+            };
+            gaugeEntry.visibleInGame = inst.visible;
+            snapshot.gauges.push_back(gaugeEntry);
         }
-        visible.insert(inst.id);
+        emitted.insert(inst.id);
     };
 
     for (const SceneInstanceDef* inst : document.instancesInRenderOrder(sceneId)) {
-        // SceneInstanceDef::visible is the root authoring visibility. Unlike
-        // SpriteRenderer.visible it gates every visual owned by the instance:
-        // placeholder, sprite, tilemap, collider overlay, bounds and picking.
-        if (!inst->visible) continue;
+        // Layer-hidden (Layer Manager eye icon) is the one case that stays a
+        // hard cut: a pure editor-canvas declutter toggle, unrelated to
+        // gameplay visibility - see the comment in emit() above for why
+        // SceneInstanceDef::visible itself no longer cuts here.
         if (!hiddenLayers.empty() && hiddenLayers.count(document.effectiveLayerId(sceneId, *inst))) {
             continue;
         }
         emit(*inst);
     }
 
-    // Collider overlays follow the same visibility as their entities.
+    // Collider overlays follow the same set as their entities (still an
+    // editing aid for an "Entity Visible"-off instance, same as its
+    // placeholder/sprite staying selectable rather than disappearing).
     snapshot.colliders = collectBoxColliderBounds(document, sceneId, selectedEntity);
     snapshot.colliders.erase(
         std::remove_if(snapshot.colliders.begin(), snapshot.colliders.end(),
-                       [&](const SceneFrameCollider& c) { return visible.count(c.entityId) == 0; }),
+                       [&](const SceneFrameCollider& c) { return emitted.count(c.entityId) == 0; }),
         snapshot.colliders.end());
 
     return snapshot;

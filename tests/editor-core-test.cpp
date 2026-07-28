@@ -2929,7 +2929,12 @@ int main() {
         CHECK(c.document().revision() > 0);
     }
 
-    // -- Instance visibility gates the whole entity in Edit and Play ----------
+    // -- Instance visibility dims (not omits) in Edit, still hides in Play ----
+    // An "Entity Visible"-off instance must stay selectable/editable in Edit
+    // mode (still present in the snapshot, visibleInGame=false so the Scene
+    // View dims it), matching the same inEditMode-dims/actual-gameplay-hides
+    // split scene_entities_pass.cpp already used for Play. Play itself keeps
+    // the hard omission - it is a true gameplay preview.
     {
         EditorCoordinator c{makeInheritedDoc()};
         CHECK(collectSceneFrameSnapshot(
@@ -2938,10 +2943,10 @@ int main() {
         CHECK(!c.document().findInstanceInScene(kSceneA, kHero)->visible);
         const SceneFrameSnapshot hiddenEdit =
             collectSceneFrameSnapshot(c.document(), kSceneA, kHero);
-        CHECK(hiddenEdit.entities.empty());
-        CHECK(hiddenEdit.sprites.empty());
-        CHECK(hiddenEdit.tilemaps.empty());
-        CHECK(hiddenEdit.colliders.empty());
+        CHECK(hiddenEdit.entities.size() == 1);
+        CHECK(!hiddenEdit.entities[0].visibleInGame);
+        CHECK(hiddenEdit.sprites.size() == 1);
+        CHECK(!hiddenEdit.sprites[0].visibleInGame);
         CHECK(c.undo().ok);
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->visible);
         CHECK(c.redo().ok);
