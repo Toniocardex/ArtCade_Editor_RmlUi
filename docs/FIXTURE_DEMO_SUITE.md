@@ -46,7 +46,7 @@ There is no C++ `--fixture-demo` flag (avoids a second, stale scenario list).
 
 Both are produced by `makeVisualFixtureProject()` via
 `artcade-editor-native --write-fixture <path>`. The smoke runner always writes
-under `build/fixture-demo/` (including `visual-assets/`) and never modifies
+under `build/fixture-demo/` (including `assets/`) and never modifies
 `tests/reference/`.
 
 ## Scenario matrix

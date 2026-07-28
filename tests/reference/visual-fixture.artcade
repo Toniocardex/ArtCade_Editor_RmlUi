@@ -16,7 +16,7 @@
     {
       "assetId": "fixture-sheet",
       "name": "Design System Sheet",
-      "sourcePath": "visual-assets/design-system-sheet.png"
+      "sourcePath": "assets/design-system-sheet.png"
     }
   ],
   "mainScriptPath": "scripts/main.luac",

@@ -106,7 +106,7 @@ def ensure_scratch_fixture() -> None:
             + _tail(result.stdout or "")
             + _tail(result.stderr or "")
         )
-    sheet = OUT_DIR / "visual-assets" / "design-system-sheet.png"
+    sheet = OUT_DIR / "assets" / "design-system-sheet.png"
     if not sheet.is_file():
         sys.exit(f"write-fixture did not produce asset sheet: {sheet}")
 

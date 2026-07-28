@@ -105,8 +105,14 @@ LogicRuleDef makeCloneRule() {
 std::string writeFixtureSheet(const std::filesystem::path& projectPath) {
     constexpr int width = 32;
     constexpr int height = 16;
+    // "assets" is the one project-asset directory both the export packer
+    // (project_pack_service.cpp) and Save As (project_session_controller.cpp)
+    // allowlist — a different name here means the file is never bundled into
+    // an exported build, so it loads fine from the loose project on disk
+    // (editor, Play) and falls back to the missing-texture placeholder from
+    // the packed .artcade (export) even though both share the same loader.
     const std::filesystem::path assetPath =
-        projectPath.parent_path() / "visual-assets" / "design-system-sheet.png";
+        projectPath.parent_path() / "assets" / "design-system-sheet.png";
     std::error_code error;
     std::filesystem::create_directories(assetPath.parent_path(), error);
     if (error) return "cannot create fixture asset directory: " + error.message();
@@ -143,7 +149,7 @@ ProjectDoc makeVisualFixtureProject() {
     ImageAssetDef sheet;
     sheet.assetId = "fixture-sheet";
     sheet.name = "Design System Sheet";
-    sheet.sourcePath = "visual-assets/design-system-sheet.png";
+    sheet.sourcePath = "assets/design-system-sheet.png";
     doc.imageAssets.push_back(sheet);
 
     EntityDef player = makeObjectType("Player", sheet.assetId);
