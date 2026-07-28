@@ -21,22 +21,22 @@
    PALETTE — dark zinc, one accent
    -----------------------------------------------------------------------------
    Neutrals are the zinc scale the project already leaned on (#18181b, #27272a,
-   #3f3f46, #52525b, #71717a, #a1a1aa, #d4d4d8, #f4f4f5 were already 195 of the
+   #323236, #52525b, #71717a, #a1a1aa, #d4d4d8, #f4f4f5 were already 195 of the
    existing literals); the blue-tinted grey family that had grown alongside it
    is retired.
 
    SURFACES                      elevation, dark -> light
-     surface-sunken    #0b0b0d   text inputs, code areas, value fields
+     surface-sunken    #111113   text inputs, code areas, value fields
      surface-base      #131316   panel bodies, console, status bar
      surface-chrome    #18181b   menubar, toolbar, tabs, panel headers
      surface-raised    #1f1f23   menus, dropdowns, popovers, buttons
-     surface-hover     #27272a   any hovered interactive row
+     surface-hover     #222226   any hovered interactive row
      surface-selected  #2f2f36   selected / active row
      surface-disabled  #151517   disabled control fill
 
    BORDERS
      border-subtle     #27272a   dividers, resting control outlines
-     border-strong     #3f3f46   popover and menu outlines, hover outlines
+     border-strong     #323236   popover and menu outlines, hover outlines
      border-focus      #71717a   keyboard focus ring, selected outline
 
    TEXT — measured contrast (WCAG 2.1) on surface-raised / surface-base
@@ -176,7 +176,7 @@ body {
 
 scrollbarvertical { width: 10dp; }
 /* ds-role(surface-sunken): background-color */
-scrollbarvertical slidertrack { background-color: #0b0b0d; }
+scrollbarvertical slidertrack { background-color: #111113; }
 /* ds-role(border-subtle): background-color */
 scrollbarvertical sliderbar {
     background-color: #27272a;
@@ -187,7 +187,7 @@ scrollbarvertical sliderbar {
     transition: background-color 0.1s;
 }
 /* ds-role(border-strong): background-color */
-scrollbarvertical sliderbar:hover { background-color: #3f3f46; }
+scrollbarvertical sliderbar:hover { background-color: #323236; }
 /* ds-role(border-focus): background-color */
 scrollbarvertical sliderbar:active { background-color: #71717a; }
 
@@ -287,7 +287,7 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 .sfx-mode-toggle-row:hover,
 .sfx-more-entry:hover,
 .sfx-preset:hover {
-    background: #27272a;
+    background: #222226;
 }
 
 /* surface-hover */
@@ -318,7 +318,7 @@ textarea#script-editor-textarea scrollbarvertical slidertrack {
 .viewport-recent-remove:hover,
 .viewport-recent-row:hover,
 textarea#script-editor-textarea scrollbarvertical sliderbar {
-    background-color: #27272a;
+    background-color: #222226;
 }
 
 /* surface-raised */
@@ -433,7 +433,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .sfx-field input,
 .sfx-macro-input,
 .sfx-name {
-    background: #0b0b0d;
+    background: #111113;
 }
 
 /* surface-sunken */
@@ -470,7 +470,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .shortcuts-tab:hover,
 .sw-sunken,
 .vsplit {
-    background-color: #0b0b0d;
+    background-color: #111113;
 }
 
 /* border-focus */
@@ -566,13 +566,13 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .inspector-opacity-slider:hover slidertrack,
 .menu-separator,
 .tool-sep {
-    background-color: #3f3f46;
+    background-color: #323236;
 }
 
 /* border-strong */
 /* ds-role(border-strong): border-bottom-color */
 .sfx-editor-header {
-    border-bottom-color: #3f3f46;
+    border-bottom-color: #323236;
 }
 
 /* border-strong */
@@ -644,13 +644,13 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .viewport-empty-btn-secondary:hover,
 .viewport-recent-main:hover,
 .viewport-recent-row:hover {
-    border-color: #3f3f46;
+    border-color: #323236;
 }
 
 /* border-strong */
 /* ds-role(border-strong): border-right-color */
 .sfx-editor-browser {
-    border-right-color: #3f3f46;
+    border-right-color: #323236;
 }
 
 /* border-subtle */
@@ -1565,7 +1565,7 @@ textarea#script-editor-textarea.script-editor-textarea { color: #00000000; }
 .anim-asset:hover,
 .anim-clip:hover,
 .anim-import-sheet:hover {
-    background-color: #27272a;
+    background-color: #222226;
 }
 
 /* ds-role(text-primary): color */
@@ -1628,7 +1628,7 @@ textarea#script-editor-textarea.script-editor-textarea { color: #00000000; }
 .anim-add-clip,
 .anim-canvas-empty,
 .tileset-status-chip {
-    border: 1px #3f3f46;
+    border: 1px #323236;
 }
 
 /* ds-role(border-focus): border-color */
@@ -1650,7 +1650,7 @@ textarea#script-editor-textarea.script-editor-textarea { color: #00000000; }
 scrollbarhorizontal slidertrack,
 #tileset-canvas,
 .tileset-selected-thumb {
-    background-color: #0b0b0d;
+    background-color: #111113;
 }
 
 /* ds-role(on-action): color */
@@ -1708,7 +1708,7 @@ scrollbarhorizontal slidertrack,
 
 /* ds-role(border-strong): border-color */
 .anim-frame:hover {
-    border-color: #3f3f46;
+    border-color: #323236;
 }
 
 /* ds-role(border-subtle): background-color */
@@ -1718,7 +1718,7 @@ scrollbarhorizontal sliderbar {
 
 /* ds-role(border-strong): background-color */
 scrollbarhorizontal sliderbar:hover {
-    background-color: #3f3f46;
+    background-color: #323236;
 }
 
 /* ds-role(warning-text): color */
