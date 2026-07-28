@@ -73,6 +73,16 @@ a different number than the one the author is looking at. This is precisely
 the hazard ADR-0029 named when it said the formatter had become
 load-bearing, except it landed on the side that ADR did not cover.
 
+**The Lua compiler is the odd one out, not a general oversight.** A literal
+travels three paths — to disk, to the field, to the interpreter — and the
+other two were measured and are lossless. The JSON codec round-trips every
+value exactly, including denormals, `-0.0`, `1e308` and
+`0.49999999999999994` (nlohmann serialises shortest-round-trip); the
+formatter round-trips by construction. So the value an author typed is
+stored correctly and displayed correctly, and is wrong only in the artifact
+that decides what happens. That is also why the bug is invisible in review:
+every place a human looks agrees.
+
 ### Decision
 
 One shortest-round-trip `double` → string function, owned by
@@ -187,6 +197,27 @@ with no failing test.
 fallback, which Constitution §23 lists among the things that must not be
 accepted.
 
+### The same fallback exists on the Vec2 path
+
+`emitGuardedVec2` substitutes a literal `0` whenever compilation of a
+component fails ([`logic-core.cpp:78-79`](../vendor/artcade-runtime/src/modules/logic-core/src/logic-core.cpp)):
+
+```cpp
+lua << "        local _x = " << (compiledX.ok ? compiledX.luaSource : "0") << "\n";
+```
+
+Reachability is narrower than the scalar case — `compileNumberExpressionToLua`
+only fails on a null child box, which validation rejects as `NE_INCOMPLETE`
+— so this is defence-in-depth rather than a live defect. It is called out
+because it is the *same* pattern on the path that **is** reachable from the
+editor today (Set Position, Move By, Set Velocity), and because a fix
+written only against the scalar sites would walk straight past it. Both
+sites are one decision, not two.
+
+An untranslatable component must fail the compile with the compiler's own
+error, which `CompiledNumberExpression::error` already carries and this
+caller currently discards.
+
 ### Decision
 
 **Enforce policy on the property, not on the value kind.** The
@@ -251,9 +282,12 @@ reproduced only by a throwaway program is a finding that regresses.
 
 - **Literal fidelity** (`number-expression-syntax-test`): over a corpus
   covering the table in Finding 1 plus boundaries (`0`, `-0`, denormals,
-  `1e308`, 17-significant-digit values), assert
-  `strtod(emitted) == original` for **both** the formatter and the
-  compiler, and assert the two agree with each other.
+  `1e308`, `0.49999999999999994`, 17-significant-digit values), assert
+  `strtod(emitted) == original` for **all three** paths — formatter, Lua
+  compiler, and JSON codec — and assert they agree with each other. JSON is
+  lossless today, so its rows are a regression guard rather than a fix:
+  the behaviour belongs to nlohmann, which is a dependency this repo does
+  not control, and Finding 1 is what an unpinned literal path costs.
 - **Parse recursion** (`number-expression-syntax-test`): each of the four
   shapes measured above at a size well past the cap returns a parse error
   and does not crash; and — the regression guard that matters — a corpus of
@@ -265,7 +299,9 @@ reproduced only by a throwaway program is a finding that regresses.
   covered without anyone remembering to add it.
 - **Codegen refuses what it cannot translate**: a `LiteralOnly` property
   holding a dynamic expression fails compilation instead of emitting a
-  default — asserted on the compile result, not by grepping the Lua.
+  default — asserted on the compile result, not by grepping the Lua. The
+  same assertion covers a Vec2 component whose expression fails to compile,
+  so `emitGuardedVec2` cannot quietly fall back to `0`.
 
 ## Consequences
 
@@ -296,6 +332,10 @@ reproduced only by a throwaway program is a finding that regresses.
   one code path; the Camera Shake special case is gone.
 - Codegen distinguishes an absent property from an untranslatable one and
   fails on the latter.
+- No silent numeric fallback remains in codegen: neither
+  `literalNumberOf(...).value_or(...)` on a present-but-dynamic property nor
+  `emitGuardedVec2`'s `"0"`; the compiler's own error is surfaced instead of
+  discarded.
 - Minor findings 5, 6 and 7 addressed; ADR-0029's stale gap note corrected.
 - `scripts\build_runtime_tests.bat` green; `scripts\build.bat` builds the
   editor.
