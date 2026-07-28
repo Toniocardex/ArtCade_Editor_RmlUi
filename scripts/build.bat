@@ -4,7 +4,8 @@ setlocal EnableExtensions EnableDelayedExpansion
 rem ArtCade native editor (RmlUi) — configure + build.
 rem First configure fetches RmlUi 6.1 + FreeType (network once).
 rem
-rem Usage:  scripts\build.bat [--clean] [--test]
+rem Usage:  scripts\build.bat [--clean] [--test] [--fixture-demo]
+rem Flags may appear in any order.
 
 set "SCRIPT_DIR=%~dp0"
 set "ROOT=%SCRIPT_DIR%.."
@@ -12,10 +13,12 @@ set "BUILD_DIR=%ROOT%\build"
 set "OUTDIR=%BUILD_DIR%\src"
 set "DO_CLEAN=0"
 set "DO_TEST=0"
-if /I "%~1"=="--clean" set "DO_CLEAN=1"
-if /I "%~1"=="--test" set "DO_TEST=1"
-if /I "%~2"=="--clean" set "DO_CLEAN=1"
-if /I "%~2"=="--test" set "DO_TEST=1"
+set "DO_FIXTURE_DEMO=0"
+for %%A in (%*) do (
+    if /I "%%~A"=="--clean" set "DO_CLEAN=1"
+    if /I "%%~A"=="--test" set "DO_TEST=1"
+    if /I "%%~A"=="--fixture-demo" set "DO_FIXTURE_DEMO=1"
+)
 
 set "NINJA_DIR=%USERPROFILE%\DevTools\ninja"
 if exist "%NINJA_DIR%\ninja.exe" set "PATH=%NINJA_DIR%;%PATH%"
@@ -147,6 +150,21 @@ if "!DO_TEST!"=="1" (
     if errorlevel 1 ( popd >nul & echo [FAIL] Inspector Text Font Picker test build failed. & exit /b 1 )
     "!BUILD_DIR!\tests\inspector_text_font_picker_test.exe"
     if errorlevel 1 ( popd >nul & echo [FAIL] inspector_text_font_picker_test failed. & exit /b 1 )
+)
+
+if "!DO_FIXTURE_DEMO!"=="1" (
+    if not exist "!OUTDIR!\artcade-editor-native.exe" (
+        popd >nul
+        echo [FAIL] Fixture Demo Suite: editor exe missing after build.
+        exit /b 1
+    )
+    echo [editor] Running Fixture Demo Suite...
+    python "%ROOT%\scripts\run_fixture_demo.py"
+    if errorlevel 1 (
+        popd >nul
+        echo [FAIL] Fixture Demo Suite failed.
+        exit /b 1
+    )
 )
 popd >nul
 

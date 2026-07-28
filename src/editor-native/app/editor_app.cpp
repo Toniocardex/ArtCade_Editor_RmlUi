@@ -77,6 +77,7 @@
 #include <raylib.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -1062,6 +1063,19 @@ int EditorApp::run(int argc, char** argv) {
 
     projectSession.refreshWindowTitle();   // empty start project -> "Untitled"
 
+    // Shot harness bookkeeping: each requested --shot-* must leave a verifiable
+    // final state (Fixture Demo Suite). Screenshot presence alone is not success.
+    bool shotProjectRequested = !shotProject.empty();
+    bool shotProjectOk = false;
+    EntityId shotExpectedEntity = INVALID_ENTITY;
+    EntityId shotEscapeKeepSelection = INVALID_ENTITY;
+    bool shotEscapeArmed = false;
+    float shotExpectedPanX = 0.f;
+    float shotExpectedPanY = 0.f;
+    bool shotPanRequested = false;
+    float shotExpectedZoom = 0.f;
+    bool shotZoomRequested = false;
+
     // Screenshot-mode project bootstrap: same canonical load path as File >
     // Open, minus the dialogs (there is no interaction to guard against).
     if (!shotPath.empty() && !shotProject.empty()) {
@@ -1069,7 +1083,11 @@ int EditorApp::run(int argc, char** argv) {
         const ProjectLoadResult result = loadProjectFromFile(coordinator, projectPath);
         if (!result.ok) {
             coordinator.logError("Open failed: " + result.error.message);
+            TraceLog(LOG_ERROR, "[shot] --shot-project load failed: %s",
+                     result.error.message.c_str());
+            exitCode = 1;
         } else {
+            shotProjectOk = true;
             textureCache.clear();
             projectSession.setCurrentProjectPath(projectPath);
             projectSession.noteSuccessfulProjectPath(projectPath);
@@ -1124,8 +1142,10 @@ int EditorApp::run(int argc, char** argv) {
                 const SceneDef* scene =
                     coordinator.document().findScene(coordinator.state().activeSceneId);
                 if (scene && shotEntityIndex < static_cast<int>(scene->instances.size())) {
-                    coordinator.apply(SelectEntityIntent{
-                        scene->instances[static_cast<std::size_t>(shotEntityIndex)].id});
+                    const EntityId id =
+                        scene->instances[static_cast<std::size_t>(shotEntityIndex)].id;
+                    coordinator.apply(SelectEntityIntent{id});
+                    shotExpectedEntity = id;
                     if (!shotDropdown.empty()) {
                         // Flush the selection repaint first, as a real frame
                         // would: the Inspector resets its transient dropdown
@@ -1189,6 +1209,11 @@ int EditorApp::run(int argc, char** argv) {
                                 SetTilePaletteZoomIntent{ts->assetId, shotPaletteZoom});
                         }
                     }
+                } else {
+                    TraceLog(LOG_ERROR,
+                             "[shot] --shot-entity %d out of range for active scene",
+                             shotEntityIndex);
+                    exitCode = 1;
                 }
             }
             // Play camera isolation smoke test (--shot-pan x,y / --shot-zoom z /
@@ -1210,10 +1235,19 @@ int EditorApp::run(int argc, char** argv) {
                 float px = 0.f, py = 0.f;
                 if (std::sscanf(shotPan.c_str(), "%f,%f", &px, &py) == 2) {
                     coordinator.apply(PanViewportIntent{shotActiveScene, Vec2{px, py}});
+                    shotExpectedPanX = px;
+                    shotExpectedPanY = py;
+                    shotPanRequested = true;
+                } else {
+                    TraceLog(LOG_ERROR, "[shot] --shot-pan parse failed: %s",
+                             shotPan.c_str());
+                    exitCode = 1;
                 }
             }
             if (shotZoom > 0.f) {
                 coordinator.apply(SetViewportZoomIntent{shotActiveScene, shotZoom});
+                shotExpectedZoom = shotZoom;
+                shotZoomRequested = true;
             }
             if (shotPlay) {
                 ui.handleAction("play-current-scene", "", "");
@@ -1226,11 +1260,31 @@ int EditorApp::run(int argc, char** argv) {
             // the Inspector keeps showing it (deselecting is the breadcrumb's
             // job only, see --shot-deselect below).
             if (shotEscape) {
-                if (selectionSupportsTilemapEditing(coordinator.document(), coordinator.state(),
-                                                    shotActiveScene)) {
+                if (!selectionSupportsTilemapEditing(coordinator.document(),
+                                                     coordinator.state(),
+                                                     shotActiveScene)) {
+                    TraceLog(LOG_ERROR,
+                             "[shot] --shot-escape requires a selected tilemap "
+                             "instance on an unlocked layer");
+                    exitCode = 1;
+                } else {
+                    shotEscapeKeepSelection = coordinator.selection().primaryEntity;
                     coordinator.apply(SetActiveToolIntent{EditorTool::Rectangle});
+                    // Precondition before Escape: Rectangle armed + tilemap
+                    // selection still present (tool → Escape contract).
+                    if (coordinator.state().activeTool != EditorTool::Rectangle
+                        || !selectionSupportsTilemapEditing(
+                               coordinator.document(), coordinator.state(),
+                               shotActiveScene)) {
+                        TraceLog(LOG_ERROR,
+                                 "[shot] --shot-escape precondition failed "
+                                 "(Rectangle + tilemap selection)");
+                        exitCode = 1;
+                    } else {
+                        shotEscapeArmed = true;
+                        routeGlobalEscape(coordinator);
+                    }
                 }
-                routeGlobalEscape(coordinator);
             }
             // Deselect smoke test (--shot-deselect): the Inspector
             // breadcrumb's exact action, not a re-implementation - proves
@@ -1250,6 +1304,10 @@ int EditorApp::run(int argc, char** argv) {
                 if (kind) {
                     ui.requestAssetContextMenu(*kind, shotAssetMenu.substr(sep + 1),
                                                320, 700);
+                } else {
+                    TraceLog(LOG_ERROR, "[shot] --shot-asset-menu invalid token: %s",
+                             shotAssetMenu.c_str());
+                    exitCode = 1;
                 }
             }
             // Exercise the real save path (asset copy + atomic write) so the
@@ -2087,7 +2145,7 @@ int EditorApp::run(int argc, char** argv) {
                 "status-bar", "status-health", "status-coords", "status-context",
                 "status-project", "hierarchy-pane", "assets-pane",
                 "assets-search-slot", "assets-filter-input",
-                "inspector-section-project-toggle", "inspector-project-name",
+                "inspector-section-project-toggle",
             };
             bool requiredElementsPresent = host.document() != nullptr;
             for (const char* id : requiredIds) {
@@ -2095,14 +2153,25 @@ int EditorApp::run(int argc, char** argv) {
                     && host.document()->GetElementById(id) != nullptr;
             }
 
+            // Project starts collapsed (body omitted from the DOM). Expand,
+            // collapse, expand again to prove section body teardown/rebuild —
+            // the original smoke assumed an expanded-by-default Project section.
             Rml::Element* projectToggle = host.document()
                 ? host.document()->GetElementById("inspector-section-project-toggle") : nullptr;
             if (projectToggle) projectToggle->DispatchEvent("click", Rml::Dictionary{});
+            ui.processFrame();
+            const bool expandedFromDefault = host.document()
+                && host.document()->GetElementById("inspector-project-name") != nullptr;
+            projectToggle = host.document()
+                ? host.document()->GetElementById("inspector-section-project-toggle") : nullptr;
+            if (projectToggle) projectToggle->DispatchEvent("click", Rml::Dictionary{});
+            ui.processFrame();
             const bool collapsedOnce = host.document()
                 && host.document()->GetElementById("inspector-project-name") == nullptr;
             projectToggle = host.document()
                 ? host.document()->GetElementById("inspector-section-project-toggle") : nullptr;
             if (projectToggle) projectToggle->DispatchEvent("click", Rml::Dictionary{});
+            ui.processFrame();
             const bool expandedAgain = host.document()
                 && host.document()->GetElementById("inspector-project-name") != nullptr;
 
@@ -2217,11 +2286,25 @@ int EditorApp::run(int argc, char** argv) {
             missingDocumentUi.detach();
             missingDocumentUi.detach();
 
-            if (!requiredElementsPresent || !collapsedOnce || !expandedAgain
+            if (!requiredElementsPresent || !expandedFromDefault || !collapsedOnce
+                || !expandedAgain
                 || !exactlyOneCallback || !changeCallback || !sfxCreateFromCurrentDispatch
                 || !sfxDeleteKeepsWorkspaceOpen
                 || !noCallbackAfterDetach || !noChangeCallbackAfterDetach || ui.isBound()) {
-                TraceLog(LOG_ERROR, "[editor] RmlUi lifecycle smoke failed");
+                TraceLog(LOG_ERROR, "[editor] RmlUi lifecycle smoke failed "
+                         "required=%d expand0=%d collapse=%d expand=%d oneCb=%d "
+                         "change=%d sfxCreate=%d sfxDelete=%d noCb=%d noChange=%d bound=%d",
+                         requiredElementsPresent ? 1 : 0,
+                         expandedFromDefault ? 1 : 0,
+                         collapsedOnce ? 1 : 0,
+                         expandedAgain ? 1 : 0,
+                         exactlyOneCallback ? 1 : 0,
+                         changeCallback ? 1 : 0,
+                         sfxCreateFromCurrentDispatch ? 1 : 0,
+                         sfxDeleteKeepsWorkspaceOpen ? 1 : 0,
+                         noCallbackAfterDetach ? 1 : 0,
+                         noChangeCallbackAfterDetach ? 1 : 0,
+                         ui.isBound() ? 1 : 0);
                 exitCode = 1;
             } else {
                 TraceLog(LOG_INFO, "[editor] RmlUi lifecycle smoke passed");
@@ -2234,6 +2317,114 @@ int EditorApp::run(int argc, char** argv) {
         // frame's content bottom-left anchored in a larger framebuffer
         // (black bands top/right).
         if (!shotPath.empty() && frame >= 12 && sizeStableFrames >= 45) {
+            // Functional postconditions for Fixture Demo / --shot-* (PNG is
+            // diagnostic only — a successful capture does not imply success).
+            const auto failShot = [&](const char* message) {
+                TraceLog(LOG_ERROR, "[shot] %s", message);
+                exitCode = 1;
+            };
+            if (shotProjectRequested && !shotProjectOk) {
+                failShot("--shot-project did not load");
+            }
+            if (shotEntityIndex >= 0 && !shotDeselect) {
+                if (shotExpectedEntity == INVALID_ENTITY) {
+                    failShot("--shot-entity did not select the requested instance");
+                } else if (coordinator.selection().primaryEntity != shotExpectedEntity) {
+                    failShot("--shot-entity selection mismatch");
+                }
+            }
+            if (shotAnimation
+                && !coordinator.state().spriteAnimationEditor.openAssetId) {
+                failShot("--shot-anim did not open animation editor");
+            }
+            if (shotTileset && !coordinator.state().tilesetEditor.openAssetId) {
+                failShot("--shot-tileset did not open tileset editor");
+            }
+            if (shotLogic
+                && coordinator.state().centerWorkspaceMode
+                    != CenterWorkspaceMode::Logic) {
+                failShot("--shot-logic workspace is not Logic Board");
+            }
+            if (shotPlay && !coordinator.isPlaying()) {
+                failShot("--shot-play did not enter Play");
+            }
+            if (shotDeselect && coordinator.selection().hasEntity()) {
+                failShot("--shot-deselect left a primary selection");
+            }
+            if (!shotPan.empty() && !shotPanRequested) {
+                failShot("--shot-pan was requested but not applied");
+            }
+            if (shotZoom > 0.f && !shotZoomRequested) {
+                failShot("--shot-zoom was requested but not applied");
+            }
+            if (shotPanRequested || shotZoomRequested) {
+                const EditorSceneViewState& view =
+                    coordinator.sceneView(coordinator.state().activeSceneId);
+                constexpr float kEps = 0.001f;
+                if (shotPanRequested
+                    && (std::fabs(view.pan.x - shotExpectedPanX) > kEps
+                        || std::fabs(view.pan.y - shotExpectedPanY) > kEps)) {
+                    failShot("--shot-pan SceneViewState mismatch");
+                }
+                if (shotZoomRequested
+                    && std::fabs(view.zoom - shotExpectedZoom) > kEps) {
+                    failShot("--shot-zoom SceneViewState mismatch");
+                }
+            }
+            // Escape contract: before = Rectangle + tilemap selection; after =
+            // Select with the same selection preserved.
+            if (shotEscape) {
+                if (!shotEscapeArmed) {
+                    failShot("--shot-escape did not arm Rectangle on a tilemap "
+                             "selection");
+                } else {
+                    if (coordinator.state().activeTool != EditorTool::Select) {
+                        failShot("--shot-escape did not restore Select tool");
+                    }
+                    if (coordinator.selection().primaryEntity
+                        != shotEscapeKeepSelection) {
+                        failShot("--shot-escape changed selection");
+                    } else if (!selectionSupportsTilemapEditing(
+                                   coordinator.document(), coordinator.state(),
+                                   coordinator.state().activeSceneId)) {
+                        failShot("--shot-escape lost tilemap editing selection");
+                    }
+                }
+            }
+            if (!shotAssetMenu.empty() && !ui.hasOpenContextMenu()) {
+                failShot("--shot-asset-menu context menu is not open");
+            }
+            if (shotGallery) {
+                Rml::Element* workspace =
+                    host.document() ? host.document()->GetElementById("workspace")
+                                    : nullptr;
+                const Rml::String markup =
+                    workspace ? workspace->GetInnerRML() : Rml::String{};
+                if (markup.find("gallery-section") == Rml::String::npos) {
+                    failShot("--shot-gallery workspace is not the component gallery");
+                }
+            }
+            if (!shotExpression.empty()) {
+                Rml::Element* focus =
+                    host.context() ? host.context()->GetFocusElement() : nullptr;
+                const bool focusedExpression = focus
+                    && focus->GetAttribute<Rml::String>("data-action", Rml::String())
+                        == "edit-logic-expression";
+                bool completionVisible = false;
+                if (host.document()) {
+                    for (Rml::Element* entry : findElementsByAttribute(
+                             host.document(), "data-action",
+                             "pick-logic-expression-completion")) {
+                        (void)entry;
+                        completionVisible = true;
+                        break;
+                    }
+                }
+                if (!focusedExpression && !completionVisible) {
+                    failShot("--shot-expression field/completion not reached");
+                }
+            }
+
             TakeScreenshot(shotPath.c_str());
             break;
         }

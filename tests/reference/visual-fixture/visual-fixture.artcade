@@ -12,7 +12,13 @@
       "type": "number"
     }
   ],
-  "imageAssets": [],
+  "imageAssets": [
+    {
+      "assetId": "fixture-sheet",
+      "name": "Design System Sheet",
+      "sourcePath": "visual-assets/design-system-sheet.png"
+    }
+  ],
   "mainScriptPath": "scripts/main.luac",
   "objectTypes": [
     {
@@ -38,41 +44,17 @@
               {
                 "properties": [
                   {
-                    "key": "target",
+                    "key": "direction",
                     "value": {
-                      "kind": "entity",
-                      "target": "self"
-                    }
-                  },
-                  {
-                    "key": "visible",
-                    "value": {
-                      "kind": "bool",
-                      "value": false
+                      "kind": "string",
+                      "value": "Right"
                     }
                   }
                 ],
-                "typeId": "entity.set_visible"
+                "typeId": "topdown.move"
               }
             ],
-            "conditions": [
-              {
-                "block": {
-                  "properties": [
-                    {
-                      "key": "expected",
-                      "value": {
-                        "kind": "bool",
-                        "value": true
-                      }
-                    }
-                  ],
-                  "typeId": "entity.is_visible"
-                },
-                "join": "and",
-                "negated": false
-              }
-            ],
+            "conditions": [],
             "enabled": true,
             "executionMode": "every_occurrence",
             "id": "rule-hide",
@@ -83,11 +65,110 @@
                   "key": "key",
                   "value": {
                     "kind": "key",
-                    "value": "Space"
+                    "value": "D"
                   }
                 }
               ],
-              "typeId": "input.key_pressed"
+              "typeId": "input.key_held"
+            }
+          },
+          {
+            "actions": [
+              {
+                "properties": [
+                  {
+                    "key": "direction",
+                    "value": {
+                      "kind": "string",
+                      "value": "Left"
+                    }
+                  }
+                ],
+                "typeId": "topdown.move"
+              }
+            ],
+            "conditions": [],
+            "enabled": true,
+            "executionMode": "every_occurrence",
+            "id": "rule-1",
+            "name": "Hide on Space Copy",
+            "trigger": {
+              "properties": [
+                {
+                  "key": "key",
+                  "value": {
+                    "kind": "key",
+                    "value": "A"
+                  }
+                }
+              ],
+              "typeId": "input.key_held"
+            }
+          },
+          {
+            "actions": [
+              {
+                "properties": [
+                  {
+                    "key": "direction",
+                    "value": {
+                      "kind": "string",
+                      "value": "Up"
+                    }
+                  }
+                ],
+                "typeId": "topdown.move"
+              }
+            ],
+            "conditions": [],
+            "enabled": true,
+            "executionMode": "every_occurrence",
+            "id": "rule-2",
+            "name": "Hide on Space Copy Copy",
+            "trigger": {
+              "properties": [
+                {
+                  "key": "key",
+                  "value": {
+                    "kind": "key",
+                    "value": "W"
+                  }
+                }
+              ],
+              "typeId": "input.key_held"
+            }
+          },
+          {
+            "actions": [
+              {
+                "properties": [
+                  {
+                    "key": "direction",
+                    "value": {
+                      "kind": "string",
+                      "value": "Down"
+                    }
+                  }
+                ],
+                "typeId": "topdown.move"
+              }
+            ],
+            "conditions": [],
+            "enabled": true,
+            "executionMode": "every_occurrence",
+            "id": "rule-3",
+            "name": "Hide on Space Copy Copy Copy",
+            "trigger": {
+              "properties": [
+                {
+                  "key": "key",
+                  "value": {
+                    "kind": "key",
+                    "value": "S"
+                  }
+                }
+              ],
+              "typeId": "input.key_held"
             }
           },
           {
@@ -113,37 +194,18 @@
                         },
                         "minimum": 0.0
                       },
-                      "y": 160.0
+                      "y": {
+                        "kind": "randomRange",
+                        "maximum": {
+                          "kind": "property",
+                          "property": "scene.worldHeight"
+                        },
+                        "minimum": 0.0
+                      }
                     }
                   }
                 ],
                 "typeId": "entity.set_position"
-              },
-              {
-                "properties": [
-                  {
-                    "key": "offset",
-                    "value": {
-                      "kind": "vec2",
-                      "x": 4.0,
-                      "y": 0.0
-                    }
-                  }
-                ],
-                "typeId": "entity.translate_by"
-              },
-              {
-                "properties": [
-                  {
-                    "key": "velocity",
-                    "value": {
-                      "kind": "vec2",
-                      "x": 0.0,
-                      "y": -120.0
-                    }
-                  }
-                ],
-                "typeId": "physics.set_velocity"
               }
             ],
             "conditions": [],
@@ -180,6 +242,25 @@
                   }
                 ],
                 "typeId": "state.add"
+              },
+              {
+                "properties": [
+                  {
+                    "key": "intensity",
+                    "value": {
+                      "kind": "number",
+                      "value": 0.5
+                    }
+                  },
+                  {
+                    "key": "duration",
+                    "value": {
+                      "kind": "number",
+                      "value": 0.5
+                    }
+                  }
+                ],
+                "typeId": "camera.shake"
               }
             ],
             "conditions": [],
@@ -198,138 +279,6 @@
                 }
               ],
               "typeId": "collision.enter"
-            }
-          },
-          {
-            "actions": [
-              {
-                "properties": [
-                  {
-                    "key": "direction",
-                    "value": {
-                      "kind": "string",
-                      "value": "Right"
-                    }
-                  }
-                ],
-                "typeId": "topdown.move"
-              }
-            ],
-            "conditions": [],
-            "enabled": true,
-            "executionMode": "every_occurrence",
-            "id": "rule-1",
-            "name": "rule-1",
-            "trigger": {
-              "properties": [
-                {
-                  "key": "key",
-                  "value": {
-                    "kind": "key",
-                    "value": "D"
-                  }
-                }
-              ],
-              "typeId": "input.key_held"
-            }
-          },
-          {
-            "actions": [
-              {
-                "properties": [
-                  {
-                    "key": "direction",
-                    "value": {
-                      "kind": "string",
-                      "value": "Left"
-                    }
-                  }
-                ],
-                "typeId": "topdown.move"
-              }
-            ],
-            "conditions": [],
-            "enabled": true,
-            "executionMode": "every_occurrence",
-            "id": "rule-2",
-            "name": "rule-1 Copy",
-            "trigger": {
-              "properties": [
-                {
-                  "key": "key",
-                  "value": {
-                    "kind": "key",
-                    "value": "A"
-                  }
-                }
-              ],
-              "typeId": "input.key_held"
-            }
-          },
-          {
-            "actions": [
-              {
-                "properties": [
-                  {
-                    "key": "direction",
-                    "value": {
-                      "kind": "string",
-                      "value": "Up"
-                    }
-                  }
-                ],
-                "typeId": "topdown.move"
-              }
-            ],
-            "conditions": [],
-            "enabled": true,
-            "executionMode": "every_occurrence",
-            "id": "rule-3",
-            "name": "rule-1 Copy Copy",
-            "trigger": {
-              "properties": [
-                {
-                  "key": "key",
-                  "value": {
-                    "kind": "key",
-                    "value": "W"
-                  }
-                }
-              ],
-              "typeId": "input.key_held"
-            }
-          },
-          {
-            "actions": [
-              {
-                "properties": [
-                  {
-                    "key": "direction",
-                    "value": {
-                      "kind": "string",
-                      "value": "Down"
-                    }
-                  }
-                ],
-                "typeId": "topdown.move"
-              }
-            ],
-            "conditions": [],
-            "enabled": true,
-            "executionMode": "every_occurrence",
-            "id": "rule-4",
-            "name": "rule-1 Copy Copy Copy",
-            "trigger": {
-              "properties": [
-                {
-                  "key": "key",
-                  "value": {
-                    "kind": "key",
-                    "value": "S"
-                  }
-                }
-              ],
-              "typeId": "input.key_held"
             }
           }
         ],
@@ -374,77 +323,8 @@
       "visible": true
     },
     {
-      "id": "object-1",
-      "name": "Entity 4",
-      "text": {
-        "align": "top-left",
-        "bindKey": "score",
-        "bindScope": "global",
-        "colorHex": "#FFFFFF",
-        "digits": 2,
-        "fontPath": "",
-        "format": "integer",
-        "offsetX": 0.0,
-        "offsetY": 0.0,
-        "prefix": "",
-        "screenSpace": false,
-        "size": 24,
-        "suffix": "",
-        "text": "Text"
-      },
-      "visible": true
-    },
-    {
-      "id": "object-2",
-      "logicBoard": {
-        "apiVersion": 2,
-        "id": "logic:object-2",
-        "rules": [
-          {
-            "actions": [
-              {
-                "properties": [
-                  {
-                    "key": "objectTypeId",
-                    "value": {
-                      "kind": "string",
-                      "value": "Coin"
-                    }
-                  },
-                  {
-                    "key": "position",
-                    "value": {
-                      "kind": "vec2",
-                      "x": 256.0,
-                      "y": 256.0
-                    }
-                  }
-                ],
-                "typeId": "entity.spawn"
-              }
-            ],
-            "conditions": [],
-            "enabled": true,
-            "executionMode": "every_occurrence",
-            "id": "rule-1",
-            "name": "rule-1",
-            "trigger": {
-              "properties": [
-                {
-                  "key": "seconds",
-                  "value": {
-                    "kind": "number",
-                    "value": 2.0
-                  }
-                }
-              ],
-              "typeId": "event.every_seconds"
-            }
-          }
-        ],
-        "schemaVersion": 4
-      },
-      "name": "Spawner",
+      "id": "Ground",
+      "name": "Ground",
       "visible": true
     }
   ],
@@ -471,8 +351,8 @@
           "objectTypeId": "Player",
           "transform": {
             "position": {
-              "x": 96.0,
-              "y": 160.0
+              "x": 64.0,
+              "y": 96.0
             },
             "rotation": 0.0,
             "scale": {
@@ -520,31 +400,3603 @@
         },
         {
           "id": 4,
-          "instanceName": "Text_hud",
-          "layerId": "layer-main",
-          "objectTypeId": "object-1",
-          "transform": {
-            "position": {
-              "x": 32.0,
-              "y": 32.0
+          "instanceName": "Ground 1",
+          "layerId": "layer-bg",
+          "objectTypeId": "Ground",
+          "tilemap": {
+            "cellSize": {
+              "x": 8.0,
+              "y": 8.0
             },
-            "rotation": 0.0,
-            "scale": {
-              "x": 1.0,
-              "y": 1.0
-            }
+            "chunkSize": 16,
+            "chunks": [
+              {
+                "cells": [
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "chunkX": 0,
+                "chunkY": 0
+              },
+              {
+                "cells": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  }
+                ],
+                "chunkX": 0,
+                "chunkY": -1
+              },
+              {
+                "cells": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "chunkX": -1,
+                "chunkY": 0
+              },
+              {
+                "cells": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  }
+                ],
+                "chunkX": -1,
+                "chunkY": -1
+              },
+              {
+                "cells": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  }
+                ],
+                "chunkX": 1,
+                "chunkY": -1
+              },
+              {
+                "cells": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  }
+                ],
+                "chunkX": 2,
+                "chunkY": -1
+              },
+              {
+                "cells": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  null,
+                  null,
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  null,
+                  null,
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  null,
+                  null
+                ],
+                "chunkX": 3,
+                "chunkY": -1
+              },
+              {
+                "cells": [
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "chunkX": 1,
+                "chunkY": 0
+              },
+              {
+                "cells": [
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "chunkX": 2,
+                "chunkY": 0
+              },
+              {
+                "cells": [
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  null,
+                  null,
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  {
+                    "flags": 0,
+                    "tileId": "tile-1"
+                  },
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "chunkX": 3,
+                "chunkY": 0
+              }
+            ],
+            "tilesetAssetId": "fixture-tileset"
           },
-          "visible": true
-        },
-        {
-          "id": 5,
-          "instanceName": "Spawner",
-          "layerId": "layer-main",
-          "objectTypeId": "object-2",
           "transform": {
             "position": {
-              "x": 256.0,
-              "y": 256.0
+              "x": 16.0,
+              "y": 240.40187072753906
             },
             "rotation": 0.0,
             "scale": {
@@ -558,7 +4010,7 @@
       "layers": [
         {
           "id": "layer-bg",
-          "locked": true,
+          "locked": false,
           "name": "Background"
         },
         {
@@ -611,8 +4063,114 @@
   },
   "schemaVersion": 11,
   "scriptAssets": [],
-  "spriteAnimationAssets": [],
+  "spriteAnimationAssets": [
+    {
+      "clips": [
+        {
+          "frameIds": [
+            "frame-1",
+            "frame-2"
+          ],
+          "framesPerSecond": 8.0,
+          "id": "idle",
+          "name": "Idle",
+          "playbackMode": "loop"
+        }
+      ],
+      "frames": [
+        {
+          "height": 16,
+          "id": "frame-1",
+          "width": 16,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "height": 16,
+          "id": "frame-2",
+          "width": 16,
+          "x": 16,
+          "y": 0
+        }
+      ],
+      "id": "fixture-animation",
+      "name": "Fixture Animation",
+      "sourceImageAssetId": "fixture-sheet"
+    }
+  ],
   "targetFPS": 60.0,
-  "tilesets": [],
+  "tilesets": [
+    {
+      "assetId": "fixture-tileset",
+      "imageAssetId": "fixture-sheet",
+      "name": "Fixture Tileset",
+      "slicing": {
+        "marginX": 0,
+        "marginY": 0,
+        "spacingX": 0,
+        "spacingY": 0,
+        "tileHeight": 8,
+        "tileWidth": 8
+      },
+      "tiles": [
+        {
+          "height": 8,
+          "id": "tile-1",
+          "width": 8,
+          "x": 0,
+          "y": 0
+        },
+        {
+          "height": 8,
+          "id": "tile-2",
+          "width": 8,
+          "x": 8,
+          "y": 0
+        },
+        {
+          "height": 8,
+          "id": "tile-3",
+          "width": 8,
+          "x": 16,
+          "y": 0
+        },
+        {
+          "height": 8,
+          "id": "tile-4",
+          "width": 8,
+          "x": 24,
+          "y": 0
+        },
+        {
+          "height": 8,
+          "id": "tile-5",
+          "width": 8,
+          "x": 0,
+          "y": 8
+        },
+        {
+          "height": 8,
+          "id": "tile-6",
+          "width": 8,
+          "x": 8,
+          "y": 8
+        },
+        {
+          "height": 8,
+          "id": "tile-7",
+          "width": 8,
+          "x": 16,
+          "y": 8
+        },
+        {
+          "height": 8,
+          "id": "tile-8",
+          "width": 8,
+          "x": 24,
+          "y": 8
+        }
+      ]
+    }
+  ],
   "version": "2.0.0"
 }

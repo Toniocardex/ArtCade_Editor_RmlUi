@@ -144,6 +144,14 @@ ProjectDoc makeVisualFixtureProject() {
     player.logicBoard = board;
     doc.objectTypes.emplace("Player", player);
     doc.objectTypes.emplace("Coin", makeObjectType("Coin"));
+    // Minimal Tilemap host for --shot-escape (tool → Escape). Painting needs a
+    // selected instance with TilemapComponent on an unlocked layer; without it
+    // Rectangle never arms and Escape is decorative.
+    EntityDef ground;
+    ground.name = "Ground";
+    ground.className = "Ground";
+    ground.sprite.fillColor = Vec3{0.42f, 0.45f, 0.52f};
+    doc.objectTypes.emplace("Ground", ground);
 
     // A Number global so the Logic Board's variable picker has something to
     // resolve, and the Variables drawer is not empty.
@@ -198,7 +206,19 @@ ProjectDoc makeVisualFixtureProject() {
         makeInstance(2, "Coin", "Coin 1", "layer-main", {224.f, 160.f}));
     scene.instances.push_back(
         makeInstance(3, "Coin", "Coin 2", "layer-bg", {320.f, 96.f}));
-    scene.entityIds = {1, 2, 3};
+    {
+        SceneInstanceDef groundInstance =
+            makeInstance(4, "Ground", "Ground 1", "layer-main", {0.f, 240.f});
+        TilemapComponent tilemap;
+        tilemap.tilesetAssetId = tileset.assetId;
+        tilemap.cellSize = {
+            static_cast<float>(tileset.slicing.tileWidth),
+            static_cast<float>(tileset.slicing.tileHeight)};
+        tilemap.chunkSize = 16;
+        groundInstance.tilemap = std::move(tilemap);
+        scene.instances.push_back(std::move(groundInstance));
+    }
+    scene.entityIds = {1, 2, 3, 4};
     doc.scenes.emplace(scene.id, scene);
     doc.activeSceneId = scene.id;
 

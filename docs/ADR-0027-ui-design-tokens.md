@@ -471,6 +471,12 @@ real project writer, so it stays readable, reviewable and regenerable when the
 schema moves. Every element in it earns its place by making some panel render a
 state that would otherwise go unphotographed.
 
+Functional smoke that reuses the same builder (Play, Escape, pan/zoom, asset
+menu, lifecycle, …) lives in a separate suite — see
+[`docs/FIXTURE_DEMO_SUITE.md`](FIXTURE_DEMO_SUITE.md). That suite regenerates a
+scratch fixture under `build/fixture-demo/` and does not rewrite this committed
+reference.
+
 The two layers are demonstrably complementary. Injecting the dangling-selector
 bug (hover-dependent) fails `gallery` and passes the panels; removing
 `.tree-row.selected` from its role group (static) passes `gallery` and fails

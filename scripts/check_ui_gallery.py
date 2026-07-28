@@ -75,9 +75,17 @@ def render(view: str, target: pathlib.Path) -> None:
     result = subprocess.run(
         [str(EXE), "--shot", scratch.name, *VIEWS[view]],
         cwd=ROOT, capture_output=True, text=True)
+    if result.returncode != 0:
+        sys.exit(
+            f"editor failed for '{view}' with exit code "
+            f"{result.returncode}:\n"
+            + (result.stdout or "")[-2000:]
+            + (result.stderr or "")[-2000:]
+        )
     if not scratch.exists():
         sys.exit(f"capture failed for '{view}':\n"
-                 + result.stdout[-2000:] + result.stderr[-2000:])
+                 + (result.stdout or "")[-2000:]
+                 + (result.stderr or "")[-2000:])
     if target.exists():
         target.unlink()
     scratch.replace(target)

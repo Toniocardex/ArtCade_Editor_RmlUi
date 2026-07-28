@@ -240,6 +240,11 @@
         "visible": true
       },
       "visible": true
+    },
+    {
+      "id": "Ground",
+      "name": "Ground",
+      "visible": true
     }
   ],
   "projectName": "ArtCade Visual Fixture",
@@ -303,6 +308,33 @@
             "position": {
               "x": 320.0,
               "y": 96.0
+            },
+            "rotation": 0.0,
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            }
+          },
+          "visible": true
+        },
+        {
+          "id": 4,
+          "instanceName": "Ground 1",
+          "layerId": "layer-main",
+          "objectTypeId": "Ground",
+          "tilemap": {
+            "cellSize": {
+              "x": 8.0,
+              "y": 8.0
+            },
+            "chunkSize": 16,
+            "chunks": [],
+            "tilesetAssetId": "fixture-tileset"
+          },
+          "transform": {
+            "position": {
+              "x": 0.0,
+              "y": 240.0
             },
             "rotation": 0.0,
             "scale": {
