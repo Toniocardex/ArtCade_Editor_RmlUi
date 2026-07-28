@@ -134,6 +134,19 @@ if(MSVC)
     target_link_options(logic_board_dropdown_keyboard_test PRIVATE /STACK:16777216)
 endif()
 
+# ADR-0036: Text component Font picker — data plumbing (set-text-font ->
+# TextComponent.fontPath via the existing SetObjectTypeTextComponentCommand,
+# Undo, Default Font entry, Play-disabled), same discipline as
+# inspector_layer_dropdown_keyboard_test above.
+artcade_test(inspector_text_font_picker_test
+    inspector-text-font-picker-test.cpp
+    artcade-editor-ui)
+target_compile_definitions(inspector_text_font_picker_test PRIVATE
+    ARTCADE_UI_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/src/editor-native/resources/ui")
+if(MSVC)
+    target_link_options(inspector_text_font_picker_test PRIVATE /STACK:16777216)
+endif()
+
 artcade_test(sfx_synthesizer_test
     ${CMAKE_SOURCE_DIR}/vendor/artcade-runtime/src/modules/sfx/tests/sfx_tests.cpp
     ArtCade::Sfx)

@@ -69,6 +69,10 @@ struct SceneFrameText {
     Vec4 color{1.f, 1.f, 1.f, 1.f};
     bool screenSpace = false;
     float layerOpacity = 1.f;
+    // Project-relative FontAssetDef.sourcePath; empty = the Scene View's
+    // default CanvasFont (ADR-0036). Play/export resolve the same field
+    // (TextComponent::fontPath) independently through Modules::FontCache.
+    std::string fontPath;
 };
 
 struct SceneFrameGauge {

@@ -9,6 +9,7 @@
 namespace ArtCade::EditorNative {
 
 class TextureCache;
+class EditorFontCache;
 
 // SceneView draws an immutable scene frame projection into a viewport rect.
 // It never reads ProjectDocument or editor panels during draw; GPU resources are
@@ -20,7 +21,8 @@ public:
                 const SceneGridDefinition& displayGrid,
                 const SceneViewportProjection& projection,
                 const TextureCache& textures,
-                const CanvasFont& canvasFont) const;
+                const CanvasFont& canvasFont,
+                const EditorFontCache& fonts) const;
 };
 
 } // namespace ArtCade::EditorNative

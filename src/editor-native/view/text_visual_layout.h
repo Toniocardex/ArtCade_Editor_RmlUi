@@ -9,4 +9,8 @@ namespace ArtCade::EditorNative {
 TextVisualLayout layoutSceneFrameText(const SceneFrameText& text,
                                       const CanvasFont& font);
 
+/** Same, measuring with an explicit resolved Font (ADR-0036: a Text
+ *  component's own configured font, not the default CanvasFont). */
+TextVisualLayout layoutSceneFrameText(const SceneFrameText& text, const Font& font);
+
 } // namespace ArtCade::EditorNative

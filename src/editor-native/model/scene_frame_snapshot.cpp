@@ -160,6 +160,7 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
             entry.color = type->text->color;
             entry.screenSpace = type->text->screenSpace;
             entry.layerOpacity = 1.f;
+            entry.fontPath = type->text->fontPath;
             snapshot.texts.push_back(std::move(entry));
         }
         if (type && type->gauge && type->gauge->width > 0.f && type->gauge->height > 0.f) {
@@ -313,6 +314,7 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const PlaySession& session) {
                 entry.color = rend->text->color;
                 entry.screenSpace = rend->text->screenSpace;
                 entry.layerOpacity = 1.f;
+                entry.fontPath = rend->text->fontPath;
                 snapshot.texts.push_back(std::move(entry));
             }
             if (rend->gauge) {

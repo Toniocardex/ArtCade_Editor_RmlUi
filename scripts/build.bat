@@ -141,6 +141,12 @@ if "!DO_TEST!"=="1" (
     if errorlevel 1 ( popd >nul & echo [FAIL] Logic Board Dropdown Keyboard test build failed. & exit /b 1 )
     "!BUILD_DIR!\tests\logic_board_dropdown_keyboard_test.exe"
     if errorlevel 1 ( popd >nul & echo [FAIL] logic_board_dropdown_keyboard_test failed. & exit /b 1 )
+    rem ADR-0036: Text component Font picker data plumbing.
+    echo [editor] Building + running inspector_text_font_picker_test...
+    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target inspector_text_font_picker_test
+    if errorlevel 1 ( popd >nul & echo [FAIL] Inspector Text Font Picker test build failed. & exit /b 1 )
+    "!BUILD_DIR!\tests\inspector_text_font_picker_test.exe"
+    if errorlevel 1 ( popd >nul & echo [FAIL] inspector_text_font_picker_test failed. & exit /b 1 )
 )
 popd >nul
 

@@ -217,6 +217,7 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/view/texture_cache.cpp
     editor-native/view/tileset_empty_tiles.cpp
     editor-native/view/texture_request_catalog.cpp
+    editor-native/view/editor_font_cache.cpp
     editor-native/view/scene_view.cpp
     editor-native/view/tilemap_paint_overlay.cpp
     editor-native/app/tilemap_paint_input.cpp

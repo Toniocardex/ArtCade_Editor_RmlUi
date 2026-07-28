@@ -26,24 +26,27 @@ void unloadCanvasFont(CanvasFont& canvasFont) {
     canvasFont = CanvasFont{};
 }
 
+void drawCanvasText(const Font& font, const std::string& text,
+                    float x, float y, float size, Color color) {
+    // Spacing 0: the TTF glyph advance already spaces the text; raylib's
+    // extra per-glyph spacing is a bitmap-font artefact.
+    DrawTextEx(font, text.c_str(), Vector2{x, y}, size, 0.f, color);
+}
+
+float measureCanvasText(const Font& font, const std::string& text, float size) {
+    return MeasureTextEx(font, text.c_str(), size, 0.f).x;
+}
+
 void drawCanvasText(const CanvasFont& canvasFont, const std::string& text,
                     float x, float y, float size, Color color) {
-    if (canvasFont.loaded) {
-        // Spacing 0: the TTF glyph advance already spaces the text; raylib's
-        // extra per-glyph spacing is a bitmap-font artefact.
-        DrawTextEx(canvasFont.font, text.c_str(), Vector2{x, y}, size, 0.f, color);
-    } else {
-        DrawText(text.c_str(), static_cast<int>(x), static_cast<int>(y),
-                 static_cast<int>(size), color);
-    }
+    drawCanvasText(canvasFont.loaded ? canvasFont.font : GetFontDefault(),
+                   text, x, y, size, color);
 }
 
 float measureCanvasText(const CanvasFont& canvasFont, const std::string& text,
                         float size) {
-    if (canvasFont.loaded) {
-        return MeasureTextEx(canvasFont.font, text.c_str(), size, 0.f).x;
-    }
-    return static_cast<float>(MeasureText(text.c_str(), static_cast<int>(size)));
+    return measureCanvasText(canvasFont.loaded ? canvasFont.font : GetFontDefault(),
+                             text, size);
 }
 
 } // namespace ArtCade::EditorNative

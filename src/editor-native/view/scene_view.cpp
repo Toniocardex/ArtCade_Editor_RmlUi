@@ -2,6 +2,7 @@
 
 #include "editor-native/model/authored_transform.h"
 #include "editor-native/model/tilemap_render_view.h"
+#include "editor-native/view/editor_font_cache.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/text_visual_layout.h"
 #include "editor-native/view/texture_cache.h"
@@ -44,6 +45,19 @@ Color toColor(const Vec4& c) {
 
 Color toColor(const Vec3& c, float alpha = 1.f) {
     return toColor(Vec4{c.x, c.y, c.z, alpha});
+}
+
+// ADR-0036: a Text component's own configured font when resolved, else the
+// Scene View's default CanvasFont (Inter) — matching what an empty fontPath,
+// a missing font asset, or a load failure all already fall back to today.
+const Font& resolveTextFont(const EditorFontCache& fonts, const CanvasFont& canvasFont,
+                            const std::string& fontPath) {
+    if (!fontPath.empty()) {
+        if (const FontResource* resource = fonts.find(fontPath); resource && resource->loaded) {
+            return resource->font;
+        }
+    }
+    return canvasFont.loaded ? canvasFont.font : GetFontDefault();
 }
 
 Rectangle toRectangle(const SceneFrameRect& rect) {
@@ -201,7 +215,8 @@ void SceneView::render(const SceneFrameSnapshot& frame,
                        const SceneGridDefinition& displayGrid,
                        const SceneViewportProjection& projection,
                        const TextureCache& textures,
-                       const CanvasFont& canvasFont) const {
+                       const CanvasFont& canvasFont,
+                       const EditorFontCache& fonts) const {
     const ViewportRect& rect = projection.visibleRect;
     if (!rect.valid()) return;
 
@@ -354,10 +369,11 @@ void SceneView::render(const SceneFrameSnapshot& frame,
         }
         for (const SceneFrameText& text : frame.texts) {
             if (text.entityId != entity.entityId || text.screenSpace) continue;
-            const TextVisualLayout layout = layoutSceneFrameText(text, canvasFont);
+            const Font& glyphFont = resolveTextFont(fonts, canvasFont, text.fontPath);
+            const TextVisualLayout layout = layoutSceneFrameText(text, glyphFont);
             Vec4 color = text.color;
             color.a *= text.layerOpacity;
-            drawCanvasText(canvasFont, text.displayText, layout.drawPosition.x,
+            drawCanvasText(glyphFont, text.displayText, layout.drawPosition.x,
                            layout.drawPosition.y, static_cast<float>(text.size), toColor(color));
         }
     }
@@ -453,10 +469,11 @@ void SceneView::render(const SceneFrameSnapshot& frame,
             static_cast<float>(rect.x) + text.anchorPosition.x,
             static_cast<float>(rect.y) + text.anchorPosition.y,
         };
-        const TextVisualLayout layout = layoutSceneFrameText(viewportText, canvasFont);
+        const Font& glyphFont = resolveTextFont(fonts, canvasFont, text.fontPath);
+        const TextVisualLayout layout = layoutSceneFrameText(viewportText, glyphFont);
         Vec4 color = text.color;
         color.a *= text.layerOpacity;
-        drawCanvasText(canvasFont, text.displayText, layout.drawPosition.x,
+        drawCanvasText(glyphFont, text.displayText, layout.drawPosition.x,
                        layout.drawPosition.y, static_cast<float>(text.size), toColor(color));
     }
 

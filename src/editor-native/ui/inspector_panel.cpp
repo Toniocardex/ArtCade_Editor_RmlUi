@@ -191,6 +191,7 @@ bool isEntityDropdown(std::string_view dropdownId) {
         || dropdownId == "text-variable"
         || dropdownId == "text-format"
         || dropdownId == "text-align"
+        || dropdownId == "text-font"
         || dropdownId == "gauge-binding"
         || dropdownId == "gauge-variable"
         || dropdownId == "gauge-direction"
@@ -1687,8 +1688,59 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         }
         html += field("Size", "commit-text-size", std::to_string(textComp->size), playing);
         html += field("Color", "commit-text-color", formatColorHexRgb(textComp->color), playing);
-        html += "<div class=\"prop-row\"><span class=\"prop-label\">Font</span>"
-                "<span class=\"prop-readonly\">Default Font</span></div>";
+        {
+            // ADR-0036: picker over ProjectDoc.fontAssets; fontPath == "" is
+            // "Default Font" (the Scene View's CanvasFont/Inter fallback).
+            // A fontPath that no longer matches any font asset (deleted since
+            // assignment) shows the raw path, same "(missing)"-style honesty
+            // as the Sprite Source / Tileset pickers elsewhere in this file.
+            const auto& fontAssets = coordinator.document().data().fontAssets;
+            std::string fontLabel = "Default Font";
+            bool fontFound = textComp->fontPath.empty();
+            if (!fontFound) {
+                fontLabel = textComp->fontPath;
+                for (const FontAssetDef& font : fontAssets) {
+                    if (font.sourcePath == textComp->fontPath) {
+                        fontLabel = assetDisplayName(font.name, font.assetId);
+                        fontFound = true;
+                        break;
+                    }
+                }
+            }
+            const bool fontOpen = openDropdownId_ == "text-font";
+            html += dropdownTrigger("Font", "text-font", fontLabel, fontOpen, playing);
+            if (fontOpen && !playing) {
+                html += "<div class=\"drop-list\">";
+                const bool defaultIsCurrent = textComp->fontPath.empty();
+                std::size_t navIndex = dropdownNav_.push(defaultIsCurrent
+                    ? DropdownNavEntry{"toggle-inspector-dropdown", "text-font", "", true}
+                    : DropdownNavEntry{"set-text-font", "", "", false});
+                html += "<div class=\"drop-entry";
+                if (defaultIsCurrent) html += " selected";
+                if (dropdownNav_.isHighlighted(navIndex)) html += " highlighted";
+                html += "\" data-action=\"";
+                html += defaultIsCurrent ? "toggle-inspector-dropdown\" data-arg=\"text-font\""
+                                         : "set-text-font\" data-arg=\"\"";
+                html += ">Default Font</div>";
+                for (const FontAssetDef& font : fontAssets) {
+                    const bool isCurrent = font.sourcePath == textComp->fontPath;
+                    navIndex = dropdownNav_.push(isCurrent
+                        ? DropdownNavEntry{"toggle-inspector-dropdown", "text-font", "", true}
+                        : DropdownNavEntry{"set-text-font", font.sourcePath, "", false});
+                    html += "<div class=\"drop-entry";
+                    if (isCurrent) html += " selected";
+                    if (dropdownNav_.isHighlighted(navIndex)) html += " highlighted";
+                    html += "\" data-action=\"";
+                    if (isCurrent) {
+                        html += "toggle-inspector-dropdown\" data-arg=\"text-font\"";
+                    } else {
+                        html += "set-text-font\" data-arg=\"" + escapeRml(font.sourcePath) + "\"";
+                    }
+                    html += ">" + escapeRml(assetDisplayName(font.name, font.assetId)) + "</div>";
+                }
+                html += "</div>";
+            }
+        }
 
         const bool alignOpen = openDropdownId_ == "text-align";
         html += dropdownTrigger("Anchor", "text-align", textComp->align, alignOpen, playing);

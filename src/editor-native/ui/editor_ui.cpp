@@ -3212,6 +3212,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         || action == "set-text-binding-none" || action == "set-text-binding-global"
         || action == "set-text-binding-local" || action == "set-text-variable"
         || action == "set-text-format" || action == "set-text-align"
+        || action == "set-text-font"
         || action == "set-gauge-binding-none" || action == "set-gauge-binding-global"
         || action == "set-gauge-binding-local" || action == "set-gauge-variable"
         || action == "set-gauge-direction";
@@ -3790,6 +3791,7 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
     } else if (action == "set-text-binding-none" || action == "set-text-binding-global"
                || action == "set-text-binding-local" || action == "set-text-variable"
                || action == "set-text-format" || action == "set-text-align"
+               || action == "set-text-font"
                || action == "toggle-text-screen-space"
                || action == "commit-text-static" || action == "commit-text-prefix"
                || action == "commit-text-suffix" || action == "commit-text-digits"
@@ -3818,6 +3820,8 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
                 next.format = arg;
             } else if (action == "set-text-align") {
                 next.align = arg;
+            } else if (action == "set-text-font") {
+                next.fontPath = arg;
             } else if (action == "toggle-text-screen-space") {
                 next.screenSpace = !next.screenSpace;
             } else if (action == "commit-text-static") {

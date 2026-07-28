@@ -58,6 +58,7 @@
 #include "editor-native/ui/editor_ui.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view.h"
+#include "editor-native/view/editor_font_cache.h"
 #include "editor-native/view/texture_cache.h"
 #include "editor-native/view/texture_request_catalog.h"
 #include "editor-native/view/tileset_empty_tiles.h"
@@ -416,6 +417,12 @@ int EditorApp::run(int argc, char** argv) {
     SceneView sceneView;
     TextureCache textureCache;
     TextureRequestCatalog textureRequestCatalog;
+    // ADR-0036: a Text component's own configured font, resolved and cached
+    // independently of the default CanvasFont above. Rebuilt on demand per
+    // frame from whichever fontPaths are actually referenced this frame -
+    // no request-catalog indirection needed, SceneFrameText already carries
+    // fontPath as the project-relative path to resolve.
+    EditorFontCache textFontCache;
     // Derived alpha-scan of the palette's tileset (signature-keyed, so a
     // re-slice, image swap or project replacement recomputes on next query).
     TilesetEmptyTileCache tilesetEmptyTiles;
@@ -1971,10 +1978,11 @@ int EditorApp::run(int argc, char** argv) {
             // Play the runtime scene must always render regardless of workspace UI.
             if (playSession || (!animationAsset && !tilesetAsset)) {
                 textureCache.prepare(snapshot.sprites, snapshot.tilemaps, textureRequests);
+                textFontCache.prepare(snapshot.texts, assetRoot);
                 const SceneGridDefinition displayGrid = viewportDisplayGrid(
                     coordinator.document(), coordinator.state(), active);
                 sceneView.render(snapshot, renderView, displayGrid, renderProjection, textureCache,
-                                 canvasFont);
+                                 canvasFont, textFontCache);
                 if (!playSession) {
                     drawTilemapPaintOverlay(coordinator.document(), coordinator.state().tilemapEditor,
                                             coordinator.effectiveTilemapTool(),

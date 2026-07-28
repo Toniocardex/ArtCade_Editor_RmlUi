@@ -31,4 +31,13 @@ void drawCanvasText(const CanvasFont& canvasFont, const std::string& text,
 float measureCanvasText(const CanvasFont& canvasFont, const std::string& text,
                         float size);
 
+// ADR-0036: explicit-Font overloads so a Text component's own resolved font
+// (EditorFontCache) shares the same draw/measure implementation as the
+// default CanvasFont, rather than a second copy of the spacing/fallback
+// logic. The two CanvasFont-taking overloads above are thin wrappers over
+// these.
+void drawCanvasText(const Font& font, const std::string& text,
+                    float x, float y, float size, Color color);
+float measureCanvasText(const Font& font, const std::string& text, float size);
+
 } // namespace ArtCade::EditorNative
