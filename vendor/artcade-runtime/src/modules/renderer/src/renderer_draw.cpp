@@ -213,6 +213,31 @@ bool Renderer::drawSpriteRegion(const AssetId& assetId,
                                 float srcX, float srcY, float srcW, float srcH,
                                 float dstX, float dstY, float dstW, float dstH,
                                 float alpha) {
+    const SpriteRegionDraw region{
+        srcX, srcY, srcW, srcH,
+        dstX, dstY, dstW, dstH,
+    };
+    return drawSpriteRegions(assetId, &region, 1u, alpha);
+}
+
+bool Renderer::drawSpriteRegions(
+    const AssetId& assetId,
+    const SpriteRegionDraw* regions,
+    std::size_t count,
+    float alpha) {
+    return drawSpriteRegions(assetId, regions, count, 0.f, 0.f, alpha);
+}
+
+bool Renderer::drawSpriteRegions(
+    const AssetId& assetId,
+    const SpriteRegionDraw* regions,
+    std::size_t count,
+    float destinationOffsetX,
+    float destinationOffsetY,
+    float alpha) {
+    if (count == 0u) return true;
+    if (!regions) return false;
+
     const std::string texKey = resolvedTextureKey(assetId);
     const Texture2D* tex = impl_->resources.texture_cache().getByPath(texKey);
     if (!tex || tex->id == 0) {
@@ -221,11 +246,22 @@ bool Renderer::drawSpriteRegion(const AssetId& assetId,
     }
     if (!tex || tex->id == 0) return false;
 
-    Rectangle src = { srcX, srcY, srcW, srcH };
-    Rectangle dst = { dstX, dstY, dstW, dstH };
     const unsigned char ca =
         static_cast<unsigned char>(std::clamp(alpha, 0.f, 1.f) * 255.f);
-    DrawTexturePro(*tex, src, dst, { 0.f, 0.f }, 0.f, Color{ 255, 255, 255, ca });
+    const Color tint{255, 255, 255, ca};
+    for (std::size_t i = 0; i < count; ++i) {
+        const SpriteRegionDraw& region = regions[i];
+        const Rectangle src{
+            region.srcX, region.srcY, region.srcW, region.srcH,
+        };
+        const Rectangle dst{
+            destinationOffsetX + region.dstX,
+            destinationOffsetY + region.dstY,
+            region.dstW,
+            region.dstH,
+        };
+        DrawTexturePro(*tex, src, dst, {0.f, 0.f}, 0.f, tint);
+    }
     return true;
 }
 

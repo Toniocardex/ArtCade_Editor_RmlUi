@@ -77,6 +77,17 @@ void execute_scene_entities_pass(SceneFrameContext& ctx) {
             }
             if (inEditMode && !hasSpriteSheet) alpha = layer ? layer->opacity : 1.f;
 
+            if (item.tilemapDraw) {
+                const AppRender::ResolvedTilemapDraw& tilemap = *item.tilemapDraw;
+                renderer->drawSpriteRegions(
+                    tilemap.imageAssetId,
+                    tilemap.regions.data(),
+                    tilemap.regions.size(),
+                    pos.x,
+                    pos.y,
+                    alpha);
+            }
+
             const bool hasText = item.text.has_value();
             const bool hasGauge = item.gauge.has_value();
             const bool visualOnly = !hasSpriteSheet && (hasText || hasGauge);

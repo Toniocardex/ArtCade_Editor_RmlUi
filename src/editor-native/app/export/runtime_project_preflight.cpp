@@ -2,6 +2,7 @@
 
 #include "editor-native/model/project_io.h"
 #include "editor-native/model/sprite_render_view.h"
+#include "editor-native/model/tilemap_validation.h"
 #include "core/text-component-format.h"
 #include "project-current-format.h"
 
@@ -94,6 +95,27 @@ std::optional<std::string> validatePlaySpriteReferences(const ProjectDocument& d
                     return "Scene \"" + sceneId
                          + "\" sprite animator references a missing animation asset";
                 }
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::string> validatePlayTilemapReferences(const ProjectDocument& document) {
+    for (const auto& [sceneId, scene] : document.data().scenes) {
+        for (const SceneInstanceDef& instance : scene.instances) {
+            if (!instance.tilemap) continue;
+            if (const auto error = validateTilemapComponent(document, *instance.tilemap)) {
+                return "Scene \"" + sceneId + "\" entity "
+                    + std::to_string(instance.id) + " Tilemap: " + *error;
+            }
+            const TilesetAsset* tileset =
+                document.findTilesetAsset(instance.tilemap->tilesetAssetId);
+            if (!tileset || tileset->imageAssetId.empty()
+                || !document.hasImageAsset(tileset->imageAssetId)) {
+                return "Scene \"" + sceneId + "\" entity "
+                    + std::to_string(instance.id)
+                    + " Tilemap tileset references a missing image asset";
             }
         }
     }
@@ -199,6 +221,16 @@ std::optional<std::string> validatePlayPresentationComponents(const ProjectDocum
 RuntimeProjectPreflightResult prepareRuntimeProjectSnapshot(
     const ProjectDocument& document) {
     RuntimeProjectPreflightResult result;
+
+    // Export/Play is a gameplay boundary: reject invalid persistent tilemap
+    // references before serializing a project the standalone renderer would
+    // have to defensively omit at runtime. Keep this intentionally scoped to
+    // ADR-0040's new contract; unrelated legacy Play permissiveness remains.
+    if (const auto tilemapError = validatePlayTilemapReferences(document)) {
+        result.diagnostics.push_back(makeExportError(
+            ExportDiagnosticCode::RuntimeValidationFailed, *tilemapError));
+        return result;
+    }
 
     if (const auto spriteError = validatePlaySpriteReferences(document)) {
         result.diagnostics.push_back(makeExportError(

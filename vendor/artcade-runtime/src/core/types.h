@@ -505,6 +505,56 @@ struct SpritePresentationOverride {
     std::optional<SpritePresentationSource> source;
 };
 
+using TileId = std::string;
+
+// Per-cell transform, shaped for the spec's already-planned flip/rotate
+// (Slice 10 — Funzioni avanzate) so that feature is additive to this format
+// later rather than a JSON migration. Unused (always None) until then.
+enum class TileTransformFlags : std::uint8_t {
+    None  = 0,
+    FlipX = 1 << 0,
+    FlipY = 1 << 1,
+    Rot90 = 1 << 2,
+};
+
+struct TilemapCellValue {
+    TileId              tileId;
+    TileTransformFlags  flags = TileTransformFlags::None;
+
+    bool operator==(const TilemapCellValue& other) const {
+        return tileId == other.tileId && flags == other.flags;
+    }
+};
+
+// nullopt = empty cell. No sentinel/invented tile id (mirrors
+// TilesetEditorState::selectedTileId's own optional<string> shape). `tileId`,
+// when set, names a TileDefinition::id within the owning TilemapComponent's
+// tilesetAssetId.
+using TilemapCell = std::optional<TilemapCellValue>;
+
+// A fixed-size block of cells, addressed by chunk coordinates. Chunks are
+// populated by the Tilemap painter; runtime consumers must accept populated
+// components. See tilemap_chunk_math.h for the cell <-> chunk coordinate math.
+struct TilemapChunk {
+    int                       chunkX = 0;
+    int                       chunkY = 0;
+    std::vector<TilemapCell>  cells;   // size chunkSize*chunkSize, row-major
+};
+
+// Entity-owned persistent tile grid. One per placed SceneInstanceDef
+// (ADR-0001: entity-owned, not scene/layer-keyed like legacy TilemapData).
+// World origin of cell (0,0) is the owning instance Transform.position; this
+// component deliberately has no origin/position field of its own.
+struct TilemapComponent {
+    AssetId                   tilesetAssetId;          // references ProjectDoc.tilesets
+    Vec2                      cellSize  = {32.f, 32.f}; // local, unscaled cell size
+    // Chosen at creation, immutable for the component's lifetime in this
+    // MVP. Changing it once chunks are populated means re-bucketing every
+    // cell, an unsolved problem left to a future explicit feature slice.
+    int                       chunkSize = 16;
+    std::vector<TilemapChunk> chunks;
+};
+
 // ============================================================================
 // Entity / Scene definitions
 // ============================================================================
@@ -540,6 +590,10 @@ struct EntityDef {
     std::optional<DialogComponent>               dialog;
     std::optional<TextComponent>                 text;
     std::optional<GaugeComponent>                gauge;
+    // Runtime materialization mirror only.
+    // Persistent authority remains SceneInstanceDef::tilemap.
+    // Entity/Object Type JSON codecs must not read or write this field.
+    std::optional<TilemapComponent>              tilemap;
     std::optional<BoxCollider2DComponent>        boxCollider2D;
     /** Design-time flag: when false the sprite is hidden in play / shipped
      *  builds. The editor preview always draws the sprite (with a dashed
@@ -641,61 +695,6 @@ struct TilesetAsset {
     AssetId        imageAssetId;   // references ProjectDoc.imageAssets; never a raw path
     TilesetSlicing slicing;
     std::vector<TileDefinition> tiles;   // empty until sliced
-};
-
-using TileId = std::string;
-
-// Per-cell transform, shaped for the spec's already-planned flip/rotate
-// (Slice 10 — Funzioni avanzate) so that feature is additive to this format
-// later rather than a JSON migration. Unused (always None) until then.
-enum class TileTransformFlags : std::uint8_t {
-    None  = 0,
-    FlipX = 1 << 0,
-    FlipY = 1 << 1,
-    Rot90 = 1 << 2,
-};
-
-struct TilemapCellValue {
-    TileId              tileId;
-    TileTransformFlags  flags = TileTransformFlags::None;
-
-    bool operator==(const TilemapCellValue& other) const {
-        return tileId == other.tileId && flags == other.flags;
-    }
-};
-
-// nullopt = empty cell. No sentinel/invented tile id (mirrors
-// TilesetEditorState::selectedTileId's own optional<string> shape). `tileId`,
-// when set, names a TileDefinition::id within the owning TilemapComponent's
-// tilesetAssetId.
-using TilemapCell = std::optional<TilemapCellValue>;
-
-// A fixed-size block of cells, addressed by chunk coordinates. Chunks are
-// created lazily by a future paint slice; Tileset/Tilemap Editor Slice 4
-// never creates one, so `chunks` is always empty in every real component —
-// the shape exists now so painting only appends to it later, never changes
-// it. See tilemap_chunk_math.h for the cell <-> chunk coordinate math.
-struct TilemapChunk {
-    int                       chunkX = 0;
-    int                       chunkY = 0;
-    std::vector<TilemapCell>  cells;   // size chunkSize*chunkSize, row-major
-};
-
-// Entity-owned persistent tile grid (Tileset/Tilemap Editor, Slice 4). One
-// per placed SceneInstanceDef (ADR-0001: entity-owned, not scene/layer-keyed
-// like the legacy TilemapData above). World origin of cell (0,0) is the
-// owning instance's existing Transform.position — this component
-// intentionally has no origin/position field of its own (ADR-0001: no
-// hidden synchronization, no two ownership paths for one fact).
-struct TilemapComponent {
-    AssetId                   tilesetAssetId;          // references ProjectDoc.tilesets
-    Vec2                      cellSize  = {32.f, 32.f}; // local, unscaled cell size
-    // Chosen at creation, immutable for the component's lifetime in this
-    // MVP (no setter command exists). Changing it once chunks are populated
-    // means re-bucketing every cell, an unsolved problem left to whichever
-    // future slice needs it.
-    int                       chunkSize = 16;
-    std::vector<TilemapChunk> chunks;                  // always [] in Slice 4
 };
 
 /** Scene placement of an object type (project format v2). */

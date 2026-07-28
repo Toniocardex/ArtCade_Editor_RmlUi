@@ -135,6 +135,9 @@ public:
     bool getGauge(EntityId id, GaugeComponent& out) const;
     void setGauge(EntityId id, const std::optional<GaugeComponent>& g);
 
+    bool getTilemap(EntityId id, TilemapComponent& out) const;
+    void setTilemap(EntityId id, const std::optional<TilemapComponent>& t);
+
     bool getDialog(EntityId id, DialogComponent& out) const;
     void setDialog(EntityId id, const std::optional<DialogComponent>& d);
 

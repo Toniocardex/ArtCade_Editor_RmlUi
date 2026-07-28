@@ -90,6 +90,9 @@ EntityDef materializeInstance(
     // Camera target is scene-instance authority (ADR-0003), so it replaces
     // the compatibility-only type-level field during materialisation.
     e.cameraTarget = instance.cameraTarget;
+    // Tilemap is scene-instance authority (ADR-0001/ADR-0040), so this
+    // transient runtime mirror never inherits from the Object Type.
+    e.tilemap = instance.tilemap;
     if (e.spritePresentation) {
         SpritePresentationComponent presentation = *e.spritePresentation;
         if (instance.spritePresentationOverride) {

@@ -66,6 +66,11 @@ int main() {
     hordeMember.maxSpeed = 90.f;
     hordeMember.separationRadius = 40.f;
     player.hordeMember = hordeMember;
+    TilemapComponent playerTilemap;
+    playerTilemap.tilesetAssetId = "tiles";
+    playerTilemap.cellSize = {16.f, 16.f};
+    playerTilemap.chunkSize = 8;
+    player.tilemap = playerTilemap;
 
     EntityDef coin;
     coin.id = 2;
@@ -110,6 +115,12 @@ int main() {
     };
 
     CHECK(gw.replaceProject(scenes, entities, "scene_a"));
+
+    TilemapComponent loadedTilemap{};
+    CHECK(gw.getTilemap(1, loadedTilemap));
+    CHECK(loadedTilemap.tilesetAssetId == "tiles");
+    CHECK(loadedTilemap.chunkSize == 8);
+    CHECK(!gw.getTilemap(9999, loadedTilemap));
 
     // Negative authored scale.x migrated to a flip flag; scale becomes magnitude.
     SpriteComponent flippedSprite{};
@@ -244,6 +255,13 @@ int main() {
     CHECK(std::abs(dragEnd.rotation - 0.75f) < 1e-4f);
     CHECK(std::abs(dragEnd.scale.x - 3.f) < 1e-4f);
     CHECK(std::abs(dragEnd.scale.y - 1.f) < 1e-4f);
+
+    // ADR-0040: applying a definition with no transient tilemap removes the
+    // registry component; there is intentionally no public runtime setter.
+    EntityDef noTilemap = scaledPlayer;
+    noTilemap.tilemap.reset();
+    CHECK(gw.updateEntity(1, noTilemap));
+    CHECK(!gw.getTilemap(1, loadedTilemap));
 
     // ── playClipOnSpawn re-arm after the enter-play module reset ───────────
     // Repro: replaceProject activates the entity and plays its spawn clip, then

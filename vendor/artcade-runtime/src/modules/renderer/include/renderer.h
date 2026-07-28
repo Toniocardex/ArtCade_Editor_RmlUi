@@ -7,6 +7,7 @@
 #include "../../presentation/include/presentation_mode.h"
 #include "../../presentation/include/presentation_types.h"
 #include "../../presentation/include/presentation_input_builder.h"
+#include "sprite-region-draw.h"
 #include "view_render_features.h"
 #include <functional>
 #include <string>
@@ -147,6 +148,29 @@ public:
                           float srcX, float srcY, float srcW, float srcH,
                           float dstX, float dstY, float dstW, float dstH,
                           float alpha = 1.f);
+
+    /**
+     * Resolve/load one atlas texture and submit N regions in their stored
+     * destination coordinates. This is one resource acquisition followed by N
+     * DrawTexturePro submissions; it is not GPU batching.
+     */
+    bool drawSpriteRegions(
+        const AssetId& assetId,
+        const SpriteRegionDraw* regions,
+        std::size_t count,
+        float alpha = 1.f);
+
+    /**
+     * Same operation with a live destination offset. Cached tilemap regions
+     * remain entity-local while the entity transform is applied per frame.
+     */
+    bool drawSpriteRegions(
+        const AssetId& assetId,
+        const SpriteRegionDraw* regions,
+        std::size_t count,
+        float destinationOffsetX,
+        float destinationOffsetY,
+        float alpha);
 
     /**
      * Spritesheet Studio: rasterize one atlas sub-rect into RGBA8 (top-left origin).

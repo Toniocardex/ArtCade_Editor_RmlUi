@@ -585,6 +585,24 @@ void EntityRegistry::setGauge(EntityId id,
     else   impl_->reg.remove<GaugeComponent>(e);
 }
 
+bool EntityRegistry::getTilemap(EntityId id, TilemapComponent& out) const {
+    const entt::entity e = impl_->toEntt(id);
+    if (e == entt::null) return false;
+    if (const auto* c = impl_->reg.try_get<TilemapComponent>(e)) {
+        out = *c;
+        return true;
+    }
+    return false;
+}
+
+void EntityRegistry::setTilemap(
+    EntityId id, const std::optional<TilemapComponent>& t) {
+    const entt::entity e = impl_->toEntt(id);
+    if (e == entt::null) return;
+    if (t) impl_->reg.emplace_or_replace<TilemapComponent>(e, *t);
+    else   impl_->reg.remove<TilemapComponent>(e);
+}
+
 bool EntityRegistry::getCollisionBody(EntityId id, CollisionBodyComponent& out) const {
     const entt::entity e = impl_->toEntt(id);
     if (e == entt::null) return false;

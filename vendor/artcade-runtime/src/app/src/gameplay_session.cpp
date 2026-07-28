@@ -25,6 +25,7 @@
 #include "../../world/include/world.h"
 #include "../render/scene_frame_snapshot.h"
 #include "../render/text_value_formatter.h"
+#include "../render/tilemap_component_resolve.h"
 #include "../../core/text-component-format.h"
 
 #include <algorithm>
@@ -42,6 +43,24 @@ using Clock = std::chrono::steady_clock;
 
 double elapsedMs(Clock::time_point start) {
     return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+}
+
+const char* tilemapResolveIssueName(AppRender::TilemapResolveIssueCode code) {
+    using Code = AppRender::TilemapResolveIssueCode;
+    switch (code) {
+    case Code::MissingTileset: return "missing tileset";
+    case Code::EmptyTilesetAssetId: return "empty tileset asset id";
+    case Code::TilesetAssetMismatch: return "tileset asset mismatch";
+    case Code::EmptyImageAssetId: return "empty tileset image asset id";
+    case Code::InvalidChunkSize: return "invalid chunk size";
+    case Code::InvalidCellSize: return "invalid cell size";
+    case Code::ChunkSizeOverflow: return "chunk size overflow";
+    case Code::MissingTileDefinition: return "missing tile definition";
+    case Code::InvalidTileDefinition: return "invalid tile definition";
+    case Code::UnsupportedCellTransform: return "unsupported cell transform";
+    case Code::InvalidChunkCoordinate: return "invalid chunk coordinate";
+    }
+    return "unknown tilemap resolve issue";
 }
 
 } // namespace
@@ -340,6 +359,11 @@ bool GameplaySession::initialize(PhysicsMode physicsMode,
 
     sceneLifecycle_->set_gameplay_reset_handler([this]() {
         world_->onSceneActivated();
+        // The lifecycle service invokes this only after activation/restore is
+        // complete, so the ECS and current tileset catalog are stable here.
+        // ADR-0040: a transition, reactivation, or restart must never retain
+        // the previous active scene's derived tilemap presentation.
+        rebuildActiveSceneTilemapDraws();
     });
     sceneLifecycle_->set_restore_handler([this](const SceneId& sceneId) {
         return entityGateway_->restoreSceneFromAuthoring(sceneId);
@@ -477,14 +501,19 @@ bool GameplaySession::sceneMutationBatchOpen() const { return sceneMutation_->ba
 
 // D-20: replace the removed `World& world()` accessor's mutating call sites -
 // thin forwards, no new behavior.
-void GameplaySession::loadWorldProject(const ProjectDoc& doc) { world_->init(doc); }
+void GameplaySession::loadWorldProject(const ProjectDoc& doc) {
+    clearResolvedTilemapDraws();
+    world_->init(doc);
+}
 void GameplaySession::syncWorldAfterEditorProject(
     const std::vector<TilePaletteEntry>& tilePalette) {
     world_->syncAfterEditorProject(tilePalette);
+    rebuildActiveSceneTilemapDraws();
 }
 void GameplaySession::restoreWorldDesignState(
     const std::vector<TilePaletteEntry>& tilePalette) {
     world_->restoreDesignState(tilePalette);
+    rebuildActiveSceneTilemapDraws();
 }
 void GameplaySession::rebuildWorldCollision() { world_->rebuildCollisionWorld(); }
 
@@ -600,11 +629,13 @@ bool GameplaySession::prepareActiveSceneGameplay() {
 
     if (!installLogicScopesForActiveScene()) {
         clearPreparedGameplayScopes();
+        clearResolvedTilemapDraws();
         return false;
     }
 
     if (!installScriptScopesForActiveScene()) {
         clearPreparedGameplayScopes();
+        clearResolvedTilemapDraws();
         return false;
     }
 
@@ -617,6 +648,8 @@ bool GameplaySession::startPreparedActiveSceneGameplay() {
         reportActivationContractViolation("start requires Prepared state");
         return false;
     }
+
+    rebuildActiveSceneTilemapDraws();
 
     if (logicRuntime_) {
         logicRuntime_->beginFrame();
@@ -648,6 +681,7 @@ void GameplaySession::reportActivationContractViolation(const char* reason) cons
 }
 
 void GameplaySession::shutdownGraph() {
+    clearResolvedTilemapDraws();
     if (world_) { world_->shutdown(); world_.reset(); }
     if (entityGateway_) {
         entityGateway_->set_scene_lifecycle_service(nullptr);
@@ -660,6 +694,60 @@ void GameplaySession::shutdownGraph() {
     }
     sceneMutation_.reset();
     if (sceneManager_) { sceneManager_->shutdown(); sceneManager_.reset(); }
+}
+
+void GameplaySession::clearResolvedTilemapDraws() {
+    resolvedTilemapDraws_.clear();
+}
+
+void GameplaySession::rebuildActiveSceneTilemapDraws() {
+    std::unordered_map<EntityId, AppRender::ResolvedTilemapDraw> next;
+    if (!entityGateway_ || !sceneManager_) {
+        resolvedTilemapDraws_.swap(next);
+        return;
+    }
+
+    std::set<std::string> emittedWarnings;
+    const auto emitIssue = [&emittedWarnings](
+        EntityId entityId, const AppRender::TilemapResolveIssue& issue) {
+        std::string key = std::to_string(entityId) + ":"
+            + std::to_string(static_cast<int>(issue.code));
+        if (!issue.tileId.empty()) key += ":" + issue.tileId;
+        if (!emittedWarnings.insert(key).second) return;
+        std::cerr << "[GameplaySession] Tilemap entity " << entityId << ": "
+                  << tilemapResolveIssueName(issue.code);
+        if (!issue.tileId.empty()) std::cerr << " (tileId=" << issue.tileId << ")";
+        std::cerr << "\n";
+    };
+
+    entityGateway_->forEachActiveRenderable(
+        [this, &next, &emitIssue](
+            EntityId id, const Transform&, const SpriteComponent&) {
+            TilemapComponent component;
+            if (!entityGateway_->getTilemap(id, component)) return;
+
+            const auto& tilesets = sceneManager_->tilesets();
+            const auto tilesetIt = std::find_if(
+                tilesets.begin(), tilesets.end(),
+                [&component](const TilesetAsset& tileset) {
+                    return tileset.assetId == component.tilesetAssetId;
+                });
+            if (tilesetIt == tilesets.end()) {
+                emitIssue(id, AppRender::TilemapResolveIssue{
+                    AppRender::TilemapResolveIssueCode::MissingTileset,
+                });
+                return;
+            }
+
+            AppRender::TilemapComponentResolveResult resolved =
+                AppRender::resolveTilemapComponent(component, *tilesetIt);
+            for (const AppRender::TilemapResolveIssue& issue : resolved.issues) {
+                emitIssue(id, issue);
+            }
+            if (resolved.draw) next.emplace(id, std::move(*resolved.draw));
+        });
+
+    resolvedTilemapDraws_.swap(next);
 }
 
 void GameplaySession::shutdownPhysics() {
@@ -1027,6 +1115,10 @@ SceneFrameSnapshot GameplaySession::buildFrameSnapshot(SceneFrameSnapshot snapsh
         entry.visibleInGame = entityGateway_->visibleInGame(item.id);
         entry.spriteFrame = AppRender::sprite_frame_resolve(
             spriteAnimator_.get(), item.id, item.sprite, inEditMode);
+        const auto tilemapIt = resolvedTilemapDraws_.find(item.id);
+        if (tilemapIt != resolvedTilemapDraws_.end()) {
+            entry.tilemapDraw = &tilemapIt->second;
+        }
 
         TextComponent text{};
         if (entityGateway_->getText(item.id, text)

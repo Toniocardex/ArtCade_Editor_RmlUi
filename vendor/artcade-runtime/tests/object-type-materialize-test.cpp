@@ -119,6 +119,36 @@ int main() {
                "project materialize: sprite id from catalog");
     }
 
+    // ADR-0040: tilemap remains scene-instance authority and is copied only
+    // into the transient materialized entity.
+    {
+        EntityDef type;
+        type.className = "Ground";
+        type.tilemap = TilemapComponent{}; // Must never win over the instance.
+        SceneInstanceDef instance = makeInstance();
+        TilemapComponent tilemap;
+        tilemap.tilesetAssetId = "tiles";
+        tilemap.cellSize = {16.f, 24.f};
+        tilemap.chunkSize = 8;
+        TilemapChunk chunk;
+        chunk.cells.resize(64);
+        chunk.cells[0] = TilemapCellValue{"grass", TileTransformFlags::None};
+        tilemap.chunks.push_back(std::move(chunk));
+        instance.tilemap = tilemap;
+        const EntityDef e = materializeInstance(type, instance, assets);
+        expect(e.tilemap.has_value(), "tilemap: instance component materialized");
+        expect(e.tilemap->tilesetAssetId == "tiles", "tilemap: instance tileset wins");
+        expect(e.tilemap->cellSize.x == 16.f && e.tilemap->cellSize.y == 24.f,
+               "tilemap: cell size preserved");
+        expect(e.tilemap->chunks.size() == 1 && e.tilemap->chunks[0].cells[0]
+                   && e.tilemap->chunks[0].cells[0]->tileId == "grass",
+               "tilemap: painted cells preserved");
+
+        instance.tilemap.reset();
+        const EntityDef absent = materializeInstance(type, instance, assets);
+        expect(!absent.tilemap.has_value(), "tilemap: no type-level inheritance");
+    }
+
     // ADR-0014: BoxCollider2D → CollisionBody.
     {
         EntityDef type;

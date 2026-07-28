@@ -44,6 +44,15 @@ artcade_test(object_type_materialize_test
     object-type-materialize-test.cpp
     artcade-object-type-materialize)
 
+add_executable(tilemap_component_resolve_test
+    tilemap-component-resolve-test.cpp
+    ${ARTCADE_RUNTIME_ROOT}/src/app/render/tilemap_component_resolve.cpp)
+target_include_directories(tilemap_component_resolve_test PRIVATE
+    ${ARTCADE_RUNTIME_ROOT}/src
+    ${ARTCADE_RUNTIME_ROOT}/src/app/render)
+target_link_libraries(tilemap_component_resolve_test PRIVATE artcade-core)
+add_test(NAME tilemap_component_resolve_test COMMAND tilemap_component_resolve_test)
+
 artcade_test(asset_manifest_index_test
     asset-manifest-index-test.cpp
     artcade-asset-system)

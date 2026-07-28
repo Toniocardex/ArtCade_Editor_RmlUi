@@ -3,6 +3,7 @@
 #include "editor_core_test_harness.h"
 
 #include "editor-native/app/editor_coordinator.h"
+#include "editor-native/app/export/runtime_project_preflight.h"
 #include "editor-native/app/generated_sfx_generation_preflight.h"
 #include "editor-native/app/hierarchy_actions.h"
 #include "editor-native/app/input_routing.h"
@@ -3237,22 +3238,19 @@ int main() {
         CHECK(!c.document().isDirty());
     }
 
-    // -- A tilemap referencing a missing tileset no longer blocks Play --------
-    // RU-03 (D-01): entity-owned TilemapComponent data is never loaded or
-    // validated by GameplaySession/World (the dropped rendering capability
-    // documented above) - a dangling tilesetAssetId simply goes unused,
-    // rather than rejecting Play the way the old hand-written materialize()
-    // did.
+    // -- A tilemap referencing a missing tileset blocks Play/Export preflight --
+    // ADR-0040: authoring and Play/Export gates reject invalid references;
+    // only the shipped renderer is defensive and omits malformed content.
     {
         ProjectDoc doc = makeSpriteDoc();
         TilemapComponent tm;
         tm.tilesetAssetId = "no-such-tileset";
         doc.scenes.at(kSceneA).instances.front().tilemap = tm;
         EditorCoordinator c{doc};
-        CHECK(c.playProject().ok);
+        CHECK(!c.playProject().ok);
     }
 
-    // -- A tileset referencing a missing image asset no longer blocks Play ----
+    // -- A tileset referencing a missing image asset blocks Play preflight ----
     {
         ProjectDoc doc = makeSpriteDoc();
         TilesetAsset orphan;
@@ -3263,24 +3261,10 @@ int main() {
         tm.tilesetAssetId = "tiles-orphan";
         doc.scenes.at(kSceneA).instances.front().tilemap = tm;
         EditorCoordinator c{doc};
-        CHECK(c.playProject().ok);
+        CHECK(!c.playProject().ok);
     }
 
-    // RU-03 (D-01): "Play materializes a RuntimeTilemap identical to
-    // tilemapRenderCells" and "a tilemap follows its owning entity during
-    // Play" removed - both asserted per-instance/entity-owned tilemap
-    // rendering during Play, which is a known, deliberately accepted gap now
-    // (World's RenderableEntitySnapshot has no per-entity tilemap field; only
-    // the legacy scene-level merged grid renders - see play_session.h). See
-    // "An empty (unpainted) tilemap is fully invisible in Play" below, which
-    // now covers the painted case too since neither renders anymore.
-
-    // -- An unknown TileId in a chunk no longer blocks Play -------------------
-    // RU-03 (D-01): same dropped validation as the missing-tileset/-image
-    // cases above - entity-owned tilemap content is never resolved by Play,
-    // so an unresolvable TileId simply goes unused rather than rejecting.
-    // Normal authoring commands still reject this state before it can be
-    // saved, so this remains a hand-crafted ProjectDoc.
+    // -- An unknown TileId in a chunk blocks Play/Export preflight ------------
     {
         ProjectDoc doc = makeSpriteDoc();
         TileDefinition validTile;
@@ -3301,7 +3285,7 @@ int main() {
         doc.scenes.at(kSceneA).instances.front().tilemap = tm;
 
         EditorCoordinator c{doc};
-        CHECK(c.playProject().ok);
+        CHECK(!c.playProject().ok);
     }
 
     // -- Two tilemaps on different tilesets sharing one image asset ------------
@@ -3426,6 +3410,48 @@ int main() {
         CHECK(c.undoSize() == undoBefore);
         CHECK(readTilemapCell(*c.document().findInstanceInScene(kSceneA, kHero)->tilemap, {0, 0})
                   ->tileId == "tile-1");
+    }
+
+    // -- ADR-0040: EntityDef::tilemap is a transient runtime mirror only -----
+    {
+        ProjectDoc doc = makeInheritedDoc();
+        TilemapComponent transient;
+        transient.tilesetAssetId = "tiles-1";
+        transient.cellSize = {16.f, 16.f};
+        transient.chunkSize = 1;
+        transient.chunks.push_back(TilemapChunk{
+            0, 0, {TilemapCellValue{"runtime-only", TileTransformFlags::None}}});
+        doc.objectTypes.at("Hero").tilemap = std::move(transient);
+
+        const SerializeResult serialized = ProjectSerializer::serialize(ProjectDocument{doc});
+        CHECK(serialized.ok);
+        CHECK(serialized.value.find("runtime-only") == std::string::npos);
+        CHECK(serialized.value.find("\"tilemap\"") == std::string::npos);
+
+        const DeserializeResult roundTrip = ProjectSerializer::deserialize(serialized.value);
+        CHECK(roundTrip.ok);
+        CHECK(roundTrip.ok
+              && !roundTrip.value.data().objectTypes.at("Hero").tilemap.has_value());
+    }
+
+    // -- ADR-0040: Export preflight rejects an invalid authored tile reference -
+    {
+        ProjectDoc doc = makeSpriteDoc();
+        SceneInstanceDef& hero = doc.scenes.at(kSceneA).instances.front();
+        TilemapComponent tilemap;
+        tilemap.tilesetAssetId = "tiles-1";
+        tilemap.chunkSize = 1;
+        tilemap.chunks.push_back(TilemapChunk{
+            0, 0, {TilemapCellValue{"missing-at-export", TileTransformFlags::None}}});
+        hero.tilemap = std::move(tilemap);
+
+        const RuntimeProjectPreflightResult preflight =
+            prepareRuntimeProjectSnapshot(ProjectDocument{std::move(doc)});
+        CHECK(!preflight.ok);
+        CHECK(!preflight.diagnostics.empty());
+        CHECK(!preflight.diagnostics.empty()
+              && preflight.diagnostics.front().message.find("missing tile id")
+                     != std::string::npos);
     }
 
     // RU-03 previously removed Play tilemap rendering; ADR-0001 editor Play

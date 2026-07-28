@@ -228,6 +228,17 @@ ProjectDoc makeVisualFixtureProject() {
             static_cast<float>(tileset.slicing.tileWidth),
             static_cast<float>(tileset.slicing.tileHeight)};
         tilemap.chunkSize = 16;
+        // Keep the committed fixture useful for exported-runtime regression:
+        // Ground is genuinely painted, not merely a tilemap host with empty
+        // chunks. The pattern is deterministic and uses stable sliced IDs.
+        TilemapChunk chunk;
+        chunk.cells.resize(static_cast<std::size_t>(tilemap.chunkSize * tilemap.chunkSize));
+        for (int x = 0; x < tilemap.chunkSize; ++x) {
+            chunk.cells[static_cast<std::size_t>(x)] = TilemapCellValue{
+                tileset.tiles[static_cast<std::size_t>(x) % tileset.tiles.size()].id,
+                TileTransformFlags::None};
+        }
+        tilemap.chunks.push_back(std::move(chunk));
         groundInstance.tilemap = std::move(tilemap);
         scene.instances.push_back(std::move(groundInstance));
     }

@@ -219,6 +219,7 @@ if(ARTCADE_HAS_RAYLIB AND ARTCADE_HAS_LUA)
         src/app/src/gameplay_session_seed.cpp
         src/app/render/sprite_frame_resolve.cpp
         src/app/render/text_value_formatter.cpp
+        src/app/render/tilemap_component_resolve.cpp
     )
     target_include_directories(artcade-gameplay-session PUBLIC
         src/app/include

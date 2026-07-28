@@ -41,8 +41,10 @@
 // functions below, which don't touch GameplaySession) instead of relying on
 // GameplaySession to pull them in transitively.
 #include "app/src/gameplay_session.h"
+#include "app/render/scene_frame_snapshot.h"
 #include "core/engine-context.h"
 
+#include <chrono>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -511,15 +513,97 @@ void testRealGameplaySessionDispatchInputThenTick() {
     hero.id = 1;
     hero.className = "Hero";
     hero.platformerController = PlatformerControllerComponent{};
+    TilemapComponent heroTilemap;
+    heroTilemap.tilesetAssetId = "tiles";
+    heroTilemap.cellSize = {16.f, 8.f};
+    heroTilemap.chunkSize = 2;
+    TilemapChunk heroChunk;
+    heroChunk.cells.resize(4);
+    heroChunk.cells[0] = TilemapCellValue{"grass", TileTransformFlags::None};
+    heroTilemap.chunks.push_back(std::move(heroChunk));
+    hero.tilemap = std::move(heroTilemap);
+
+    // A distinct second-scene tilemap proves the active-scene lifecycle
+    // replaces (rather than merely retains) GameplaySession's derived cache.
+    EntityDef secondHero = hero;
+    secondHero.id = 2;
+    secondHero.className = "SecondHero";
+    secondHero.name = "SecondHero";
+    secondHero.tilemap->chunks[0].cells[0] =
+        TilemapCellValue{"stone", TileTransformFlags::None};
     SceneDef scene;
     scene.id = "main";
     scene.entityIds = {hero.id};
+    SceneDef secondScene;
+    secondScene.id = "second";
+    secondScene.entityIds = {secondHero.id};
     ProjectDoc project;
     project.activeSceneId = scene.id;
-    project.entities = {{hero.id, hero}};
-    project.scenes = {{scene.id, scene}};
+    project.entities = {{hero.id, hero}, {secondHero.id, secondHero}};
+    project.scenes = {{scene.id, scene}, {secondScene.id, secondScene}};
 
     session.loadWorldProject(project);
+
+    TilesetAsset tileset;
+    tileset.assetId = "tiles";
+    tileset.imageAssetId = "atlas";
+    tileset.tiles = {{"grass", 0, 0, 8, 8}, {"stone", 8, 0, 8, 8}};
+    session.sceneManager().setTilesets({tileset});
+    CHECK(session.prepareActiveSceneGameplay());
+    CHECK(session.startPreparedActiveSceneGameplay());
+
+    SceneFrameSnapshot firstTilemapSnapshot = session.buildFrameSnapshot({});
+    CHECK(firstTilemapSnapshot.renderables.size() == 1);
+    CHECK(firstTilemapSnapshot.renderables[0].tilemapDraw != nullptr);
+    if (!firstTilemapSnapshot.renderables.empty()
+        && firstTilemapSnapshot.renderables[0].tilemapDraw) {
+        const auto* draw = firstTilemapSnapshot.renderables[0].tilemapDraw;
+        CHECK(draw->imageAssetId == "atlas");
+        CHECK(draw->cellSize.x == 16.f && draw->cellSize.y == 8.f);
+        CHECK(draw->cells.size() == 1 && draw->cells[0].cellX == 0
+                  && draw->cells[0].cellY == 0);
+        CHECK(draw->regions.size() == 1 && draw->regions[0].dstX == 0.f
+                  && draw->regions[0].dstY == 0.f);
+    }
+    SceneFrameSnapshot secondTilemapSnapshot = session.buildFrameSnapshot({});
+    CHECK(secondTilemapSnapshot.renderables[0].tilemapDraw
+              == firstTilemapSnapshot.renderables[0].tilemapDraw);
+    CHECK(secondTilemapSnapshot.renderables[0].tilemapDraw->cells.data()
+              == firstTilemapSnapshot.renderables[0].tilemapDraw->cells.data());
+    CHECK(secondTilemapSnapshot.renderables[0].tilemapDraw->regions.data()
+              == firstTilemapSnapshot.renderables[0].tilemapDraw->regions.data());
+
+    Transform movedTilemapEntity{};
+    CHECK(session.entityGateway().getTransform(hero.id, movedTilemapEntity));
+    movedTilemapEntity.position = {77.f, 88.f};
+    CHECK(session.entityGateway().setTransform(hero.id, movedTilemapEntity));
+    const SceneFrameSnapshot movedTilemapSnapshot = session.buildFrameSnapshot({});
+    CHECK(movedTilemapSnapshot.renderables[0].transform.position.x == 77.f
+              && movedTilemapSnapshot.renderables[0].transform.position.y == 88.f);
+    CHECK(movedTilemapSnapshot.renderables[0].tilemapDraw
+              == firstTilemapSnapshot.renderables[0].tilemapDraw);
+    CHECK(movedTilemapSnapshot.renderables[0].tilemapDraw->regions[0].dstX == 0.f
+              && movedTilemapSnapshot.renderables[0].tilemapDraw->regions[0].dstY == 0.f);
+
+    // ADR-0040: the central lifecycle callback rebuilds after a scene change
+    // and again after a restart; neither path can leak the prior scene's draw.
+    CHECK(session.entityGateway().loadScene("second"));
+    const SceneFrameSnapshot transitionedTilemapSnapshot = session.buildFrameSnapshot({});
+    CHECK(transitionedTilemapSnapshot.renderables.size() == 1);
+    CHECK(transitionedTilemapSnapshot.renderables[0].id == secondHero.id);
+    CHECK(transitionedTilemapSnapshot.renderables[0].tilemapDraw != nullptr);
+    if (!transitionedTilemapSnapshot.renderables.empty()
+        && transitionedTilemapSnapshot.renderables[0].tilemapDraw) {
+        const auto* draw = transitionedTilemapSnapshot.renderables[0].tilemapDraw;
+        CHECK(draw->cells.size() == 1 && draw->regions.size() == 1
+                  && draw->regions[0].srcX == 8.5f);
+    }
+    session.entityGateway().requestRestartScene(0.f);
+    const SceneFrameSnapshot restartedTilemapSnapshot = session.buildFrameSnapshot({});
+    CHECK(restartedTilemapSnapshot.renderables.size() == 1);
+    CHECK(restartedTilemapSnapshot.renderables[0].id == secondHero.id);
+    CHECK(restartedTilemapSnapshot.renderables[0].tilemapDraw != nullptr);
+    CHECK(session.entityGateway().loadScene("main"));
 
     std::string error;
     CHECK(session.loadLogicPrograms({makeLogicMoveProgram("Hero", 1.f)}, &error));
@@ -570,6 +654,105 @@ void testRealGameplaySessionDispatchInputThenTick() {
     session.shutdownUtilities();
 }
 
+// ADR-0040 performance characterization: resolving a large tilemap is a
+// lifecycle-boundary cost. Normal frame snapshots must only retain observers
+// of the existing cache, regardless of cell count or shared tileset use.
+void testLargeTilemapSnapshotReusesResolvedCache() {
+    Modules::Audio audio; // never init()'d
+    Modules::Input input;
+    CHECK(input.init());
+
+    GameplaySession session;
+    CHECK(session.initializeUtilities([](const char*, bool ok) { return ok; }));
+    EngineContext ctx;
+    CHECK(session.initialize(
+        PhysicsMode::Auto,
+        ctx,
+        nullptr,
+        [](const char*, bool ok) { return ok; },
+        [](const Modules::SceneTransitionResult&) {}));
+    CHECK(session.initializeGameplayModules(
+        ctx, audio, input,
+        [](const char*, bool ok) { return ok; }));
+
+    constexpr int kSide = 128;
+    constexpr std::size_t kCellCount =
+        static_cast<std::size_t>(kSide) * static_cast<std::size_t>(kSide);
+
+    TilemapComponent tilemap;
+    tilemap.tilesetAssetId = "shared-tiles";
+    tilemap.cellSize = {16.f, 16.f};
+    tilemap.chunkSize = kSide;
+    TilemapChunk chunk;
+    chunk.cells.resize(
+        kCellCount,
+        TilemapCellValue{"grass", TileTransformFlags::None});
+    tilemap.chunks.push_back(std::move(chunk));
+
+    EntityDef first;
+    first.id = 101;
+    first.className = "LargeGroundA";
+    first.tilemap = tilemap;
+    EntityDef second = first;
+    second.id = 102;
+    second.className = "LargeGroundB";
+    second.tilemap = std::move(tilemap);
+
+    SceneDef scene;
+    scene.id = "large";
+    scene.entityIds = {first.id, second.id};
+    ProjectDoc project;
+    project.activeSceneId = scene.id;
+    project.entities = {{first.id, first}, {second.id, second}};
+    project.scenes = {{scene.id, scene}};
+
+    session.loadWorldProject(project);
+    TilesetAsset tileset;
+    tileset.assetId = "shared-tiles";
+    // The headless test never acquires a GPU texture. Both entities sharing
+    // this stable AssetId still receive independent immutable draw caches.
+    tileset.imageAssetId = "atlas";
+    tileset.tiles = {{"grass", 0, 0, 16, 16}};
+    session.sceneManager().setTilesets({tileset});
+    CHECK(session.prepareActiveSceneGameplay());
+    CHECK(session.startPreparedActiveSceneGameplay());
+
+    const SceneFrameSnapshot baseline = session.buildFrameSnapshot({});
+    CHECK(baseline.renderables.size() == 2);
+    const auto* firstDraw = baseline.renderables[0].tilemapDraw;
+    const auto* secondDraw = baseline.renderables[1].tilemapDraw;
+    CHECK(firstDraw && firstDraw->regions.size() == kCellCount);
+    CHECK(secondDraw && secondDraw->regions.size() == kCellCount);
+    const auto* firstRegions = firstDraw ? firstDraw->regions.data() : nullptr;
+    const auto* secondRegions = secondDraw ? secondDraw->regions.data() : nullptr;
+
+    bool stable = firstDraw && secondDraw;
+    constexpr int kSnapshotCount = 256;
+    const auto started = std::chrono::steady_clock::now();
+    for (int i = 0; i < kSnapshotCount; ++i) {
+        const SceneFrameSnapshot frame = session.buildFrameSnapshot({});
+        stable = stable
+            && frame.renderables.size() == 2
+            && frame.renderables[0].tilemapDraw == firstDraw
+            && frame.renderables[1].tilemapDraw == secondDraw
+            && frame.renderables[0].tilemapDraw->regions.data() == firstRegions
+            && frame.renderables[1].tilemapDraw->regions.data() == secondRegions;
+    }
+    const auto elapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - started).count();
+    CHECK(stable);
+    std::cout << "ADR-0040 cache profile: " << kSnapshotCount
+              << " snapshots, 2 x " << kCellCount
+              << " cached cells, " << elapsedUs << " us\n";
+
+    session.shutdownLogicModules();
+    session.shutdownScriptRuntime();
+    session.shutdownScriptingModules();
+    session.shutdownGraph();
+    session.shutdownPhysics();
+    session.shutdownUtilities();
+}
+
 } // namespace
 
 int main() {
@@ -579,6 +762,7 @@ int main() {
     testScriptCancelOwnerStopsDispatch();
     testAnimationEventsDrainedOnce();
     testRealGameplaySessionDispatchInputThenTick();
+    testLargeTilemapSnapshotReusesResolvedCache();
 
     std::cout << "\ngameplay-tick-order-characterization-test: " << passed
               << " passed, " << failed << " failed\n";

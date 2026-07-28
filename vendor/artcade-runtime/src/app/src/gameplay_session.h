@@ -41,6 +41,7 @@
 // the frame, not mutable simulation control - not the concern D-20 targets.
 
 #include "gameplay_host_ports.h"
+#include "../render/tilemap_component_resolve.h"
 
 #include "../../core/gameplay-runtime-host.h"
 #include "../../core/types.h"
@@ -514,6 +515,8 @@ public:
     void shutdownUtilities();
 
 private:
+    void rebuildActiveSceneTilemapDraws();
+    void clearResolvedTilemapDraws();
     void dispatchGameplayCollisionTransitions();
 
     // ADR-0039 §9: failure-path teardown for prepareActiveSceneGameplay() -
@@ -560,6 +563,9 @@ private:
     std::unordered_set<ObjectTypeId> logicObjectTypes_;
     std::unordered_map<AssetId, Scripts::ScriptProgram> scriptPrograms_;
     std::unordered_map<ObjectTypeId, std::vector<ScriptAttachmentDef>> scriptAttachments_;
+    // Derived active-scene presentation only. It is rebuilt at scene/world
+    // boundaries and is never persistent or mutable through the public API.
+    std::unordered_map<EntityId, AppRender::ResolvedTilemapDraw> resolvedTilemapDraws_;
 
     IGameplayAudioService* audioPort_ = nullptr;
     IGameplayDialogGate* dialogPort_ = nullptr;

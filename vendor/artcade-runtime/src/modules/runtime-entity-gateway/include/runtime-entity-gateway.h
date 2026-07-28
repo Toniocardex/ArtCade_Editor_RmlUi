@@ -123,6 +123,10 @@ public:
     bool getGauge(EntityId id, GaugeComponent& out) const;
     bool setGauge(EntityId id, const std::optional<GaugeComponent>& gauge);
 
+    // Read-only surface: dynamic tilemap mutation needs an explicit cache
+    // invalidation contract and is outside ADR-0040.
+    bool getTilemap(EntityId id, TilemapComponent& out) const;
+
     bool getDialog(EntityId id, DialogComponent& out) const;
     bool setDialog(EntityId id, const std::optional<DialogComponent>& dialog);
 

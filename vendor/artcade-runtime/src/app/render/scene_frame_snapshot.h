@@ -4,6 +4,7 @@
 #include "../../modules/presentation/include/presentation_snapshot.h"
 #include "editor-overlay-renderer.h"
 #include "sprite_frame_resolve.h"
+#include "tilemap_component_resolve.h"
 
 #include <optional>
 #include <unordered_map>
@@ -29,6 +30,10 @@ struct RenderableEntitySnapshot {
     AppRender::ResolvedSpriteDraw spriteFrame{};
     std::optional<TextComponent> text;
     std::optional<GaugeComponent> gauge;
+    // Non-owning observer of GameplaySession's active-scene presentation
+    // cache. The synchronous frame contract below keeps it valid through all
+    // render passes; it is deliberately distinct from legacy scene tilemaps.
+    const AppRender::ResolvedTilemapDraw* tilemapDraw = nullptr;
     float gaugeRatio = 0.f;
 };
 
@@ -39,8 +44,10 @@ struct RenderableEntitySnapshot {
  *   mutation + entity flush → scene_frame_build() → beginFrame()
  *   → render passes → presentScreen()
  *
- * Tilemap pointers alias the active SceneDef. The SceneDef must not be
- * mutated from frame build until render passes finish.
+ * Entity tilemap pointers alias GameplaySession's resolved presentation cache;
+ * legacy tilemap pointers alias the active SceneDef. Neither source may be
+ * mutated, cleared, rebuilt, or replaced from frame build until render passes
+ * finish.
  */
 struct SceneFrameSnapshot {
     uint64_t frameNumber = 0;
