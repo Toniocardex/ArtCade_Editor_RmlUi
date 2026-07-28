@@ -1,30 +1,22 @@
 #include "editor-native/model/text_layout_math.h"
 
+#include "core/text-anchor-math.h"
+
 #include <algorithm>
 
 namespace ArtCade::EditorNative {
-namespace {
 
-void anchorAlign(const std::string& align, float& h, float& v) {
-    h = 0.f;
-    v = 0.f;
-    if (align.find("right") != std::string::npos) h = 1.f;
-    else if (align.find("left") == std::string::npos) h = 0.5f;
-
-    const bool isNewAnchor = align.find('-') != std::string::npos || align == "center";
-    if (align.find("bottom") != std::string::npos) v = 1.f;
-    else if (align.find("top") != std::string::npos) v = 0.f;
-    else if (isNewAnchor) v = 0.5f;
-    else v = 0.f;
-}
-
-} // namespace
-
+// `width` is measured by this file's caller using the editor's own CanvasFont
+// (see canvas_font.cpp), not the Text component's configured font — the
+// Play/runtime draw path (scene_entities_pass.cpp) measures with the real
+// font instead. Only *which side gets shifted* is shared (TextAnchorMath);
+// the measure-and-draw step is still duplicated by design for now — see the
+// TRACKED DEBT note in core/text-anchor-math.h before touching either side.
 TextVisualLayout layoutSceneFrameTextWithWidth(const SceneFrameText& text, float width) {
     const float height = static_cast<float>(std::max(1, text.size));
     float hAlign = 0.f;
     float vAlign = 0.f;
-    anchorAlign(text.align, hAlign, vAlign);
+    ArtCade::TextAnchorMath::anchorFractions(text.align, hAlign, vAlign);
     const Vec2 draw{
         text.anchorPosition.x - width * hAlign,
         text.anchorPosition.y - height * vAlign,

@@ -2,6 +2,7 @@
 
 #include "../scene_frame_snapshot.h"
 
+#include "../../../core/text-anchor-math.h"
 #include "../../../modules/renderer/include/renderer.h"
 #include "../../../modules/scene-system/include/scene-manager.h"
 
@@ -9,24 +10,6 @@
 #include <unordered_map>
 
 namespace ArtCade::AppRenderPasses {
-
-namespace {
-
-void textAnchorAlign(const std::string& a, int& hOut, int& vOut) {
-    // renderer.h's drawText contract: align 0=left, 1=center, 2=right;
-    // valign 0=top, 1=middle, 2=bottom.
-    if (a.find("left") != std::string::npos)        hOut = 0;
-    else if (a.find("right") != std::string::npos)  hOut = 2;
-    else                                            hOut = 1;
-
-    const bool isNewAnchor = a.find('-') != std::string::npos || a == "center";
-    if (a.find("top") != std::string::npos)         vOut = 0;
-    else if (a.find("bottom") != std::string::npos) vOut = 2;
-    else if (isNewAnchor)                           vOut = 1;
-    else                                            vOut = 0;
-}
-
-} // namespace
 
 // RU-02g (docs/RU02_GAMEPLAY_SESSION_REFACTOR.md, editor repo): entity
 // discovery, layer-based sort, visibility, animator frame resolution and
@@ -126,8 +109,13 @@ void execute_scene_entities_pass(SceneFrameContext& ctx) {
             Vec4 color = text.color;
             if (layer) color.a *= layer->opacity;
             if (inEditMode && !item.visibleInGame) color.a *= 0.45f;
+            // Which side gets shifted is shared with the Editor Scene View
+            // (TextAnchorMath); the measure-and-draw step below is still its
+            // own path (real fontPath asset here vs. the editor's fixed
+            // CanvasFont) — see the TRACKED DEBT note in
+            // core/text-anchor-math.h before touching either side.
             int hAlign = 0, vAlign = 0;
-            textAnchorAlign(text.align, hAlign, vAlign);
+            ArtCade::TextAnchorMath::anchorCodes(text.align, hAlign, vAlign);
             renderer->drawText(
                 text.text,
                 pos.x + text.offsetX,
