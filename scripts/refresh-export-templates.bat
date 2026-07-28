@@ -46,4 +46,29 @@ if errorlevel 1 (
 echo [OK] Export template refreshed:
 echo      %OUT_DIR%\game.exe
 echo      %OUT_DIR%\runtime-template.json
+
+rem The running editor exe exports whatever CMake last copied into its own
+rem build-output resources/ dir (src/CMakeLists.txt, artcade-editor-native-resources
+rem target) -- NOT this source tree. Re-sync that copy now so a stale build
+rem output doesn't silently ship an old game.exe.
+set "BUILD_DIR=%EDITOR_ROOT%\build"
+if exist "%BUILD_DIR%" (
+    set "CMAKE_EXE=cmake"
+    if exist "%USERPROFILE%\DevTools\cmake\bin\cmake.exe" set "CMAKE_EXE=%USERPROFILE%\DevTools\cmake\bin\cmake.exe"
+    if exist "C:\Program Files\CMake\bin\cmake.exe" set "CMAKE_EXE=C:\Program Files\CMake\bin\cmake.exe"
+
+    echo [refresh-export-templates] Re-syncing build-output resources...
+    "%CMAKE_EXE%" --build "%BUILD_DIR%" --target artcade-editor-native-resources
+    if errorlevel 1 (
+        echo [FAIL] Could not refresh build-output resources under %BUILD_DIR%.
+        echo        The editor will still export the OLD game.exe. Rebuild manually:
+        echo        scripts\build.bat
+        exit /b 1
+    )
+    echo [OK] Build-output resources re-synced under %BUILD_DIR%.
+) else (
+    echo [WARN] No build directory found at %BUILD_DIR% -- nothing to re-sync.
+    echo        Run scripts\build.bat before exporting so the editor picks up this template.
+)
+
 exit /b 0
