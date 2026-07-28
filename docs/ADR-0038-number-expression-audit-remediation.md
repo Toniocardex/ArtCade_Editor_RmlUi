@@ -5,8 +5,9 @@
 **Scope:** `artcade-logic-core` — the Lua codegen literal writer
 (`logic-number-expression-compiler.cpp`, scalar emitters in `logic-core.cpp`),
 the recursive-descent parser (`logic-number-expression-parse.cpp`), and
-`NumericExpressionPolicy` enforcement in `validateBoard`. No schema, JSON,
-project format, AST, or runtime change. One editor-side input guard.
+`NumericExpressionPolicy` enforcement in `validateBoard`; plus **one new
+`logic.number.round` binding in `artcade-logic-runtime`** (Finding 4). No
+schema, JSON, project format, or AST change. One editor-side input guard.
 **Related:** ADR-0028 (typed number expressions, AST + ownership),
 ADR-0029 (text authoring, `Code` syntax, per-descriptor policy),
 Constitution §21 / AC-LUA-001, §23 / AC-AI-001 (no silent fallbacks)
@@ -244,14 +245,70 @@ ADR-0029's slice. It makes the current `LiteralOnly` state actually hold,
 which that slice needs as its floor: today the slice could be declared
 "done" with codegen untouched and every test would still pass.
 
+## Finding 4 — `round()` is not idempotent on integers, and mis-rounds one double
+
+The compiler emits additive rounding
+([`logic-number-expression-compiler.cpp:56-61`](../vendor/artcade-runtime/src/modules/logic-core/src/logic-number-expression-compiler.cpp)):
+
+```
+round(self.x)  ->  math.floor((context.self:get_position_x())+0.5)
+```
+
+Lua 5.4 numbers are IEEE-754 doubles and the arithmetic is identical, so the
+emitted expression was evaluated under `/fp:strict`. Measured:
+
+| input | emitted | correct half-up | |
+|---|---|---|---|
+| `4503599627370497` (2^52+1) | `4503599627370498` | `4503599627370497` | **wrong** |
+| `0.49999999999999994` | `1` | `0` | **wrong** |
+| `2.5` / `3.5` | `3` / `4` | same | ok |
+| `-2.5` / `-1.5` / `-0.5` | `-2` / `-1` / `0` | same | ok |
+
+Two defects and one unspecified behaviour:
+
+- **Not idempotent on whole numbers.** At and above 2^52 the gap between
+  doubles exceeds 0.5, so `x + 0.5` rounds up to the next representable
+  integer and `round()` *changes a value that was already integral*. Rounding
+  a whole number must be identity.
+- **`0.49999999999999994` → 1.** The largest double below 0.5, plus 0.5,
+  rounds to exactly 1.0 before `floor` ever runs — the same defect Java's
+  `Math.round` carried for years.
+- **The tie rule is undocumented.** It is half-up, so it is asymmetric about
+  zero (`-2.5` → -2, not -3). Nothing is broken — the vocabulary summary
+  only promises "Round to the nearest whole number", which does not
+  disambiguate ties — but an unspecified rule in a system whose determinism
+  is a stated invariant (AC-LUA-001) is worth pinning rather than leaving to
+  be rediscovered.
+
+Practical reach is small: game coordinates do not approach 2^52, and the
+denormal-adjacent case needs that exact double. It is included because
+`round(` is in the completion list and Set Position / Move By / Set Velocity
+accept expressions today, so this is live behaviour, not a hypothetical.
+
+### Decision
+
+**Move the operation into a `logic.number.round` runtime binding**, beside
+`divide`, `clamp` and `lerp`, which are C++ bindings for exactly this reason.
+
+The obvious in-Lua fix — `floor(x)` then compare the fractional part — is
+**wrong here**, and the reason is the durable part of this finding: it needs
+the operand **twice**, and the operand is an arbitrary expression that may
+contain `random(...)` or a variable read. `round(random(0, 10))` would draw
+from the board RNG twice and round a number it never returned. No emitter
+may duplicate an operand; a binding evaluates it once by construction.
+
+The tie rule stays **half-up** — changing it would silently alter existing
+boards' behaviour on negative values — and gets written down in the
+completion summary so the field documents it where authors look.
+
 ## Minor findings
 
 | # | Finding | Decision |
 |---|---|---|
-| 4 | Parser and validator depth budgets disagree: `1+1+…` with 16 operators parses, then fails validation with `NE_DEPTH_LIMIT`. The parser's `depth` parameter does not track real tree depth for left-associative chains. | Accept the inconsistency for now; the input is rejected either way and the message is accurate. Revisit only if the diagnostic's *location* (board-level rather than inline in the field) proves confusing in use. Recorded so it is not re-discovered as new. |
-| 5 | `parse(format(e, Code)) == e` has a counterexample: an empty variable name formats to `$''`, which does not parse. | Fix the round-trip invariant at its stated strength — either make `$''` parse or make the formatter refuse to emit it. Validation rejects empty `variableId` separately, so this is very likely unreachable; the reason to fix it is that ADR-0029 states the invariant holds for *every* expression, and an invariant with a known exception stops being usable as a guard. |
-| 6 | Completion inside a quoted variable name inserts broken text: `numberExpressionTokenPrefix("$'my ")` returns `""` because the space ends the token scan, so applying a completion yields `$'my scene.width`. | Extend the prefix scan to recognise an unterminated quoted variable token. Low severity, self-inflicted only. |
-| 7 | ADR-0029's "Known gap" section describes a draft-loss bug that has since been fixed. | Correct that ADR's text in the same change, marking the gap closed and naming the code that closes it. Stale "known bug" notes cost more than they document. |
+| 5 | Parser and validator depth budgets disagree: `1+1+…` with 16 operators parses, then fails validation with `NE_DEPTH_LIMIT`. The parser's `depth` parameter does not track real tree depth for left-associative chains. | Accept the inconsistency for now; the input is rejected either way and the message is accurate. Revisit only if the diagnostic's *location* (board-level rather than inline in the field) proves confusing in use. Recorded so it is not re-discovered as new. |
+| 6 | `parse(format(e, Code)) == e` has a counterexample: an empty variable name formats to `$''`, which does not parse. | Fix the round-trip invariant at its stated strength — either make `$''` parse or make the formatter refuse to emit it. Validation rejects empty `variableId` separately, so this is very likely unreachable; the reason to fix it is that ADR-0029 states the invariant holds for *every* expression, and an invariant with a known exception stops being usable as a guard. |
+| 7 | Completion inside a quoted variable name inserts broken text: `numberExpressionTokenPrefix("$'my ")` returns `""` because the space ends the token scan, so applying a completion yields `$'my scene.width`. | Extend the prefix scan to recognise an unterminated quoted variable token. Low severity, self-inflicted only. |
+| 8 | ADR-0029's "Known gap" section describes a draft-loss bug that has since been fixed. | Correct that ADR's text in the same change, marking the gap closed and naming the code that closes it. Stale "known bug" notes cost more than they document. |
 
 ## Rejected alternatives
 
@@ -292,6 +349,12 @@ reproduced only by a throwaway program is a finding that regresses.
   shapes measured above at a size well past the cap returns a parse error
   and does not crash; and — the regression guard that matters — a corpus of
   legitimately nested expressions that parse today still parses.
+- **`round()` semantics** (`logic-board-test`, through a running
+  `LogicRuntime` so the real Lua runs, not a C++ model of it): the two
+  measured wrong cases, idempotence over a set of integral doubles including
+  2^52 boundaries, the half-up tie rule on both signs, and — the one that
+  guards the design decision — `round(random(0, 10))` draws from the board
+  RNG **once**, asserted by comparing against the RNG's next value.
 - **Policy enforcement** (`logic-board-test`): for every catalog property
   whose policy is `LiteralOnly`, a board holding a dynamic expression there
   produces `NE_LITERAL_ONLY` and fails to compile. Table-driven over the
@@ -316,7 +379,12 @@ reproduced only by a throwaway program is a finding that regresses.
   start reporting `NE_LITERAL_ONLY` instead of silently running a default.
   Such a board is currently only producible by hand-editing or an external
   tool; if any exist, they were already not doing what they appear to do.
-- No schema, JSON, project format, Logic API, AST, or runtime change.
+- `round()` starts returning the value it always should have for integral
+  and near-tie inputs. Boards using `round` on ordinary game-scale numbers
+  are unaffected — the wrong cases need |x| ≥ 2^52 or one specific double.
+- No schema, JSON, project format, or AST change. The runtime gains one
+  binding (`logic.number.round`), which is the only reason a Logic API
+  version question arises at all — see open question 4.
 
 ## Definition of Done
 
@@ -336,7 +404,10 @@ reproduced only by a throwaway program is a finding that regresses.
   `literalNumberOf(...).value_or(...)` on a present-but-dynamic property nor
   `emitGuardedVec2`'s `"0"`; the compiler's own error is surfaced instead of
   discarded.
-- Minor findings 5, 6 and 7 addressed; ADR-0029's stale gap note corrected.
+- `round()` is idempotent on every integral double, `round(0.49999999999999994)`
+  is 0, the tie rule is half-up and documented, and the operand is evaluated
+  exactly once (asserted with a `random` operand, not by reading the Lua).
+- Minor findings 6, 7 and 8 addressed; ADR-0029's stale gap note corrected.
 - `scripts\build_runtime_tests.bat` green; `scripts\build.bat` builds the
   editor.
 - WASM target still builds.
@@ -358,6 +429,15 @@ reproduced only by a throwaway program is a finding that regresses.
    compiler, so they inherit the fix on rebuild — but an already-exported
    bundle keeps the rounded literals. Whether that warrants anything beyond
    "re-export" is a product call, not a technical one.
+4. **Does adding `logic.number.round` require a Logic API bump?** ADR-0028
+   fixed the Logic API at 2. Generated Lua that calls the new binding fails
+   on a runtime that predates it, which is exactly what the version exists
+   to signal — but generated Lua is regenerated per build and the export
+   pipeline already pins a template min/max, so the mismatch may be
+   unreachable in practice. This was not traced through the export pipeline
+   during the audit and should be settled before implementation rather than
+   assumed either way; it is the only decision here that can invalidate a
+   shipped bundle.
 
 ## Implementation status
 
