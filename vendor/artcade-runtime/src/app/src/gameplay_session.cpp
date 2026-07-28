@@ -1,4 +1,5 @@
 #include "gameplay_session.h"
+#include "gameplay_session_seed.h"
 
 #include "../../core/engine-context.h"
 #include "../../modules/audio/include/audio.h"
@@ -410,7 +411,8 @@ bool GameplaySession::initializeGameplayModules(
     const BootStepFn& bootStep) {
     logicHost_ = std::make_unique<RuntimeLogicHostAdapter>(
         *entityGateway_, audio, *cameraManager_);
-    logicRuntime_ = std::make_unique<Logic::LogicRuntime>(*logicHost_);
+    logicRuntime_ = std::make_unique<Logic::LogicRuntime>(
+        *logicHost_, GameplaySessionSeed::make());
 
     logicHost_->setWorld(world_.get());
     logicHost_->setVariableManager(variableManager_.get());

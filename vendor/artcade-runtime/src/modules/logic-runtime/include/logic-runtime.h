@@ -30,7 +30,12 @@ using ILogicRuntimeHost = IGameplayRuntimeHost;
 
 class LogicRuntime {
 public:
-    explicit LogicRuntime(ILogicRuntimeHost& host, LogicRuntimeLimits limits = {});
+    // ADR-0037: sessionSeed is mandatory and owned by the caller (the
+    // GameplaySession composition root in production, via
+    // GameplaySessionSeed::make(); a fixed constant in tests/replays).
+    // LogicRuntime never reads the clock or OS entropy itself.
+    explicit LogicRuntime(ILogicRuntimeHost& host, uint32_t sessionSeed,
+                          LogicRuntimeLimits limits = {});
     ~LogicRuntime();
     LogicRuntime(const LogicRuntime&) = delete;
     LogicRuntime& operator=(const LogicRuntime&) = delete;

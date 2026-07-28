@@ -199,6 +199,13 @@ artcade_test(number_expression_syntax_test
     number-expression-syntax-test.cpp
     artcade-logic-core)
 
+# ADR-0037: GameplaySessionSeed is a pure function with no dependency on the
+# rest of GameplaySession — compiled directly against its own source instead
+# of linking the (Raylib-dependent) artcade-gameplay-session library.
+artcade_test(gameplay_session_seed_test
+    "gameplay-session-seed-test.cpp;${ARTCADE_RUNTIME_ROOT}/src/app/src/gameplay_session_seed.cpp"
+    "")
+
 artcade_test(camera_clamp_test
     camera-clamp-test.cpp
     artcade-world)

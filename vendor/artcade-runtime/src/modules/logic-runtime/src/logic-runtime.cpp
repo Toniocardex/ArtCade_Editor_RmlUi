@@ -447,13 +447,16 @@ struct LogicRuntime::Impl {
         }
     };
 
-    Impl(ILogicRuntimeHost& runtimeHost, LogicRuntimeLimits runtimeLimits)
-        : host(runtimeHost), limits(runtimeLimits),
+    Impl(ILogicRuntimeHost& runtimeHost, uint32_t runtimeSessionSeed,
+        LogicRuntimeLimits runtimeLimits)
+        : host(runtimeHost), sessionSeed(runtimeSessionSeed), limits(runtimeLimits),
           lua(ArtCade::Modules::LuaHostOptions{
               ArtCade::Modules::LuaSandboxProfile::LogicBoardStrict,
               runtimeLimits.maxMemoryBytes}) {}
 
     ILogicRuntimeHost& host;
+    // ADR-0037: session-level entropy folded into every scope's RNG seed.
+    uint32_t sessionSeed;
     LogicRuntimeLimits limits;
     ArtCade::Modules::LuaHost lua;
     std::unordered_map<ObjectTypeId, Factory> factories;
@@ -678,8 +681,9 @@ struct LogicRuntime::Impl {
     }
 };
 
-LogicRuntime::LogicRuntime(ILogicRuntimeHost& host, LogicRuntimeLimits limits)
-    : impl_(std::make_unique<Impl>(host, limits)) {}
+LogicRuntime::LogicRuntime(ILogicRuntimeHost& host, uint32_t sessionSeed,
+                           LogicRuntimeLimits limits)
+    : impl_(std::make_unique<Impl>(host, sessionSeed, limits)) {}
 
 LogicRuntime::~LogicRuntime() { shutdown(); }
 
@@ -854,7 +858,8 @@ std::optional<ScopeToken> LogicRuntime::install(const ObjectTypeId& objectTypeId
     const ScopeToken token = impl_->nextScope++;
     uint32_t seed = 0xA5A5A5A5u
         ^ static_cast<uint32_t>(owner) * 0x9E3779B9u
-        ^ static_cast<uint32_t>(token) * 0x85EBCA6Bu;
+        ^ static_cast<uint32_t>(token) * 0x85EBCA6Bu
+        ^ impl_->sessionSeed;
     if (seed == 0) seed = 1u;
     impl_->scopes.push_back(Impl::Scope{token, objectTypeId, owner, true, nullptr, {}, seed});
     Impl::Scope* scope = impl_->findScope(token);

@@ -216,6 +216,7 @@ if(ARTCADE_HAS_RAYLIB AND ARTCADE_HAS_LUA)
     # by that test (tests/CMakeLists.txt).
     add_library(artcade-gameplay-session STATIC
         src/app/src/gameplay_session.cpp
+        src/app/src/gameplay_session_seed.cpp
         src/app/render/sprite_frame_resolve.cpp
         src/app/render/text_value_formatter.cpp
     )

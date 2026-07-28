@@ -23,6 +23,10 @@ static int passed = 0;
 static int failed = 0;
 #define CHECK(x) do { if (x) ++passed; else { ++failed; std::cerr << "FAIL " #x " line " << __LINE__ << "\n"; } } while (0)
 
+// ADR-0037: LogicRuntime's sessionSeed is mandatory. Tests that don't care
+// about randomness reuse this fixed constant for reproducibility.
+static constexpr uint32_t kTestSessionSeed = 0x12345678u;
+
 struct Host final : ILogicRuntimeHost {
     std::vector<std::string> calls;
     std::vector<std::pair<EntityId, float>> rotations;
@@ -37,6 +41,10 @@ struct Host final : ILogicRuntimeHost {
     std::unordered_map<EntityId, PlatformerState> platformerStates;
     std::unordered_map<EntityId, bool> visible;
     std::unordered_map<EntityId, Vec2> positions;
+    // ADR-0037: full-precision history for tests that need the real Vec2
+    // sequence a scope produced (e.g. random expressions), not just the
+    // last value or the truncated-to-int `calls` log entry.
+    std::vector<std::pair<EntityId, Vec2>> positionHistory;
     std::unordered_map<std::string, double> state;
     std::unordered_map<std::string, bool> boolState;
     std::unordered_map<std::string, std::string> stringState;
@@ -72,6 +80,7 @@ struct Host final : ILogicRuntimeHost {
         calls.push_back("position:" + std::to_string(owner) + ":"
                         + std::to_string(static_cast<int>(value.x)) + ","
                         + std::to_string(static_cast<int>(value.y)));
+        positionHistory.emplace_back(owner, value);
         positions[owner] = value;
         return true;
     }
@@ -361,7 +370,7 @@ static void testCompilerAndJson() {
 static void testRuntime() {
     const LogicCompileResult compiled = compileBoard("Hero", makeBoard());
     Host host;
-    LogicRuntime runtime(host);
+    LogicRuntime runtime(host, kTestSessionSeed);
     std::string error;
     CHECK(runtime.loadPrograms(compiled.programs, &error));
     const auto one = runtime.install("Hero", 10, &error);
@@ -416,7 +425,7 @@ static void testSetPositionNonFiniteRateLimitedDiagnostics() {
 
     Host host;
     host.positions[7] = Vec2{1.f, 2.f};
-    LogicRuntime runtime(host);
+    LogicRuntime runtime(host, kTestSessionSeed);
     std::string error;
     CHECK(runtime.loadPrograms(compiled.programs, &error));
     CHECK(runtime.install("Hero", 7, &error).has_value());
@@ -459,7 +468,7 @@ static void testStrictSandboxAndBudget() {
     Host runtimeHost;
     LogicRuntimeLimits limits;
     limits.maxInstructionsPerCallback = 2000;
-    LogicRuntime runtime(runtimeHost, limits);
+    LogicRuntime runtime(runtimeHost, kTestSessionSeed, limits);
     LogicProgram program;
     program.objectTypeId = "Loop";
     program.boardId = "logic:Loop";
@@ -491,7 +500,7 @@ static void testLimitsSnapshotAndIsolation() {
         Host host;
         LogicRuntimeLimits limits;
         limits.maxEventDepth = 0;
-        LogicRuntime runtime(host, limits);
+        LogicRuntime runtime(host, kTestSessionSeed, limits);
         const auto compiled = compileBoard("Hero", makeBoard());
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
@@ -505,7 +514,7 @@ static void testLimitsSnapshotAndIsolation() {
         Host host;
         LogicRuntimeLimits limits;
         limits.maxScopes = 1;
-        LogicRuntime runtime(host, limits);
+        LogicRuntime runtime(host, kTestSessionSeed, limits);
         const auto compiled = compileBoard("Hero", makeBoard());
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
@@ -516,7 +525,7 @@ static void testLimitsSnapshotAndIsolation() {
         Host host;
         LogicRuntimeLimits limits;
         limits.maxSubscriptionsPerScope = 1;
-        LogicRuntime runtime(host, limits);
+        LogicRuntime runtime(host, kTestSessionSeed, limits);
         std::string error;
         const LogicProgram two = customProgram("Two",
             " context:on_start('one', function() end)\n"
@@ -528,7 +537,7 @@ static void testLimitsSnapshotAndIsolation() {
         Host host;
         LogicRuntimeLimits limits;
         limits.maxEventsPerDispatch = 1;
-        LogicRuntime runtime(host, limits);
+        LogicRuntime runtime(host, kTestSessionSeed, limits);
         const auto compiled = compileBoard("Hero", makeBoard());
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
@@ -541,7 +550,7 @@ static void testLimitsSnapshotAndIsolation() {
     }
     {
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         host.runtime = &runtime;
         const auto compiled = compileBoard("Hero", makeBoard());
         std::string error;
@@ -557,7 +566,7 @@ static void testLimitsSnapshotAndIsolation() {
     {
         Host host;
         host.failVisible = true;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         const LogicProgram isolated = customProgram("Isolated",
             " context:on_start('bad', function() context.self:set_visible(false) end)\n"
@@ -574,7 +583,7 @@ static void testLimitsSnapshotAndIsolation() {
         Host host;
         LogicRuntimeLimits limits;
         limits.maxMemoryBytes = 2u * 1024u * 1024u;
-        LogicRuntime runtime(host, limits);
+        LogicRuntime runtime(host, kTestSessionSeed, limits);
         std::string error;
         const LogicProgram memory = customProgram("Memory",
             " context:on_start('memory', function() local x = string.rep('x', 8388608) end)");
@@ -634,7 +643,7 @@ static void testIsGroundedCondition() {
     // Runtime: grounded=false blocks the action, grounded=true runs it.
     {
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(trueCompiled.programs, &error));
         CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -651,7 +660,7 @@ static void testIsGroundedCondition() {
     // not silently executed against a nonexistent Lua method.
     {
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         LogicProgram program = customProgram("Hero", " context:on_start('r', function() end)");
         program.requiredFeatures = {"future.unsupported"};
         std::string error;
@@ -716,7 +725,7 @@ static void testIsFallingAsEvent() {
     // Runtime: falling=false blocks; falling=true runs the action once per tick.
     {
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -872,7 +881,7 @@ static void testPlatformerMotionState() {
         CHECK(compiled.programs[0].source.find("should_execute") != std::string::npos);
 
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -937,7 +946,7 @@ static void testIsVisibleAsEvent() {
 
     Host host;
     host.visible[1] = true;
-    LogicRuntime runtime(host);
+    LogicRuntime runtime(host, kTestSessionSeed);
     std::string error;
     CHECK(runtime.loadPrograms(compiled.programs, &error));
     CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -990,7 +999,7 @@ static void testSpriteSetFacingAction() {
     CHECK(!compileBoard("Hero", badBoard).ok());
 
     Host host;
-    LogicRuntime runtime(host);
+    LogicRuntime runtime(host, kTestSessionSeed);
     std::string error;
     CHECK(runtime.loadPrograms(compiled.programs, &error));
     CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -1051,7 +1060,7 @@ static void testPlatformerMoveHorizontalDirection() {
     CHECK(legacyCompiled.programs[0].source.find("platformer_move(-1)") != std::string::npos);
 
     Host host;
-    LogicRuntime runtime(host);
+    LogicRuntime runtime(host, kTestSessionSeed);
     std::string error;
     CHECK(runtime.loadPrograms(compiled.programs, &error));
     CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -1276,7 +1285,7 @@ static void testConditionOperators() {
         Host host;
         host.declareNumber("score", 0.0);
         host.keyDown = true;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Operators", 1, &error).has_value());
@@ -1295,7 +1304,7 @@ static void testConditionOperators() {
     {
         Host host;
         host.declareNumber("score", 10.0);
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Operators", 1, &error).has_value());
@@ -1420,7 +1429,7 @@ static void testPlaySoundAction() {
             compileBoard("Hero", makeBoardWith("jump.wav", 0.8), nullptr, &project);
         CHECK(compiled.ok());
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -1436,7 +1445,7 @@ static void testPlaySoundAction() {
     // program up front rather than dispatching to a nonexistent Lua method.
     {
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         LogicProgram program = customProgram("Hero", " context:on_start('r', function() end)");
         program.requiredFeatures = {"audio.play_sound_v2_future"};
         std::string error;
@@ -1516,7 +1525,7 @@ static void testSceneActions() {
             compileBoard("Hero", makeGoToBoard("scene-2"), nullptr, &project);
         CHECK(compiled.ok());
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -1527,7 +1536,7 @@ static void testSceneActions() {
     }
     {
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(
             {customProgram("Hero",
@@ -1544,7 +1553,7 @@ static void testSceneActions() {
     // diagnostic instead of corrupting the dispatcher.
     {
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(
             {customProgram("Hero",
@@ -1655,7 +1664,7 @@ static void testCameraShakeAction() {
         LogicCompileResult compiled = compileBoard("Hero", makeBoard(0.5, 0.5));
         CHECK(compiled.ok());
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -1672,7 +1681,7 @@ static void testCameraShakeAction() {
         LogicCompileResult compiled = compileBoard("Hero", makeBoard(0.0, 0.5));
         CHECK(compiled.ok());
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -1685,7 +1694,7 @@ static void testCameraShakeAction() {
     {
         Host host;
         host.failCameraShake = true;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(
             {customProgram("Hero",
@@ -1718,7 +1727,7 @@ static void testCameraShakeAction() {
         LogicCompileResult compiled = compileBoard("Hero", board);
         CHECK(compiled.ok());
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -1741,7 +1750,7 @@ static void testCameraShakeAction() {
 
     {
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         LogicProgram program = customProgram("Hero", " context:on_start('r', function() end)");
         program.requiredFeatures = {"camera.shake"};
         std::string error;
@@ -1749,7 +1758,7 @@ static void testCameraShakeAction() {
     }
     {
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         LogicProgram program = customProgram("Hero", " context:on_start('r', function() end)");
         program.requiredFeatures = {"camera.shake_future"};
         std::string error;
@@ -1826,7 +1835,7 @@ static void testDestroyOtherAction() {
         LogicCompileResult compiled = compileBoard("Hero", makeBoardWith(kCollisionEnter), &owner);
         CHECK(compiled.ok());
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -1894,7 +1903,7 @@ static void testCombinedGameplaySmoke() {
     CHECK(compiled.ok());
     Host host;
     host.grounded.insert(42);
-    LogicRuntime runtime(host);
+    LogicRuntime runtime(host, kTestSessionSeed);
     std::string error;
     CHECK(runtime.loadPrograms(compiled.programs, &error));
     CHECK(runtime.install("Hero", 42, &error).has_value());
@@ -1926,7 +1935,7 @@ static void testP1EverySecondsAndTick() {
     CHECK(compiled.programs[0].source.find("on_every_seconds") != std::string::npos);
 
     Host host;
-    LogicRuntime runtime(host);
+    LogicRuntime runtime(host, kTestSessionSeed);
     std::string error;
     CHECK(runtime.loadPrograms(compiled.programs, &error));
     CHECK(runtime.requiresTick());
@@ -1966,7 +1975,7 @@ static void testP1StateAndWaitAndVelocity() {
         CHECK(compiled.ok());
         Host host;
         host.declareNumber("score", 0.0);
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("State", 1, &error).has_value());
@@ -1996,7 +2005,7 @@ static void testP1StateAndWaitAndVelocity() {
         CHECK(compiled.ok());
         Host host;
         host.declareNumber("score", 4.0);
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Compare", 1, &error).has_value());
@@ -2025,7 +2034,7 @@ static void testP1StateAndWaitAndVelocity() {
         CHECK(compiled.ok());
         CHECK(compiled.programs[0].requiresTick);
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Wait", 3, &error).has_value());
@@ -2052,7 +2061,7 @@ static void testP1StateAndWaitAndVelocity() {
         LogicCompileResult compiled = compileBoard("Vel", board);
         CHECK(compiled.ok());
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Vel", 4, &error).has_value());
@@ -2082,7 +2091,7 @@ static void testP1KeyDownCondition() {
     CHECK(compiled.programs[0].source.find("is_key_down(\"A\")") != std::string::npos);
 
     Host host;
-    LogicRuntime runtime(host);
+    LogicRuntime runtime(host, kTestSessionSeed);
     std::string error;
     CHECK(runtime.loadPrograms(compiled.programs, &error));
     CHECK(runtime.install("KeyDown", 1, &error).has_value());
@@ -2122,7 +2131,7 @@ static void testP1SpawnInstallFailure() {
     Host host;
     host.failSpawn = true;
     host.nextSpawnId = 77;
-    LogicRuntime runtime(host);
+    LogicRuntime runtime(host, kTestSessionSeed);
     std::string error;
     CHECK(runtime.loadPrograms(compiled.programs, &error));
     const auto scope = runtime.install("Hero", 1, &error);
@@ -2184,6 +2193,89 @@ static void testScalarExpressionValueSurvivesJson() {
     }
 }
 
+/**
+ * ADR-0037: nothing previously exercised `logic.random.range` through a
+ * real, installed LogicRuntime scope and checked a numeric result — only
+ * syntax/validation/JSON round-trip were covered. This drives
+ * `random(0, scene.width)` through compile -> Lua -> scope -> host and
+ * checks the actual Vec2 the fake host receives.
+ */
+static void testRandomExpressionSessionSeed() {
+    LogicBoardDef board;
+    board.id = "logic:Random";
+    LogicRuleDef rule = makeDefaultRule("rule-random");
+    rule.trigger = {kKeyPressed, {{"key", LogicKey::Space}}};
+    NumberRandomRangeExpression random;
+    random.minimum = boxNumberExpression(NumberExpression::literal(0.0));
+    random.maximum = boxNumberExpression(
+        NumberExpression{NumberPropertyExpression{NumberProperty::SceneWorldWidth}});
+    LogicVec2Value position;
+    position.x = NumberExpression{std::move(random)};
+    position.y = NumberExpression::literal(0.0);
+    rule.actions[0] = {kSetPosition,
+        {{"target", LogicEntityReference{}}, {"position", std::move(position)}}};
+    board.rules.push_back(std::move(rule));
+
+    const LogicCompileResult compiled = compileBoard("Hero", board);
+    CHECK(compiled.ok());
+    std::string error;
+
+    constexpr uint32_t kSeedA = 0x12345678u;
+    constexpr uint32_t kSeedB = 0x87654321u;
+
+    const auto firstX = [&](uint32_t seed, EntityId owner) {
+        Host host;
+        LogicRuntime runtime(host, seed);
+        CHECK(runtime.loadPrograms(compiled.programs, &error));
+        CHECK(runtime.install("Hero", owner, &error).has_value());
+        runtime.dispatchKeyPressed(LogicKey::Space);
+        CHECK(host.positionHistory.size() == 1);
+        return host.positionHistory.front().second.x;
+    };
+
+    // Same sessionSeed + same owner -> same first value.
+    CHECK(firstX(kSeedA, 1) == firstX(kSeedA, 1));
+    // Different sessionSeed + same owner -> different first value.
+    CHECK(firstX(kSeedA, 1) != firstX(kSeedB, 1));
+
+    // Same session, different scopes -> different sequences (compare a
+    // short run, not just the first sample); same scope, repeated draws ->
+    // the generator advances between calls.
+    {
+        Host host;
+        LogicRuntime runtime(host, kSeedA);
+        CHECK(runtime.loadPrograms(compiled.programs, &error));
+        CHECK(runtime.install("Hero", 1, &error).has_value());
+        CHECK(runtime.install("Hero", 2, &error).has_value());
+        for (int i = 0; i < 3; ++i) runtime.dispatchKeyPressed(LogicKey::Space);
+
+        std::vector<float> sequenceOwner1;
+        std::vector<float> sequenceOwner2;
+        for (const auto& [owner, value] : host.positionHistory) {
+            if (owner == 1) sequenceOwner1.push_back(value.x);
+            else if (owner == 2) sequenceOwner2.push_back(value.x);
+        }
+        CHECK(sequenceOwner1.size() == 3);
+        CHECK(sequenceOwner2.size() == 3);
+        CHECK(sequenceOwner1 != sequenceOwner2);
+        CHECK(sequenceOwner1[0] != sequenceOwner1[1]);
+    }
+
+    // Every result is finite and within the requested range [0, scene.width).
+    {
+        Host host;
+        LogicRuntime runtime(host, kSeedA);
+        CHECK(runtime.loadPrograms(compiled.programs, &error));
+        CHECK(runtime.install("Hero", 1, &error).has_value());
+        for (int i = 0; i < 20; ++i) runtime.dispatchKeyPressed(LogicKey::Space);
+        CHECK(host.positionHistory.size() == 20);
+        for (const auto& [owner, value] : host.positionHistory) {
+            CHECK(std::isfinite(value.x));
+            CHECK(value.x >= 0.f && value.x <= 512.f);
+        }
+    }
+}
+
 static void testSpawnOfOwnObjectTypeReentrantInstall() {
     LogicBoardDef board;
     board.id = "logic:Cloner";
@@ -2208,7 +2300,7 @@ static void testSpawnOfOwnObjectTypeReentrantInstall() {
 
     Host host;
     host.installSpawnedScopes = true;
-    LogicRuntime runtime(host);
+    LogicRuntime runtime(host, kTestSessionSeed);
     host.runtime = &runtime;
     std::string error;
     CHECK(runtime.loadPrograms(compiled.programs, &error));
@@ -2267,7 +2359,7 @@ static void testEntityTransformActions() {
     CHECK(compiled.programs[0].source.find("set_scale(_x, _y)") != std::string::npos);
 
     Host host;
-    LogicRuntime runtime(host);
+    LogicRuntime runtime(host, kTestSessionSeed);
     std::string error;
     CHECK(runtime.loadPrograms(compiled.programs, &error));
     CHECK(runtime.install("Hero", 9, &error).has_value());
@@ -2340,7 +2432,7 @@ static void testStateVariableAndToggle() {
         CHECK(compiled.programs[0].source.find("state_toggle_boolean") != std::string::npos);
         Host host;
         host.declareBoolean("doorOpen", false);
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Toggle", 1, &error).has_value());
@@ -2415,7 +2507,7 @@ static void testStateCompareBooleanAndString() {
 
         Host host;
         host.declareBoolean("flag", false);
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Bool", 1, &error).has_value());
@@ -2464,7 +2556,7 @@ static void testStateCompareBooleanAndString() {
 
         Host host;
         host.declareBoolean("flag", false);
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Bool", 1, &error).has_value());
@@ -2497,7 +2589,7 @@ static void testStateCompareBooleanAndString() {
 
         Host host;
         host.declareBoolean("flag", false);
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Bool", 1, &error).has_value());
@@ -2533,7 +2625,7 @@ static void testStateCompareBooleanAndString() {
 
         Host host;
         host.declareString("label", "coin");
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Str", 1, &error).has_value());
@@ -2572,7 +2664,7 @@ static void testStateCompareBooleanAndString() {
 
         Host host;
         host.declareString("label", "Idle");
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Str", 1, &error).has_value());
@@ -2604,7 +2696,7 @@ static void testStateCompareBooleanAndString() {
 
         Host host;
         host.declareString("label", "");
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Str", 1, &error).has_value());
@@ -2631,7 +2723,7 @@ static void testStateCompareBooleanAndString() {
 
             Host host;
             host.declareString("label", value);
-            LogicRuntime runtime(host);
+            LogicRuntime runtime(host, kTestSessionSeed);
             std::string error;
             CHECK(runtime.loadPrograms(compiled.programs, &error));
             CHECK(runtime.install("Operators", 1, &error).has_value());
@@ -2763,7 +2855,7 @@ static void testOncePerActivationExecutionMode() {
                         "logic.execution.once_per_activation") != features.end());
 
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -2818,7 +2910,7 @@ static void testOncePerActivationExecutionMode() {
         Host host;
         host.declareNumber("points", 0.0);
         host.falling.insert(1);
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -2864,7 +2956,7 @@ static void testOncePerActivationExecutionMode() {
         CHECK(compiled.ok());
 
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -2902,7 +2994,7 @@ static void testOncePerActivationExecutionMode() {
             }));
 
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -2926,7 +3018,7 @@ static void testOncePerActivationExecutionMode() {
         CHECK(compiled.ok());
 
         Host host;
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -2952,7 +3044,7 @@ static void testOncePerActivationExecutionMode() {
 
         Host host;
         host.falling.insert(1);
-        LogicRuntime runtime(host);
+        LogicRuntime runtime(host, kTestSessionSeed);
         std::string error;
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Hero", 1, &error).has_value());
@@ -3089,6 +3181,7 @@ int main() {
     testP1KeyDownCondition();
     testP1SpawnInstallFailure();
     testScalarExpressionValueSurvivesJson();
+    testRandomExpressionSessionSeed();
     testSpawnOfOwnObjectTypeReentrantInstall();
     testEntityTransformActions();
     testManualTransformActions();

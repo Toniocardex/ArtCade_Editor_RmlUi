@@ -57,6 +57,9 @@ static int failed = 0;
 #define CHECK(x) do { if (x) ++passed; else { ++failed; \
     std::cerr << "FAIL " #x " line " << __LINE__ << "\n"; } } while (0)
 
+// ADR-0037: LogicRuntime's sessionSeed is mandatory; fixed for reproducibility.
+static constexpr uint32_t kTestSessionSeed = 0x12345678u;
+
 namespace {
 
 // Minimal stand-in for RuntimeLogicHostAdapter (app_modules.h:43-191), which
@@ -266,7 +269,7 @@ void testLogicRunsBeforeScriptWithinOneStep() {
     world.init(project);
 
     Host host(gateway, world, variables);
-    LogicRuntime logicRuntime(host);
+    LogicRuntime logicRuntime(host, kTestSessionSeed);
     ScriptRuntime scriptRuntime(host);
 
     // Same shared host instance, exactly as RuntimeLogicHostAdapter is shared
@@ -336,7 +339,7 @@ void testSpawnInstallsScopeAndDestroyCancelsIt() {
         "  end)\n"
         "end)\n";
 
-    LogicRuntime logicRuntime(host);
+    LogicRuntime logicRuntime(host, kTestSessionSeed);
     std::string error;
     CHECK(logicRuntime.loadPrograms({program}, &error));
 
