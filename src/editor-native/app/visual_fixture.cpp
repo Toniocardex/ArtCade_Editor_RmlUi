@@ -15,13 +15,17 @@
 namespace ArtCade::EditorNative {
 namespace {
 
-EntityDef makeObjectType(const std::string& name) {
+EntityDef makeObjectType(const std::string& name, const AssetId& imageAssetId) {
     EntityDef type;
     type.name = name;
     type.className = name;
-    // A sprite renderer is what makes an instance appear as a real drawable
-    // rather than an empty placeholder box.
-    type.spriteRenderer = SpriteRendererComponent{{}, true};
+    // A SpriteRendererComponent with an empty imageAssetId is "no static
+    // image" (types.h) — Play and exported builds share the same gameplay
+    // render pass (scene_entities_pass.cpp), which draws nothing for a
+    // renderable with no sprite sheet; there is no missing-texture
+    // placeholder there. An actual image asset is required for the fixture
+    // to render as a real drawable in either context.
+    type.spriteRenderer = SpriteRendererComponent{imageAssetId, true};
     type.boxCollider2D = BoxCollider2DComponent{
         {0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Trigger};
     return type;
@@ -133,7 +137,16 @@ ProjectDoc makeVisualFixtureProject() {
     ProjectDoc doc;
     doc.projectName = "ArtCade Visual Fixture";
 
-    EntityDef player = makeObjectType("Player");
+    // Declared before the object types so Player/Coin can reference it as
+    // their static sprite — see makeObjectType's comment for why an actual
+    // asset (not just a SpriteRendererComponent) is required to render.
+    ImageAssetDef sheet;
+    sheet.assetId = "fixture-sheet";
+    sheet.name = "Design System Sheet";
+    sheet.sourcePath = "visual-assets/design-system-sheet.png";
+    doc.imageAssets.push_back(sheet);
+
+    EntityDef player = makeObjectType("Player", sheet.assetId);
     LogicBoardDef board;
     board.id = "logic:Player";
     board.rules.push_back(makeKeyRule());
@@ -143,7 +156,7 @@ ProjectDoc makeVisualFixtureProject() {
     board.rules.push_back(makeCollectRule());
     player.logicBoard = board;
     doc.objectTypes.emplace("Player", player);
-    doc.objectTypes.emplace("Coin", makeObjectType("Coin"));
+    doc.objectTypes.emplace("Coin", makeObjectType("Coin", sheet.assetId));
     // Minimal Tilemap host for --shot-escape (tool → Escape). Painting needs a
     // selected instance with TilemapComponent on an unlocked layer; without it
     // Rectangle never arms and Escape is decorative.
@@ -158,12 +171,6 @@ ProjectDoc makeVisualFixtureProject() {
     doc.globalVariables.push_back(
         GameVariableDefinition{"score", GameVariableDefinition::Type::Number, 0.0,
                                "Coins collected"});
-
-    ImageAssetDef sheet;
-    sheet.assetId = "fixture-sheet";
-    sheet.name = "Design System Sheet";
-    sheet.sourcePath = "visual-assets/design-system-sheet.png";
-    doc.imageAssets.push_back(sheet);
 
     SpriteAnimationAssetDef animation;
     animation.id = "fixture-animation";

@@ -212,7 +212,8 @@
       "name": "Player",
       "spritePresentation": {
         "source": {
-          "kind": "none"
+          "assetId": "fixture-sheet",
+          "kind": "image"
         },
         "visible": true
       },
@@ -235,7 +236,8 @@
       "name": "Coin",
       "spritePresentation": {
         "source": {
-          "kind": "none"
+          "assetId": "fixture-sheet",
+          "kind": "image"
         },
         "visible": true
       },
