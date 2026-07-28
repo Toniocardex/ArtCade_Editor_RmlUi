@@ -66,8 +66,16 @@ private:
     const std::string& text_;
     std::size_t pos_ = 0;
     std::size_t nodes_ = 0;
+    int parseDepth_ = 0;
     bool failed_ = false;
     NumberExpressionParseError error_;
+
+    /** Balances parseDepth_ across every return path of a recursive parse. */
+    struct DepthGuard {
+        int& counter;
+        explicit DepthGuard(int& c) : counter(c) { ++counter; }
+        ~DepthGuard() { --counter; }
+    };
 
     bool eof() const { return pos_ >= text_.size(); }
     char peek() const { return eof() ? '\0' : text_[pos_]; }
@@ -101,6 +109,9 @@ private:
     }
 
     NumberExpression parseExpression(int depth) {
+        DepthGuard guard(parseDepth_);
+        if (parseDepth_ > kMaximumNumberExpressionParseDepth)
+            return fail("Expression is nested too deeply", pos_);
         NumberExpression left = parseTerm(depth);
         while (!failed_) {
             skipSpace();
@@ -139,6 +150,9 @@ private:
     }
 
     NumberExpression parseFactor(int depth) {
+        DepthGuard guard(parseDepth_);
+        if (parseDepth_ > kMaximumNumberExpressionParseDepth)
+            return fail("Expression is nested too deeply", pos_);
         skipSpace();
         if (peek() != '-') return parsePrimary(depth);
         ++pos_;
@@ -199,7 +213,9 @@ private:
             pos_ += 7;
         }
         std::string name;
+        bool quoted = false;
         if (peek() == '\'') {
+            quoted = true;
             ++pos_;
             while (!eof() && peek() != '\'') {
                 if (peek() == '\\' && pos_ + 1 < text_.size()) ++pos_;
@@ -210,7 +226,11 @@ private:
         } else {
             while (!eof() && isIdentifierChar(peek())) name += text_[pos_++];
         }
-        if (name.empty()) return fail("Expected a variable name after '$'", start);
+        // Bare `$` with nothing after it is an error, but an explicit empty
+        // quoted name (`$''`) parses: numberExpressionVariableToken emits it
+        // for an empty variableId, and `parse(format(e, Code)) == e` must
+        // hold for every expression (ADR-0038 minor finding 6).
+        if (!quoted && name.empty()) return fail("Expected a variable name after '$'", start);
         NumberVariableExpression node;
         node.scope = scope;
         node.variableId = std::move(name);
@@ -335,6 +355,27 @@ std::string numberExpressionVariableToken(NumberVariableScope scope,
 }
 
 std::string numberExpressionTokenPrefix(const std::string& text) {
+    // An unterminated quoted variable (`$'my `) can contain any character,
+    // including spaces, up to its closing quote — the identifier-char scan
+    // below stops at the first space and would miss it entirely (ADR-0038
+    // minor finding 7). Check the nearest `$` first: if it opens a quote
+    // that is not yet closed by the end of the text, the whole span from
+    // `$` onward is the in-progress token.
+    const std::size_t dollar = text.rfind('$');
+    if (dollar != std::string::npos) {
+        std::size_t cursor = dollar + 1;
+        if (text.compare(cursor, 7, "global.") == 0) cursor += 7;
+        if (cursor < text.size() && text[cursor] == '\'') {
+            std::size_t i = cursor + 1;
+            bool closed = false;
+            while (i < text.size()) {
+                if (text[i] == '\\' && i + 1 < text.size()) { i += 2; continue; }
+                if (text[i] == '\'') { closed = true; break; }
+                ++i;
+            }
+            if (!closed) return text.substr(dollar);
+        }
+    }
     std::size_t start = text.size();
     while (start > 0) {
         const char c = text[start - 1];
@@ -365,7 +406,8 @@ const std::vector<NumberExpressionCompletion>& numberExpressionCompletions() {
         {"abs(", "abs(value)", "Distance from zero"},
         {"floor(", "floor(value)", "Round down"},
         {"ceil(", "ceil(value)", "Round up"},
-        {"round(", "round(value)", "Round to the nearest whole number"},
+        {"round(", "round(value)",
+         "Round to the nearest whole number; ties round up (-0.5 rounds to 0)"},
     };
     return entries;
 }

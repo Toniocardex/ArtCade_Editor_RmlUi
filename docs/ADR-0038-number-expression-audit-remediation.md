@@ -1,6 +1,6 @@
 # ADR-0038 — Number Expression Audit: Three Correctness Holes
 
-**Status:** Proposed — audit complete and findings reproduced; implementation not started
+**Status:** Implemented — see "Implementation status" below
 **Date:** 2026-07-28
 **Scope:** `artcade-logic-core` — the Lua codegen literal writer
 (`logic-number-expression-compiler.cpp`, scalar emitters in `logic-core.cpp`),
@@ -441,5 +441,45 @@ reproduced only by a throwaway program is a finding that regresses.
 
 ## Implementation status
 
-Not started. This ADR records the audit result and the agreed remediation
-only; no source file has been changed.
+Implemented.
+
+- Finding 1: `numberLiteralText` (shortest round-trip `double` → string) moved
+  to the module's public surface
+  (`logic-number-expression-format.h`/`.cpp`) and is now the only place a
+  `double` reaches an `ostringstream` in codegen — used by the formatter, the
+  Lua compiler's literal case, and every codegen call site in `logic-core.cpp`
+  that previously wrote a raw radians/volume/amount/etc. value.
+- Finding 2: grammar-recursion cap (`kMaximumNumberExpressionParseDepth = 64`,
+  `logic-number-expression-parse.h`) enforced at entry to `parseExpression`
+  and `parseFactor` via a scope guard, separate from the existing AST depth
+  budget. Editor-side length cap added in
+  `logic_board_editor_controller.cpp::commitExpressionText` as defense in
+  depth.
+- Finding 3: `NumericExpressionPolicy` enforcement moved out of the Vec2-only
+  branch in `validateBlock` (`logic-core.cpp`) to cover any property holding a
+  `NumberExpression`; the Camera Shake special case is deleted. Codegen no
+  longer conflates "absent" with "present but dynamic": `emitGuardedVec2` and
+  every former `literalNumberOf(...).value_or(...)` site now fail the compile
+  with a diagnostic (`LB_CODEGEN_EXPRESSION` / `LB_CODEGEN_LITERAL_ONLY`)
+  instead of substituting a default or `0`.
+- Finding 4: `logic.number.round` added as a C++ binding in
+  `logic-runtime.cpp` (half-up, idempotent on integral doubles including at
+  and above 2^52); `logic-number-expression-compiler.cpp`'s Round case now
+  emits `logic.number.round(x)` instead of `math.floor((x)+0.5)`. Tie rule
+  documented in the completion summary.
+- Minor findings 6, 7 fixed in the parser (`$''` now parses; the token-prefix
+  scan recognises an unterminated quoted variable). Minor finding 8: this
+  ADR's own stale "Known gap" note in ADR-0029 is corrected.
+- Tests: literal fidelity and parse-recursion tests added to
+  `number-expression-syntax-test.cpp`; `round()` semantics (through a real
+  `LogicRuntime`/Lua, including the single-RNG-draw guarantee) and table-driven
+  `LiteralOnly` policy enforcement added to `logic-board-test.cpp`.
+  `scripts\build_runtime_tests.bat`: 57/57 green. `scripts\build.bat`: editor
+  builds clean.
+- Open question 4 (Logic API version bump for the new binding) was **not**
+  taken: the compiler and runtime ship from the same build, so no runtime
+  predating `logic.number.round` can load Lua that calls it. Not traced
+  through the export pipeline's template min/max — flagged for review rather
+  than assumed, per the open question.
+- Not verified: WASM target build (no toolchain available in this
+  environment).

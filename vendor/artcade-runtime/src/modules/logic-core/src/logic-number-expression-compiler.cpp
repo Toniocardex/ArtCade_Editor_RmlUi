@@ -1,4 +1,5 @@
 #include "logic-number-expression-compiler.h"
+#include "logic-number-expression-format.h"
 
 #include <sstream>
 
@@ -19,7 +20,10 @@ bool emit(const NumberExpression& expression, std::ostringstream& lua, std::stri
     return std::visit([&](const auto& node) -> bool {
         using T = std::decay_t<decltype(node)>;
         if constexpr (std::is_same_v<T, NumberLiteralExpression>) {
-            lua << node.value;
+            // Shared shortest-round-trip writer (ADR-0038 Finding 1): a bare
+            // `<<` truncates to the stream's 6-digit default, so the emitted
+            // Lua computes a different number than the field displays.
+            lua << numberLiteralText(node.value);
             return true;
         } else if constexpr (std::is_same_v<T, NumberPropertyExpression>) {
             switch (node.property) {
@@ -53,13 +57,14 @@ bool emit(const NumberExpression& expression, std::ostringstream& lua, std::stri
             case NumberUnaryOperator::Absolute: lua << "math.abs("; break;
             case NumberUnaryOperator::Floor: lua << "math.floor("; break;
             case NumberUnaryOperator::Ceil: lua << "math.ceil("; break;
-            case NumberUnaryOperator::Round:
-                lua << "math.floor((";
-                break;
+            // A C++ binding (ADR-0038 Finding 4), not `math.floor(x+0.5)`:
+            // that form is not idempotent above 2^52 and mis-rounds the
+            // largest double below 0.5. Emitting the operand once here also
+            // means a `random(...)` operand is drawn from exactly once.
+            case NumberUnaryOperator::Round: lua << "logic.number.round("; break;
             }
             if (!emitChild(node.operand, lua, error)) return false;
-            if (node.operation == NumberUnaryOperator::Round) lua << ")+0.5)";
-            else lua << ")";
+            lua << ")";
             return true;
         } else if constexpr (std::is_same_v<T, NumberBinaryExpression>) {
             if (node.operation == NumberBinaryOperator::Divide) {

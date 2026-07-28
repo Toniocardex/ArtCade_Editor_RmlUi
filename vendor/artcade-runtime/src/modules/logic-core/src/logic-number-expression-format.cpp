@@ -2,6 +2,7 @@
 
 #include "logic-number-expression-parse.h"
 
+#include <cassert>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -9,16 +10,17 @@
 #include <sstream>
 
 namespace ArtCade::Logic {
-namespace {
 
 /**
- * Shortest decimal form that reads back as the same double. Starting at 6
- * significant digits keeps the everyday values an author typed (`0`, `100`,
- * `1.5`) looking like what they typed, and only widens when a value genuinely
- * needs it — a fixed high precision would turn `0.1` into `0.10000000000000001`
- * in the field.
+ * Starting at 6 significant digits keeps the everyday values an author typed
+ * (`0`, `100`, `1.5`) looking like what they typed, and only widens when a
+ * value genuinely needs it — a fixed high precision would turn `0.1` into
+ * `0.10000000000000001` in the field.
  */
-std::string codeLiteral(double value) {
+std::string numberLiteralText(double value) {
+    assert(std::isfinite(value)
+           && "numberLiteralText requires a finite value; validation must "
+              "reject non-finite literals before they reach codegen or the field");
     for (const int precision : {6, 15, 16, 17}) {
         std::ostringstream out;
         out << std::setprecision(precision) << value;
@@ -29,6 +31,8 @@ std::string codeLiteral(double value) {
     out << std::setprecision(17) << value;
     return out.str();
 }
+
+namespace {
 
 const char* codePropertyName(NumberProperty property) {
     switch (property) {
@@ -92,7 +96,7 @@ std::string formatCode(const NumberExpression& expression, int minimumPrecedence
         using T = std::decay_t<decltype(node)>;
         std::ostringstream out;
         if constexpr (std::is_same_v<T, NumberLiteralExpression>) {
-            out << codeLiteral(node.value);
+            out << numberLiteralText(node.value);
         } else if constexpr (std::is_same_v<T, NumberPropertyExpression>) {
             out << codePropertyName(node.property);
         } else if constexpr (std::is_same_v<T, NumberVariableExpression>) {

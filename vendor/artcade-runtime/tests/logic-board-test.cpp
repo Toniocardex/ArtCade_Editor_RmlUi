@@ -3153,6 +3153,179 @@ static void testValidationPurposesRecovery() {
         [](const LogicDiagnostic& d) { return d.code == "LB_UNKNOWN_BLOCK"; }));
 }
 
+/**
+ * ADR-0038 Finding 4: `round()` must behave correctly through the real Lua
+ * runtime, not a C++ model of it. `round(...)` is only reachable today on
+ * Vec2 PerComponentNumberExpression properties, and those hand the result to
+ * the host through a `float` — indistinguishable at 2^52 from the very bug
+ * being tested. Hand-written Lua run through `state_set_number` (a `double`
+ * host callback) sidesteps that without needing any property-policy change,
+ * while still exercising the shipped `logic.number.round` binding.
+ */
+static double runNumberExpressionThroughLua(const std::string& luaExpression) {
+    Host host;
+    host.declareNumber("value");
+    LogicRuntime runtime(host, kTestSessionSeed);
+    std::string error;
+    const LogicProgram program = customProgram("Hero",
+        "  context:on_start('rule-probe', function()\n"
+        "    context:state_set_number('value', " + luaExpression + ")\n"
+        "  end)");
+    CHECK(runtime.loadPrograms({program}, &error));
+    CHECK(runtime.install("Hero", 1, &error).has_value());
+    runtime.dispatchStart();
+    const auto it = host.state.find("value");
+    CHECK(it != host.state.end());
+    return it == host.state.end() ? std::numeric_limits<double>::quiet_NaN() : it->second;
+}
+
+static double runRound(double input) {
+    return runNumberExpressionThroughLua("logic.number.round(" + numberLiteralText(input) + ")");
+}
+
+static void testRoundSemantics() {
+    // The two cases Finding 4 measured as wrong under `math.floor(x+0.5)`.
+    CHECK(runRound(4503599627370497.0) == 4503599627370497.0);  // 2^52 + 1
+    CHECK(runRound(0.49999999999999994) == 0.0);
+
+    // Idempotent on every integral double tried, including at and above 2^52
+    // where the gap between representable doubles exceeds 0.5.
+    for (const double value : {0.0, -0.0, 1.0, -1.0, 42.0, -42.0,
+                               std::pow(2.0, 52), std::pow(2.0, 52) + 1.0,
+                               std::pow(2.0, 52) - 1.0, std::pow(2.0, 53)}) {
+        CHECK(runRound(value) == value);
+    }
+
+    // Half-up ties, asymmetric about zero — pinned so it stays a decision,
+    // not a rediscovery.
+    CHECK(runRound(2.5) == 3.0);
+    CHECK(runRound(3.5) == 4.0);
+    CHECK(runRound(-2.5) == -2.0);
+    CHECK(runRound(-1.5) == -1.0);
+    CHECK(runRound(-0.5) == 0.0);
+
+    // Ordinary, non-tie values are unaffected.
+    CHECK(runRound(1.2) == 1.0);
+    CHECK(runRound(1.8) == 2.0);
+    CHECK(runRound(-1.2) == -1.0);
+    CHECK(runRound(-1.8) == -2.0);
+}
+
+/**
+ * The design reason for a C++ binding over an in-Lua `floor(x)`-then-compare
+ * form: the operand may be `random(...)`, and that form needs it twice.
+ * Compares the RNG draw immediately after `round(random(0, 10))` against the
+ * same session's second draw from a plain two-draw control — if `round`
+ * consumed the generator twice, this would observe the third draw instead.
+ */
+static void testRoundDrawsRandomOperandOnce() {
+    const std::string withRoundBody =
+        "  context:on_start('rule-round', function()\n"
+        "    context:state_set_number('rounded', "
+        "logic.number.round(logic.random.range(context, 0, 10)))\n"
+        "    context:state_set_number('next', logic.random.range(context, 0, 10))\n"
+        "  end)";
+    const std::string controlBody =
+        "  context:on_start('rule-round', function()\n"
+        "    context:state_set_number('first', logic.random.range(context, 0, 10))\n"
+        "    context:state_set_number('next', logic.random.range(context, 0, 10))\n"
+        "  end)";
+
+    const auto run = [](const std::string& body, std::initializer_list<const char*> keys) {
+        Host host;
+        for (const char* key : keys) host.declareNumber(key);
+        LogicRuntime runtime(host, kTestSessionSeed);
+        std::string error;
+        CHECK(runtime.loadPrograms({customProgram("Hero", body)}, &error));
+        CHECK(runtime.install("Hero", 1, &error).has_value());
+        runtime.dispatchStart();
+        return host.state;
+    };
+
+    const std::unordered_map<std::string, double> withRound = run(withRoundBody, {"rounded", "next"});
+    const std::unordered_map<std::string, double> control = run(controlBody, {"first", "next"});
+
+    CHECK(withRound.count("next") && control.count("next"));
+    if (withRound.count("next") && control.count("next")) {
+        CHECK(withRound.at("next") == control.at("next"));
+    }
+    // Sanity check independent of the tie rule: the rounded value is within
+    // 0.5 of the un-rounded draw it was computed from.
+    CHECK(withRound.count("rounded") && control.count("first"));
+    if (withRound.count("rounded") && control.count("first")) {
+        CHECK(std::abs(withRound.at("rounded") - control.at("first")) <= 0.5);
+    }
+}
+
+/**
+ * ADR-0038 Finding 3: NumericExpressionPolicy must be enforced for any
+ * property holding a NumberExpression, not only the three Vec2 properties
+ * that opt into PerComponentNumberExpression. Table-driven over the catalog
+ * so a LiteralOnly property added later is covered without anyone
+ * remembering to add a case here.
+ */
+static void testLiteralOnlyPolicyEnforcedForEveryProperty() {
+    for (const LogicBlockDescriptor& descriptor : registry()) {
+        for (const LogicPropertyDescriptor& property : descriptor.properties) {
+            if (property.numericExpressionPolicy != NumericExpressionPolicy::LiteralOnly)
+                continue;
+            if (property.valueKind != LogicValueKind::Number
+                && property.valueKind != LogicValueKind::Vec2)
+                continue;
+
+            LogicBlockDef block = makeDefaultBlock(descriptor.typeId, descriptor.kind);
+            CHECK(!block.typeId.empty());
+            if (block.typeId.empty()) continue;
+
+            LogicPropertyDef* target = nullptr;
+            for (LogicPropertyDef& candidate : block.properties)
+                if (candidate.key == property.key) target = &candidate;
+            CHECK(target != nullptr);
+            if (!target) continue;
+
+            NumberRandomRangeExpression random;
+            random.minimum = boxNumberExpression(NumberExpression::literal(0.0));
+            random.maximum = boxNumberExpression(NumberExpression::literal(1.0));
+            NumberExpression dynamic{std::move(random)};
+            if (property.valueKind == LogicValueKind::Number) {
+                target->value = dynamic;
+            } else {
+                LogicVec2Value vec = std::get<LogicVec2Value>(target->value);
+                vec.x = dynamic;
+                target->value = vec;
+            }
+
+            LogicBoardDef board;
+            board.id = "logic:PolicyCheck";
+            LogicRuleDef rule = makeDefaultRule("rule-policy");
+            if (descriptor.kind == BlockKind::Trigger) {
+                rule.trigger = block;
+            } else if (descriptor.kind == BlockKind::Condition) {
+                rule.conditions = {makeClause(block)};
+            } else {
+                rule.actions = {block};
+            }
+            board.rules = {rule};
+
+            const std::vector<LogicDiagnostic> diagnostics = validateBoard(
+                "ObjType", board, nullptr, nullptr, LogicValidationPurpose::Executable);
+            const bool flagged = std::any_of(diagnostics.begin(), diagnostics.end(),
+                [&](const LogicDiagnostic& d) {
+                    return d.code == "NE_LITERAL_ONLY" && d.propertyKey == property.key;
+                });
+            if (!flagged) {
+                ++failed;
+                std::cerr << "FAIL policy not enforced for " << descriptor.typeId << "."
+                          << property.key << " line " << __LINE__ << "\n";
+            } else {
+                ++passed;
+            }
+
+            CHECK(!compileBoard("ObjType", board).ok());
+        }
+    }
+}
+
 int main() {
     testCompilerAndJson();
     testDescriptorSemanticMetadataConsistency();
@@ -3187,6 +3360,9 @@ int main() {
     testManualTransformActions();
     testOncePerActivationExecutionMode();
     testValidationPurposesRecovery();
+    testRoundSemantics();
+    testRoundDrawsRandomOperandOnce();
+    testLiteralOnlyPolicyEnforcedForEveryProperty();
     std::cout << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;
 }

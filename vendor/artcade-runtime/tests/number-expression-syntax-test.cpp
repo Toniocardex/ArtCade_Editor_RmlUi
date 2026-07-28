@@ -6,10 +6,15 @@
 // matched in the parser silently rewrites their expression. That is what the
 // first half of this file exists to prevent.
 
+#include "logic-number-expression-compiler.h"
 #include "logic-number-expression-format.h"
+#include "logic-number-expression-json.h"
 #include "logic-number-expression-parse.h"
 
+#include <cmath>
+#include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -228,6 +233,103 @@ void testRejects() {
     CHECK(result.error.offset == 4);
 }
 
+/**
+ * ADR-0038 Finding 1: a literal must read back to the same double on every
+ * path a value travels — the field (formatter), the interpreter (Lua
+ * compiler), and disk (JSON codec) — and the formatter and compiler must
+ * agree on the exact text, since they now share one writer.
+ */
+void testLiteralFidelity() {
+    const std::vector<double> corpus = {
+        0.0, -0.0, 1.0, -5.0, 100.0,
+        100000.5, 1234567.0, 1.0000001, 123456789.25, 3.14159265358979,
+        0.1, 1.0 / 3.0,
+        // The exact boundaries Finding 1 and Finding 4 measured.
+        0.49999999999999994,
+        4503599627370497.0,  // 2^52 + 1
+        1e308, -1e308,
+        std::numeric_limits<double>::min(),
+        std::numeric_limits<double>::denorm_min(),
+        std::numeric_limits<double>::max(),
+    };
+    for (const double value : corpus) {
+        const NumberExpression expression = NumberExpression::literal(value);
+
+        const std::string formatted = code(expression);
+        CHECK(std::strtod(formatted.c_str(), nullptr) == value);
+
+        const CompiledNumberExpression compiled = compileNumberExpressionToLua(expression);
+        CHECK(compiled.ok);
+        if (!compiled.ok) continue;
+        CHECK(std::strtod(compiled.luaSource.c_str(), nullptr) == value);
+        // The formatter and the compiler must emit identical text: one
+        // shared writer, not two that can drift.
+        CHECK(compiled.luaSource == formatted);
+
+        const nlohmann::json json = numberExpressionToJson(expression);
+        NumberExpression decoded;
+        std::string error;
+        CHECK(numberExpressionFromJson(json, decoded, error));
+        const auto decodedValue = literalNumberValue(decoded);
+        CHECK(decodedValue.has_value());
+        if (decodedValue) CHECK(*decodedValue == value);
+    }
+}
+
+/**
+ * ADR-0038 Finding 2: the grammar-recursion cap must stop the descent before
+ * the C++ stack does, for every shape that used to reach the parser
+ * unbounded — and it must not newly reject anything that parsed before.
+ */
+void testParseRecursionBounded() {
+    const int wellPast = static_cast<int>(kMaximumNumberExpressionParseDepth) * 4;
+
+    std::string parens;
+    for (int i = 0; i < wellPast; ++i) parens += "(";
+    parens += "1";
+    for (int i = 0; i < wellPast; ++i) parens += ")";
+    CHECK(!parseNumberExpression(parens).ok);
+
+    std::string calls;
+    for (int i = 0; i < wellPast; ++i) calls += "abs(";
+    calls += "1";
+    for (int i = 0; i < wellPast; ++i) calls += ")";
+    CHECK(!parseNumberExpression(calls).ok);
+
+    const std::string unterminated(static_cast<std::size_t>(wellPast), '(');
+    CHECK(!parseNumberExpression(unterminated).ok);
+
+    std::string negate(static_cast<std::size_t>(wellPast), '-');
+    negate += "self.x";
+    CHECK(!parseNumberExpression(negate).ok);
+
+    // Regression guard: nesting comfortably under both the AST depth budget
+    // (16) and the new grammar cap (64) parsed before this change and must
+    // still parse.
+    std::string shallow;
+    for (int i = 0; i < 10; ++i) shallow += "abs(";
+    shallow += "1";
+    for (int i = 0; i < 10; ++i) shallow += ")";
+    CHECK(parseNumberExpression(shallow).ok);
+}
+
+/**
+ * ADR-0038 Finding 3: `compileNumberExpressionToLua` must fail with its own
+ * error on an untranslatable tree instead of leaving the caller to invent a
+ * fallback. Validation rejects a null child as NE_INCOMPLETE before this can
+ * be reached through a real board, so this exercises the compiler directly —
+ * the primitive `emitGuardedVec2` depends on to refuse rather than emit `0`.
+ */
+void testCompilerRejectsIncompleteExpression() {
+    NumberUnaryExpression negate;
+    negate.operation = NumberUnaryOperator::Negate;
+    negate.operand = nullptr;
+    const CompiledNumberExpression result =
+        compileNumberExpressionToLua(NumberExpression{std::move(negate)});
+    CHECK(!result.ok);
+    CHECK(!result.error.empty());
+}
+
 void testLimits() {
     // Deeper than the load limit: the parser refuses rather than building a
     // tree that validation would have to reject later.
@@ -298,6 +400,14 @@ void testCompletionTokenRule() {
     CHECK(numberExpressionTokenPrefix("random(0, ") == "");
     CHECK(numberExpressionTokenPrefix("$sc") == "$sc");
     CHECK(numberExpressionTokenPrefix("1 + ab") == "ab");
+    // ADR-0038 minor finding 7: an unterminated quoted variable name can
+    // contain a space, which used to end the token scan early and lose the
+    // `$'my ` prefix entirely.
+    CHECK(numberExpressionTokenPrefix("$'my ") == "$'my ");
+    CHECK(numberExpressionTokenPrefix("clamp($'a b, 0, 1") == "$'a b, 0, 1");
+    // A properly closed quoted variable leaves no token in progress.
+    CHECK(numberExpressionTokenPrefix("$'a' ") == "");
+    CHECK(numberExpressionTokenPrefix("$'a' + ") == "");
 
     CHECK(applyNumberExpressionCompletion("cl", "clamp(") == "clamp(");
     CHECK(applyNumberExpressionCompletion("random(0, sc", "scene.width")
@@ -317,11 +427,11 @@ void testVariableTokensAreAlwaysParseable() {
         for (const NumberVariableScope scope :
              {NumberVariableScope::Local, NumberVariableScope::Global}) {
             const std::string token = numberExpressionVariableToken(scope, name);
-            if (std::string(name).empty()) {
-                // No name is not offerable; it just must not crash.
-                CHECK(!token.empty());
-                continue;
-            }
+            CHECK(!token.empty());
+            // ADR-0038 minor finding 6: an empty name is not offerable through
+            // the editor, but the token it would produce (`$''`) must still
+            // round-trip — `parse(format(e, Code)) == e` holds for every
+            // expression, not every expression except this one.
             const NumberExpressionParseResult parsed = parseNumberExpression(token);
             if (!parsed.ok) {
                 ++failed;
@@ -345,6 +455,9 @@ int main() {
     testAuthoredText();
     testRejects();
     testLimits();
+    testLiteralFidelity();
+    testParseRecursionBounded();
+    testCompilerRejectsIncompleteExpression();
     testCompletionsCoverTheGrammar();
     testCompletionTokenRule();
     testVariableTokensAreAlwaysParseable();

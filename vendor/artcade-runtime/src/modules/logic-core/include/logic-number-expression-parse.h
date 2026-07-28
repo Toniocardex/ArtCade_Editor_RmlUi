@@ -9,6 +9,21 @@
 namespace ArtCade::Logic {
 
 /**
+ * Maximum grammar-recursion depth during parsing (ADR-0038 Finding 2),
+ * separate from `kMaximumNumberExpressionDepth`: that budget is enforced only
+ * when an AST node is constructed, at the bottom of the descent, so the
+ * descent itself — `(`, unary `-`, call arguments — was previously unbounded
+ * and could overflow the C++ stack before any node budget could fire.
+ *
+ * Grammar nesting and tree depth are not the same count (`random(0,
+ * clamp(...))` costs call parentheses *and* nodes), so reusing the AST budget
+ * here would reject expressions that are valid today. This cap is
+ * comfortably larger than the AST depth budget so it only ever fires on
+ * input the AST budget would already have rejected.
+ */
+inline constexpr int kMaximumNumberExpressionParseDepth = 64;
+
+/**
  * Where the text stopped making sense. @p offset is a byte index into the
  * input, so the editor can point at the character rather than only saying the
  * expression is wrong.

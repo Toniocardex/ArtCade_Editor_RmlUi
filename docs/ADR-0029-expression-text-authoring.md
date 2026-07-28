@@ -225,13 +225,17 @@ Making the event reachable then exposed three defects that had never run:
 The durable rule: **no panel rebuild inside an RmlUi input dispatch, and no
 markup rebuild of a field while it is being typed into.**
 
-### Known gap
+### Known gap — closed
 
-An uncommitted draft is not resolved before Save / Open / New / Play.
-`resolvePendingEdits()` only inspects a focused element whose `data-action`
-starts with `commit-`, and this field declares `edit-logic-expression`, so the
-guard skips it entirely. Gates §15 requires the opposite. Tracked as the next
-slice.
+An uncommitted draft used not to be resolved before Save / Open / New / Play:
+`resolvePendingEdits()` only inspected a focused element whose `data-action`
+started with `commit-`, and this field declares `edit-logic-expression`, so
+the guard skipped it entirely, in violation of Gates §15. This is fixed —
+`EditorUi::resolvePendingExpressionEdit()`
+([`editor_ui.cpp:994`](../src/editor-native/ui/editor_ui.cpp)) is called
+alongside the `commit-` guard before Save / Open / New / Play
+([`editor_ui.cpp:1102`](../src/editor-native/ui/editor_ui.cpp)). Found still
+closed during the ADR-0038 audit; this note previously described it as open.
 
 Three of the nine carry a static range check (volume, playback speed, and the
 excluded timer interval); the rule for those is in the section above and is the

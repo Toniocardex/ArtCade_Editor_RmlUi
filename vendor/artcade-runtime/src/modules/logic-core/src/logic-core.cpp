@@ -1,5 +1,6 @@
 #include "../include/logic-core.h"
 #include "../include/logic-number-expression-compiler.h"
+#include "../include/logic-number-expression-format.h"
 #include "../include/logic-number-expression-validation.h"
 #include "logic-codegen-internal.h"
 
@@ -65,18 +66,61 @@ std::optional<double> literalNumberOf(const LogicPropertyDef* property) {
 }
 
 /**
+ * Literal value for codegen, distinguishing "absent" (documented default
+ * still applies, @p out set to @p fallback) from "present but the compiler
+ * could not translate it" (ADR-0038 Finding 3: a compile error, not a silent
+ * default). Reachable only in practice if a property escapes the
+ * NumericExpressionPolicy enforced in validateBlock below — defense in depth,
+ * not the primary guard.
+ */
+bool literalNumberForCodegen(const LogicPropertyDef* property, double fallback, double& out,
+                             const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
+                             const LogicRuleDef& rule, const LogicBlockDef& block,
+                             const std::string& propertyKey,
+                             std::vector<LogicDiagnostic>& codegenDiagnostics) {
+    out = fallback;
+    if (!property) return true;
+    const auto* expression = std::get_if<NumberExpression>(&property->value);
+    if (!expression) return true;
+    if (const auto literal = literalNumberValue(*expression)) {
+        out = *literal;
+        return true;
+    }
+    codegenDiagnostics.push_back(makeError(
+        objectTypeId, board, "LB_CODEGEN_LITERAL_ONLY",
+        "Property holds a dynamic expression that could not be translated: " + propertyKey,
+        &rule, &block, propertyKey));
+    return false;
+}
+
+/**
  * Emit a two-component call whose operands may be dynamic: evaluate both, then
  * guard on finiteness and rate-limit the complaint. Set Position had this
  * inline; every Vec2 action needs the same shape, and a second hand-written
  * copy of a runtime guard is how one of them ends up missing the check.
+ *
+ * An untranslatable component fails the compile with the compiler's own
+ * error (ADR-0038 Finding 3) instead of silently substituting `0` — reachable
+ * only if a null child box slips past validation's NE_INCOMPLETE check, so
+ * this is defense in depth, not the primary guard.
  */
-void emitGuardedVec2(std::ostringstream& lua, const LogicVec2Value& value,
-                     const std::string& diagnosticKey, const std::string& call) {
+bool emitGuardedVec2(std::ostringstream& lua, const LogicVec2Value& value,
+                     const std::string& diagnosticKey, const std::string& call,
+                     const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
+                     const LogicRuleDef& rule, const LogicBlockDef& block,
+                     const std::string& propertyKey,
+                     std::vector<LogicDiagnostic>& codegenDiagnostics) {
     const CompiledNumberExpression compiledX = compileNumberExpressionToLua(value.x);
     const CompiledNumberExpression compiledY = compileNumberExpressionToLua(value.y);
+    if (!compiledX.ok || !compiledY.ok) {
+        codegenDiagnostics.push_back(makeError(
+            objectTypeId, board, "LB_CODEGEN_EXPRESSION",
+            !compiledX.ok ? compiledX.error : compiledY.error, &rule, &block, propertyKey));
+        return false;
+    }
     lua << "      do\n";
-    lua << "        local _x = " << (compiledX.ok ? compiledX.luaSource : "0") << "\n";
-    lua << "        local _y = " << (compiledY.ok ? compiledY.luaSource : "0") << "\n";
+    lua << "        local _x = " << compiledX.luaSource << "\n";
+    lua << "        local _y = " << compiledY.luaSource << "\n";
     lua << "        if logic.number.is_finite(_x) and logic.number.is_finite(_y) then\n";
     lua << "          " << call << "\n";
     lua << "        else\n";
@@ -84,6 +128,7 @@ void emitGuardedVec2(std::ostringstream& lua, const LogicVec2Value& value,
         << escapeLua(diagnosticKey) << "\")\n";
     lua << "        end\n";
     lua << "      end\n";
+    return true;
 }
 
 LogicValueKind kindOf(const LogicValue& value) {
@@ -235,16 +280,39 @@ void validateBlock(const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
                                     "Property has the wrong value type: " + property.key,
                                     &rule, &block, property.key));
         }
-        if (const LogicVec2Value* v = std::get_if<LogicVec2Value>(&property.value)) {
+        // ADR-0038 Finding 3: NumericExpressionPolicy applies to any property
+        // holding a NumberExpression, scalar or Vec2 — not only the Vec2
+        // branch. A dedicated Camera Shake special case used to duplicate
+        // this for intensity/duration; it is redundant now and removed.
+        const auto requireLiteral = [&](const NumberExpression& expression) {
+            const NumberExpressionValidationResult result =
+                requireLiteralNumberExpression(expression);
+            if (!result.ok) {
+                out.push_back(makeError(objectTypeId, board, result.errorCode,
+                                        result.message, &rule, &block, property.key));
+            }
+        };
+        const auto validateDynamic = [&](const NumberExpression& expression) {
+            NumberExpressionContext context;
+            context.globalVariables = project ? &project->globalVariables : nullptr;
+            context.localVariables = owner ? &owner->localVariables : nullptr;
+            context.deltaSecondsAvailable =
+                trigger && trigger->typeId == kEveryFrame;
+            const NumberExpressionValidationResult result =
+                validateNumberExpression(expression, context);
+            if (!result.ok) {
+                out.push_back(makeError(objectTypeId, board, result.errorCode,
+                                        result.message, &rule, &block, property.key));
+            }
+        };
+        if (const NumberExpression* n = std::get_if<NumberExpression>(&property.value)) {
             if (it->numericExpressionPolicy == NumericExpressionPolicy::LiteralOnly) {
-                const auto requireLiteral = [&](const NumberExpression& expression) {
-                    const NumberExpressionValidationResult result =
-                        requireLiteralNumberExpression(expression);
-                    if (!result.ok) {
-                        out.push_back(makeError(objectTypeId, board, result.errorCode,
-                                                result.message, &rule, &block, property.key));
-                    }
-                };
+                requireLiteral(*n);
+            } else {
+                validateDynamic(*n);
+            }
+        } else if (const LogicVec2Value* v = std::get_if<LogicVec2Value>(&property.value)) {
+            if (it->numericExpressionPolicy == NumericExpressionPolicy::LiteralOnly) {
                 requireLiteral(v->x);
                 requireLiteral(v->y);
                 if (!structuralOnly && block.typeId == kSetScale && property.key == "scale") {
@@ -257,33 +325,8 @@ void validateBlock(const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
                     }
                 }
             } else {
-                NumberExpressionContext context;
-                context.globalVariables = project ? &project->globalVariables : nullptr;
-                context.localVariables = owner ? &owner->localVariables : nullptr;
-                context.deltaSecondsAvailable =
-                    trigger && trigger->typeId == kEveryFrame;
-                const auto validateComponent = [&](const NumberExpression& expression) {
-                    const NumberExpressionValidationResult result =
-                        validateNumberExpression(expression, context);
-                    if (!result.ok) {
-                        out.push_back(makeError(objectTypeId, board, result.errorCode,
-                                                result.message, &rule, &block, property.key));
-                    }
-                };
-                validateComponent(v->x);
-                validateComponent(v->y);
-            }
-        }
-        if (block.typeId == kCameraShake
-            && (property.key == "intensity" || property.key == "duration")) {
-            if (const auto* expression = std::get_if<NumberExpression>(&property.value)) {
-                const NumberExpressionValidationResult literalOnly =
-                    requireLiteralNumberExpression(*expression);
-                if (!literalOnly.ok) {
-                    out.push_back(makeError(objectTypeId, board, literalOnly.errorCode,
-                                            literalOnly.message, &rule, &block,
-                                            property.key));
-                }
+                validateDynamic(v->x);
+                validateDynamic(v->y);
             }
         }
         if (const auto literal = literalNumberOf(&property)) {
@@ -516,8 +559,9 @@ void validateBlock(const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
 
 void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
                 std::set<std::string>& features,
-                const std::string& boardId, const LogicRuleId& ruleId,
-                std::size_t actionIndex) {
+                const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
+                const LogicRuleDef& rule, std::size_t actionIndex,
+                std::vector<LogicDiagnostic>& codegenDiagnostics) {
     if (action.typeId == kSetVisible) {
         const LogicPropertyDef* p = findProperty(action, "visible");
         const bool value = std::get<bool>(p->value);
@@ -532,41 +576,51 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
         const LogicPropertyDef* p = findProperty(action, "position");
         const LogicVec2Value& value = std::get<LogicVec2Value>(p->value);
         emitGuardedVec2(lua, value,
-                        boardId + ":" + ruleId + ":" + std::to_string(actionIndex)
+                        board.id + ":" + rule.id + ":" + std::to_string(actionIndex)
                             + ":position",
-                        "context.self:set_position(_x, _y)");
+                        "context.self:set_position(_x, _y)",
+                        objectTypeId, board, rule, action, "position", codegenDiagnostics);
     } else if (action.typeId == kTranslateBy) {
         const LogicPropertyDef* p = findProperty(action, "offset");
         const LogicVec2Value& value = std::get<LogicVec2Value>(p->value);
         emitGuardedVec2(lua, value,
-                        boardId + ":" + ruleId + ":" + std::to_string(actionIndex)
+                        board.id + ":" + rule.id + ":" + std::to_string(actionIndex)
                             + ":offset",
-                        "context.self:translate(_x, _y)");
+                        "context.self:translate(_x, _y)",
+                        objectTypeId, board, rule, action, "offset", codegenDiagnostics);
     } else if (action.typeId == kSetRotation) {
         const LogicPropertyDef* p = findProperty(action, "degrees");
-        const double degrees = literalNumberOf(p).value_or(0.0);
-        // Authoring unit is degrees; runtime Transform stores radians.
-        const double radians = degrees * 0.017453292519943295;
-        lua << "      context.self:set_rotation(" << radians << ")\n";
+        double degrees = 0.0;
+        if (literalNumberForCodegen(p, 0.0, degrees, objectTypeId, board, rule, action,
+                                    "degrees", codegenDiagnostics)) {
+            // Authoring unit is degrees; runtime Transform stores radians.
+            const double radians = degrees * 0.017453292519943295;
+            lua << "      context.self:set_rotation(" << numberLiteralText(radians) << ")\n";
+        }
     } else if (action.typeId == kRotateBy) {
         const LogicPropertyDef* p = findProperty(action, "degrees");
-        const double degrees = literalNumberOf(p).value_or(0.0);
-        const double radians = degrees * 0.017453292519943295;
-        lua << "      context.self:rotate_by(" << radians << ")\n";
+        double degrees = 0.0;
+        if (literalNumberForCodegen(p, 0.0, degrees, objectTypeId, board, rule, action,
+                                    "degrees", codegenDiagnostics)) {
+            const double radians = degrees * 0.017453292519943295;
+            lua << "      context.self:rotate_by(" << numberLiteralText(radians) << ")\n";
+        }
     } else if (action.typeId == kSetScale) {
         const LogicPropertyDef* p = findProperty(action, "scale");
         const LogicVec2Value& value = std::get<LogicVec2Value>(p->value);
         emitGuardedVec2(lua, value,
-                        boardId + ":" + ruleId + ":" + std::to_string(actionIndex)
+                        board.id + ":" + rule.id + ":" + std::to_string(actionIndex)
                             + ":scale",
-                        "context.self:set_scale(_x, _y)");
+                        "context.self:set_scale(_x, _y)",
+                        objectTypeId, board, rule, action, "scale", codegenDiagnostics);
     } else if (action.typeId == kSetVelocity) {
         const LogicPropertyDef* p = findProperty(action, "velocity");
         const LogicVec2Value& value = std::get<LogicVec2Value>(p->value);
         emitGuardedVec2(lua, value,
-                        boardId + ":" + ruleId + ":" + std::to_string(actionIndex)
+                        board.id + ":" + rule.id + ":" + std::to_string(actionIndex)
                             + ":velocity",
-                        "context.self:set_velocity(_x, _y)");
+                        "context.self:set_velocity(_x, _y)",
+                        objectTypeId, board, rule, action, "velocity", codegenDiagnostics);
     } else if (action.typeId == kSpawnObject) {
         const LogicPropertyDef* typeProp = findProperty(action, "objectTypeId");
         const LogicPropertyDef* posProp = findProperty(action, "position");
@@ -580,7 +634,7 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
         }();
         lua << "      context.self:spawn(\""
             << escapeLua(type ? type->value : std::string{}) << "\", "
-            << position.x << ", " << position.y << ")\n";
+            << numberLiteralText(position.x) << ", " << numberLiteralText(position.y) << ")\n";
     } else if (action.typeId == kMoveHorizontal) {
         if (const LogicPropertyDef* directionProp = findProperty(action, "direction")) {
             const auto* facing = std::get_if<LogicStringValue>(&directionProp->value);
@@ -589,8 +643,11 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
         } else {
             // Legacy boards authored numeric axis in [-1, 1].
             const LogicPropertyDef* p = findProperty(action, "axis");
-            const double axis = literalNumberOf(p).value_or(0.0);
-            lua << "      context.self:platformer_move(" << axis << ")\n";
+            double axis = 0.0;
+            if (literalNumberForCodegen(p, 0.0, axis, objectTypeId, board, rule, action,
+                                        "axis", codegenDiagnostics)) {
+                lua << "      context.self:platformer_move(" << numberLiteralText(axis) << ")\n";
+            }
         }
     } else if (action.typeId == kTopDownMove) {
         const LogicPropertyDef* p = findProperty(action, "direction");
@@ -600,7 +657,8 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
                             : value == "Up" ? Vec2{0.f, -1.f}
                             : value == "Down" ? Vec2{0.f, 1.f}
                             : Vec2{1.f, 0.f};
-        lua << "      context.self:topdown_move(" << movement.x << ", " << movement.y << ")\n";
+        lua << "      context.self:topdown_move(" << numberLiteralText(movement.x) << ", "
+            << numberLiteralText(movement.y) << ")\n";
     } else if (action.typeId == kJump) {
         lua << "      context.self:platformer_jump()\n";
     } else if (action.typeId == kDestroySelf) {
@@ -622,16 +680,23 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
         lua << "      context.self:stop_animation()\n";
     } else if (action.typeId == kAnimationSetPlaybackSpeed) {
         const LogicPropertyDef* p = findProperty(action, "speed");
-        lua << "      context.self:set_animation_playback_speed("
-            << literalNumberOf(p).value_or(1.0) << ")\n";
+        double speed = 1.0;
+        if (literalNumberForCodegen(p, 1.0, speed, objectTypeId, board, rule, action,
+                                    "speed", codegenDiagnostics)) {
+            lua << "      context.self:set_animation_playback_speed("
+                << numberLiteralText(speed) << ")\n";
+        }
     } else if (action.typeId == kAudioPlaySound) {
         const LogicPropertyDef* asset = findProperty(action, "audioAssetId");
         const LogicPropertyDef* volume = findProperty(action, "volume");
         const auto* assetRef = asset ? std::get_if<LogicAssetReference>(&asset->value) : nullptr;
-        const double volumeValue = literalNumberOf(volume).value_or(1.0);
-        lua << "      context.self:play_sound(\""
-            << escapeLua(assetRef ? assetRef->id : std::string{}) << "\", "
-            << volumeValue << ")\n";
+        double volumeValue = 1.0;
+        if (literalNumberForCodegen(volume, 1.0, volumeValue, objectTypeId, board, rule, action,
+                                    "volume", codegenDiagnostics)) {
+            lua << "      context.self:play_sound(\""
+                << escapeLua(assetRef ? assetRef->id : std::string{}) << "\", "
+                << numberLiteralText(volumeValue) << ")\n";
+        }
     } else if (action.typeId == kSceneRestart) {
         lua << "      context:scene_restart()\n";
     } else if (action.typeId == kSceneGoTo) {
@@ -640,28 +705,41 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
         lua << "      context:scene_go_to(\""
             << escapeLua(scene ? scene->value : std::string{}) << "\")\n";
     } else if (action.typeId == kCameraShake) {
-        // Executable validation requires literal intensity/duration; fallbacks
-        // are defensive only and unreachable for a successful compile.
+        double intensity = 0.5;
+        double duration = 0.5;
         const LogicPropertyDef* intensityProp = findProperty(action, "intensity");
         const LogicPropertyDef* durationProp = findProperty(action, "duration");
-        const double intensity = literalNumberOf(intensityProp).value_or(0.5);
-        const double duration = literalNumberOf(durationProp).value_or(0.5);
-        lua << "      context:camera_shake(" << intensity << ", " << duration << ")\n";
+        const bool intensityOk = literalNumberForCodegen(
+            intensityProp, 0.5, intensity, objectTypeId, board, rule, action,
+            "intensity", codegenDiagnostics);
+        const bool durationOk = literalNumberForCodegen(
+            durationProp, 0.5, duration, objectTypeId, board, rule, action,
+            "duration", codegenDiagnostics);
+        if (intensityOk && durationOk) {
+            lua << "      context:camera_shake(" << numberLiteralText(intensity) << ", "
+                << numberLiteralText(duration) << ")\n";
+        }
     } else if (action.typeId == kStateSet) {
         const LogicPropertyDef* keyProp = findProperty(action, "key");
         const LogicPropertyDef* valueProp = findProperty(action, "value");
         const auto* key = keyProp ? std::get_if<LogicVariableReference>(&keyProp->value) : nullptr;
-        const double value = literalNumberOf(valueProp).value_or(0.0);
-        lua << "      context:state_set_number(\"" << escapeLua(key ? key->id : std::string{})
-            << "\", " << value << ")\n";
+        double value = 0.0;
+        if (literalNumberForCodegen(valueProp, 0.0, value, objectTypeId, board, rule, action,
+                                    "value", codegenDiagnostics)) {
+            lua << "      context:state_set_number(\"" << escapeLua(key ? key->id : std::string{})
+                << "\", " << numberLiteralText(value) << ")\n";
+        }
     } else if (action.typeId == kStateAdd || action.typeId == kStateSubtract) {
         const LogicPropertyDef* keyProp = findProperty(action, "key");
         const LogicPropertyDef* amountProp = findProperty(action, "amount");
         const auto* key = keyProp ? std::get_if<LogicVariableReference>(&keyProp->value) : nullptr;
-        double amount = literalNumberOf(amountProp).value_or(0.0);
-        if (action.typeId == kStateSubtract) amount = -amount;
-        lua << "      context:state_add_number(\"" << escapeLua(key ? key->id : std::string{})
-            << "\", " << amount << ")\n";
+        double amount = 0.0;
+        if (literalNumberForCodegen(amountProp, 0.0, amount, objectTypeId, board, rule, action,
+                                    "amount", codegenDiagnostics)) {
+            if (action.typeId == kStateSubtract) amount = -amount;
+            lua << "      context:state_add_number(\"" << escapeLua(key ? key->id : std::string{})
+                << "\", " << numberLiteralText(amount) << ")\n";
+        }
     } else if (action.typeId == kStateToggle) {
         const LogicPropertyDef* keyProp = findProperty(action, "key");
         const auto* key = keyProp ? std::get_if<LogicVariableReference>(&keyProp->value) : nullptr;
@@ -674,21 +752,25 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
 
 void emitActions(std::ostringstream& lua, const std::vector<LogicBlockDef>& actions,
                  std::size_t start, std::set<std::string>& features,
-                 const std::string& boardId, const LogicRuleId& ruleId) {
+                 const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
+                 const LogicRuleDef& rule, std::vector<LogicDiagnostic>& codegenDiagnostics) {
     for (std::size_t i = start; i < actions.size(); ++i) {
         const LogicBlockDef& action = actions[i];
         if (action.typeId == kWait) {
             const LogicPropertyDef* secondsProp = findProperty(action, "seconds");
-            const double seconds = literalNumberOf(secondsProp).value_or(1.0);
+            double seconds = 1.0;
+            literalNumberForCodegen(secondsProp, 1.0, seconds, objectTypeId, board, rule, action,
+                                    "seconds", codegenDiagnostics);
             if (const LogicBlockDescriptor* descriptor = findDescriptor(action.typeId))
                 if (!descriptor->requiredFeature.empty())
                     features.insert(descriptor->requiredFeature);
-            lua << "      context:wait(" << seconds << ", function()\n";
-            emitActions(lua, actions, i + 1, features, boardId, ruleId);
+            lua << "      context:wait(" << numberLiteralText(seconds) << ", function()\n";
+            emitActions(lua, actions, i + 1, features, objectTypeId, board, rule,
+                       codegenDiagnostics);
             lua << "      end)\n";
             return;
         }
-        emitAction(lua, action, features, boardId, ruleId, i);
+        emitAction(lua, action, features, objectTypeId, board, rule, i, codegenDiagnostics);
     }
 }
 
@@ -1374,6 +1456,7 @@ LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
     if (!result.ok()) return result;
 
     std::set<std::string> features;
+    std::vector<LogicDiagnostic> codegenDiagnostics;
     std::ostringstream lua;
     lua << "logic.require_api_version(" << kLogicApiVersion << ")\n";
     lua << "logic.define_board(\"" << escapeLua(board.id) << "\", \""
@@ -1399,9 +1482,11 @@ LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
             result.requiresTick = true;
         } else if (rule.trigger.typeId == kEverySeconds) {
             const LogicPropertyDef* seconds = findProperty(rule.trigger, "seconds");
-            const double interval = literalNumberOf(seconds).value_or(1.0);
+            double interval = 1.0;
+            literalNumberForCodegen(seconds, 1.0, interval, objectTypeId, board, rule,
+                                    rule.trigger, "seconds", codegenDiagnostics);
             lua << "  context:on_every_seconds(\"" << escapeLua(rule.id) << "\", "
-                << interval << ", function()\n";
+                << numberLiteralText(interval) << ", function()\n";
         } else if (rule.trigger.typeId == kAnimationStarted) {
             lua << "  context:on_animation_started(\"" << escapeLua(rule.id)
                 << "\", function()\n";
@@ -1467,7 +1552,8 @@ LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
                 << logicExecutionModeToString(rule.executionMode) << "\", \""
                 << logicTriggerActivationKindToString(activationKind)
                 << "\", when_active) then\n";
-            emitActions(lua, rule.actions, 0, features, board.id, rule.id);
+            emitActions(lua, rule.actions, 0, features, objectTypeId, board, rule,
+                       codegenDiagnostics);
             if (features.count("flow.wait")) result.requiresTick = true;
             lua << "    end\n";
             lua << "  end)\n";
@@ -1489,13 +1575,23 @@ LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
             ++guardDepth;
         }
         if (emitConditionGuard(lua, rule.conditions, features)) ++guardDepth;
-        emitActions(lua, rule.actions, 0, features, board.id, rule.id);
+        emitActions(lua, rule.actions, 0, features, objectTypeId, board, rule,
+                   codegenDiagnostics);
         // Wait is an action (not a trigger) but still needs the tick path.
         if (features.count("flow.wait")) result.requiresTick = true;
         for (int i = 0; i < guardDepth; ++i) lua << "    end\n";
         lua << "  end)\n";
     }
     lua << "end)\n";
+
+    // ADR-0038 Finding 3: a property that escaped policy enforcement above and
+    // could not be translated fails the compile here instead of publishing a
+    // program built on a silently substituted default.
+    if (!codegenDiagnostics.empty()) {
+        result.diagnostics.insert(result.diagnostics.end(),
+            codegenDiagnostics.begin(), codegenDiagnostics.end());
+        return result;
+    }
 
     LogicProgram program;
     program.objectTypeId = objectTypeId;

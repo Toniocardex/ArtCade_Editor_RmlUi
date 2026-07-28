@@ -770,6 +770,24 @@ bool LogicRuntime::initialize(std::string* error) {
                 return std::numeric_limits<double>::quiet_NaN();
             return from + (to - from) * amount;
         });
+        // ADR-0038 Finding 4: a C++ binding, not `math.floor(x+0.5)` in the
+        // generated Lua — that form is not idempotent once |x| >= 2^52 (the
+        // gap between representable doubles exceeds 0.5) and rounds the
+        // largest double below 0.5 up to 1. Half-up ties, asymmetric about
+        // zero (-2.5 -> -2, matching the previous behaviour on ordinary
+        // inputs so existing boards do not change). Evaluates its operand
+        // exactly once by construction, unlike `floor(x)` compared against
+        // `x` a second time, which would draw twice from a `random(...)`
+        // operand.
+        number.set_function("round", [](double value) {
+            if (!std::isfinite(value)) return std::numeric_limits<double>::quiet_NaN();
+            // Already integral: return as-is rather than adding 0.5, which
+            // above 2^52 can round to the next representable integer.
+            if (value == std::floor(value)) return value;
+            const double flooredValue = std::floor(value);
+            const double fraction = value - flooredValue;
+            return fraction >= 0.5 ? flooredValue + 1.0 : flooredValue;
+        });
         logic["number"] = number;
         sol::table random = lua.create_table();
         random.set_function("range", [](Impl::ContextProxy& context, double minimum,

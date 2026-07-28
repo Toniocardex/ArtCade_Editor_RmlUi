@@ -18,6 +18,12 @@
 namespace ArtCade::EditorNative {
 namespace {
 
+// ADR-0038 Finding 2: defense in depth, not the fix — the parser is bounded
+// at the point of descent regardless of input length. This just avoids
+// handing it pathological input (e.g. a large paste of `(`) in the first
+// place.
+constexpr std::size_t kMaxExpressionTextLength = 512;
+
 std::vector<std::string> splitPipe(const std::string& value) {
     std::vector<std::string> parts;
     std::size_t start = 0;
@@ -163,6 +169,11 @@ std::string LogicBoardEditorController::commitExpressionText(const std::string& 
     if (!parsed || (parsed->component != "x" && parsed->component != "y")) {
         coordinator_.logError("Invalid Logic expression address");
         return {};
+    }
+    if (text.size() > kMaxExpressionTextLength) {
+        const std::string message = "Expression text is too long";
+        panel_.setExpressionFailure(document_, coordinator_, address, text, message);
+        return message;
     }
     const Logic::NumberExpressionParseResult result =
         Logic::parseNumberExpression(text);
