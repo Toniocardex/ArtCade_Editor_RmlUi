@@ -92,6 +92,18 @@ struct Host final : ILogicRuntimeHost {
     std::optional<Vec2> getSceneWorldSize() const override {
         return Vec2{512.f, 320.f};
     }
+    bool isOutsideSceneBounds(EntityId owner, float margin) const override {
+        if (!std::isfinite(margin) || margin < 0.f) return false;
+        const auto position = getPosition(owner);
+        const auto worldSize = getSceneWorldSize();
+        if (!position || !worldSize || !std::isfinite(position->x)
+            || !std::isfinite(position->y) || !std::isfinite(worldSize->x)
+            || !std::isfinite(worldSize->y) || worldSize->x <= 0.f || worldSize->y <= 0.f) {
+            return false;
+        }
+        return position->x < -margin || position->y < -margin
+            || position->x > worldSize->x + margin || position->y > worldSize->y + margin;
+    }
     bool translate(EntityId owner, Vec2 delta) override {
         calls.push_back("translate:" + std::to_string(owner) + ":"
                         + std::to_string(static_cast<int>(delta.x)) + ","
@@ -912,6 +924,124 @@ static void testPlatformerMotionState() {
     CHECK(findDescriptor(kPlatformerMotionState)->displayName
           == std::string("Platformer State"));
     CHECK(findDescriptor(kIsFalling)->catalogHidden);
+}
+
+static void testOutsideSceneBounds() {
+    const LogicBlockDescriptor* descriptor = findDescriptor(kOutsideSceneBounds);
+    CHECK(descriptor != nullptr);
+    CHECK(descriptor && descriptor->kind == BlockKind::Condition);
+    CHECK(descriptor && descriptor->activationKind == LogicTriggerActivationKind::Level);
+    CHECK(descriptor && descriptor->requiresTick);
+    CHECK(descriptor && descriptor->requiredFeature == std::string("scene.outside_bounds"));
+    CHECK(descriptor && isEventEligible(*descriptor));
+
+    LogicBlockDef outside = makeDefaultEventBlock(kOutsideSceneBounds);
+    CHECK(outside.typeId == kOutsideSceneBounds);
+    CHECK(outside.properties.size() == 1);
+    if (!outside.properties.empty()) {
+        const auto margin = std::get_if<NumberExpression>(&outside.properties[0].value);
+        CHECK(margin && literalNumberValue(*margin).value_or(-1.0) == 0.0);
+    }
+
+    LogicBoardDef board;
+    board.id = "logic:OutsideScene";
+    LogicRuleDef rule = makeDefaultRule("rule-1");
+    rule.trigger = outside;
+    rule.actions = {makeDefaultAction("destroy")};
+    rule.actions[0].block = makeDefaultBlock(kDestroySelf, BlockKind::Action);
+    rule.actions[0].executionMode = LogicExecutionMode::OncePerActivation;
+    board.rules.push_back(rule);
+
+    CHECK(validateBoard("Hero", board).empty());
+    LogicCompileResult compiled = compileBoard("Hero", board);
+    CHECK(compiled.ok());
+    CHECK(compiled.requiresTick);
+    CHECK(compiled.programs[0].source.find("context.self:is_outside_scene(0)")
+          != std::string::npos);
+    CHECK(std::find(compiled.programs[0].requiredFeatures.begin(),
+                    compiled.programs[0].requiredFeatures.end(),
+                    "scene.outside_bounds") != compiled.programs[0].requiredFeatures.end());
+
+    Host host;
+    host.positions[1] = {0.f, 0.f};
+    CHECK(!host.isOutsideSceneBounds(1, 0.f));
+    host.positions[1] = {512.f, 320.f};
+    CHECK(!host.isOutsideSceneBounds(1, 0.f));
+    host.positions[1] = {-0.01f, 0.f};
+    CHECK(host.isOutsideSceneBounds(1, 0.f));
+    host.positions[1] = {512.01f, 320.f};
+    CHECK(host.isOutsideSceneBounds(1, 0.f));
+    host.positions[1] = {528.f, 0.f};
+    CHECK(!host.isOutsideSceneBounds(1, 32.f));
+    host.positions[1] = {544.01f, 0.f};
+    CHECK(host.isOutsideSceneBounds(1, 32.f));
+    CHECK(!host.isOutsideSceneBounds(1, -1.f));
+    CHECK(!host.isOutsideSceneBounds(1, std::numeric_limits<float>::infinity()));
+
+    LogicRuntime runtime(host, kTestSessionSeed);
+    std::string error;
+    CHECK(runtime.loadPrograms(compiled.programs, &error));
+    CHECK(runtime.install("Hero", 1, &error).has_value());
+    const auto destroyCount = [&]() {
+        return std::count_if(host.calls.begin(), host.calls.end(),
+            [](const std::string& call) { return call == "destroy:1"; });
+    };
+    host.positions[1] = {512.f, 320.f};
+    runtime.beginFrame();
+    runtime.dispatchTick(1.f / 60.f);
+    CHECK(destroyCount() == 0);
+    host.positions[1] = {513.f, 320.f};
+    for (int i = 0; i < 3; ++i) {
+        runtime.beginFrame();
+        runtime.dispatchTick(1.f / 60.f);
+    }
+    CHECK(destroyCount() == 1);
+    host.positions[1] = {512.f, 320.f};
+    runtime.beginFrame();
+    runtime.dispatchTick(1.f / 60.f);
+    host.positions[1] = {513.f, 320.f};
+    runtime.beginFrame();
+    runtime.dispatchTick(1.f / 60.f);
+    CHECK(destroyCount() == 2);
+
+    LogicBoardDef everyBoard = board;
+    everyBoard.rules[0].actions[0].executionMode = LogicExecutionMode::EveryOccurrence;
+    LogicCompileResult everyCompiled = compileBoard("Hero", everyBoard);
+    CHECK(everyCompiled.ok());
+    Host everyHost;
+    everyHost.positions[1] = {513.f, 320.f};
+    LogicRuntime everyRuntime(everyHost, kTestSessionSeed);
+    CHECK(everyRuntime.loadPrograms(everyCompiled.programs, &error));
+    CHECK(everyRuntime.install("Hero", 1, &error).has_value());
+    for (int i = 0; i < 3; ++i) {
+        everyRuntime.beginFrame();
+        everyRuntime.dispatchTick(1.f / 60.f);
+    }
+    CHECK(std::count(everyHost.calls.begin(), everyHost.calls.end(), "destroy:1") == 3);
+
+    LogicBoardDef invalid = board;
+    invalid.rules[0].trigger.properties[0].value = NumberExpression::literal(-0.01);
+    const auto invalidDiagnostics = validateBoard("Hero", invalid, nullptr, nullptr,
+                                                  LogicValidationPurpose::Executable);
+    CHECK(std::any_of(invalidDiagnostics.begin(), invalidDiagnostics.end(),
+        [](const LogicDiagnostic& diagnostic) {
+            return diagnostic.code == "LB_OUTSIDE_SCENE_MARGIN";
+        }));
+    invalid.rules[0].trigger.properties[0].value =
+        NumberExpression::literal(std::numeric_limits<double>::quiet_NaN());
+    const auto nonFiniteDiagnostics = validateBoard("Hero", invalid, nullptr, nullptr,
+                                                    LogicValidationPurpose::Executable);
+    CHECK(std::any_of(nonFiniteDiagnostics.begin(), nonFiniteDiagnostics.end(),
+        [](const LogicDiagnostic& diagnostic) { return diagnostic.code == "LB_NON_FINITE"; }));
+
+    LogicBoardDef ifBoard = board;
+    ifBoard.rules[0].trigger = makeDefaultTrigger();
+    ifBoard.rules[0].conditions = {makeClause(makeDefaultBlock(kOutsideSceneBounds,
+                                                                 BlockKind::Condition))};
+    LogicCompileResult ifCompiled = compileBoard("Hero", ifBoard);
+    CHECK(ifCompiled.ok());
+    CHECK(ifCompiled.programs[0].source.find("context.self:is_outside_scene(0)")
+          != std::string::npos);
 }
 
 static void testIsVisibleAsEvent() {
@@ -3338,6 +3468,7 @@ int main() {
     testIsFallingAsEvent();
     testIsFallingMigratesToPlatformerState();
     testPlatformerMotionState();
+    testOutsideSceneBounds();
     testIsVisibleAsEvent();
     testSpriteSetFacingAction();
     testPlatformerMoveHorizontalDirection();

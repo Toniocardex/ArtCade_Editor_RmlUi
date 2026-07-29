@@ -178,6 +178,7 @@ public:
     bool setPosition(EntityId owner, Vec2 value) override;
     std::optional<Vec2> getPosition(EntityId owner) const override;
     std::optional<Vec2> getSceneWorldSize() const override;
+    bool isOutsideSceneBounds(EntityId owner, float margin) const override;
     bool translate(EntityId owner, Vec2 delta) override;
     bool setRotation(EntityId owner, float radians) override;
     bool rotateBy(EntityId owner, float deltaRadians) override;

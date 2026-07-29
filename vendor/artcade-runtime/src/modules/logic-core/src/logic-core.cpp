@@ -361,6 +361,11 @@ void validateBlock(const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
                     pushSemantic(makeError(objectTypeId, board, "LB_CAMERA_SHAKE_DURATION",
                                            "Camera Shake duration must be greater than 0",
                                            &rule, &block, property.key));
+                } else if (block.typeId == kOutsideSceneBounds && property.key == "margin"
+                           && *value < 0.0) {
+                    pushSemantic(makeError(objectTypeId, board, "LB_OUTSIDE_SCENE_MARGIN",
+                                           "Outside Scene margin must be greater than or equal to 0",
+                                           &rule, &block, property.key));
                 }
             }
         }
@@ -1052,6 +1057,14 @@ const std::vector<LogicBlockDescriptor>& registry() {
             {{"sceneId", LogicValueKind::String, LogicStringValue{}, "Scene"}},
             {}, {}, {}, "scene.go_to", false, 20,
             {"load", "change", "switch", "level", "next"}},
+        {kOutsideSceneBounds, "scene", "Outside Scene",
+            "True when Self's runtime position is beyond the active scene bounds plus Margin.",
+            BlockKind::Condition,
+            {{"margin", LogicValueKind::Number, NumberExpression::literal(0.0), "Margin"}},
+            {}, {LogicContextCapability::Self}, {LogicContextCapability::Self},
+            "scene.outside_bounds", true, 30,
+            {"offscreen", "out of bounds", "boundary", "despawn"},
+            LogicTriggerActivationKind::Level},
         {kCameraShake, "camera", "Camera Shake",
             "Adds camera trauma. Repeated calls stack intensity up to 1; "
             "the latest duration controls the current trauma decay.",

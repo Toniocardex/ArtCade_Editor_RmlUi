@@ -70,6 +70,7 @@ const std::unordered_set<std::string>& supportedFeatures() {
         "audio.play_sound",
         "scene.restart",
         "scene.go_to",
+        "scene.outside_bounds",
         "camera.shake",
         "flow.wait",
         "state.set_number",
@@ -175,6 +176,9 @@ struct LogicRuntime::Impl {
             const auto position = impl ? impl->host.getPosition(owner) : std::nullopt;
             if (!position) throw sol::error("get_position_y failed for owner");
             return position->y;
+        }
+        bool isOutsideScene(float margin) {
+            return impl && impl->host.isOutsideSceneBounds(owner, margin);
         }
         void translate(float x, float y) {
             if (!impl || !impl->host.translate(owner, Vec2{x, y}))
@@ -699,6 +703,7 @@ bool LogicRuntime::initialize(std::string* error) {
             "set_position", &Impl::SelfProxy::setPosition,
             "get_position_x", &Impl::SelfProxy::getPositionX,
             "get_position_y", &Impl::SelfProxy::getPositionY,
+            "is_outside_scene", &Impl::SelfProxy::isOutsideScene,
             "translate", &Impl::SelfProxy::translate,
             "set_rotation", &Impl::SelfProxy::setRotation,
             "rotate_by", &Impl::SelfProxy::rotateBy,

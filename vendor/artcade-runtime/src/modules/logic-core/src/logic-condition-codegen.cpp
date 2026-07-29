@@ -26,6 +26,14 @@ std::string conditionExpression(const LogicBlockDef& condition,
         const LogicPropertyDef* property = findProperty(condition, "expected");
         const bool expected = property ? std::get<bool>(property->value) : true;
         expression << "context.self:is_visible() == " << (expected ? "true" : "false");
+    } else if (condition.typeId == kOutsideSceneBounds) {
+        const LogicPropertyDef* property = findProperty(condition, "margin");
+        const auto* marginExpression = property
+            ? std::get_if<NumberExpression>(&property->value)
+            : nullptr;
+        const double margin = marginExpression
+            ? literalNumberValue(*marginExpression).value_or(0.0) : 0.0;
+        expression << "context.self:is_outside_scene(" << margin << ")";
     } else if (condition.typeId == kOtherIsObjectType) {
         const LogicPropertyDef* property = findProperty(condition, "objectTypeId");
         const auto* type = property

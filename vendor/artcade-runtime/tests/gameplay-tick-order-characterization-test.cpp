@@ -107,6 +107,7 @@ struct Host final : IGameplayRuntimeHost {
         if (const SceneDef* scene = gateway.activeScene()) return scene->worldSize;
         return std::nullopt;
     }
+    bool isOutsideSceneBounds(EntityId, float) const override { return false; }
     bool translate(EntityId owner, Vec2 delta) override {
         Transform t{};
         if (!gateway.getTransform(owner, t)) return false;

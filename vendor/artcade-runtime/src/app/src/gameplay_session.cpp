@@ -101,6 +101,18 @@ std::optional<Vec2> RuntimeLogicHostAdapter::getSceneWorldSize() const {
     if (!scene) return std::nullopt;
     return scene->worldSize;
 }
+bool RuntimeLogicHostAdapter::isOutsideSceneBounds(EntityId owner, float margin) const {
+    if (!std::isfinite(margin) || margin < 0.f) return false;
+    const std::optional<Vec2> position = getPosition(owner);
+    const std::optional<Vec2> worldSize = getSceneWorldSize();
+    if (!position || !worldSize || !std::isfinite(position->x)
+        || !std::isfinite(position->y) || !std::isfinite(worldSize->x)
+        || !std::isfinite(worldSize->y) || worldSize->x <= 0.f || worldSize->y <= 0.f) {
+        return false;
+    }
+    return position->x < -margin || position->y < -margin
+        || position->x > worldSize->x + margin || position->y > worldSize->y + margin;
+}
 bool RuntimeLogicHostAdapter::translate(EntityId owner, Vec2 delta) {
     if (!std::isfinite(delta.x) || !std::isfinite(delta.y)) return false;
     Transform transform{};

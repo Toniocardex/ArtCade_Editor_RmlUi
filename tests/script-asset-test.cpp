@@ -530,6 +530,7 @@ return { on_start = function(ctx) ctx.self:set_position(9, 10) end }
         bool setPosition(EntityId, Vec2 value) override { position = value; return true; }
         std::optional<Vec2> getPosition(EntityId) const override { return position; }
         std::optional<Vec2> getSceneWorldSize() const override { return Vec2{512.f, 320.f}; }
+        bool isOutsideSceneBounds(EntityId, float) const override { return false; }
         bool translate(EntityId, Vec2 delta) override {
             position.x += delta.x; position.y += delta.y; return true;
         }

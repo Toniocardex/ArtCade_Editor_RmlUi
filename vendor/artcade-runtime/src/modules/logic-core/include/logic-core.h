@@ -54,6 +54,7 @@ inline constexpr const char* kAnimationFinished = "animation.on_finished";
 inline constexpr const char* kAudioPlaySound = "audio.play_sound";
 inline constexpr const char* kSceneRestart = "scene.restart";
 inline constexpr const char* kSceneGoTo = "scene.go_to";
+inline constexpr const char* kOutsideSceneBounds = "scene.outside_bounds";
 inline constexpr const char* kCameraShake = "camera.shake";
 inline constexpr const char* kWait = "flow.wait";
 inline constexpr const char* kStateSet = "state.set";

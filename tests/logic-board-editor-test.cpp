@@ -2511,6 +2511,7 @@ static void testSetPositionNonFiniteRateLimitedDiagnostics() {
         }
         std::optional<Vec2> getPosition(EntityId) const override { return position; }
         std::optional<Vec2> getSceneWorldSize() const override { return Vec2{512.f, 320.f}; }
+        bool isOutsideSceneBounds(EntityId, float) const override { return false; }
         bool translate(EntityId, Vec2) override { return true; }
         bool setRotation(EntityId, float) override { return true; }
         bool rotateBy(EntityId, float) override { return true; }

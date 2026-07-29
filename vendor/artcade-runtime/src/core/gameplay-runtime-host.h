@@ -26,6 +26,8 @@ public:
     virtual std::optional<Vec2> getPosition(EntityId owner) const = 0;
     /** Active scene world size in world units; nullopt when unavailable. */
     virtual std::optional<Vec2> getSceneWorldSize() const = 0;
+    /** True when Transform.position is strictly outside active-scene bounds plus margin. */
+    virtual bool isOutsideSceneBounds(EntityId owner, float margin) const = 0;
     virtual bool translate(EntityId owner, Vec2 delta) = 0;
     /** Absolute rotation in radians (Logic compiler converts authored degrees). */
     virtual bool setRotation(EntityId owner, float radians) = 0;
