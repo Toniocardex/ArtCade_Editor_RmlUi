@@ -318,7 +318,7 @@ int main() {
 
     // Build metadata authorities
     {
-        assert(currentProjectSchemaVersion() == 10);
+        assert(currentProjectSchemaVersion() == 12);
         const EditorBuildInfo editor = makeEditorBuildInfo();
         assert(editor.productName == "ArtCade Studio");
         assert(editor.editorVersion == "0.1.0");

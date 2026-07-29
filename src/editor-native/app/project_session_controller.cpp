@@ -1,6 +1,7 @@
 #include "editor-native/app/project_session_controller.h"
 
 #include "editor-native/app/editor_coordinator.h"
+#include "editor-native/model/project_io.h"
 #include "editor-native/app/file_dialog.h"
 #include "editor-native/app/new_project_transaction.h"
 #include "editor-native/app/project_file.h"
@@ -333,7 +334,10 @@ void ProjectSessionController::requestNewProject() {
         const std::optional<std::filesystem::path> destination = picked
             ? std::optional<std::filesystem::path>{normalizeProjectSavePath(*picked)}
             : std::nullopt;
-        ProjectDoc fresh;
+        // A New Project is authored directly in the current schema. Do not
+        // rely on the serializer to silently upgrade an otherwise invalid
+        // candidate: the transaction validates before it writes or replaces.
+        ProjectDoc fresh = makeNewProjectData();
         if (destination) fresh.projectName = destination->stem().string();
         const NewProjectResult created = createNewProjectTransaction(
             coordinator_, ProjectDocument{std::move(fresh)}, destination);

@@ -327,7 +327,9 @@ int main() {
 
         const auto migrationFailed = loadProjectFromText(c, unsupportedVersionJson());
         CHECK(!migrationFailed.ok);
-        CHECK(migrationFailed.error.stage == ProjectLoadStage::Migration);
+        // ADR-0048 deliberately has no compatibility import: an obsolete or
+        // future schema is rejected before it can materialize a document.
+        CHECK(migrationFailed.error.stage == ProjectLoadStage::Deserialize);
         expectCoordinatorBaseline(c, "spike", kSceneA, kHero, 345.f,
                                   undoBefore, revisionBefore, savedBefore, dirtyBefore);
 
@@ -380,7 +382,7 @@ int main() {
         }
 
         const std::string instancePrefix =
-            R"({"activeSceneId":"s","scenes":[{"id":"s","instances":[{"id":1,"objectTypeId":"T","transform":)";
+            R"({"formatVersion":12,"activeSceneId":"s","scenes":[{"id":"s","instances":[{"id":1,"objectTypeId":"T","transform":)";
         for (const std::string& badTransform : {std::string{"7"}, std::string{"false"},
                                                 std::string{"\"bad\""}, std::string{"[]"}}) {
             const DeserializeResult result = ProjectSerializer::deserialize(
@@ -408,14 +410,14 @@ int main() {
         CHECK(!ProjectSerializer::deserialize("{ not json").ok);       // malformed
 
         const DeserializeResult unicode = ProjectSerializer::deserialize(
-            R"({"projectName":"Progetto \u00c8","scenes":[]})");
+            R"({"formatVersion":12,"projectName":"Progetto \u00c8","scenes":[]})");
         CHECK(unicode.ok);
         CHECK(unicode.value.data().projectName == std::string("Progetto \xC3\x88"));
 
         // Truly absent optional fields retain schema defaults; this is distinct
         // from the malformed-present cases above.
         const DeserializeResult minimal =
-            ProjectSerializer::deserialize(R"({"projectName":"Minimal"})");
+            ProjectSerializer::deserialize(R"({"formatVersion":12,"projectName":"Minimal"})");
         CHECK(minimal.ok);
         CHECK(minimal.value.data().targetFPS == 60.f);
         CHECK(minimal.value.data().scenes.empty());
@@ -1064,7 +1066,7 @@ int main() {
         const std::size_t undoBefore = c.undoSize();
 
         const auto freshCandidate = [] {
-            ProjectDoc doc;
+            ProjectDoc doc = makeNewProjectData();
             doc.projectName = "Fresh";
             return ProjectDocument{std::move(doc)};
         };
@@ -2116,6 +2118,7 @@ int main() {
     // -- Undo/redo of the first entity restores both type and instance ---------
     {
         ProjectDoc fresh;
+        fresh.formatVersion = currentProjectSchemaVersion();
         fresh.activeSceneId = "s";
         SceneDef scene; scene.id = "s"; scene.name = "S";
         fresh.scenes.emplace("s", scene);
@@ -2232,6 +2235,7 @@ int main() {
     // -- (8) Save/reload keeps the two created types distinct ------------------
     {
         ProjectDoc fresh;
+        fresh.formatVersion = currentProjectSchemaVersion();
         fresh.activeSceneId = "s";
         SceneDef scene; scene.id = "s"; scene.name = "S";
         fresh.scenes.emplace("s", scene);
@@ -3974,7 +3978,7 @@ int main() {
     // -- Asset enum values are validated instead of defaulted silently --------
     {
         const std::string modernKeys =
-            R"({"activeSceneId":"s","scenes":[{"id":"s"}],"imageAssets":[{"id":"img","name":"Hero","relativePath":"assets/images/hero.png"}]})";
+            R"({"formatVersion":12,"activeSceneId":"s","scenes":[{"id":"s"}],"imageAssets":[{"id":"img","name":"Hero","relativePath":"assets/images/hero.png"}]})";
         const std::string badAudio =
             R"({"activeSceneId":"s","scenes":[{"id":"s"}],"audioAssets":[{"assetId":"a","sourcePath":"assets/audio/a.wav","loadMode":"mmap"}]})";
         const std::string badFont =
@@ -4841,7 +4845,7 @@ int main() {
 
         // Modern scene: active layer matches entity layer.
         {
-            EditorCoordinator c{ProjectDoc{}};
+            EditorCoordinator c{makeNewProjectData()};
             CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
             c.apply(SelectSceneIntent{"s"});
             CHECK(c.state().activeSceneId == "s");
@@ -4851,7 +4855,8 @@ int main() {
             TilemapComponent tm;
             tm.tilesetAssetId = "tiles-1";
             tm.chunkSize = 16;
-            CHECK(c.execute(CreateEntityCommand{"s", 1, "Hero", {}}).ok);
+            CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                "s", 1, "Hero", "Hero", {}}).ok);
             CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
             CHECK(c.apply(SelectEntityIntent{1}).ok);
             CHECK(selectionSupportsTilemapEditing(c.document(), c.state(), "s"));
@@ -4859,7 +4864,7 @@ int main() {
 
         // Modern scene: entity layer differs from the workspace active layer.
         {
-            EditorCoordinator c{ProjectDoc{}};
+            EditorCoordinator c{makeNewProjectData()};
             CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
             c.apply(SelectSceneIntent{"s"});
             CHECK(c.execute(AddImageAssetCommand{"img-1", "some/path.png"}).ok);
@@ -4869,7 +4874,8 @@ int main() {
             TilemapComponent tm;
             tm.tilesetAssetId = "tiles-1";
             tm.chunkSize = 16;
-            CHECK(c.execute(CreateEntityCommand{"s", 1, "Hero", {}, "layer-1"}).ok);
+            CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
+                "s", 1, "Hero", "Hero", {}, "layer-1"}).ok);
             CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
             CHECK(c.apply(SelectEntityIntent{1}).ok);
             EditorState mismatched = c.state();
@@ -4938,19 +4944,19 @@ int main() {
         const SceneGridPresentation brushPres =
             makeSceneGridPresentation(c.document(), c.state(), kSceneA);
         CHECK(brushPres.kind == SceneGridKind::Tilemap);
-        CHECK(brushPres.contextName == "Hero");
-        CHECK(brushPres.toolbarContextName == "Hero");
+        CHECK(brushPres.contextName == "Hero \xC2\xB7 1");
+        CHECK(brushPres.toolbarContextName == "Hero \xC2\xB7 1");
         CHECK(brushPres.sizeEditable == false);
         CHECK(brushPres.cellSize.x == 16.f);
         CHECK(brushPres.cellSize.y == 32.f);
         CHECK(brushPres.sourceEntityId == kHero);
-        CHECK(brushPres.toolbarTooltip == "Tilemap grid from \"Hero\"");
+        CHECK(brushPres.toolbarTooltip == "Tilemap grid from \"Hero \xC2\xB7 1\"");
 
         CHECK(c.execute(RenameObjectTypeCommand{"Hero", "Terrain"}).ok);
         const SceneGridPresentation renamed =
             makeSceneGridPresentation(c.document(), c.state(), kSceneA);
-        CHECK(renamed.contextName == "Terrain");
-        CHECK(renamed.toolbarContextName == "Terrain");
+        CHECK(renamed.contextName == "Terrain \xC2\xB7 1");
+        CHECK(renamed.toolbarContextName == "Terrain \xC2\xB7 1");
 
         c.apply(SetActiveToolIntent{EditorTool::Select});
         const SceneGridPresentation selectPres =
@@ -4964,14 +4970,14 @@ int main() {
         c.apply(SetActiveToolIntent{EditorTool::Brush});
         const SceneGridPresentation longName =
             makeSceneGridPresentation(c.document(), c.state(), kSceneA);
-        CHECK(longName.contextName == "Environment Decorations");
+        CHECK(longName.contextName == "Environment Decorations \xC2\xB7 1");
         CHECK(longName.toolbarContextName.size() < longName.contextName.size());
         CHECK(longName.toolbarContextName != longName.contextName);
 
         CHECK(c.execute(RenameObjectTypeCommand{"Hero", "Decorazioni cittâ”œÃ¡ meravigliosa"}).ok);
         const SceneGridPresentation accented =
             makeSceneGridPresentation(c.document(), c.state(), kSceneA);
-        CHECK(accented.contextName == "Decorazioni cittâ”œÃ¡ meravigliosa");
+        CHECK(accented.contextName == c.document().instanceDisplayName(kSceneA, kHero));
         CHECK(accented.toolbarContextName.size() < accented.contextName.size());
         CHECK(accented.toolbarContextName.find("Decorazioni") == 0);
         // Truncation must not split the multibyte "â”œÃ¡" (0xC3 0xA0).
@@ -5086,7 +5092,7 @@ int main() {
 
     // -- New scene has Layer 1 as the default layer; new entities use it -------
     {
-        EditorCoordinator c{ProjectDoc{}};
+        EditorCoordinator c{makeNewProjectData()};
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         const SceneDef* scene = c.document().findScene("s");
         CHECK(scene->layers.size() == 1);
@@ -5248,7 +5254,7 @@ int main() {
 
     // -- Save/reload preserves layers, order and assignment -------------------
     {
-        EditorCoordinator c{ProjectDoc{}};
+        EditorCoordinator c{makeNewProjectData()};
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);  // [layer-1, fg]
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
@@ -5265,23 +5271,18 @@ int main() {
         CHECK(r.document().findInstanceInScene("s", 1)->layerId == "fg");
     }
 
-    // -- A legacy file with no layers migrates to Layer 1 ----------------------
+    // -- ADR-0048: legacy schemas and instance labels are rejected ------------
     {
         EditorCoordinator c{ProjectDoc{}};
         const auto loaded = loadProjectFromText(c,
             R"({"activeSceneId":"s","scenes":[{"id":"s","instances":[)"
             R"({"id":1,"objectTypeId":"T","instanceName":"T"}]}],)"
             R"("objectTypes":[{"id":"T"}]})");
-        CHECK(loaded.ok);
-        const SceneDef* s = c.document().findScene("s");
-        CHECK(!s->layers.empty());
-        CHECK(s->layers.front().id == "layer-1");
-        CHECK(s->layers.front().name == "Layer 1");
-        CHECK(s->defaultLayerId == s->layers.front().id);
-        CHECK(c.document().findInstanceInScene("s", 1)->layerId == s->defaultLayerId);
+        CHECK(!loaded.ok);
+        CHECK(loaded.error.stage == ProjectLoadStage::Deserialize);
     }
 
-    // -- The old untouched Default layer migrates to Layer 1 -------------------
+    // -- The obsolete Default layer form is rejected for the same reason ------
     {
         EditorCoordinator c{ProjectDoc{}};
         const auto loaded = loadProjectFromText(c,
@@ -5290,13 +5291,8 @@ int main() {
             R"("layers":[{"id":"default","name":"Default"}],)"
             R"("instances":[{"id":1,"objectTypeId":"T","instanceName":"T","layerId":"default"}]}],)"
             R"("objectTypes":[{"id":"T"}]})");
-        CHECK(loaded.ok);
-        const SceneDef* s = c.document().findScene("s");
-        CHECK(s->layers.size() == 1);
-        CHECK(s->layers[0].id == "layer-1");
-        CHECK(s->layers[0].name == "Layer 1");
-        CHECK(s->defaultLayerId == "layer-1");
-        CHECK(c.document().findInstanceInScene("s", 1)->layerId == "layer-1");
+        CHECK(!loaded.ok);
+        CHECK(loaded.error.stage == ProjectLoadStage::Deserialize);
     }
 
     // == Layer locking ===========================================================
@@ -5330,7 +5326,7 @@ int main() {
 
     // -- Persistence: locked round-trips; an absent field defaults to false ----
     {
-        EditorCoordinator c{ProjectDoc{}};
+        EditorCoordinator c{makeNewProjectData()};
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
         CHECK(c.execute(SetLayerLockedCommand{"s", "fg", true}).ok);
@@ -6043,7 +6039,7 @@ int main() {
 
     // -- (6)(7)(8)(9) After the first scene: valid, saveable, playable ---------
     {
-        EditorCoordinator c{ProjectDoc{}};
+        EditorCoordinator c{makeNewProjectData()};
         CHECK(c.execute(CreateSceneCommand{"scene-1", "Scene 1"}).ok);
         // (6) the document now satisfies the validator (start scene is valid).
         CHECK(ProjectValidator::validate(ProjectDocument{c.document().data()}).ok);
@@ -6345,17 +6341,18 @@ int main() {
         CHECK(type.boxCollider2D->mode == BoxColliderMode::OneWayPlatform);
     }
 
-    // -- (8) Legacy isTrigger migrates to mode; unknown mode is rejected ------
+    // -- (8) v12 accepts the historical isTrigger component spelling; unknown
+    //        or conflicting mode values are rejected --------------------------
     {
         const std::string legacySolid =
-            R"({"activeSceneId":"s","scenes":[{"id":"s","instances":[{"id":1,"objectTypeId":"Hero","instanceName":"Hero"}]}],"objectTypes":[{"id":"Hero","boxCollider2D":{"enabled":true,"isTrigger":false}}]})";
+            R"({"formatVersion":12,"activeSceneId":"","scenes":[],"objectTypes":[{"id":"Hero","boxCollider2D":{"enabled":true,"isTrigger":false}}]})";
         const auto loadedSolid = ProjectSerializer::deserialize(legacySolid);
         CHECK(loadedSolid.ok);
         CHECK(loadedSolid.value.data().objectTypes.at("Hero").boxCollider2D->mode
               == BoxColliderMode::Solid);
 
         const std::string legacyTrigger =
-            R"({"activeSceneId":"s","scenes":[{"id":"s","instances":[{"id":1,"objectTypeId":"Hero","instanceName":"Hero"}]}],"objectTypes":[{"id":"Hero","boxCollider2D":{"enabled":true,"isTrigger":true}}]})";
+            R"({"formatVersion":12,"activeSceneId":"","scenes":[],"objectTypes":[{"id":"Hero","boxCollider2D":{"enabled":true,"isTrigger":true}}]})";
         const auto loaded = ProjectSerializer::deserialize(legacyTrigger);
         CHECK(loaded.ok);
         const auto& type = loaded.value.data().objectTypes.at("Hero");
@@ -6363,18 +6360,18 @@ int main() {
         CHECK(type.boxCollider2D->mode == BoxColliderMode::Trigger);
 
         const std::string badMode =
-            R"({"activeSceneId":"s","scenes":[{"id":"s","instances":[{"id":1,"objectTypeId":"Hero","instanceName":"Hero"}]}],"objectTypes":[{"id":"Hero","boxCollider2D":{"mode":"ghost"}}]})";
+            R"({"formatVersion":12,"activeSceneId":"","scenes":[],"objectTypes":[{"id":"Hero","boxCollider2D":{"mode":"ghost"}}]})";
         CHECK(!ProjectSerializer::deserialize(badMode).ok);
 
         const std::string conflictingLegacy =
-            R"({"activeSceneId":"s","scenes":[{"id":"s","instances":[{"id":1,"objectTypeId":"Hero","instanceName":"Hero"}]}],"objectTypes":[{"id":"Hero","boxCollider2D":{"mode":"oneWayPlatform","isTrigger":true}}]})";
+            R"({"formatVersion":12,"activeSceneId":"","scenes":[],"objectTypes":[{"id":"Hero","boxCollider2D":{"mode":"oneWayPlatform","isTrigger":true}}]})";
         CHECK(!ProjectSerializer::deserialize(conflictingLegacy).ok);
     }
 
     // -- (9) Invalid persisted collider is rejected during validation ---------
     {
         const std::string bad =
-            R"({"activeSceneId":"s","scenes":[{"id":"s","instances":[{"id":1,"objectTypeId":"Hero","instanceName":"Hero"}]}],"objectTypes":[{"id":"Hero","boxCollider2D":{"size":{"x":-1,"y":10}}}]})";
+            R"({"formatVersion":12,"activeSceneId":"","scenes":[],"objectTypes":[{"id":"Hero","boxCollider2D":{"size":{"x":-1,"y":10}}}]})";
         const auto loaded = ProjectSerializer::deserialize(bad);
         CHECK(loaded.ok);
         CHECK(!ProjectValidator::validate(std::move(loaded.value)).ok);

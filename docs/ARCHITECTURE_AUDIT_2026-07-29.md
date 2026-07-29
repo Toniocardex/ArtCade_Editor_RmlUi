@@ -153,7 +153,7 @@ verde.
 
 | Azione | Stato | Evidenza |
 |---|---|---|
-| Ownership scratch directory Play | Implementata, verifica completa del gate pendente | `PlaySession` crea una directory esclusiva con `create_directory`, non adotta residui PID/counter, e rende Start Play fallibile se il cleanup finale non riesce. |
+| Ownership scratch directory Play | Chiusa e verificata | `PlaySession` crea una directory esclusiva con `create_directory`, non adotta residui PID/counter, e rende Start Play fallibile se il cleanup finale non riesce. |
 | Audio process-global di Play | Implementata | `PlaySession` richiede esclusivamente un device audio già aperto dall'host; nei test headless Play resta silenzioso e non inizializza miniaudio. |
 | Gate CTest autosufficiente | Implementato | Il target `artcade-editor-tests` dipende da tutti i 21 eseguibili registrati; `build.bat --test` lo costruisce e poi invoca CTest. |
 | Directory di lavoro CTest | Implementata | Ogni test viene eseguito dalla root del repository, come avveniva già nello script, evitando falsi fallimenti di fixture relative. |
@@ -171,11 +171,11 @@ verde.
 - La configurazione diretta di `src/editor-native` fallisce con il messaggio
   previsto, prima di costruire un grafo alternativo.
 
-La suite completa non è ancora dichiarabile verde. L'isolamento audio ha
-eliminato le inizializzazioni miniaudio dal percorso Play headless, ma
-`editor_core_test` continua a fallire in casi preesistenti di
-migrazione/serializzazione e New Project quando è eseguito dalla root del
-repository, che è anche la directory usata da `build.bat`. Tali failure devono
-essere riprodotte e corrette prima di procedere con refactor strutturali. Non
-vanno mascherate con timeout, cambi di working directory opportunistici o
-indebolimento dei test.
+La suite completa è verde: `ctest --test-dir build --output-on-failure` esegue
+21 test, tutti passati. Le failure iniziali erano riconducibili a una reale
+incoerenza nel flusso New Project (documenti nuovi creati con schema `0`), a
+fixture rimaste nel formato pre-v12 e a una canonicalizzazione Windows che non
+gestiva il file temporaneo inesistente usato dalla rimozione Script. Il flusso
+ora crea esplicitamente documenti v12, le fixture dichiarano il contratto v12
+oppure verificano il rifiuto del legacy, e il confinement dei file Script usa
+il resolver condiviso, sicuro anche per leaf temporanei non ancora creati.

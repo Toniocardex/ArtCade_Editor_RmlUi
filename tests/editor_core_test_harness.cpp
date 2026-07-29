@@ -66,6 +66,10 @@ ProjectDoc makeDoc() {
     heroType.className = "Hero";
     heroType.name = "Hero";
     doc.objectTypes.emplace("Hero", std::move(heroType));
+    EntityDef enemyType;
+    enemyType.className = "Enemy";
+    enemyType.name = "Enemy";
+    doc.objectTypes.emplace("Enemy", std::move(enemyType));
     return doc;
 }
 
@@ -232,16 +236,16 @@ std::string unsupportedVersionJson() {
 
 std::string zeroSceneJson() {
     return R"json({
-  "formatVersion": 1,
+  "formatVersion": 12,
   "projectName": "No Scenes",
-  "activeSceneId": "missing",
+  "activeSceneId": "",
   "scenes": []
 })json";
 }
 
 std::string duplicateSceneJson() {
     return R"json({
-  "formatVersion": 1,
+  "formatVersion": 12,
   "projectName": "Duplicate Scene",
   "activeSceneId": "dupe",
   "scenes": [

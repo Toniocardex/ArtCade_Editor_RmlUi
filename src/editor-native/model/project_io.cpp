@@ -55,6 +55,12 @@ int currentProjectSchemaVersion() {
     return kCurrentSchemaVersion;
 }
 
+ProjectDoc makeNewProjectData() {
+    ProjectDoc document;
+    document.formatVersion = kCurrentSchemaVersion;
+    return document;
+}
+
 namespace {
 
 class JsonReadError final : public std::runtime_error {

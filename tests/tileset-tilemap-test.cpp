@@ -3295,6 +3295,10 @@ int main() {
     // different tilesets that share one underlying image.
     {
         ProjectDoc doc = makeSpriteDoc();
+        EntityDef otherType;
+        otherType.className = "Other";
+        otherType.name = "Other";
+        doc.objectTypes.emplace("Other", std::move(otherType));
         SceneInstanceDef other;
         other.id = 99;
         other.objectTypeId = "Other";

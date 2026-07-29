@@ -5,6 +5,7 @@
 #include "editor-native/app/editor_action_context_builder.h"
 #include "editor-native/app/editor_action_ui_map.h"
 #include "editor-native/app/editor_coordinator.h"
+#include "editor-native/model/project_io.h"
 #include "editor-native/app/editor_input.h"
 #include "editor-native/app/exclusive_key_capture.h"
 #include "editor-native/app/export/export_application_service.h"
@@ -313,7 +314,7 @@ int EditorApp::run(int argc, char** argv) {
 
     // Start empty: the editor opens a real project (File > Open) or builds one
     // from scratch (add scene/entity, import assets, Save As). No bundled demo.
-    EditorCoordinator coordinator{ProjectDoc{}};
+    EditorCoordinator coordinator{makeNewProjectData()};
 
     // FLAG_WINDOW_HIGHDPI: create a framebuffer at the monitor's physical
     // resolution so RmlUi rasterises and renders at real pixels (crisp text on

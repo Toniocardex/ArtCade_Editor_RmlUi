@@ -34,6 +34,11 @@ using SerializeResult = ProjectIoResult<std::string>;
 // Same constant used by serializer / migration / validation.
 int currentProjectSchemaVersion();
 
+// Creates an unsaved authoring document in the only schema this alpha accepts.
+// Callers that load external data must use ProjectSerializer instead, so an
+// unsupported format is rejected rather than normalized in memory.
+ProjectDoc makeNewProjectData();
+
 class ProjectSerializer {
 public:
     static DeserializeResult deserialize(std::string_view source);

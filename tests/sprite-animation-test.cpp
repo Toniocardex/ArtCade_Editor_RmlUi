@@ -679,18 +679,9 @@ int main() {
         doc.objectTypes.at("Hero").spriteAnimator->animationAssetId = "hero.anim";
         doc.objectTypes.at("Hero").spriteAnimator->defaultClipId = "stolen";
         auto migrated = ProjectMigration::migrate(ProjectDocument{std::move(doc)});
-        CHECK(migrated.ok);
-        const EntityDef& hero = migrated.value.data().objectTypes.at("Hero");
-        // v10 folds animator into spritePresentation and clears legacy fields.
-        CHECK(hero.spritePresentation.has_value());
-        const auto* animation = hero.spritePresentation
-            ? std::get_if<SpritePresentationAnimation>(&hero.spritePresentation->source)
-            : nullptr;
-        CHECK(animation != nullptr);
-        // Must NOT remap to other.anim just because it owns clip "stolen".
-        CHECK(animation && animation->animationAssetId == "hero.anim");
-        CHECK(animation && animation->defaultClipId == "stolen");
-        CHECK(!hero.spriteAnimator.has_value());
+        // ADR-0048 makes v12 alpha-breaking: pre-v12 authoring data is never
+        // imported or transformed implicitly.
+        CHECK(!migrated.ok);
     }
 
     // -- Confirm source-image Intent is workspace-only (no document mutate) ---

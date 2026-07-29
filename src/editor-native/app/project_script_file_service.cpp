@@ -238,28 +238,31 @@ PathConfinementResult ProjectScriptFileService::confineAbsolutePath(
             "Resolve the path under the project root first");
     }
     std::error_code ec;
-    const std::filesystem::path canonicalRoot =
-        std::filesystem::weakly_canonical(projectRoot_, ec);
+    const std::filesystem::path root =
+        std::filesystem::absolute(projectRoot_, ec).lexically_normal();
     if (ec) {
         return PathConfinementResult::failure(
-            "Could not canonicalize the project root: " + ec.message(),
+            "Could not resolve the project root: " + ec.message(),
             "Open or save the project before accessing script files");
     }
-    const std::filesystem::path canonicalPath =
-        std::filesystem::weakly_canonical(absolutePath, ec);
+    const std::filesystem::path candidate =
+        std::filesystem::absolute(absolutePath, ec).lexically_normal();
     if (ec) {
         return PathConfinementResult::failure(
-            "Could not canonicalize the script path: " + ec.message(),
+            "Could not resolve the script path: " + ec.message(),
             "Keep script files inside the project folder");
     }
-    const std::filesystem::path relative = canonicalPath.lexically_relative(canonicalRoot);
-    if (relative.empty() || relative.is_absolute()
-        || (!relative.begin()->empty() && *relative.begin() == "..")) {
+    const std::filesystem::path relative = candidate.lexically_relative(root);
+    std::string relativeError;
+    if (relative.empty() || !isSafeProjectRelativePath(relative, &relativeError)) {
         return PathConfinementResult::failure(
             "Script path escapes the project root",
             "Keep script files inside the project folder");
     }
-    return PathConfinementResult::success(canonicalPath);
+    // Use the shared resolver: unlike weakly_canonical directly, it supports
+    // a missing staging leaf on Windows while still resolving reparse points
+    // before deciding containment.
+    return resolvePathInsideRoot(root, relative);
 }
 
 namespace {
