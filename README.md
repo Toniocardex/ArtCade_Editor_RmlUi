@@ -12,7 +12,7 @@ artcade-editor/
 ├── tests/                 # editor_core_test (no GL)
 ├── docs/                  # architecture, gates, contracts
 ├── scripts/               # build.bat, run.bat
-└── vendor/artcade-runtime # ArtCade C++ engine (submodule or junction)
+└── vendor/artcade-runtime # Canonical local ArtCade C++ engine
 ```
 
 ## Requirements
@@ -20,22 +20,8 @@ artcade-editor/
 - Windows x64, MSVC (Visual Studio 2022 Build Tools or full IDE)
 - CMake 3.20+, Ninja on `PATH`
 - Network on **first** configure (CMake FetchContent: RmlUi 6.1, FreeType 2.13.3)
-- `vendor/artcade-runtime` must point at the ArtCade runtime tree (`runtime-cpp`)
-
-### Link the runtime (pick one)
-
-**Local junction (dev on one machine):**
-
-```powershell
-cmd /c mklink /J vendor\artcade-runtime ..\ArtCade-Studio_V2\runtime-cpp
-```
-
-**Git submodule (recommended for a second remote):**
-
-```powershell
-git submodule add <url-to-artcade-runtime-repo> vendor/artcade-runtime
-git submodule update --init --recursive
-```
+- `vendor/artcade-runtime` is the canonical, versioned runtime source for this
+  product. It is not a junction, submodule, or dependency on Studio V2.
 
 ## Build & run
 
@@ -73,5 +59,4 @@ Loads/saves `.artcade-project` / project JSON compatible with the ArtCade engine
 
 | Repo | Role |
 |------|------|
-| **artcade-editor** (this) | Native RmlUi editor — active product UI |
-| **ArtCade-Studio_V2** | Shared C++ runtime (`runtime-cpp`) + headless core |
+| **artcade-editor** (this) | Native RmlUi editor and canonical C++ runtime |

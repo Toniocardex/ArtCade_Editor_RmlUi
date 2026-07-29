@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 
+if(EMSCRIPTEN)
+    message(FATAL_ERROR "[ArtCade-Runtime] WASM export was retired with Studio V2.")
+endif()
+
 # ============================================================================
 # MSVC runtime policy. Standalone / editor-linked runtime targets use /MT.
 # CMP0091 NEW enables the CMAKE_MSVC_RUNTIME_LIBRARY policy.
@@ -15,6 +19,13 @@ endif()
 
 project(ArtCade-Runtime CXX C)
 
+# The historical Studio V2 application exposed the engine through editor-api
+# and a Web/WASM host. The native RmlUi editor links GameplaySession directly,
+# so that bridge must stay outside its dependency graph. Keep it opt-in only
+# while standalone export compatibility is retired in a later slice.
+option(ARTCADE_BUILD_LEGACY_STUDIO_BRIDGE
+    "Build the legacy Studio V2 host and editor-api bridge" OFF)
+
 # Root of this runtime tree — use instead of CMAKE_SOURCE_DIR in submodules when
 # the runtime is add_subdirectory'd from another project (e.g. artcade-editor).
 set(ARTCADE_RUNTIME_ROOT "${CMAKE_CURRENT_SOURCE_DIR}" CACHE INTERNAL "")
@@ -24,15 +35,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # ============================================================================
-# Platform detection
+# Native platform
 # ============================================================================
-if(EMSCRIPTEN)
-    message(STATUS "[ArtCade] Target: WebAssembly (Emscripten)")
-    set(ARTCADE_PLATFORM_WASM TRUE)
-else()
-    message(STATUS "[ArtCade] Target: Native (${CMAKE_SYSTEM_NAME})")
-    set(ARTCADE_PLATFORM_WASM FALSE)
-endif()
+message(STATUS "[ArtCade] Target: Native (${CMAKE_SYSTEM_NAME})")
+set(ARTCADE_PLATFORM_WASM FALSE)
 
 # ============================================================================
 # Third-party libraries — guarded: only added if the directory exists.
@@ -250,15 +256,14 @@ if(ARTCADE_HAS_RAYLIB AND ARTCADE_HAS_LUA)
         lua54
     )
 
-    add_subdirectory(src/app)
+    # The historical game host needs this target, but the runtime libraries and
+    # native RmlUi editor never do. Declare it first so accidental missing
+    # target names cannot degrade into a linker-library lookup.
+    if(ARTCADE_BUILD_LEGACY_STUDIO_BRIDGE)
+        add_subdirectory(src/modules/editor-api)
+        add_subdirectory(src/app)
+    endif()
 endif()
-
-# ============================================================================
-# Editor API — WASM bridge (EMSCRIPTEN_KEEPALIVE exports + EM_ASM notifications)
-# Compiles as no-op stubs on native targets so the rest of the engine can
-# include editor-api.h without any Emscripten dependency.
-# ============================================================================
-add_subdirectory(src/modules/editor-api)
 
 # ============================================================================
 # Tests (opzionale — abilita con -DARTCADE_BUILD_TESTS=ON)

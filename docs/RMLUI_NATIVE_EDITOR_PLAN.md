@@ -22,7 +22,7 @@ the prompt assumes it is.
 | **Window ownership** | `RaylibSurface` — the *only* caller of `InitWindow` / `CloseWindow` / `BeginDrawing` / `EndDrawing` / `WindowShouldClose` | `runtime-cpp/src/modules/renderer/src/raylib_surface.cpp` |
 | Graphics context | Raylib **5.0** (vendored `libs/raylib`), desktop OpenGL via `rlgl`; all raylib types confined behind a Pimpl in `renderer.cpp` | `libs/raylib/src/raylib.h` (`RAYLIB_VERSION "5.0"`) |
 | Build (native) | Ninja + MSVC via `VsDevCmd`, **static CRT `/MT`** (`CMAKE_MSVC_RUNTIME_LIBRARY`), output `build-native/src/app/game.exe` | `runtime-cpp/build_native.bat`, `runtime-cpp/CMakeLists.txt` |
-| Build (web) | `build_wasm.bat` → `editor/public/runtime/game.{js,wasm}` | `runtime-cpp/build_wasm.bat` |
+| Build (web) | Retired with Studio V2 | Not supported |
 
 `InitWindow` is called exactly once, from `RaylibSurface::open`. There is **one
 window, one GL context, one render thread, one loop** today. The split the

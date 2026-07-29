@@ -10,7 +10,7 @@ RU-04 Play materialize (`project.json` via `ProjectSerializer`)
 
 ## Context
 
-`build_native.bat` / `build_wasm.bat` are developer toolchains. The Python
+`build_native.bat` is the developer toolchain. The Python
 packer requires PyNaCl. The native player resolved `game.artcade` relative to
 the process CWD. There was no File → Export path in the RmlUi editor.
 

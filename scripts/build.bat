@@ -21,9 +21,16 @@ for %%A in (%*) do (
 )
 
 set "NINJA_DIR=%USERPROFILE%\DevTools\ninja"
-if exist "%NINJA_DIR%\ninja.exe" set "PATH=%NINJA_DIR%;%PATH%"
+set "NINJA_EXE="
+if exist "%NINJA_DIR%\ninja.exe" (
+    set "NINJA_EXE=%NINJA_DIR%\ninja.exe"
+    set "PATH=%NINJA_DIR%;%PATH%"
+)
 set "NINJA_DIR=%LOCALAPPDATA%\ninja"
-if exist "%NINJA_DIR%\ninja.exe" set "PATH=%NINJA_DIR%;%PATH%"
+if not defined NINJA_EXE if exist "%NINJA_DIR%\ninja.exe" (
+    set "NINJA_EXE=%NINJA_DIR%\ninja.exe"
+    set "PATH=%NINJA_DIR%;%PATH%"
+)
 
 set "CMAKE_EXE=cmake"
 if exist "%USERPROFILE%\DevTools\cmake\bin\cmake.exe" set "CMAKE_EXE=%USERPROFILE%\DevTools\cmake\bin\cmake.exe"
@@ -47,7 +54,10 @@ if not exist "!VSDEVCMD!" (
     exit /b 1
 )
 
-where ninja >nul 2>&1 || ( echo [FAIL] ninja not found on PATH. & exit /b 1 )
+if not defined NINJA_EXE (
+    for %%I in (ninja.exe) do set "NINJA_EXE=%%~$PATH:I"
+)
+if not defined NINJA_EXE ( echo [FAIL] ninja.exe not found. Install Ninja or set it on PATH. & exit /b 1 )
 
 if "!DO_CLEAN!"=="1" if exist "!BUILD_DIR!" (
     echo [editor] removing "!BUILD_DIR!"
@@ -62,6 +72,7 @@ pushd "%ROOT%" >nul
 echo [editor 2/3] Configuring (Ninja, Release)...
 "%CMAKE_EXE%" -S . -B "!BUILD_DIR!" -G Ninja -Wno-dev ^
     -DCMAKE_BUILD_TYPE=Release ^
+    -DCMAKE_MAKE_PROGRAM="!NINJA_EXE!" ^
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 if errorlevel 1 ( popd >nul & echo [FAIL] configure failed. & exit /b 1 )
 

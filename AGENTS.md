@@ -2,7 +2,9 @@
 
 **Product:** native RmlUi editor only. Do not add obsolete UI stacks (or WASM bridge UI) here.
 
-**Runtime dependency:** `vendor/artcade-runtime` (ArtCade `runtime-cpp`). Link engine modules from there; never copy `editor-api` (WASM bridge).
+**Runtime source:** `vendor/artcade-runtime` is the canonical local ArtCade C++
+engine. Link engine modules from there; never introduce `editor-api` (the retired
+Studio V2 WASM bridge) into the editor graph.
 
 ## Architecture (binding — precedence order)
 

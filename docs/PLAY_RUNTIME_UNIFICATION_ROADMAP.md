@@ -1,7 +1,7 @@
 # ArtCade RmlUi — Play/Export Runtime Unification Roadmap
 
 **Stato:** pianificato
-**Ambito:** editor desktop nativo (`ArtCade_Editor_RmlUi`) e runtime condiviso (`ArtCade-Studio_V2/runtime-cpp`, collegato tramite junction `vendor/artcade-runtime`)
+**Ambito:** editor desktop nativo e runtime locale canonico (`vendor/artcade-runtime`) nello stesso repository.
 **Scopo:** eliminare la doppia simulazione Editor Play / gioco esportato (blocco P0-A dell'audit tecnico) e riusare lo stesso lavoro come fondazione per l'Export (blocco P0-B)
 **Baseline:** audit tecnico + investigazione architetturale del 2026-07-20 (vedi §2); studio di dettaglio RU-01/RU-02/RU-03 del 2026-07-20 (vedi rispettive sezioni)
 **Ultimo aggiornamento:** 2026-07-21
@@ -18,13 +18,21 @@ Questa roadmap è subordinata, nell'ordine, a:
 
 In caso di conflitto prevale il documento di livello superiore. Nessuna slice di questa roadmap autorizza doppie autorità sui dati, sincronizzazioni temporanee, feature flag permanenti o dipendenze del runtime esportato verso codice editor-only.
 
-**Ambito cross-repo esplicito**: le slice RU-02, RU-03 e RU-04 toccano `ArtCade-Studio_V2/runtime-cpp`, non solo questo repository. Ogni slice che tocca il runtime deve lasciarlo compilabile e testabile in isolamento (il gioco esportato standalone non deve mai acquisire una dipendenza verso `artcade-editor-core`/`artcade-editor-native`).
+**Confine runtime esplicito**: le slice RU-02, RU-03 e RU-04 toccano
+`vendor/artcade-runtime`, non solo il codice editor. Ogni slice che tocca il
+runtime deve lasciarlo compilabile e testabile in isolamento (il gioco esportato
+standalone non deve mai acquisire una dipendenza verso
+`artcade-editor-core`/`artcade-editor-native`).
 
 ## 2. Diagnosi verificata (riferimento)
 
 Fatti confermati nel codice, non solo ipotesi dell'audit iniziale:
 
-- Il repo editor collega l'intero albero CMake del runtime via junction (`CMakeLists.txt:17-29`: `vendor/artcade-runtime` → `ArtCade-Studio_V2/runtime-cpp`, poi `add_subdirectory`), ma `artcade-editor-native`/`artcade-editor-core` (`src/CMakeLists.txt:84-92,212-218`) non collegano i target di simulazione reali: `World`, `runtime-entity-gateway`, `scene-system`, `physics`, `camera-manager`, `game-api`, `renderer`.
+- Il repo editor collega l'intero albero CMake del runtime locale
+  (`CMakeLists.txt`: `vendor/artcade-runtime`, poi `add_subdirectory`), ma
+  `artcade-editor-native`/`artcade-editor-core` non collegavano inizialmente i
+  target di simulazione reali: `World`, `runtime-entity-gateway`,
+  `scene-system`, `physics`, `camera-manager`, `game-api`, `renderer`.
 - `PlaySession` (`src/editor-native/model/play_session.h/.cpp`) reimplementa a mano: movimento cinematico + risoluzione AABB (`play_session.cpp:299-327`, `1032-1079`), controller top-down/platformer (`:1127-1167`), transizioni di collisione enter/exit (`:845-895`) — mentre il runtime reale usa `World::tick*` (`world.h:69-203`) e drena `World::collisionEvents()`.
 - `PlaySession` usa un proprio ECS ad hoc, `RuntimeEntity` (`play_session.h:85-104`, 6 componenti opzionali in un `std::vector` flat), mentre il runtime reale usa `RuntimeEntityGateway`, un registro EnTT con 15+ tipi di componente, pooling e spawn-from-class (`runtime-entity-gateway.h:41-334`).
 - `PlaySession::LogicHostAdapter::spawnObjectType` (`play_session.cpp:149-153`) è uno stub che ritorna sempre `INVALID_ENTITY` ("Editor Play spawn is not implemented in this slice"). L'equivalente reale, `RuntimeLogicHostAdapter::spawnObjectType` (`app_modules.h:168-181`), è completo. Entrambi implementano la stessa interfaccia già condivisa `IGameplayRuntimeHost`/`ILogicRuntimeHost` (`gameplay-runtime-host.h:13-69`, `logic-runtime.h:29`) — è la seam esistente su cui costruire la migrazione.
@@ -89,7 +97,7 @@ Prima di una migrazione multi-repo va isolata una baseline pulita, coerente con 
 - [x] Registrare `git status --short` in entrambi i repo (editor e `runtime-cpp`).
 - [x] Creare branch di migrazione dedicato in entrambi i repo (`feature/runtime-unification`).
 - [x] Eseguire build Release + suite test in entrambi i repo, registrare il baseline (conteggio test, warning noti).
-- [x] Documentare la versione/commit di `runtime-cpp` puntata dalla junction al momento del congelamento.
+- [x] Consolidare la baseline di `runtime-cpp` nella sorgente locale versionata.
 
 **Scoperte impreviste e correzioni applicate (fuori scope di migrazione, necessarie per una baseline verde)**
 
@@ -102,8 +110,8 @@ Al primo tentativo di build, `runtime-cpp` main non era autosufficiente: l'edito
 **Baseline registrata**
 
 - Editor (`ArtCade_Editor_RmlUi`, `scripts\build.bat --test`): build verde — `editor-core-test` 2563/2563, `sprite-animation-test` 233/233, `tileset-tilemap-test` 1476/1476, `generated-sfx-model-test` 480/480, `script-asset-test` 144/144, `script-delete-disk-test` 88/88, `script-text-ops-test` 19/19, `script-api-catalog-test` 195/195, `logic-board-editor-test` 308/308, `generated-sfx-editor-controller-test`/`generated-sfx-generation-service-test`/`play-sound-preload-test` verdi.
-- Runtime (`ArtCade-Studio_V2/runtime-cpp`, `build_native.bat`): 48/48 suite CTest, 100% passate.
-- `runtime-cpp` `main` @ `46685757` (baseline fissata per la junction `vendor/artcade-runtime`); `feature/runtime-unification` ricreato da questo commit in entrambi i repo, diff vuoto rispetto a `main`.
+- Runtime locale (`vendor/artcade-runtime`, `build_native.bat`): 48/48 suite CTest, 100% passate alla baseline documentata.
+- La baseline storica `runtime-cpp` `main` @ `46685757` è ora contenuta nel tree locale; non esiste un puntamento cross-repo da aggiornare.
 
 **Gate di uscita**
 
@@ -164,7 +172,7 @@ RU-01 e RU-04 assumono entrambe che un file scritto dall'editor sia accettato da
 
 **Scope**
 
-- Percorso di lettura di `ProjectDocument` (load): delegare a `ProjectJson::validate_current_project_json`, `read_project_header`, `read_object_types_map`, `read_entities_map`, `read_scenes_map` ecc. (target `artcade-project-json`, già linkabile via la junction) — ora che RU-01a garantisce copertura completa dei campi editor.
+- Percorso di lettura di `ProjectDocument` (load): delegare a `ProjectJson::validate_current_project_json`, `read_project_header`, `read_object_types_map`, `read_entities_map`, `read_scenes_map` ecc. (target `artcade-project-json`, già linkabile dal runtime locale) — ora che RU-01a garantisce copertura completa dei campi editor.
 - Percorso di scrittura resta di competenza dell'editor (è l'autorità di authoring, nessun writer canonico esiste lato runtime — confermato: zero funzioni `write_*`/`to_json` in `runtime-cpp/src/core`), ma deve validare contro le stesse costanti di schema/versione usate dal validator canonico.
 - Per design (vedi RU-01a): la validazione ricca campo-per-campo resta al layer Command/UI dell'editor; il parser canonico diventa l'unica fonte di verità sulla *forma* del documento, non sulla qualità dei messaggi d'errore mostrati durante l'authoring.
 
@@ -405,5 +413,5 @@ Nessuna divergenza osservabile tra Editor Play e build esportata sui 3 gate game
 | `Input`/`Audio` assumono ownership diretta di OS/device raylib (RU-02) | Blocca l'embedding in-process se non disaccoppiato | RU-02 introduce un seam di iniezione input e un device audio condivisibile/riusato, senza toccare i call site OS-facing di `game.exe` |
 | Latenza del round-trip "temp export" ad ogni Play-start (RU-04) | Iterazione interattiva percepita come lenta | Misurare in RU-04; se necessario, loader `AssetLoader` in-memory come ottimizzazione successiva fuori scope di questa roadmap |
 | Regressione dell'isolamento camera Edit/Play già costruito | Riapre un bug già risolto nella sessione precedente | RU-04 riusa esplicitamente `computeFitZoom` come seed, verificato dagli stessi `--shot-*` esistenti |
-| Drift tra `runtime-cpp` e la junction durante una migrazione multi-settimana | Editor e runtime esportato tornano a divergere a metà lavoro | RU-00 fissa e documenta il commit puntato dalla junction; ogni slice cross-repo aggiorna esplicitamente il puntamento in un commit dedicato, mai implicito |
+| Drift tra editor e runtime locale durante una migrazione multi-settimana | Editor e runtime esportato tornano a divergere a metà lavoro | Un solo repository: ogni slice runtime/editor è un cambiamento atomico, validato con build editor e runtime |
 | Test del runtime che assumono `Raylib`/`Lua` reali sono placeholder (nota dall'audit originale) | Falsi positivi di parità | GATE-FINAL richiede verifica manuale/screenshot sui 3 gate games, non solo test automatici, finché quei placeholder non sono risolti |

@@ -2,7 +2,7 @@
 setlocal EnableExtensions EnableDelayedExpansion
 
 rem ArtCade native (Windows) build script.
-rem - Uses Ninja + MSVC via VsDevCmd (same pattern as build_wasm.bat + Emscripten).
+rem - Uses Ninja + MSVC via VsDevCmd.
 rem - Configures/builds runtime-cpp/build-native.
 rem
 rem Usage:
@@ -114,7 +114,8 @@ echo [Native 2/4] Configuring CMake (Ninja, !CONFIG!)...
 "%CMAKE_EXE%" -S . -B "!BUILD_DIR!" -G Ninja -Wno-dev ^
     -DCMAKE_BUILD_TYPE=!CONFIG! ^
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ^
-    -DARTCADE_BUILD_TESTS=ON
+    -DARTCADE_BUILD_TESTS=ON ^
+    -DARTCADE_BUILD_LEGACY_STUDIO_BRIDGE=ON
 if errorlevel 1 (
     popd >nul
     echo [FAIL] CMake configure failed.

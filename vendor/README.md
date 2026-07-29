@@ -1,18 +1,12 @@
-# Runtime vendor
+# Local runtime source
 
-`artcade-runtime` is the ArtCade C++ engine (`runtime-cpp`). It is **not** vendored as a copy in git.
+`artcade-runtime` is the canonical, versioned ArtCade C++ runtime for this
+repository. It is intentionally local: no junction, submodule, or Studio V2
+checkout is required.
 
-## Local development (junction)
-
-```powershell
-cmd /c mklink /J vendor\artcade-runtime ..\ArtCade-Studio_V2\runtime-cpp
-```
-
-## Git submodule (CI / second machine)
-
-```powershell
-git submodule add <artcade-runtime-repo-url> vendor/artcade-runtime
-git submodule update --init
-```
+The native RmlUi editor links its engine modules directly. The historical
+Studio V2 `editor-api`/Web-WASM host is opt-in only through
+`ARTCADE_BUILD_LEGACY_STUDIO_BRIDGE` while it is being retired; it is never
+part of the editor build graph.
 
 CMake fails fast if `vendor/artcade-runtime/CMakeLists.txt` is missing.

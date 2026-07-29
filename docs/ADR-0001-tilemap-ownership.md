@@ -36,7 +36,7 @@ Proviene dal vecchio editor TypeScript (pre-pivot RmlUi), da cui il commento
   nessuna UI, nessuna serializzazione tocca `TilemapData`/`tilemapLayers` nel
   nuovo editor nativo. Da qui, non è un secondo sistema *ancora* attivo nel
   percorso authoring nuovo.
-- **`ArtCade-Studio_V2/runtime-cpp` (il runtime condiviso): non morto —
+- **`vendor/artcade-runtime` (il runtime condiviso): non morto —
   attivo lato runtime.** `World::activeTilemap_` (src/world/src/world.cpp)
   è un `TilemapData` vivo, usato per costruire il collision world e per il
   rendering (`src/app/render/tilemap-renderer.cpp`,
@@ -163,7 +163,7 @@ SceneFrameSnapshot.tilemaps   — lo stesso tipo che Edit già produce
 
 - Il modello legacy scene-level (`SceneDef.tilemap`, `SceneDef.tilemapLayers`,
   `TilemapData`) resta **compatibility-only**, consumato solo dal runtime
-  condiviso separato (`ArtCade-Studio_V2/runtime-cpp`). Non è mai popolato
+  condiviso locale (`vendor/artcade-runtime`). Non è mai popolato
   dalle nuove feature di questo editor.
 - L'ordinamento per layer del Play riusa `ProjectDocument::instancesInRenderOrder`
   (+ `effectiveLayerId`), le stesse funzioni condivise usate dal collector di
