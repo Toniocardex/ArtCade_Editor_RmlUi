@@ -1,7 +1,6 @@
 #include "editor-native/app/hierarchy_actions.h"
 
 #include "editor-native/app/editor_coordinator.h"
-#include "editor-native/app/instance_name_policy.h"
 #include "editor-native/commands/editor_intent.h"
 #include "editor-native/commands/entity_commands.h"
 #include "editor-native/commands/scene_commands.h"
@@ -23,6 +22,20 @@ std::string makeUniqueObjectTypeId(const ProjectDocument& document) {
     for (int n = 1;; ++n) {
         std::string candidate = "object-" + std::to_string(n);
         if (!document.hasObjectType(candidate)) return candidate;
+    }
+}
+
+std::string makeUniqueObjectTypeName(const ProjectDocument& document,
+                                     const std::string& stem) {
+    const auto nameTaken = [&](const std::string& candidate) {
+        return std::any_of(document.data().objectTypes.begin(),
+                           document.data().objectTypes.end(),
+                           [&](const auto& entry) { return entry.second.name == candidate; });
+    };
+    if (!nameTaken(stem)) return stem;
+    for (int suffix = 2;; ++suffix) {
+        const std::string candidate = stem + " " + std::to_string(suffix);
+        if (!nameTaken(candidate)) return candidate;
     }
 }
 
@@ -155,16 +168,17 @@ EditorOperationResult addEntityAt(EditorCoordinator& coordinator, Vec2 spawnPosi
     // "Add Instance" operation. Because BoxCollider2D, LinearMover
     // and TopDownController are object-type-owned, a fresh EntityId alone would not
     // make the components independent; a fresh ObjectTypeId is required.
-    const EntityId id = nextAvailableEntityId(coordinator.document(), sceneId);
-    const std::string instanceName = "Entity " + std::to_string(id);
     const std::string objectTypeId = makeUniqueObjectTypeId(coordinator.document());
-    // The new type's display name mirrors its first instance ("Entity 3"),
+    const EntityId id = nextAvailableEntityId(coordinator.document(), sceneId);
+    const std::string objectTypeName = makeUniqueObjectTypeName(
+        coordinator.document(), "Entity " + objectTypeId.substr(std::string("object-").size()));
+    // The new type's display name is the sole label for its placements.
     // not a shared "Entity" default: with every auto-created type named
     // identically, the Create menu's type catalog rendered as N
     // indistinguishable rows. Rename stays available (RenameObjectType), and
-    // duplicate display names remain legal - the id disambiguates.
+    // display names are unique across the project, while the id stays stable.
     return coordinator.execute(CreateEntityWithDefaultTypeCommand{
-        sceneId, id, objectTypeId, /*objectTypeName*/ instanceName, instanceName,
+        sceneId, id, objectTypeId, objectTypeName,
         spawnPosition, /*layerId*/ coordinator.activeLayerId(sceneId)});
 }
 
@@ -201,24 +215,15 @@ EditorOperationResult addTilemapEntity(EditorCoordinator& coordinator) {
         coordinator.logError(message);
         return EditorOperationResult::failure(std::move(message));
     }
-    const EntityId id = nextAvailableEntityId(coordinator.document(), sceneId);
-    // "Tilemap N" from 1, skipping taken names - matches the palette header's
-    // display ("Painting: Tilemap 1 - ...") from the very first create.
-    std::string instanceName;
-    for (int n = 1;; ++n) {
-        std::string candidate = "Tilemap " + std::to_string(n);
-        bool taken = false;
-        for (const SceneInstanceDef& inst : scene->instances) {
-            if (inst.instanceName == candidate) { taken = true; break; }
-        }
-        if (!taken) { instanceName = std::move(candidate); break; }
-    }
     const std::string objectTypeId = makeUniqueObjectTypeId(coordinator.document());
+    const EntityId id = nextAvailableEntityId(coordinator.document(), sceneId);
+    const std::string objectTypeName = makeUniqueObjectTypeName(
+        coordinator.document(), "Tilemap " + objectTypeId.substr(std::string("object-").size()));
     // Origin, not the viewport centre: the tile grid must align with the
     // scene's world grid, and painting (not the transform) decides where the
     // visible content lives.
     const EditorOperationResult result = coordinator.execute(CreateTilemapEntityCommand{
-        sceneId, id, objectTypeId, /*objectTypeName*/ instanceName, instanceName,
+        sceneId, id, objectTypeId, objectTypeName,
         Vec2{0.f, 0.f}, targetLayer, tilesets.front().assetId});
     if (result.ok) {
         // Workspace follow-ups (not undo-history entries): selecting the new
@@ -245,12 +250,11 @@ EditorOperationResult addInstanceOfTypeAt(EditorCoordinator& coordinator,
         return EditorOperationResult::failure("Unknown object type");
     }
     const EntityId id = nextAvailableEntityId(coordinator.document(), sceneId);
-    const std::string name = makeUniqueInstanceName(*scene, type->name);
     // Reuse the existing structural command — a new instance bound to the existing
     // type (shared components, no ObjectTypeDef duplicated).
     const EditorOperationResult result =
         coordinator.execute(CreateEntityCommand{
-            sceneId, id, objectTypeId, name, spawnPosition,
+            sceneId, id, objectTypeId, spawnPosition,
             /*layerId*/ coordinator.activeLayerId(sceneId)});
     // Select the new instance — workspace state, not an undo-history entry.
     if (result.ok) coordinator.apply(SelectEntityIntent{id});
@@ -314,13 +318,12 @@ EditorOperationResult duplicateSelectedEntity(EditorCoordinator& coordinator) {
         return EditorOperationResult::failure("Select an entity to duplicate");
     }
     const EntityId newId = nextAvailableEntityId(coordinator.document(), sceneId);
-    const std::string newName = makeUniqueInstanceName(*scene, source->instanceName);
     const Vec2 newPosition = normalizeSpawnPosition(
         Vec2{source->transform.position.x + kDuplicateOffset,
              source->transform.position.y + kDuplicateOffset},
         scene->worldSize);
     const EditorOperationResult result = coordinator.execute(
-        DuplicateInstanceCommand{sceneId, sourceId, newId, newName, newPosition});
+        DuplicateInstanceCommand{sceneId, sourceId, newId, newPosition});
     if (result.ok) coordinator.apply(SelectEntityIntent{newId});
     return result;
 }

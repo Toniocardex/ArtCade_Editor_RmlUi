@@ -83,6 +83,22 @@ const SceneInstanceDef* ProjectDocument::findInstanceInScene(const SceneId& scen
     return nullptr;
 }
 
+std::string ProjectDocument::instanceDisplayName(const SceneId& sceneId,
+                                                 EntityId id) const {
+    const SceneDef* scene = findScene(sceneId);
+    const SceneInstanceDef* instance = findInstanceInScene(sceneId, id);
+    if (!scene || !instance) return {};
+    const EntityDef* type = findObjectType(instance->objectTypeId);
+    if (!type || type->name.empty()) return {};
+
+    std::size_t rank = 1;
+    for (const SceneInstanceDef& candidate : scene->instances) {
+        if (candidate.objectTypeId == instance->objectTypeId && candidate.id < instance->id)
+            ++rank;
+    }
+    return type->name + " · " + std::to_string(rank);
+}
+
 bool ProjectDocument::hasObjectType(const std::string& id) const {
     return doc_.objectTypes.find(id) != doc_.objectTypes.end();
 }
@@ -167,14 +183,6 @@ bool ProjectDocument::patchInstanceTransform(const SceneId& sceneId, EntityId id
         }
         instance->transform.scale = *patch.scale;
     }
-    markDirty();
-    return true;
-}
-
-bool ProjectDocument::setInstanceName(const SceneId& sceneId, EntityId id, std::string name) {
-    SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
-    if (!instance) return false;
-    instance->instanceName = std::move(name);
     markDirty();
     return true;
 }

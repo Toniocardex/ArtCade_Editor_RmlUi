@@ -146,7 +146,7 @@ SceneGridPresentation makeSceneGridPresentation(const ProjectDocument& document,
     if (display.kind == SceneGridKind::Tilemap && isTilemapTool(editorState.activeTool)) {
         const SceneInstanceDef* inst =
             document.findInstanceInScene(sceneId, editorState.selection.primaryEntity);
-        pres.contextName = inst ? inst->instanceName : std::string();
+        pres.contextName = inst ? document.instanceDisplayName(sceneId, inst->id) : std::string();
         pres.toolbarContextName = truncateWithEllipsis(pres.contextName, kToolbarContextNameMaxChars);
         pres.toolbarTooltip = "Tilemap grid from \"" + pres.contextName + "\"";
         pres.sourceEntityId = editorState.selection.primaryEntity;

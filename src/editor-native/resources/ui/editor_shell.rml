@@ -32,7 +32,7 @@
                 <div id="menu-undo" class="menu-entry" data-action="undo"><span class="icon">&#xeb77;</span>Undo</div>
                 <div id="menu-redo" class="menu-entry" data-action="redo"><span class="icon">&#xeb13;</span>Redo</div>
                 <div class="menu-separator"></div>
-                <div id="menu-delete-entity" class="menu-entry" data-action="delete-entity"><span class="icon">&#xeb41;</span>Delete Entity</div>
+                <div id="menu-delete-entity" class="menu-entry" data-action="delete-entity"><span class="icon">&#xeb41;</span>Delete Object</div>
             </div>
         </div>
         <div class="menu-item has-menu">
@@ -124,7 +124,7 @@
         <div id="logic-context-tools" class="contextual-tools hidden">
             <div class="tool-group">
                 <button id="btn-logic-rules" class="tool-btn" data-action="logic-tab-rules">Rules</button>
-                <button id="btn-logic-lua" class="tool-btn" data-action="logic-tab-lua">Generated Lua</button>
+                <button id="btn-logic-lua" class="tool-btn" data-action="logic-tab-lua">Lua Code</button>
             </div>
             <span class="tool-sep"></span>
             <div id="logic-search-slot" class="logic-search-slot">
@@ -175,9 +175,9 @@
                         <button id="btn-create" class="panel-btn"><span class="icon">&#xeb0b;</span>Create <span class="icon-caret">&#xeb5d;</span></button>
                         <div class="create-dropdown">
                             <div id="create-scene-entry" class="menu-entry" data-action="add-scene">Create Scene</div>
-                            <div id="create-entity-entry" class="menu-entry" data-action="add-entity">Create Entity</div>
-                            <div id="create-tilemap-entity-entry" class="menu-entry" data-action="add-tilemap-entity">Create Tilemap Entity</div>
-                            <div id="create-instance-entry" class="menu-entry" data-action="add-instance">Create Instance of Type</div>
+                            <div id="create-entity-entry" class="menu-entry" data-action="add-entity">Add Object</div>
+                            <div id="create-tilemap-entity-entry" class="menu-entry" data-action="add-tilemap-entity">Add Tilemap</div>
+                            <div id="create-instance-entry" class="menu-entry" data-action="add-instance">Add Copy of Object</div>
                             <div id="create-instance-of-type-list"></div>
                         </div>
                     </div>
@@ -346,16 +346,15 @@
     </div>
 
     <div id="viewport-context-menu" class="context-menu hidden">
-        <div class="context-entry" data-action="create-entity-here"><span class="icon">&#xeb0b;</span><span>Create Entity Here</span></div>
+        <div class="context-entry" data-action="create-entity-here"><span class="icon">&#xeb0b;</span><span>Add Object Here</span></div>
         <div id="ctx-create-instance" class="context-entry" data-action="create-instance-here"><span class="icon">&#xeb0b;</span><span>Create Instance Here</span></div>
     </div>
 
     <div id="hierarchy-context-menu" class="context-menu hidden">
         <div id="hctx-set-start" class="context-entry" data-action="set-start-scene"><span class="icon">&#xeb2e;</span><span>Set as Start Scene</span></div>
         <div id="hctx-del-scene" class="context-entry destructive" data-action="delete-scene"><span class="icon">&#xeb41;</span><span>Delete Scene</span></div>
-        <div id="hctx-rename-entity" class="context-entry" data-action="begin-hierarchy-rename"><span class="icon">&#xeb0a;</span><span>Rename</span><span class="context-shortcut">F2</span></div>
-        <div id="hctx-duplicate-entity" class="context-entry" data-action="duplicate-entity"><span class="icon">&#xedef;</span><span>Duplicate Instance</span><span class="context-shortcut">Ctrl+D</span></div>
-        <div id="hctx-add-instance" class="context-entry" data-action="add-instance"><span class="icon">&#xeb0b;</span><span>Create Instance of Type</span></div>
+        <div id="hctx-duplicate-entity" class="context-entry" data-action="duplicate-entity"><span class="icon">&#xedef;</span><span>Duplicate</span><span class="context-shortcut">Ctrl+D</span></div>
+        <div id="hctx-add-instance" class="context-entry" data-action="add-instance"><span class="icon">&#xeb0b;</span><span>Add Copy of Object</span></div>
         <div id="hctx-focus-entity" class="context-entry" data-action="focus-selection"><span class="icon">&#xea6c;</span><span>Focus Selection</span><span class="context-shortcut">F</span></div>
         <div id="hctx-entity-sep-1" class="menu-separator"></div>
         <div id="hctx-move-to-layer" class="context-entry has-submenu">
@@ -371,7 +370,7 @@
          the panel's old always-visible buttons dispatched (one operation path). -->
     <div id="assets-context-menu" class="context-menu hidden">
         <div id="actx-edit" class="context-entry hidden"><span class="icon">&#xeb0a;</span><span>Open Editor</span></div>
-        <div id="actx-use" class="context-entry hidden"><span class="icon">&#xea5f;</span><span>Use on Selected Entity</span></div>
+        <div id="actx-use" class="context-entry hidden"><span class="icon">&#xea5f;</span><span>Use on Selected Object</span></div>
         <div id="actx-make-anim" class="context-entry hidden"><span class="icon">&#xeb0b;</span><span>Create Animation</span></div>
         <div id="actx-make-tileset" class="context-entry hidden"><span class="icon">&#xeb0b;</span><span>Create Tileset</span></div>
         <div id="actx-src-anim" class="context-entry hidden"><span class="icon">&#xeb0b;</span><span>New Animation from Source Image</span></div>

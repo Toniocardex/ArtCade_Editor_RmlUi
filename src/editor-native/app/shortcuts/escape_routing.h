@@ -11,7 +11,6 @@ enum class EscapeOwner : std::uint8_t {
     Modal,
     LogicKeyCapture,
     ContextMenu,
-    InlineRename,
     BackgroundOpacityDraft,
     TilemapOperation,
     ViewportDrag,
@@ -23,7 +22,6 @@ struct EscapeContext {
     bool modalOpen = false;
     bool logicKeyCapture = false;
     bool contextMenuOpen = false;
-    bool inlineRenameActive = false;
     bool backgroundOpacityDraft = false;
     bool tilemapOperationActive = false;
     bool viewportDragActive = false;

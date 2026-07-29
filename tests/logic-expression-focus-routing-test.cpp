@@ -1,12 +1,12 @@
 // ============================================================================
-// ADR-0029 — the expression field's completion list opens on focus.
+// ADR-0029 â€” the expression field's completion list opens on focus.
 //
 // The seam this suite exists for is the one that broke: a real focus event on
 // a real RmlUi element, through EditorUi's single event listener, into the
 // router, into LogicBoardEditorController, into LogicBoardPanel, and back out
 // as rendered markup. Every existing expression test calls
-// `controller.handleAction("focus-logic-expression", …)` directly — *below*
-// the router — so all of them stayed green while the feature was unreachable:
+// `controller.handleAction("focus-logic-expression", â€¦)` directly â€” *below*
+// the router â€” so all of them stayed green while the feature was unreachable:
 // an unconditional `if (type == "focus") return;` sat above the expression
 // branch and swallowed every focus event before it could be dispatched.
 //
@@ -146,7 +146,7 @@ std::string completionText(Rml::Element* root) {
 
 ProjectDoc makeProjectWithSetPosition() {
     ProjectDoc doc;
-    doc.formatVersion = 4;
+    doc.formatVersion = 12;
     doc.projectName = "Expression Focus";
 
     EntityDef hero;
@@ -214,7 +214,6 @@ ProjectDoc makeProjectWithSetPosition() {
     SceneInstanceDef instance;
     instance.id = 1;
     instance.objectTypeId = "Hero";
-    instance.instanceName = "Hero 1";
     instance.layerId = "layer-1";
     scene.instances.push_back(instance);
     scene.entityIds.push_back(1);
@@ -229,7 +228,6 @@ ProjectDoc makeProjectWithSetPosition() {
     SceneInstanceDef remoteInstance;
     remoteInstance.id = 2;
     remoteInstance.objectTypeId = "RemoteCoin";
-    remoteInstance.instanceName = "Coin 1";
     remoteInstance.layerId = "layer-1";
     remoteScene.instances.push_back(remoteInstance);
     remoteScene.entityIds.push_back(2);
@@ -263,7 +261,7 @@ Rml::Element* openContextualCreator(
     return document.GetElementById("logic-context-variable-name-input");
 }
 
-// ADR-0032 — typed picker and contextual create+assign through real RmlUi.
+// ADR-0032 â€” typed picker and contextual create+assign through real RmlUi.
 void testContextualProjectVariableCreation(
     Rml::Context& context, Rml::ElementDocument& document,
     EditorCoordinator& coordinator, EditorUi& ui) {
@@ -485,7 +483,7 @@ void testContextualProjectVariableCreation(
 }
 
 // ----------------------------------------------------------------------------
-// ADR-0031 A2.3 — the limited Inspector reachability contract is explicit.
+// ADR-0031 A2.3 â€” the limited Inspector reachability contract is explicit.
 // ----------------------------------------------------------------------------
 void testObjectVariableReachabilityGuardrail(
     Rml::Context& context, Rml::ElementDocument& document,
@@ -570,9 +568,9 @@ void testFocusOpensTheCompletionList(Rml::Context& context, Rml::ElementDocument
     const uint64_t revisionBefore = coordinator.document().revision();
     const bool undoBefore = coordinator.canUndo();
 
-    // The event under test — RmlUi's own focus, not a synthesised action call.
+    // The event under test â€” RmlUi's own focus, not a synthesised action call.
     // The repaint lands in processFrame (the application's frame order is
-    // input → processFrame → Context::Update), so `axisX` survives the
+    // input â†’ processFrame â†’ Context::Update), so `axisX` survives the
     // dispatch and is only invalidated by the rebuild below.
     CHECK(axisX->Focus());
     axisX = nullptr;
@@ -587,7 +585,7 @@ void testFocusOpensTheCompletionList(Rml::Context& context, Rml::ElementDocument
     CHECK(attributeOf(focused, "value") == "0");
 
     // (4)(5) The whole vocabulary is offered, unfiltered by the "0" already in
-    // the field — filtering on it would match nothing, which is the opposite of
+    // the field â€” filtering on it would match nothing, which is the opposite of
     // a discovery surface.
     CHECK(hasClass(&document, "logic-expression-completions"));
     const std::string offered = completionText(&document);
@@ -601,7 +599,7 @@ void testFocusOpensTheCompletionList(Rml::Context& context, Rml::ElementDocument
     CHECK(coordinator.canUndo() == undoBefore);
 
     // The caret really is in the field, not on the panel the rebuild left
-    // focused — otherwise nothing below would type anywhere.
+    // focused â€” otherwise nothing below would type anywhere.
     CHECK(context.GetFocusElement() == document.GetElementById("logic-expression-input"));
 
     // (6) Typing narrows the list. Real typing through RmlUi's text widget,
@@ -629,7 +627,7 @@ void testFocusOpensTheCompletionList(Rml::Context& context, Rml::ElementDocument
     CHECK(coordinator.canUndo() == undoBefore);
 
     // Picking `random(` with the mouse. Clicking a list entry moves RmlUi's
-    // focus off the field, so the field blurs *before* the click is delivered —
+    // focus off the field, so the field blurs *before* the click is delivered â€”
     // and a blur that commits tears down the list the click was aimed at.
     Rml::Element* entry = nullptr;
     for (Rml::Element* candidate :
@@ -734,7 +732,7 @@ void testEditingAnExistingExpression(Rml::Context& context, Rml::ElementDocument
     live = document.GetElementById("logic-expression-input");
     CHECK(live != nullptr);
     CHECK(attributeOf(live, "value").empty());
-    // Emptying the field is still only a draft — nothing reaches the document.
+    // Emptying the field is still only a draft â€” nothing reaches the document.
     CHECK(Logic::formatNumberExpression(
               std::get<LogicVec2Value>(
                   Logic::findProperty(
@@ -744,7 +742,7 @@ void testEditingAnExistingExpression(Rml::Context& context, Rml::ElementDocument
 }
 
 // ----------------------------------------------------------------------------
-// How an edit ends (Engineering Gates §23): Escape rolls back, blur commits a
+// How an edit ends (Engineering Gates Â§23): Escape rolls back, blur commits a
 // valid draft, and an invalid one is neither committed nor thrown away.
 // ----------------------------------------------------------------------------
 
@@ -826,7 +824,7 @@ void testEscapeRollsBackAndBlurCommits(Rml::Context& context, Rml::ElementDocume
 
     // Clicking elsewhere moves the pointer with it. Leaving it parked over the
     // completion list would look, to the blur handler, exactly like pressing an
-    // entry — which is the one case that must not commit.
+    // entry â€” which is the one case that must not commit.
     context.ProcessMouseMove(5, 5, 0);
     Rml::Element* elsewhere = document.GetElementById("logic-toolbar-search");
     CHECK(elsewhere != nullptr);
@@ -871,9 +869,9 @@ void testEscapeRollsBackAndBlurCommits(Rml::Context& context, Rml::ElementDocume
 }
 
 // ----------------------------------------------------------------------------
-// Engineering Gates §15: a pending edit is resolved before Save/Open/New/Play
+// Engineering Gates Â§15: a pending edit is resolved before Save/Open/New/Play
 // can look at the document. The draft is local until Enter or blur, and the
-// blur commit is deferred out of RmlUi's dispatch — so when Save asks, neither
+// blur commit is deferred out of RmlUi's dispatch â€” so when Save asks, neither
 // has run. Without this the author's expression is silently not saved.
 // ----------------------------------------------------------------------------
 void testPendingDraftIsResolvedBeforeSave(Rml::Context& context,
@@ -934,7 +932,7 @@ void testPendingDraftIsResolvedBeforeSave(Rml::Context& context,
 
 // ----------------------------------------------------------------------------
 // Moving straight from one axis to the other. RmlUi blurs X and focuses Y in
-// the same dispatch, and the commit belongs to the field being left — so both
+// the same dispatch, and the commit belongs to the field being left â€” so both
 // halves have to run, in that order, and neither may rebuild the panel while
 // RmlUi is still inside it.
 // ----------------------------------------------------------------------------
@@ -980,7 +978,7 @@ void testMovingBetweenAxesCommitsTheOneBeingLeft(
 // ----------------------------------------------------------------------------
 // An empty draft is the author starting over, not the absence of a draft. The
 // two are the same value in the render, so clearing a field and then hitting a
-// rebuild put the old text back — with a diagnostic beside it complaining
+// rebuild put the old text back â€” with a diagnostic beside it complaining
 // about text no longer on screen.
 // ----------------------------------------------------------------------------
 void testClearedFieldStaysCleared(Rml::Context& context, Rml::ElementDocument& document,
@@ -999,7 +997,7 @@ void testClearedFieldStaysCleared(Rml::Context& context, Rml::ElementDocument& d
     frame(context, ui);
     CHECK(attributeOf(document.GetElementById("logic-expression-input"), "value").empty());
 
-    // Blur: an empty field cannot parse, so this is a failed commit — which
+    // Blur: an empty field cannot parse, so this is a failed commit â€” which
     // rebuilds the panel. The field must come back empty, not repopulated.
     context.ProcessMouseMove(5, 5, 0);
     Rml::Element* elsewhere = document.GetElementById("logic-toolbar-search");
@@ -1048,7 +1046,7 @@ void testCommitFieldKeepsItsFocusBaseline(Rml::Context& context,
     grid->DispatchEvent(Rml::EventId::Keydown, escape);
     context.Update();
 
-    // The baseline was captured at focus time, so Escape restores it — the
+    // The baseline was captured at focus time, so Escape restores it â€” the
     // behaviour the unconditional early return was protecting.
     CHECK(control->GetValue() == baseline);
 }

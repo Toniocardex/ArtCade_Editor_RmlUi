@@ -1,5 +1,5 @@
 // ============================================================================
-// ADR-0031 A2 — Object Variables Inspector rendering and dispatch.
+// ADR-0031 A2 â€” Object Variables Inspector rendering and dispatch.
 //
 // This suite starts at real RmlUi elements, crosses EditorUi's single listener,
 // and verifies both the rebuilt Inspector tree and the authoritative document.
@@ -145,7 +145,7 @@ std::string fieldValue(Rml::Element* element) {
 
 ProjectDoc makeObjectVariablesProject(double healthValue = 100.0) {
     ProjectDoc doc;
-    doc.formatVersion = 11;
+    doc.formatVersion = 12;
     doc.projectName = "Inspector Object Variables";
 
     EntityDef hero;
@@ -169,13 +169,11 @@ ProjectDoc makeObjectVariablesProject(double healthValue = 100.0) {
     SceneInstanceDef instance;
     instance.id = 1;
     instance.objectTypeId = "Hero";
-    instance.instanceName = "Hero 1";
     instance.layerId = "layer-1";
     instance.localVariableOverrides.emplace("Collected", GameVariableValue{true});
     scene.instances.push_back(instance);
     SceneInstanceDef second = instance;
     second.id = 2;
-    second.instanceName = "Hero 2";
     second.localVariableOverrides.clear();
     scene.instances.push_back(second);
     scene.entityIds.push_back(1);

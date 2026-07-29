@@ -961,20 +961,22 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
 
     if (instanceLocked) {
         html += "<div class=\"outside-warning panel-top\"><span class=\"icon\">" UI_ICON_LOCKED "</span>"
-                "<span>This entity belongs to a locked layer.</span></div>";
+                "<span>This object belongs to a locked layer.</span></div>";
     }
 
-    // -- Identity (not a component) -------------------------------------------
+    // -- Object (not a component) ---------------------------------------------
     html += header("identity", isSectionCollapsed("identity"),
-                   "" UI_ICON_GENERAL "", "Identity", "", "", "", playing);
-    html += field("Name", "commit-name", inst->instanceName, instanceDisabled);
-    // Renaming this field renames the shared ObjectTypeDef (every instance of
-    // this type reflects the new name), not just this instance - unlike "Name"
-    // above. Disabled when objectTypeId doesn't resolve to a real catalog entry
-    // (legacy/dangling data), since there is nothing to rename in that case.
+                   "" UI_ICON_GENERAL "", "Object", "", "", "", playing);
+    // The Object Type owns the sole user-facing name for every placement.
+    // Disabled when objectTypeId does not resolve, because there is no shared
+    // authoring object to rename.
     const std::string typeLabel = type ? type->name : inst->objectTypeId;
-    html += field("Type", "commit-type-name", typeLabel, playing || !type);
-    html += "<div class=\"prop-row\"><span class=\"prop-label\">Entity Visible</span>"
+    html += field("Object Name", "commit-type-name", typeLabel, playing || !type);
+    if (type) {
+        html += "<div class=\"type-owned-note\">Changing this name updates every "
+                "instance and its Logic Board label.</div>";
+    }
+    html += "<div class=\"prop-row\"><span class=\"prop-label\">Visible</span>"
             "<button class=\"" + instanceBtn + "\" data-action=\"toggle-instance-visible\">";
     html += inst->visible ? "On" : "Off";
     html += "</button></div>";
@@ -2086,7 +2088,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         if (addMenuOpen_ && !playing) trigger += " open";
         html += "<div class=\"add-component\">";
         html += "<div class=\"" + trigger + "\" data-action=\"toggle-add-component\">"
-                "<span class=\"icon\">" UI_ICON_ADD "</span>Add Component</div>";
+                "<span class=\"icon\">" UI_ICON_ADD "</span>Add Logic Component</div>";
         if (addMenuOpen_ && !playing) {
             html += "<div class=\"add-list\">";
             for (const Addable& a : addable) {

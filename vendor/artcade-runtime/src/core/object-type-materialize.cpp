@@ -82,7 +82,10 @@ EntityDef materializeInstance(
     EntityDef e = typeProto;
     e.id        = instance.id;
     e.className = typeProto.className.empty() ? instance.objectTypeId : typeProto.className;
-    e.name      = instance.instanceName.empty() ? typeProto.name : instance.instanceName;
+    // Scene instances no longer own presentation names (ADR-0048). Runtime
+    // materialisation deliberately remains independent from editor-only
+    // derived labels and receives the Object Type name only.
+    e.name      = typeProto.name;
     e.transform = instance.transform;
     e.visible   = instance.visible;
     e.layerId   = instance.layerId;

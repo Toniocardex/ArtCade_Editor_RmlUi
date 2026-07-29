@@ -700,8 +700,6 @@ public:
             if (type == "keydown" && key == Rml::Input::KI_ESCAPE) {
                 if (action == "commit-layer-rename") {
                     ui_.handleAction("cancel-layer-rename", arg, formValue(actionElement, event));
-                } else if (action == "commit-hierarchy-rename") {
-                    ui_.handleAction("cancel-hierarchy-rename", arg, formValue(actionElement, event));
                 } else if (actionElement == focusBaselineElement_) {
                     if (auto* control =
                             rmlui_dynamic_cast<Rml::ElementFormControl*>(actionElement)) {
@@ -1724,7 +1722,6 @@ void EditorUi::showPendingHierarchyMenu() {
     };
     setEntry("hctx-set-start",     sceneKind && !alreadyStart);
     setEntry("hctx-del-scene",     sceneKind);
-    setEntry("hctx-rename-entity", !sceneKind && !entityLocked);
     setEntry("hctx-duplicate-entity", !sceneKind && !entityLocked);
     setEntry("hctx-add-instance",  !sceneKind);
     setEntry("hctx-focus-entity",  !sceneKind);
@@ -3053,14 +3050,6 @@ bool EditorUi::hasConsoleMessageSelected() const {
         && coordinator_.consoleMessage(console_.selectedIndex()) != nullptr;
 }
 
-bool EditorUi::hasHierarchyRenameDraft() const {
-    return hierarchy_.hasRenameDraft();
-}
-
-void EditorUi::cancelHierarchyRename() {
-    hierarchy_.cancelRename();
-}
-
 bool EditorUi::hasBackgroundOpacityDraft() const {
     return inspector_.backgroundOpacityDragActive();
 }
@@ -3075,25 +3064,6 @@ bool EditorUi::captureLogicKey(LogicKey key) {
 
 bool EditorUi::cancelLogicKeyCapture() {
     return logicBoardEditor_.cancelKeyCapture();
-}
-
-void EditorUi::beginHierarchyOrLayerRename() {
-    if (coordinator_.isPlaying()) return;
-    const EntityId selected = coordinator_.selection().primaryEntity;
-    if (selected != INVALID_ENTITY) {
-        const SceneId& sceneId = coordinator_.state().activeSceneId;
-        const SceneInstanceDef* inst =
-            coordinator_.document().findInstanceInScene(sceneId, selected);
-        if (!inst) return;
-        if (coordinator_.document().isInstanceLayerLocked(sceneId, *inst)) {
-            coordinator_.logWarning("Cannot rename: the instance layer is locked");
-            return;
-        }
-        hierarchy_.beginRename(sceneId, selected, inst->instanceName);
-        hierarchy_.refresh(document_, coordinator_);
-        return;
-    }
-    inspector_.beginActiveSceneLayerRename(document_, coordinator_);
 }
 
 void EditorUi::requestHierarchyReveal(const SceneId& sceneId, EntityId id,
@@ -4065,11 +4035,6 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
     } else if (action == "commit-transform-scale-y") {
         commitInspectorTransformField(coordinator_, selected,
                                       InspectorTransformField::ScaleY, value);
-    } else if (action == "commit-name") {
-        if (selected == INVALID_ENTITY) coordinator_.logError("No selected instance");
-        else if (value.empty()) coordinator_.logError("Name cannot be empty");
-        else coordinator_.execute(
-                RenameEntityCommand{coordinator_.state().activeSceneId, selected, value});
     } else if (action == "commit-type-name") {
         const SceneInstanceDef* inst = (selected != INVALID_ENTITY)
             ? coordinator_.document().findInstanceInScene(coordinator_.state().activeSceneId, selected)
@@ -4412,38 +4377,6 @@ bool EditorUi::handleHierarchyAction(const std::string& action, const std::strin
         hierarchy_.refresh(document_, coordinator_);
     } else if (action == "set-hierarchy-filter") {
         coordinator_.apply(SetHierarchyFilterIntent{value});
-    } else if (action == "begin-hierarchy-rename") {
-        hideContextMenus();
-        EntityId entityId = selected;
-        if (!arg.empty())
-            entityId = static_cast<EntityId>(std::strtoul(arg.c_str(), nullptr, 10));
-        if (entityId == INVALID_ENTITY) return true;
-        const SceneId& sceneId = coordinator_.state().activeSceneId;
-        const SceneInstanceDef* inst =
-            coordinator_.document().findInstanceInScene(sceneId, entityId);
-        if (!inst) return true;
-        if (coordinator_.isPlaying()
-            || coordinator_.document().isInstanceLayerLocked(sceneId, *inst)) {
-            return true;
-        }
-        if (entityId != selected)
-            coordinator_.apply(SelectEntityIntent{entityId});
-        hierarchy_.beginRename(sceneId, entityId, inst->instanceName);
-        hierarchy_.refresh(document_, coordinator_);
-    } else if (action == "commit-hierarchy-rename") {
-        if (!hierarchy_.hasRenameDraft()) return true;
-        const HierarchyRenameDraft draft = hierarchy_.renameDraft();
-        if (value.empty()) {
-            coordinator_.logError("Name cannot be empty");
-            hierarchy_.refresh(document_, coordinator_);
-            return true;
-        }
-        hierarchy_.cancelRename();
-        coordinator_.execute(RenameEntityCommand{draft.sceneId, draft.entityId, value});
-        hierarchy_.refresh(document_, coordinator_);
-    } else if (action == "cancel-hierarchy-rename") {
-        hierarchy_.cancelRename();
-        hierarchy_.refresh(document_, coordinator_);
     } else if (action == "begin-layer-rename") {
         inspector_.beginSceneLayerRename(document_, coordinator_, arg);
     } else if (action == "commit-layer-rename") {

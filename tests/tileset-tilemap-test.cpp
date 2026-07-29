@@ -1,4 +1,4 @@
-// tileset-tilemap-test.cpp — tileset + tilemap authoring / play suites.
+// tileset-tilemap-test.cpp â€” tileset + tilemap authoring / play suites.
 
 #include "editor_core_test_harness.h"
 
@@ -1081,12 +1081,12 @@ int main() {
         sliceTilesOne(c);   // tiles-1 sliced 32x32 -> cellSize derives from slicing
         const std::size_t before = c.undoSize();
         CHECK(c.execute(CreateTilemapEntityCommand{
-            kSceneA, 100, "object-tm", "Tilemap 1", "Tilemap 1",
+            kSceneA, 100, "object-tm", "Tilemap 1",
             Vec2{0.f, 0.f}, "layer-1", "tiles-1"}).ok);
         CHECK(c.undoSize() == before + 1);   // one undo entry for the whole gesture
         const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, 100);
         CHECK(inst != nullptr);
-        CHECK(inst->instanceName == "Tilemap 1");
+        CHECK(c.document().instanceDisplayName(kSceneA, 100) == "Tilemap 1 \xC2\xB7 1");
         CHECK(inst->objectTypeId == "object-tm");
         CHECK(inst->layerId == "layer-1");
         CHECK(inst->tilemap.has_value());
@@ -1111,7 +1111,7 @@ int main() {
     {
         EditorCoordinator c{makeSpriteDoc()};
         CHECK(c.execute(CreateTilemapEntityCommand{
-            kSceneA, 100, "object-tm", "Tilemap 1", "Tilemap 1",
+            kSceneA, 100, "object-tm", "Tilemap 1",
             Vec2{0.f, 0.f}, /*layerId*/ "", "tiles-1"}).ok);
         CHECK(c.document().findInstanceInScene(kSceneA, 100)->layerId == "layer-1");
     }
@@ -1128,25 +1128,25 @@ int main() {
         const uint64_t revision = c.document().revision();
         // Missing tileset.
         CHECK(!c.execute(CreateTilemapEntityCommand{
-            kSceneA, 100, "object-tm", "T", "T", Vec2{0.f, 0.f},
+            kSceneA, 100, "object-tm", "T", Vec2{0.f, 0.f},
             "layer-1", "no-such-tileset"}).ok);
         // Locked target layer.
         CHECK(!c.execute(CreateTilemapEntityCommand{
-            kSceneA, 100, "object-tm", "T", "T", Vec2{0.f, 0.f},
+            kSceneA, 100, "object-tm", "T", Vec2{0.f, 0.f},
             "locked-layer", "tiles-1"}).ok);
         // Unknown target layer.
         CHECK(!c.execute(CreateTilemapEntityCommand{
-            kSceneA, 100, "object-tm", "T", "T", Vec2{0.f, 0.f},
+            kSceneA, 100, "object-tm", "T", Vec2{0.f, 0.f},
             "no-such-layer", "tiles-1"}).ok);
         // Existing object type / instance ids.
         CHECK(!c.execute(CreateTilemapEntityCommand{
-            kSceneA, kHero, "object-tm", "T", "T", Vec2{0.f, 0.f},
+            kSceneA, kHero, "object-tm", "T", Vec2{0.f, 0.f},
             "layer-1", "tiles-1"}).ok);
         CHECK(c.execute(CreateTilemapEntityCommand{
-            kSceneA, 100, "object-tm", "T", "T", Vec2{0.f, 0.f},
+            kSceneA, 100, "object-tm", "T", Vec2{0.f, 0.f},
             "layer-1", "tiles-1"}).ok);
         CHECK(!c.execute(CreateTilemapEntityCommand{
-            kSceneA, 101, "object-tm", "T", "T", Vec2{0.f, 0.f},
+            kSceneA, 101, "object-tm", "T", Vec2{0.f, 0.f},
             "layer-1", "tiles-1"}).ok);
         // Only the one successful create mutated the document.
         CHECK(!c.document().findInstanceInScene(kSceneA, 101));
@@ -1169,7 +1169,7 @@ int main() {
         CHECK(newId != kHero);
         const SceneInstanceDef* inst = c.document().findInstanceInScene(kSceneA, newId);
         CHECK(inst != nullptr);
-        CHECK(inst->instanceName == "Tilemap 1");
+        CHECK(c.document().instanceDisplayName(kSceneA, newId) == "Tilemap 1 \xC2\xB7 1");
         CHECK(inst->layerId == "layer-1");   // the active layer
         CHECK(inst->tilemap.has_value());
         CHECK(inst->tilemap->tilesetAssetId == "tiles-1");
@@ -1181,7 +1181,8 @@ int main() {
         const SceneInstanceDef* second =
             c.document().findInstanceInScene(kSceneA, c.selection().primaryEntity);
         CHECK(second != nullptr);
-        CHECK(second->instanceName == "Tilemap 2");
+        CHECK(c.document().instanceDisplayName(
+                  kSceneA, c.selection().primaryEntity) == "Tilemap 2 \xC2\xB7 1");
     }
 
     // -- addTilemapEntity preflight: no tileset / locked active layer fail
@@ -1341,7 +1342,7 @@ int main() {
         tm.chunkSize = 12;
         CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
 
-        CHECK(c.execute(CloneInstanceCommand{kSceneA, kHero, 900, "Hero Clone", {5.f, 5.f}}).ok);
+        CHECK(c.execute(CloneInstanceCommand{kSceneA, kHero, 900, {5.f, 5.f}}).ok);
         const SceneInstanceDef* clone = c.document().findInstanceInScene(kSceneA, 900);
         CHECK(clone->tilemap.has_value());
         CHECK(clone->tilemap->tilesetAssetId == "tiles-1");
@@ -2007,7 +2008,7 @@ int main() {
         CHECK(views.find("tiles-1") == views.end());
     }
 
-    // -- Palette projection: absolute texture scale + scroll (no fit×min floor) -
+    // -- Palette projection: absolute texture scale + scroll (no fitÃ—min floor) -
     {
         TilePaletteViewState view;
         view.textureScale = 2.f;
@@ -2020,7 +2021,7 @@ int main() {
         CHECK(proj.sheetX == 12.f);
         CHECK(proj.sheetY == -4.f);
 
-        // 16px tiles: readable step prefers 2× (32 px on screen).
+        // 16px tiles: readable step prefers 2Ã— (32 px on screen).
         CHECK(tilePaletteStepForReadableTiles(16, 16) == 2);
 
         const TilePaletteSourceBounds content{16, 16, 64, 32};
@@ -2104,11 +2105,11 @@ int main() {
 
         // Selecting a non-Tilemap entity does not force the dock closed.
         CHECK(c.apply(SetTilePaletteDockVisibleIntent{false}).ok);
-        CHECK(c.execute(CreateEntityCommand{kSceneA, 777, "Enemy", "plain", {}}).ok);
+        CHECK(c.execute(CreateEntityCommand{kSceneA, 777, "Enemy", {}}).ok);
         CHECK(c.apply(SelectEntityIntent{777}).ok);
         CHECK(!c.uiState().tilePaletteDockVisible);
 
-        // Dock height memory + clamp (UiState only — never ProjectDocument).
+        // Dock height memory + clamp (UiState only â€” never ProjectDocument).
         const uint64_t revision = c.document().revision();
         CHECK(c.apply(ResizePanelIntent{ResizePanelIntent::Panel::TilePaletteDock, 9999.f}).ok);
         CHECK(c.uiState().tilePaletteDockHeight == PanelLimits::kTilePaletteDockMax);
@@ -2129,7 +2130,7 @@ int main() {
         const TilesetAsset* tileset = c.document().findTilesetAsset("tiles-1");
         CHECK(tileset != nullptr);
         CHECK(tileset->tiles.size() == 4);
-        // Sparse sheet: only tile-4 (bottom-right) is non-empty → content shrinks.
+        // Sparse sheet: only tile-4 (bottom-right) is non-empty â†’ content shrinks.
         std::vector<bool> empties{true, true, true, false};
         const TilePaletteSourceBounds sparse =
             tilePaletteContentBounds(*tileset, nullptr, &empties);
@@ -3020,7 +3021,6 @@ int main() {
         SceneInstanceDef other;
         other.id = 99;
         other.objectTypeId = "Other";
-        other.instanceName = "Other";
         doc.scenes.at(kSceneA).instances.push_back(other);
         EditorCoordinator c{doc};
         sliceTilesOne(c);
@@ -3298,7 +3298,6 @@ int main() {
         SceneInstanceDef other;
         other.id = 99;
         other.objectTypeId = "Other";
-        other.instanceName = "Other";
         other.layerId = "layer-1";
         doc.scenes.at(kSceneA).instances.push_back(other);
         EditorCoordinator c{doc};
@@ -3333,11 +3332,11 @@ int main() {
         CHECK(c.execute(AddSceneLayerCommand{sceneId, "bg", "Background", 0}).ok);
         CHECK(c.execute(AddSceneLayerCommand{sceneId, "fg", "Foreground", 2}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-            sceneId, 501, "type-mid", "Mid", "Mid", Vec2{}, ""}).ok);          // default layer
+            sceneId, 501, "type-mid", "Mid", Vec2{}, ""}).ok);          // default layer
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-            sceneId, 502, "type-fg", "Fg", "Fg", Vec2{}, "fg"}).ok);
+            sceneId, 502, "type-fg", "Fg", Vec2{}, "fg"}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-            sceneId, 503, "type-bg", "Bg", "Bg", Vec2{}, "bg"}).ok);
+            sceneId, 503, "type-bg", "Bg", Vec2{}, "bg"}).ok);
 
         CHECK(c.apply(SelectSceneIntent{sceneId}).ok);
         CHECK(c.playCurrentScene().ok);

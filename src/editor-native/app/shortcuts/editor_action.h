@@ -32,7 +32,6 @@ enum class EditorActionId : std::uint16_t {
     // Scene
     SceneDuplicateInstance,
     SceneCreateInstanceOfSelectedType,
-    SceneRenameSelection,
     SceneDeleteSelection,
     SceneFocusSelection,
 

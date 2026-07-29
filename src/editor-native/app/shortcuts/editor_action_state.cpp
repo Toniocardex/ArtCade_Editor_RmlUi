@@ -70,7 +70,6 @@ EditorActionState resolveActionState(EditorActionId action,
 
     case EditorActionId::SceneDuplicateInstance:
     case EditorActionId::SceneCreateInstanceOfSelectedType:
-    case EditorActionId::SceneRenameSelection:
     case EditorActionId::SceneDeleteSelection:
     case EditorActionId::SceneFocusSelection:
         if (!sceneAuthoringOk(context)) {

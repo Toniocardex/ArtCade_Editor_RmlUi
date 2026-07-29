@@ -32,12 +32,10 @@ EntityDef makeObjectType(const std::string& name, const AssetId& imageAssetId) {
 }
 
 SceneInstanceDef makeInstance(EntityId id, const std::string& type,
-                              const std::string& name, const std::string& layer,
-                              Vec2 position) {
+                              const std::string& layer, Vec2 position) {
     SceneInstanceDef instance;
     instance.id = id;
     instance.objectTypeId = type;
-    instance.instanceName = name;
     instance.layerId = layer;
     instance.transform.position = position;
     return instance;
@@ -219,14 +217,14 @@ ProjectDoc makeVisualFixtureProject() {
     scene.layers.push_back(SceneLayerDef{"layer-bg", "Background", true});
     scene.layers.push_back(SceneLayerDef{"layer-main", "Main", false});
     scene.instances.push_back(
-        makeInstance(1, "Player", "Player 1", "layer-main", {96.f, 160.f}));
+        makeInstance(1, "Player", "layer-main", {96.f, 160.f}));
     scene.instances.push_back(
-        makeInstance(2, "Coin", "Coin 1", "layer-main", {224.f, 160.f}));
+        makeInstance(2, "Coin", "layer-main", {224.f, 160.f}));
     scene.instances.push_back(
-        makeInstance(3, "Coin", "Coin 2", "layer-bg", {320.f, 96.f}));
+        makeInstance(3, "Coin", "layer-bg", {320.f, 96.f}));
     {
         SceneInstanceDef groundInstance =
-            makeInstance(4, "Ground", "Ground 1", "layer-main", {0.f, 240.f});
+            makeInstance(4, "Ground", "layer-main", {0.f, 240.f});
         TilemapComponent tilemap;
         tilemap.tilesetAssetId = tileset.assetId;
         tilemap.cellSize = {

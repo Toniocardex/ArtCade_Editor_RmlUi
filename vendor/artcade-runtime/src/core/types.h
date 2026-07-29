@@ -712,7 +712,6 @@ struct TilesetAsset {
 struct SceneInstanceDef {
     EntityId    id           = 0;
     std::string objectTypeId;
-    std::string instanceName;
     Transform   transform;
     bool        visible      = true;
     std::string layerId;      // render layer id ("" = default layer)

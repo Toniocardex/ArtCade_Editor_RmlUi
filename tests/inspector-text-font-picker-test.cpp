@@ -1,5 +1,5 @@
 // ============================================================================
-// ADR-0036 — Text component Font picker.
+// ADR-0036 â€” Text component Font picker.
 //
 // Same real-element/listener discipline as inspector-layer-dropdown-keyboard-
 // test.cpp (ADR-0034): starts at the rendered trigger/entries, crosses
@@ -87,7 +87,7 @@ void click(Rml::Element* element) {
 
 ProjectDoc makeTextFontProject() {
     ProjectDoc doc;
-    doc.formatVersion = 11;
+    doc.formatVersion = 12;
     doc.projectName = "Text Font Picker";
 
     doc.fontAssets.push_back(FontAssetDef{"font-ui", "UI Font", "fonts/ui.ttf", 32, {}});
@@ -114,7 +114,6 @@ ProjectDoc makeTextFontProject() {
     SceneInstanceDef instance;
     instance.id = 1;
     instance.objectTypeId = "Hero";
-    instance.instanceName = "Hero 1";
     instance.layerId = "layer-1";
     scene.instances.push_back(instance);
     scene.entityIds.push_back(1);

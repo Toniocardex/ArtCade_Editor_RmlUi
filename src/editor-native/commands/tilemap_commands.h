@@ -26,8 +26,8 @@ class CreateTilemapEntityCommand final : public EditorCommand {
 public:
     CreateTilemapEntityCommand(SceneId sceneId, EntityId id,
                                std::string objectTypeId, std::string objectTypeName,
-                               std::string instanceName, Vec2 position,
-                               std::string layerId, AssetId tilesetAssetId);
+                               Vec2 position, std::string layerId,
+                               AssetId tilesetAssetId);
 
     EditorOperationResult apply(ProjectDocument& document) override;
     EditorOperationResult undo(ProjectDocument& document) override;
@@ -38,7 +38,6 @@ private:
     EntityId    id_ = 0;
     std::string objectTypeId_;
     std::string objectTypeName_;
-    std::string instanceName_;
     Vec2        position_{};
     std::string layerId_;   // "" = scene default (the caller passes the active layer)
     AssetId     tilesetAssetId_;

@@ -4,6 +4,7 @@
 #include "editor-native/model/project_document.h"
 
 #include <algorithm>
+#include <cctype>
 #include <utility>
 
 namespace ArtCade::EditorNative {
@@ -19,6 +20,26 @@ constexpr EditorInvalidation kRenameInvalidation =
 constexpr EditorInvalidation kStructureInvalidation =
     EditorInvalidation::Hierarchy | EditorInvalidation::Inspector
     | EditorInvalidation::Viewport | EditorInvalidation::LogicBoard;
+
+std::string normalizedObjectTypeName(const std::string& value) {
+    std::string normalized;
+    normalized.reserve(value.size());
+    for (const unsigned char character : value) {
+        normalized.push_back(static_cast<char>(std::tolower(character)));
+    }
+    const std::size_t first = normalized.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return {};
+    return normalized.substr(first, normalized.find_last_not_of(" \t\r\n") - first + 1);
+}
+
+bool objectTypeNameTaken(const ProjectDocument& document, const std::string& candidate,
+                         const std::string& excludedId = {}) {
+    const std::string normalized = normalizedObjectTypeName(candidate);
+    for (const auto& [id, type] : document.data().objectTypes) {
+        if (id != excludedId && normalizedObjectTypeName(type.name) == normalized) return true;
+    }
+    return false;
+}
 } // namespace
 
 // ----------------------------------------------------------------------------
@@ -26,12 +47,10 @@ constexpr EditorInvalidation kStructureInvalidation =
 // ----------------------------------------------------------------------------
 CreateEntityCommand::CreateEntityCommand(SceneId sceneId, EntityId id,
                                          std::string objectTypeId,
-                                         std::string instanceName, Vec2 position,
-                                         std::string layerId)
+                                         Vec2 position, std::string layerId)
     : sceneId_(std::move(sceneId)), id_(id),
       objectTypeId_(std::move(objectTypeId)),
-      instanceName_(std::move(instanceName)), position_(position),
-      layerId_(std::move(layerId)) {}
+      position_(position), layerId_(std::move(layerId)) {}
 
 EditorOperationResult CreateEntityCommand::apply(ProjectDocument& document) {
     if (id_ == 0) {
@@ -39,6 +58,9 @@ EditorOperationResult CreateEntityCommand::apply(ProjectDocument& document) {
     }
     if (objectTypeId_.empty()) {
         return EditorOperationResult::failure("Object type id cannot be empty");
+    }
+    if (!document.findObjectType(objectTypeId_)) {
+        return EditorOperationResult::failure("Object type does not exist");
     }
     if (!NumericValidation::isFinite(position_)) {
         return EditorOperationResult::failure("Entity position must be finite");
@@ -70,7 +92,6 @@ EditorOperationResult CreateEntityCommand::apply(ProjectDocument& document) {
     SceneInstanceDef instance;
     instance.id                 = id_;
     instance.objectTypeId       = objectTypeId_;
-    instance.instanceName       = instanceName_;
     instance.transform.position = position_;
     instance.layerId            = targetLayer;
     if (!document.createInstance(sceneId_, std::move(instance))) {
@@ -93,11 +114,10 @@ EditorOperationResult CreateEntityCommand::undo(ProjectDocument& document) {
 // ----------------------------------------------------------------------------
 CreateEntityWithDefaultTypeCommand::CreateEntityWithDefaultTypeCommand(
     SceneId sceneId, EntityId id, std::string objectTypeId, std::string objectTypeName,
-    std::string instanceName, Vec2 position, std::string layerId)
+    Vec2 position, std::string layerId)
     : sceneId_(std::move(sceneId)), id_(id),
       objectTypeId_(std::move(objectTypeId)), objectTypeName_(std::move(objectTypeName)),
-      instanceName_(std::move(instanceName)), position_(position),
-      layerId_(std::move(layerId)) {}
+      position_(position), layerId_(std::move(layerId)) {}
 
 EditorOperationResult CreateEntityWithDefaultTypeCommand::apply(ProjectDocument& document) {
     if (id_ == 0) {
@@ -105,6 +125,12 @@ EditorOperationResult CreateEntityWithDefaultTypeCommand::apply(ProjectDocument&
     }
     if (objectTypeId_.empty()) {
         return EditorOperationResult::failure("Object type id cannot be empty");
+    }
+    if (normalizedObjectTypeName(objectTypeName_).empty()) {
+        return EditorOperationResult::failure("Object Type name cannot be empty");
+    }
+    if (objectTypeNameTaken(document, objectTypeName_)) {
+        return EditorOperationResult::failure("Object Type name is already in use");
     }
     if (!NumericValidation::isFinite(position_)) {
         return EditorOperationResult::failure("Entity position must be finite");
@@ -146,7 +172,6 @@ EditorOperationResult CreateEntityWithDefaultTypeCommand::apply(ProjectDocument&
     SceneInstanceDef instance;
     instance.id                 = id_;
     instance.objectTypeId       = objectTypeId_;
-    instance.instanceName       = instanceName_;
     instance.transform.position = position_;
     instance.layerId            = targetLayer;
 
@@ -212,8 +237,7 @@ EditorOperationResult DeleteEntityCommand::apply(ProjectDocument& document) {
         for (std::size_t i = 0; i < scene->instances.size(); ++i) {
             if (scene->instances[i].id == id_) {
                 if (document.isInstanceLayerLocked(sceneId_, scene->instances[i])) {
-                    return EditorOperationResult::failure("Cannot delete \""
-                        + scene->instances[i].instanceName + "\": its layer is locked");
+                    return EditorOperationResult::failure("Cannot delete instance: its layer is locked");
                 }
                 removed_  = scene->instances[i];
                 index_    = i;
@@ -245,17 +269,13 @@ EditorOperationResult DeleteEntityCommand::undo(ProjectDocument& document) {
 // DuplicateInstanceCommand (ADR-0023)
 // ----------------------------------------------------------------------------
 DuplicateInstanceCommand::DuplicateInstanceCommand(SceneId sceneId, EntityId sourceId,
-                                                   EntityId newId, std::string newName,
-                                                   Vec2 newPosition)
+                                                   EntityId newId, Vec2 newPosition)
     : sceneId_(std::move(sceneId)), sourceId_(sourceId), newId_(newId),
-      newName_(std::move(newName)), newPosition_(newPosition) {}
+      newPosition_(newPosition) {}
 
 EditorOperationResult DuplicateInstanceCommand::apply(ProjectDocument& document) {
     if (newId_ == 0) {
         return EditorOperationResult::failure("Entity id cannot be zero");
-    }
-    if (newName_.empty()) {
-        return EditorOperationResult::failure("Name cannot be empty");
     }
     if (!NumericValidation::isFinite(newPosition_)) {
         return EditorOperationResult::failure("Entity position must be finite");
@@ -282,12 +302,10 @@ EditorOperationResult DuplicateInstanceCommand::apply(ProjectDocument& document)
             return EditorOperationResult::failure("No source instance to duplicate");
         }
         if (document.isInstanceLayerLocked(sceneId_, *source)) {
-            return EditorOperationResult::failure("Cannot duplicate \"" + source->instanceName
-                + "\": its layer is locked");
+            return EditorOperationResult::failure("Cannot duplicate instance: its layer is locked");
         }
         duplicateSnapshot_ = *source;
         duplicateSnapshot_.id = newId_;
-        duplicateSnapshot_.instanceName = newName_;
         duplicateSnapshot_.transform.position = newPosition_;
         insertionIndex_ = sourceIndex + 1;
         captured_ = true;
@@ -356,8 +374,7 @@ EditorOperationResult SetEntityTransformCommand::apply(ProjectDocument& document
         // already true and must never be blocked by the layer's current
         // lock state (undo/redo must always be reproducible).
         if (document.isInstanceLayerLocked(sceneId_, *current)) {
-            return EditorOperationResult::failure("Cannot transform \"" + current->instanceName
-                + "\": its layer is locked");
+            return EditorOperationResult::failure("Cannot transform instance: its layer is locked");
         }
         if (patch_.position) undoPatch_.position = xf.position;
         if (patch_.rotationRadians) undoPatch_.rotationRadians = xf.rotation;
@@ -377,46 +394,6 @@ EditorOperationResult SetEntityTransformCommand::undo(ProjectDocument& document)
     }
     return EditorOperationResult::success(
         kPositionInvalidation, DomainChange::entityChanged(sceneId_, id_));
-}
-
-// ----------------------------------------------------------------------------
-// RenameEntityCommand
-// ----------------------------------------------------------------------------
-RenameEntityCommand::RenameEntityCommand(SceneId sceneId, EntityId id, std::string name)
-    : sceneId_(std::move(sceneId)), id_(id), newName_(std::move(name)) {}
-
-EditorOperationResult RenameEntityCommand::apply(ProjectDocument& document) {
-    const SceneInstanceDef* current = document.findInstanceInScene(sceneId_, id_);
-    if (!current) {
-        return EditorOperationResult::failure("No instance with that id in the target scene");
-    }
-    if (newName_.empty()) {
-        return EditorOperationResult::failure("Name cannot be empty");
-    }
-    if (current->instanceName == newName_) {
-        return EditorOperationResult::success(EditorInvalidation::None);
-    }
-    if (!captured_) {
-        if (document.isInstanceLayerLocked(sceneId_, *current)) {
-            return EditorOperationResult::failure("Cannot rename \"" + current->instanceName
-                + "\": its layer is locked");
-        }
-        oldName_ = current->instanceName;
-        captured_ = true;
-    }
-    if (!document.setInstanceName(sceneId_, id_, newName_)) {
-        return EditorOperationResult::failure("Failed to rename instance");
-    }
-    return EditorOperationResult::success(
-        kRenameInvalidation, DomainChange::entityChanged(sceneId_, id_));
-}
-
-EditorOperationResult RenameEntityCommand::undo(ProjectDocument& document) {
-    if (!captured_ || !document.setInstanceName(sceneId_, id_, oldName_)) {
-        return EditorOperationResult::failure("Cannot undo rename");
-    }
-    return EditorOperationResult::success(
-        kRenameInvalidation, DomainChange::entityChanged(sceneId_, id_));
 }
 
 // ----------------------------------------------------------------------------
@@ -469,8 +446,11 @@ EditorOperationResult RenameObjectTypeCommand::apply(ProjectDocument& document) 
     if (!type) {
         return EditorOperationResult::failure("No object type with that id");
     }
-    if (newName_.empty()) {
-        return EditorOperationResult::failure("Name cannot be empty");
+    if (normalizedObjectTypeName(newName_).empty()) {
+        return EditorOperationResult::failure("Object Type name cannot be empty");
+    }
+    if (objectTypeNameTaken(document, newName_, objectTypeId_)) {
+        return EditorOperationResult::failure("Object Type name is already in use");
     }
     if (type->name == newName_) {
         return EditorOperationResult::success(EditorInvalidation::None);

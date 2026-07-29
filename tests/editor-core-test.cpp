@@ -1,6 +1,6 @@
-// editor-core-test.cpp — architectural guarantees of the native editor core.
+// editor-core-test.cpp â€” architectural guarantees of the native editor core.
 //
-// Each CHECK maps to a numbered requirement in the refactor prompt (§24).
+// Each CHECK maps to a numbered requirement in the refactor prompt (Â§24).
 // Domain suites live in sibling *-test.cpp targets.
 
 #include "editor_core_test_harness.h"
@@ -92,7 +92,7 @@ using namespace ArtCade::EditorNative;
 using namespace ArtCade::EditorNative::CoreTest;
 
 int main() {
-    // -- ┬º24.1  A command modifies a single authority --------------------------
+    // -- â”¬Âº24.1  A command modifies a single authority --------------------------
     {
         EditorCoordinator c{makeDoc()};
         const SelectionState selectionBefore = c.selection();
@@ -107,7 +107,7 @@ int main() {
         CHECK(c.document().isDirty());
     }
 
-    // -- ┬º24.2 / ┬º24.3  A failed command changes nothing and invalidates nothing
+    // -- â”¬Âº24.2 / â”¬Âº24.3  A failed command changes nothing and invalidates nothing
     {
         EditorCoordinator c{makeDoc()};
         const uint64_t revBefore = c.document().revision();
@@ -125,7 +125,7 @@ int main() {
         CHECK(!c.canUndo());                                   // not pushed to undo
     }
 
-    // -- ┬º24.4  SetEntityTransformCommand invalidates only Inspector|Viewport ---
+    // -- â”¬Âº24.4  SetEntityTransformCommand invalidates only Inspector|Viewport ---
     {
         EditorCoordinator c{makeDoc()};
         c.consumeInvalidations();
@@ -139,7 +139,7 @@ int main() {
         CHECK(!has(r.invalidation, EditorInvalidation::Project));
     }
 
-    // -- ┬º24.5  A selection does not perform a Replace -------------------------
+    // -- â”¬Âº24.5  A selection does not perform a Replace -------------------------
     {
         EditorCoordinator c{makeDoc()};
         const uint32_t replacesBefore = c.document().replaceCount();
@@ -153,7 +153,7 @@ int main() {
         CHECK(c.selection().primaryEntity == kHero);           // unchanged on failure
     }
 
-    // -- ┬º24.6  A scene change does not serialize / Replace the project --------
+    // -- â”¬Âº24.6  A scene change does not serialize / Replace the project --------
     {
         EditorCoordinator c{makeDoc()};
         const uint32_t replacesBefore = c.document().replaceCount();
@@ -178,7 +178,7 @@ int main() {
         CHECK(c.document().startSceneId() == kSceneA);
     }
 
-    // -- ┬º24.8  Nothing accumulates invalidation without an operation ----------
+    // -- â”¬Âº24.8  Nothing accumulates invalidation without an operation ----------
     {
         EditorCoordinator c{makeDoc()};
         CHECK(c.consumeInvalidations() == EditorInvalidation::None);
@@ -457,6 +457,26 @@ int main() {
         CHECK(serialized.value.find("activeTool") == std::string::npos);
         CHECK(serialized.value.find("leftPanelWidth") == std::string::npos);
         CHECK(serialized.value.find("consoleVisible") == std::string::npos);
+        CHECK(serialized.value.find("instanceName") == std::string::npos);
+
+        std::string obsoleteInstanceName = serialized.value;
+        const std::string objectTypeProperty = "\"objectTypeId\": \"Hero\"";
+        const std::size_t objectTypeAt = obsoleteInstanceName.find(objectTypeProperty);
+        CHECK(objectTypeAt != std::string::npos);
+        if (objectTypeAt != std::string::npos) {
+            obsoleteInstanceName.insert(
+                objectTypeAt, "\"instanceName\": \"Legacy label\",\n          ");
+            CHECK(!ProjectSerializer::deserialize(obsoleteInstanceName).ok);
+        }
+
+        std::string preV12 = serialized.value;
+        const std::string currentSchema = "\"formatVersion\": 12";
+        const std::size_t schemaAt = preV12.find(currentSchema);
+        CHECK(schemaAt != std::string::npos);
+        if (schemaAt != std::string::npos) {
+            preV12.replace(schemaAt, currentSchema.size(), "\"formatVersion\": 11");
+            CHECK(!ProjectSerializer::deserialize(preV12).ok);
+        }
 
         DeserializeResult deserialized = ProjectSerializer::deserialize(serialized.value);
         CHECK(deserialized.ok);
@@ -490,7 +510,6 @@ int main() {
         SceneInstanceDef instance;
         instance.id = 1;
         instance.objectTypeId = "Hero";
-        instance.instanceName = "Hero";
         instance.layerId = "layer-1";
         scene.instances.push_back(instance);
         doc.scenes.emplace(scene.id, scene);
@@ -537,7 +556,7 @@ int main() {
 
         const SerializeResult serialized = ProjectSerializer::serialize(ProjectDocument{doc});
         CHECK(serialized.ok);
-        CHECK(serialized.value.find("\"formatVersion\": 11") != std::string::npos);
+        CHECK(serialized.value.find("\"formatVersion\": 12") != std::string::npos);
 
         const DeserializeResult deserialized = ProjectSerializer::deserialize(serialized.value);
         CHECK(deserialized.ok);
@@ -594,7 +613,6 @@ int main() {
         SceneInstanceDef instance;
         instance.id = 1;
         instance.objectTypeId = "Coin";
-        instance.instanceName = "Coin 1";
         instance.layerId = "layer-1";
         instance.localVariableOverrides["Value"] = 25.0;
         instance.localVariableOverrides["Collected"] = true;
@@ -662,56 +680,8 @@ int main() {
           ]
         })json";
 
-        DeserializeResult decoded = ProjectSerializer::deserialize(v3);
-        CHECK(decoded.ok);
-        DeserializeResult migrated = ProjectMigration::migrate(std::move(decoded.value));
-        CHECK(migrated.ok);
-        CHECK(migrated.value.data().formatVersion == 11);
-
-        const EntityDef& type = migrated.value.data().objectTypes.at("Hero");
-        CHECK(type.spritePresentation.has_value());
-        CHECK(type.spritePresentation
-              && std::holds_alternative<SpritePresentationImage>(type.spritePresentation->source));
-        CHECK(type.spritePresentation
-              && std::get<SpritePresentationImage>(type.spritePresentation->source).imageAssetId == "blue");
-
-        const SceneInstanceDef* inherited = migrated.value.findInstanceInScene("a", 2);
-        const SceneInstanceDef* delta = migrated.value.findInstanceInScene("a", 3);
-        const SceneInstanceDef* absent = migrated.value.findInstanceInScene("z", 1);
-        CHECK(inherited && !inherited->legacySpriteRendererV3
-              && !inherited->spritePresentationOverride);
-        CHECK(inherited && !inherited->legacySpriteAnimatorV3
-              && !inherited->spritePresentationOverride);
-        CHECK(delta && delta->spritePresentationOverride);
-        CHECK(delta && delta->spritePresentationOverride->visible
-              && !*delta->spritePresentationOverride->visible);
-        CHECK(delta && delta->spritePresentationOverride->source
-              && std::holds_alternative<SpritePresentationAnimation>(
-                  *delta->spritePresentationOverride->source));
-        CHECK(delta && std::get<SpritePresentationAnimation>(
-                  *delta->spritePresentationOverride->source).defaultClipId == "run");
-        CHECK(delta && std::get<SpritePresentationAnimation>(
-                  *delta->spritePresentationOverride->source).playbackSpeed == 2.f);
-        CHECK(absent && absent->spritePresentationOverride
-              && absent->spritePresentationOverride->source
-              && std::holds_alternative<SpritePresentationNone>(
-                  *absent->spritePresentationOverride->source));
-
-        const SerializeResult once = ProjectSerializer::serialize(migrated.value);
-        CHECK(once.ok);
-        DeserializeResult migratedAgain = ProjectMigration::migrate(
-            ProjectDocument{migrated.value.data()});
-        CHECK(migratedAgain.ok);
-        const SerializeResult twice = ProjectSerializer::serialize(migratedAgain.value);
-        CHECK(twice.ok && twice.value == once.value); // migration is idempotent
-
-        const DeserializeResult roundTrip = ProjectSerializer::deserialize(once.value);
-        CHECK(roundTrip.ok);
-        const SceneInstanceDef* roundTripDelta =
-            roundTrip.value.findInstanceInScene("a", 3);
-        CHECK(roundTripDelta && !roundTripDelta->legacySpriteRendererV3);
-        CHECK(roundTripDelta && !roundTripDelta->legacySpriteAnimatorV3);
-        CHECK(roundTripDelta && roundTripDelta->spritePresentationOverride);
+        // ADR-0048 makes the current schema alpha-breaking: no migration path.
+        CHECK(!ProjectSerializer::deserialize(v3).ok);
     }
 
     // -- v10 Sprite is one authoring component with exact command history -----
@@ -1228,7 +1198,7 @@ int main() {
         CHECK(!loaded.document().isDirty());
     }
 
-    // -- ┬º24.11  Play does not modify the ProjectDocument ----------------------
+    // -- â”¬Âº24.11  Play does not modify the ProjectDocument ----------------------
     // RU-03: PlaySession no longer exposes raw entity introspection/mutation
     // (D-01 - only the render hand-off, buildFrame(), is public), so this only
     // checks the scene the session materialized and that the authoring
@@ -1250,14 +1220,14 @@ int main() {
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 10.f);
         CHECK(c.document().revision() == revBefore);
 
-        // -- ┬º24.12  Stop needs no reload: destroying the session restores
+        // -- â”¬Âº24.12  Stop needs no reload: destroying the session restores
         //            nothing because the document was never changed.
         session.reset();
         CHECK(c.document().findInstanceInScene(kSceneA, kHero) != nullptr);
         CHECK(c.document().revision() == revBefore);
     }
 
-    // -- ┬º24.13  Invalid NumberField parse does not modify the document --------
+    // -- â”¬Âº24.13  Invalid NumberField parse does not modify the document --------
     {
         EditorCoordinator c{makeDoc()};
         c.apply(SelectEntityIntent{kHero});
@@ -1348,7 +1318,7 @@ int main() {
         }
     }
 
-    // -- ┬º24.17  Splitter applies min/max clamp --------------------------------
+    // -- â”¬Âº24.17  Splitter applies min/max clamp --------------------------------
     {
         EditorCoordinator c{makeDoc()};
         const SceneId sceneBefore = c.state().activeSceneId;
@@ -1435,7 +1405,7 @@ int main() {
                       "EditorCoordinator::uiState() must be const-only");
     }
 
-    // -- ┬º24.16  Input captured by a text field never reaches the viewport -----
+    // -- â”¬Âº24.16  Input captured by a text field never reaches the viewport -----
     {
         CHECK(shouldViewportReceiveInput({/*inRect*/true, false, false, false}));
         CHECK(!shouldViewportReceiveInput({true, false, /*textFocus*/true, false}));
@@ -1514,7 +1484,7 @@ int main() {
         CHECK(!c.takeInspectorRevealRequest().has_value());
     }
 
-    // -- ┬º24.18  Position X path: UI callback ÔåÆ command ÔåÆ document ÔåÆ invalidation
+    // -- â”¬Âº24.18  Position X path: UI callback Ã”Ã¥Ã† command Ã”Ã¥Ã† document Ã”Ã¥Ã† invalidation
     {
         EditorCoordinator c{makeDoc()};
         c.apply(SelectEntityIntent{kHero});
@@ -1535,7 +1505,7 @@ int main() {
         CHECK(c.document().findInstanceInScene(kSceneA, kHero)->transform.position.x == 10.f);
     }
 
-    // -- SetEntityTransformCommand: rotation (degrees UI → radians document) ---
+    // -- SetEntityTransformCommand: rotation (degrees UI â†’ radians document) ---
     {
         EditorCoordinator c{makeDoc()};
         c.apply(SelectEntityIntent{kHero});
@@ -1599,8 +1569,8 @@ int main() {
 
         // Center is inside the OBB.
         CHECK(pickEntityAt(frame, Vec2{100.f, 100.f}) == kHero);
-        // A corner of the axis-aligned AABB of a 45° box that is outside the OBB
-        // must miss (AABB of size 64x16 at 45° extends farther on the diagonal).
+        // A corner of the axis-aligned AABB of a 45Â° box that is outside the OBB
+        // must miss (AABB of size 64x16 at 45Â° extends farther on the diagonal).
         const float halfDiag = 0.5f * (64.f + 16.f) / std::sqrt(2.f);
         CHECK(pickEntityAt(frame, Vec2{100.f + halfDiag + 2.f, 100.f}) == INVALID_ENTITY);
     }
@@ -1669,9 +1639,9 @@ int main() {
     // -- Undo / rename / scene + background commands round-trip ----------------
     {
         EditorCoordinator c{makeDoc()};
-        CHECK(c.execute(RenameEntityCommand{kSceneA, kHero, "Champion"}).ok);
-        CHECK(c.document().findInstanceInScene(kSceneA, kHero)->instanceName == "Champion");
-        CHECK(!c.execute(RenameEntityCommand{kSceneA, kHero, ""}).ok); // empty rejected
+        CHECK(c.execute(RenameObjectTypeCommand{"Hero", "Champion"}).ok);
+        CHECK(c.document().findObjectType("Hero")->name == "Champion");
+        CHECK(!c.execute(RenameObjectTypeCommand{"Hero", ""}).ok); // empty rejected
 
         CHECK(c.execute(CreateSceneCommand{"scene-c", "Scene C"}).ok);
         CHECK(c.document().hasScene("scene-c"));
@@ -1716,7 +1686,7 @@ int main() {
     {
         EditorCoordinator c{makeDoc()};
         const auto r = c.execute(
-            CreateEntityCommand{kSceneA, 100, "Enemy", "Enemy 1", {5.f, 6.f}});
+            CreateEntityCommand{kSceneA, 100, "Enemy", {5.f, 6.f}});
         CHECK(r.ok);
         CHECK(r.change.kind == DomainChangeKind::EntityAdded);
         CHECK(r.change.entityId == 100);
@@ -1739,13 +1709,13 @@ int main() {
         EditorCoordinator c{makeDoc()};
         c.consumeInvalidations();
         const uint64_t revBefore = c.document().revision();
-        // Each failed command returns no invalidation of its own (┬º24.3); the
+        // Each failed command returns no invalidation of its own (â”¬Âº24.3); the
         // coordinator only raises a Console error, never a structural flag.
-        CHECK(c.execute(CreateEntityCommand{kSceneA, kHero, "Dup", "Dup", {}}).invalidation
+        CHECK(c.execute(CreateEntityCommand{kSceneA, kHero, "Dup", {}}).invalidation
               == EditorInvalidation::None);                                       // id clash
-        CHECK(!c.execute(CreateEntityCommand{kSceneA, 0, "Enemy", "E", {}}).ok);  // zero id
-        CHECK(!c.execute(CreateEntityCommand{kSceneA, 5, "", "E", {}}).ok);       // empty type
-        CHECK(!c.execute(CreateEntityCommand{"missing", 5, "Enemy", "E", {}}).ok);// no scene
+        CHECK(!c.execute(CreateEntityCommand{kSceneA, 0, "Enemy", {}}).ok);  // zero id
+        CHECK(!c.execute(CreateEntityCommand{kSceneA, 5, "", {}}).ok);       // empty type
+        CHECK(!c.execute(CreateEntityCommand{"missing", 5, "Enemy", {}}).ok);// no scene
         const EditorInvalidation inv = c.consumeInvalidations();
         CHECK(!has(inv, EditorInvalidation::Hierarchy));
         CHECK(!has(inv, EditorInvalidation::Viewport));
@@ -1758,8 +1728,8 @@ int main() {
     {
         EditorCoordinator c{makeDoc()};
         // Two more instances so order restoration is observable.
-        CHECK(c.execute(CreateEntityCommand{kSceneA, 101, "Enemy", "E1", {}}).ok);
-        CHECK(c.execute(CreateEntityCommand{kSceneA, 102, "Enemy", "E2", {}}).ok);
+        CHECK(c.execute(CreateEntityCommand{kSceneA, 101, "Enemy", {}}).ok);
+        CHECK(c.execute(CreateEntityCommand{kSceneA, 102, "Enemy", {}}).ok);
         // instances: [kHero, 101, 102]; delete the middle one.
         const auto r = c.execute(DeleteEntityCommand{kSceneA, 101});
         CHECK(r.ok);
@@ -1797,12 +1767,12 @@ int main() {
         CHECK(r.ok);
         CHECK(r.change.kind == DomainChangeKind::SceneRemoved);
         // The command declares its own structural flags (incl. Toolbar: the set
-        // of valid Play targets can change) ÔÇª
+        // of valid Play targets can change) Ã”Ã‡Âª
         CHECK(r.invalidation == (EditorInvalidation::Hierarchy
                                  | EditorInvalidation::Viewport
                                  | EditorInvalidation::Project
                                  | EditorInvalidation::Toolbar));
-        // ÔÇª and the coordinator augments them after reconciling the workspace
+        // Ã”Ã‡Âª and the coordinator augments them after reconciling the workspace
         // (the active scene changed, so Inspector and Toolbar refresh too).
         const EditorInvalidation consumed = c.consumeInvalidations();
         CHECK(has(consumed, EditorInvalidation::Hierarchy));
@@ -1824,7 +1794,7 @@ int main() {
     {
         EditorCoordinator c{makeDoc()};
         const uint32_t replacesBefore = c.document().replaceCount();
-        CHECK(c.execute(CreateEntityCommand{kSceneA, 200, "Enemy", "E", {}}).ok);
+        CHECK(c.execute(CreateEntityCommand{kSceneA, 200, "Enemy", {}}).ok);
         CHECK(c.execute(DeleteEntityCommand{kSceneA, 200}).ok);
         CHECK(c.execute(DeleteSceneCommand{kSceneB}).ok);
         CHECK(c.document().replaceCount() == replacesBefore); // Patch, not Replace
@@ -1846,7 +1816,7 @@ int main() {
         // (1) active scene normalized to a surviving scene.
         CHECK(c.state().activeSceneId == kSceneB);
         CHECK(c.document().hasScene(c.state().activeSceneId));
-        // (2) selection cleared ÔÇö it belonged to the deleted scene.
+        // (2) selection cleared Ã”Ã‡Ã¶ it belonged to the deleted scene.
         CHECK(!c.state().selection.hasEntity());
         // The coordinator augmented the command flags during reconciliation.
         CHECK(has(c.consumeInvalidations(), EditorInvalidation::Inspector));
@@ -1856,7 +1826,7 @@ int main() {
     {
         EditorCoordinator c{makeDoc()};
         CHECK(c.apply(SelectSceneIntent{kSceneB}).ok);
-        CHECK(c.execute(CreateEntityCommand{kSceneB, 300, "Enemy", "E", {}}).ok);
+        CHECK(c.execute(CreateEntityCommand{kSceneB, 300, "Enemy", {}}).ok);
         CHECK(c.apply(SelectEntityIntent{300}).ok);
         CHECK(c.state().activeSceneId == kSceneB);
         CHECK(c.state().selection.primaryEntity == 300);
@@ -1882,7 +1852,7 @@ int main() {
     // -- (5) Deleting a different entity preserves the selection ---------------
     {
         EditorCoordinator c{makeDoc()};
-        CHECK(c.execute(CreateEntityCommand{kSceneA, 301, "Enemy", "E", {}}).ok);
+        CHECK(c.execute(CreateEntityCommand{kSceneA, 301, "Enemy", {}}).ok);
         c.apply(SelectEntityIntent{kHero});
         CHECK(c.state().selection.primaryEntity == kHero);
         CHECK(c.execute(DeleteEntityCommand{kSceneA, 301}).ok); // delete the OTHER one
@@ -2032,7 +2002,7 @@ int main() {
     {
         EditorCoordinator c{makeDoc()};
         const auto created = c.execute(
-            CreateEntityCommand{kSceneA, 900, "Enemy", "Enemy 900", {5.f, 6.f}});
+            CreateEntityCommand{kSceneA, 900, "Enemy", {5.f, 6.f}});
         CHECK(created.ok);
         CHECK(has(created.invalidation, EditorInvalidation::Inspector));
         CHECK(has(created.invalidation, EditorInvalidation::Hierarchy));
@@ -2170,7 +2140,7 @@ int main() {
         const EntityId idB = nextAvailableEntityId(c.document(), kSceneA) - 1;
         const std::string typeB = c.document().findInstanceInScene(kSceneA, idB)->objectTypeId;
 
-        // (1)(2)(3) two new, distinct types ÔÇö neither reuses "Hero" nor each other.
+        // (1)(2)(3) two new, distinct types Ã”Ã‡Ã¶ neither reuses "Hero" nor each other.
         CHECK(c.document().data().objectTypes.size() == typesBefore + 2);
         CHECK(typeA != "Hero");
         CHECK(typeB != "Hero");
@@ -2215,7 +2185,7 @@ int main() {
         const uint64_t revBefore = c.document().revision();
         // objectTypeId collides -> apply fails before any mutation.
         CHECK(!c.execute(CreateEntityWithDefaultTypeCommand{
-                  kSceneA, 999, "Hero", "Entity", "X"}).ok);
+                  kSceneA, 999, "Hero", "Entity"}).ok);
         CHECK(c.document().data().objectTypes.size() == typesBefore);
         CHECK(c.document().findInstanceInScene(kSceneA, 999) == nullptr);
         CHECK(c.document().revision() == revBefore);        // no partial state
@@ -2234,7 +2204,7 @@ int main() {
         EditorCoordinator c{std::move(fresh)};
         const uint64_t revisionBefore = c.document().revision();
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Entity", "Entity", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Entity", {}, "layer-1"}).ok);
         CHECK(c.document().revision() == revisionBefore + 1);
         CHECK(c.document().hasObjectType("obj-1"));
         CHECK(c.document().findInstanceInScene("s", 1) != nullptr);
@@ -2388,16 +2358,16 @@ int main() {
         CHECK(inst->transform.position.y == 88.f);
     }
 
-    // -- Clone Instance: copies type, uniquifies name, honors an explicit
+    // -- Clone Instance: copies type and honors an explicit
     // position; undo removes only the clone, redo restores it -----------------
     {
         EditorCoordinator c{makeInheritedDoc()};
         const EntityId newId = nextAvailableEntityId(c.document(), kSceneA);
-        CHECK(c.execute(CloneInstanceCommand{kSceneA, kHero, newId, "Hero 2", Vec2{34.f, 44.f}}).ok);
+        CHECK(c.execute(CloneInstanceCommand{kSceneA, kHero, newId, Vec2{34.f, 44.f}}).ok);
         const SceneInstanceDef* clone = c.document().findInstanceInScene(kSceneA, newId);
         CHECK(clone != nullptr);
         CHECK(clone->objectTypeId == "Hero");
-        CHECK(clone->instanceName == "Hero 2");
+        CHECK(c.document().instanceDisplayName(kSceneA, newId) == "Hero \xC2\xB7 2");
         CHECK(clone->transform.position.x == 34.f);
         CHECK(clone->transform.position.y == 44.f);
         CHECK(c.document().findInstanceInScene(kSceneA, kHero) != nullptr);  // source untouched
@@ -2406,7 +2376,7 @@ int main() {
         CHECK(c.document().findInstanceInScene(kSceneA, newId) == nullptr);
         CHECK(c.document().findInstanceInScene(kSceneA, kHero) != nullptr);
         CHECK(c.redo().ok);
-        CHECK(c.document().findInstanceInScene(kSceneA, newId)->instanceName == "Hero 2");
+        CHECK(c.document().instanceDisplayName(kSceneA, newId) == "Hero \xC2\xB7 2");
     }
 
     // -- Clone Instance: instance deltas and layer survive the struct copy -----
@@ -2418,7 +2388,7 @@ int main() {
         CHECK(c.execute(SetEntityLayerCommand{kSceneA, kHero, "fg"}).ok);
 
         const EntityId newId = nextAvailableEntityId(c.document(), kSceneA);
-        CHECK(c.execute(CloneInstanceCommand{kSceneA, kHero, newId, "Hero Clone", Vec2{}}).ok);
+        CHECK(c.execute(CloneInstanceCommand{kSceneA, kHero, newId, Vec2{}}).ok);
         const SceneInstanceDef* clone = c.document().findInstanceInScene(kSceneA, newId);
         CHECK(clone != nullptr);
         CHECK(clone && !clone->spriteRendererOverride);
@@ -2426,16 +2396,15 @@ int main() {
         CHECK(clone->layerId == "fg");
     }
 
-    // -- Clone Instance: guards mirror CreateEntityCommand's (id/name/scene),
+    // -- Clone Instance: guards mirror CreateEntityCommand's (id/scene),
     // plus its own (unknown source instance); none mutate the scene -----------
     {
         EditorCoordinator c{makeInheritedDoc()};
         const std::size_t before = c.document().findScene(kSceneA)->instances.size();
-        CHECK(!c.execute(CloneInstanceCommand{kSceneA, kHero, kHero, "Dup", {}}).ok);   // id clash
-        CHECK(!c.execute(CloneInstanceCommand{kSceneA, kHero, 0, "Zero", {}}).ok);      // zero id
-        CHECK(!c.execute(CloneInstanceCommand{kSceneA, kHero, 900, "", {}}).ok);        // empty name
-        CHECK(!c.execute(CloneInstanceCommand{"missing", kHero, 900, "X", {}}).ok);     // no scene
-        CHECK(!c.execute(CloneInstanceCommand{kSceneA, 9999, 900, "X", {}}).ok);        // no source
+        CHECK(!c.execute(CloneInstanceCommand{kSceneA, kHero, kHero, {}}).ok);   // id clash
+        CHECK(!c.execute(CloneInstanceCommand{kSceneA, kHero, 0, {}}).ok);      // zero id
+        CHECK(!c.execute(CloneInstanceCommand{"missing", kHero, 900, {}}).ok);     // no scene
+        CHECK(!c.execute(CloneInstanceCommand{kSceneA, 9999, 900, {}}).ok);        // no source
         CHECK(c.document().findScene(kSceneA)->instances.size() == before);
     }
 
@@ -2457,67 +2426,35 @@ int main() {
         const SceneInstanceDef* clone = c.document().findInstanceInScene(kSceneA, newId);
         CHECK(clone != nullptr);
         CHECK(clone->objectTypeId == "Hero");
-        CHECK(clone->instanceName == "Hero (2)");          // ADR-0023 canonical
+        CHECK(c.document().instanceDisplayName(kSceneA, newId) == "Hero \xC2\xB7 2");
         CHECK(clone->transform.position.x != 10.f);        // offset from source (10, 20)
         CHECK(clone->transform.position.y != 20.f);
         CHECK(c.selection().primaryEntity == newId);       // auto-selected
         CHECK(c.document().findInstanceInScene(kSceneA, kHero) != nullptr);  // source kept
     }
 
-    // -- ADR-0023: canonical duplicate naming ----------------------------------
+    // -- ADR-0048: presentation labels are derived, deterministic and unpersisted --
     {
         SceneDef scene;
         scene.id = "n";
-        auto add = [&](const char* name) {
+        auto add = [&](EntityId id, const char* objectTypeId) {
             SceneInstanceDef inst;
-            inst.id = static_cast<EntityId>(scene.instances.size() + 1);
-            inst.objectTypeId = "T";
-            inst.instanceName = name;
+            inst.id = id;
+            inst.objectTypeId = objectTypeId;
             scene.instances.push_back(inst);
         };
-
-        CHECK(parseInstanceName("Entity 2").root == "Entity 2");
-        CHECK(!parseInstanceName("Entity 2").ordinal.has_value());
-        CHECK(parseInstanceName("Entity 2 (2)").root == "Entity 2");
-        CHECK(parseInstanceName("Entity 2 (2)").ordinal == 2);
-        CHECK(parseInstanceName("Boss Phase 2").root == "Boss Phase 2");
-        CHECK(parseInstanceName("Boss (Final)").root == "Boss (Final)");
-        CHECK(parseInstanceName("Entity (01)").root == "Entity (01)");
-        CHECK(parseInstanceName("Entity (1)").root == "Entity (1)");
-
-        add("Entity 2");
-        CHECK(makeUniqueInstanceName(scene, "Entity 2") == "Entity 2 (2)");
-        add("Entity 2 (2)");
-        CHECK(makeUniqueInstanceName(scene, "Entity 2 (2)") == "Entity 2 (3)");
-
-        SceneDef gaps;
-        gaps.id = "g";
-        for (const char* n : {"Platform", "Platform (2)", "Platform (4)"}) {
-            SceneInstanceDef inst;
-            inst.id = static_cast<EntityId>(gaps.instances.size() + 1);
-            inst.objectTypeId = "T";
-            inst.instanceName = n;
-            gaps.instances.push_back(inst);
-        }
-        CHECK(makeUniqueInstanceName(gaps, "Platform") == "Platform (3)");
-
-        SceneDef plat;
-        plat.id = "p";
-        SceneInstanceDef p;
-        p.id = 1;
-        p.objectTypeId = "T";
-        p.instanceName = "Platform 2";
-        plat.instances.push_back(p);
-        CHECK(makeUniqueInstanceName(plat, "Platform 2") == "Platform 2 (2)");
-
-        SceneDef zeroPad;
-        zeroPad.id = "z";
-        SceneInstanceDef zp;
-        zp.id = 1;
-        zp.objectTypeId = "T";
-        zp.instanceName = "Entity (01)";
-        zeroPad.instances.push_back(zp);
-        CHECK(makeUniqueInstanceName(zeroPad, "Entity (01)") == "Entity (01) (2)");
+        add(9, "T");
+        add(3, "Other");
+        add(4, "T");
+        ProjectDoc doc;
+        doc.scenes.emplace(scene.id, scene);
+        EntityDef type; type.name = "Thing";
+        EntityDef other; other.name = "Other";
+        doc.objectTypes.emplace("T", type);
+        doc.objectTypes.emplace("Other", other);
+        ProjectDocument document{std::move(doc)};
+        CHECK(document.instanceDisplayName("n", 4) == "Thing \xC2\xB7 1");
+        CHECK(document.instanceDisplayName("n", 9) == "Thing \xC2\xB7 2");
     }
 
     // -- ADR-0023: Duplicate inserts after source; redo uses captured snapshot -
@@ -2540,25 +2477,25 @@ int main() {
         CHECK(after->instances[heroIndex + 1].id == newId);
         CHECK(after->instances[heroIndex + 1].objectTypeId
               == after->instances[heroIndex].objectTypeId);
-        CHECK(after->instances[heroIndex + 1].instanceName == "Hero (2)");
+        CHECK(c.document().instanceDisplayName(kSceneA, newId) == "Hero \xC2\xB7 2");
 
         CHECK(c.undo().ok);
         CHECK(c.document().findInstanceInScene(kSceneA, newId) == nullptr);
         CHECK(c.redo().ok);
         const SceneInstanceDef* restored = c.document().findInstanceInScene(kSceneA, newId);
         CHECK(restored != nullptr);
-        CHECK(restored->instanceName == "Hero (2)");
+        CHECK(c.document().instanceDisplayName(kSceneA, newId) == "Hero \xC2\xB7 2");
         const SceneDef* redone = c.document().findScene(kSceneA);
         CHECK(heroIndex + 1 < redone->instances.size());
         CHECK(redone->instances[heroIndex + 1].id == newId);
     }
 
-    // -- ADR-0023: Rename same name is a no-op (no revision / undo entry) ------
+    // -- Object Type rename to its own name is a no-op (no revision / undo entry) --
     {
         EditorCoordinator c{makeDoc()};
         const uint64_t rev = c.document().revision();
         const std::size_t undoBefore = c.undoSize();
-        const auto r = c.execute(RenameEntityCommand{kSceneA, kHero, "Hero"});
+        const auto r = c.execute(RenameObjectTypeCommand{"Hero", "Hero"});
         CHECK(r.ok);
         CHECK(r.invalidation == EditorInvalidation::None);
         CHECK(c.document().revision() == rev);
@@ -2582,7 +2519,6 @@ int main() {
     // -- ADR-0023: hierarchy search matches name / type / layer / id ----------
     {
         HierarchySearchFields item;
-        item.instanceName = "Moving Platform";
         item.objectTypeName = "Platform";
         item.objectTypeId = "object-2";
         item.layerName = "Foreground";
@@ -2777,7 +2713,7 @@ int main() {
     // -- Start/Stop Play re-render the authoring-affordance panels -------------
     //    The authoring document is frozen during Play, so the Inspector,
     //    Hierarchy and Assets panels must re-render to disable their authoring
-    //    controls on Start ÔÇö and re-enable them on Stop.
+    //    controls on Start Ã”Ã‡Ã¶ and re-enable them on Stop.
     {
         EditorCoordinator c{makeDoc()};
         c.consumeInvalidations();
@@ -2816,7 +2752,7 @@ int main() {
     // -- (10) A direct (shortcut/programmatic) Play cannot bypass the guard ----
     {
         EditorCoordinator c{ProjectDoc{}};
-        CHECK(!c.playProject().ok);        // no button involved ÔÇö the app path itself rejects
+        CHECK(!c.playProject().ok);        // no button involved Ã”Ã‡Ã¶ the app path itself rejects
         CHECK(!c.playCurrentScene().ok);
         CHECK(!c.isPlaying());
     }
@@ -3066,7 +3002,7 @@ int main() {
     // -- Workspace intents remain allowed during Play and do not retarget Play -
     {
         EditorCoordinator c{makeInheritedDoc()};
-        CHECK(c.execute(CreateEntityCommand{kSceneB, 100, "Enemy", "Enemy B", {5.f, 6.f}}).ok);
+        CHECK(c.execute(CreateEntityCommand{kSceneB, 100, "Enemy", {5.f, 6.f}}).ok);
         CHECK(c.playProject().ok);
         const SceneFrameSnapshot playBefore = collectSceneFrameSnapshot(*c.playSession());
         CHECK(playBefore.sceneId == kSceneA);
@@ -3625,7 +3561,6 @@ int main() {
         ProjectDoc doc = makeInheritedDoc();
         SceneInstanceDef second = doc.scenes.at(kSceneA).instances.front();
         second.id = 99;
-        second.instanceName = "Second";
         doc.scenes.at(kSceneA).instances.push_back(second);
         EditorCoordinator c{std::move(doc)};
         CHECK(c.execute(AddCameraTargetCommand{kSceneA, kHero}).ok);
@@ -4505,10 +4440,10 @@ int main() {
         CHECK(!c.execute(SetEntityTransformCommand{kSceneA, kHero, {nan, 10.f}}).ok);
         CHECK(!c.execute(SetEntityTransformCommand{kSceneA, kHero, {10.f, inf}}).ok);
         CHECK(!c.execute(SetEntityTransformCommand{kSceneA, kHero, {negInf, 10.f}}).ok);
-        CHECK(!c.execute(CreateEntityCommand{kSceneA, 1001, "Hero", "Bad", {inf, 0.f}}).ok);
-        CHECK(!c.execute(CloneInstanceCommand{kSceneA, kHero, 1002, "Bad clone", {0.f, nan}}).ok);
+        CHECK(!c.execute(CreateEntityCommand{kSceneA, 1001, "Hero", {inf, 0.f}}).ok);
+        CHECK(!c.execute(CloneInstanceCommand{kSceneA, kHero, 1002, {0.f, nan}}).ok);
         CHECK(!c.execute(CreateEntityWithDefaultTypeCommand{
-            kSceneA, 1003, "BadType", "Bad", "Bad", {nan, 0.f}}).ok);
+            kSceneA, 1003, "BadType", "Bad", {nan, 0.f}}).ok);
         CHECK(!c.execute(SetSceneBackgroundCommand{kSceneA, {0.f, nan, 0.f, 1.f}}).ok);
 
         const SceneInstanceDef* hero = c.document().findInstanceInScene(kSceneA, kHero);
@@ -4903,7 +4838,7 @@ int main() {
             TilemapComponent tm;
             tm.tilesetAssetId = "tiles-1";
             tm.chunkSize = 16;
-            CHECK(c.execute(CreateEntityCommand{"s", 1, "Hero", "Hero", {}}).ok);
+            CHECK(c.execute(CreateEntityCommand{"s", 1, "Hero", {}}).ok);
             CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
             CHECK(c.apply(SelectEntityIntent{1}).ok);
             CHECK(selectionSupportsTilemapEditing(c.document(), c.state(), "s"));
@@ -4921,7 +4856,7 @@ int main() {
             TilemapComponent tm;
             tm.tilesetAssetId = "tiles-1";
             tm.chunkSize = 16;
-            CHECK(c.execute(CreateEntityCommand{"s", 1, "Hero", "Hero", {}, "layer-1"}).ok);
+            CHECK(c.execute(CreateEntityCommand{"s", 1, "Hero", {}, "layer-1"}).ok);
             CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
             CHECK(c.apply(SelectEntityIntent{1}).ok);
             EditorState mismatched = c.state();
@@ -4998,7 +4933,7 @@ int main() {
         CHECK(brushPres.sourceEntityId == kHero);
         CHECK(brushPres.toolbarTooltip == "Tilemap grid from \"Hero\"");
 
-        CHECK(c.execute(RenameEntityCommand{kSceneA, kHero, "Terrain"}).ok);
+        CHECK(c.execute(RenameObjectTypeCommand{"Hero", "Terrain"}).ok);
         const SceneGridPresentation renamed =
             makeSceneGridPresentation(c.document(), c.state(), kSceneA);
         CHECK(renamed.contextName == "Terrain");
@@ -5012,7 +4947,7 @@ int main() {
         CHECK(selectPres.sizeEditable == true);
         CHECK(selectPres.sourceEntityId == std::nullopt);
 
-        CHECK(c.execute(RenameEntityCommand{kSceneA, kHero, "Environment Decorations"}).ok);
+        CHECK(c.execute(RenameObjectTypeCommand{"Hero", "Environment Decorations"}).ok);
         c.apply(SetActiveToolIntent{EditorTool::Brush});
         const SceneGridPresentation longName =
             makeSceneGridPresentation(c.document(), c.state(), kSceneA);
@@ -5020,13 +4955,13 @@ int main() {
         CHECK(longName.toolbarContextName.size() < longName.contextName.size());
         CHECK(longName.toolbarContextName != longName.contextName);
 
-        CHECK(c.execute(RenameEntityCommand{kSceneA, kHero, "Decorazioni citt├á meravigliosa"}).ok);
+        CHECK(c.execute(RenameObjectTypeCommand{"Hero", "Decorazioni cittâ”œÃ¡ meravigliosa"}).ok);
         const SceneGridPresentation accented =
             makeSceneGridPresentation(c.document(), c.state(), kSceneA);
-        CHECK(accented.contextName == "Decorazioni citt├á meravigliosa");
+        CHECK(accented.contextName == "Decorazioni cittâ”œÃ¡ meravigliosa");
         CHECK(accented.toolbarContextName.size() < accented.contextName.size());
         CHECK(accented.toolbarContextName.find("Decorazioni") == 0);
-        // Truncation must not split the multibyte "├á" (0xC3 0xA0).
+        // Truncation must not split the multibyte "â”œÃ¡" (0xC3 0xA0).
         CHECK(accented.toolbarContextName.find("cit\xC3") == std::string::npos);
         CHECK(accented.toolbarContextName.find("\xE2\x80\xA6") != std::string::npos);
     }
@@ -5186,7 +5121,7 @@ int main() {
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Hero", "Hero", {}, "fg"}).ok);
+                  "s", 1, "obj-1", "Hero", {}, "fg"}).ok);
         CHECK(!c.execute(RemoveSceneLayerCommand{"s", "fg"}).ok);
     }
 
@@ -5228,8 +5163,8 @@ int main() {
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Hero", "A", {}, "layer-1"}).ok);
-        CHECK(c.execute(CreateEntityCommand{"s", 2, "obj-1", "B", {}, "fg"}).ok);  // shares type
+                  "s", 1, "obj-1", "Hero", {}, "layer-1"}).ok);
+        CHECK(c.execute(CreateEntityCommand{"s", 2, "obj-1", {}, "fg"}).ok);  // shares type
         CHECK(c.document().findInstanceInScene("s", 1)->objectTypeId
               == c.document().findInstanceInScene("s", 2)->objectTypeId);
         CHECK(c.document().findInstanceInScene("s", 1)->layerId == "layer-1");
@@ -5250,9 +5185,9 @@ int main() {
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);  // [layer-1, fg]
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Bg", "Bg", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Bg", {}, "layer-1"}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 2, "obj-2", "Fg", "Fg", {}, "fg"}).ok);
+                  "s", 2, "obj-2", "Fg", {}, "fg"}).ok);
 
         const SceneFrameSnapshot snap = collectSceneFrameSnapshot(c.document(), "s", INVALID_ENTITY);
         CHECK(snap.entities.size() == 2);
@@ -5272,7 +5207,7 @@ int main() {
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Fg", "Fg", {}, "fg"}).ok);
+                  "s", 1, "obj-1", "Fg", {}, "fg"}).ok);
         const uint64_t rev = c.document().revision();
         const bool dirtyBefore = c.document().isDirty();
         c.apply(ToggleLayerEditorVisibilityIntent{"s", "fg"});
@@ -5304,7 +5239,7 @@ int main() {
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);  // [layer-1, fg]
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Hero", "Hero", {}, "fg"}).ok);
+                  "s", 1, "obj-1", "Hero", {}, "fg"}).ok);
         const std::filesystem::path path = testTempDir() / "layers.artcade-project";
         CHECK(saveProjectToFile(c, path).ok);
         EditorCoordinator r{ProjectDoc{}};
@@ -5408,7 +5343,7 @@ int main() {
 
         CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Hero", {}, "layer-1"}).ok);
         CHECK(c.execute(SetLayerLockedCommand{"s", "fg", true}).ok);
         CHECK(!c.execute(SetEntityLayerCommand{"s", 1, "fg"}).ok);      // target locked
         CHECK(c.execute(SetLayerLockedCommand{"s", "fg", false}).ok);
@@ -5432,7 +5367,7 @@ int main() {
         AddSceneLayerCommand addFg{"s", "fg", "Foreground", 1};
         CHECK(addFg.apply(doc).ok);
         CreateEntityWithDefaultTypeCommand createHero{
-            "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"};
+            "s", 1, "obj-1", "Hero", {}, "layer-1"};
         CHECK(createHero.apply(doc).ok);
 
         SetEntityLayerCommand moveToFg{"s", 1, "fg"};
@@ -5473,19 +5408,18 @@ int main() {
         EditorCoordinator c{ProjectDoc{}};
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Hero", {}, "layer-1"}).ok);
         CHECK(c.execute(AddSpriteRendererToObjectTypeCommand{"obj-1"}).ok);
         CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", true}).ok);
 
         CHECK(!c.execute(SetEntityTransformCommand{"s", 1, {5.f, 5.f}}).ok);
-        CHECK(!c.execute(RenameEntityCommand{"s", 1, "New Name"}).ok);
-        CHECK(!c.execute(CloneInstanceCommand{"s", 1, 2, "Clone", {}}).ok);
+        CHECK(!c.execute(CloneInstanceCommand{"s", 1, 2, {}}).ok);
         SpriteRendererOverride lockedDelta; lockedDelta.visible = false;
         CHECK(!c.execute(SetInstanceSpriteOverrideCommand{"s", 1, lockedDelta}).ok);
         CHECK(!c.execute(AddTilemapComponentCommand{"s", 1, TilemapComponent{}}).ok);
         CHECK(!c.execute(DeleteEntityCommand{"s", 1}).ok);
         // Creating a new instance directly into the locked layer is rejected too.
-        CHECK(!c.execute(CreateEntityCommand{"s", 2, "obj-1", "B", {}, "layer-1"}).ok);
+        CHECK(!c.execute(CreateEntityCommand{"s", 2, "obj-1", {}, "layer-1"}).ok);
 
         CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", false}).ok);
         CHECK(c.execute(SetEntityTransformCommand{"s", 1, {5.f, 5.f}}).ok);   // unlocked: succeeds
@@ -5498,8 +5432,8 @@ int main() {
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "A", "A", {}, "layer-1"}).ok);
-        CHECK(c.execute(CreateEntityCommand{"s", 2, "obj-1", "B", {}, "fg"}).ok);  // shares obj-1
+                  "s", 1, "obj-1", "A", {}, "layer-1"}).ok);
+        CHECK(c.execute(CreateEntityCommand{"s", 2, "obj-1", {}, "fg"}).ok);  // shares obj-1
         CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", true}).ok);
         // Entity 1 sits on the now-locked layer-1, but Box Collider 2D belongs
         // to the shared object type obj-1, not to entity 1 specifically.
@@ -5536,7 +5470,7 @@ int main() {
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         c.apply(SelectSceneIntent{"s"});
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Hero", {}, "layer-1"}).ok);
         CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", true}).ok);
 
         c.apply(SelectEntityIntent{1});                       // Hierarchy selection unaffected
@@ -5561,7 +5495,7 @@ int main() {
         EditorCoordinator c{ProjectDoc{}};
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Hero", {}, "layer-1"}).ok);
         CHECK(c.execute(SetEntityTransformCommand{"s", 1, {5.f, 5.f}}).ok);   // before the lock
         CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", true}).ok);
 
@@ -5582,7 +5516,7 @@ int main() {
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Hero", "Hero", {}, "fg"}).ok);
+                  "s", 1, "obj-1", "Hero", {}, "fg"}).ok);
         CHECK(c.execute(DeleteEntityCommand{"s", 1}).ok);
         CHECK(c.execute(SetLayerLockedCommand{"s", "fg", true}).ok);
         CHECK(c.undo().ok);                                  // undoes SetLayerLocked
@@ -5606,7 +5540,7 @@ int main() {
         c.apply(SelectSceneIntent{"s"});
         CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Hero", "Hero", {}, "fg"}).ok);
+                  "s", 1, "obj-1", "Hero", {}, "fg"}).ok);
         CHECK(c.activeLayerId("s") == "layer-1");   // still the default until selected
         c.apply(SelectEntityIntent{1});
         CHECK(c.activeLayerId("s") == "fg");        // synced to the entity's own layer
@@ -5627,7 +5561,7 @@ int main() {
         CHECK(c.execute(AddImageAssetCommand{"img-1", "some/path.png"}).ok);
         CHECK(c.execute(AddTilesetAssetCommand{"tiles-1", "Tiles", "img-1", TilesetSlicing{32, 32}}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Ground", "Ground", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Ground", {}, "layer-1"}).ok);
         TilemapComponent tm;
         tm.tilesetAssetId = "tiles-1";
         CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
@@ -5645,7 +5579,7 @@ int main() {
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         c.apply(SelectSceneIntent{"s"});
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Hero", {}, "layer-1"}).ok);
         c.apply(SelectEntityIntent{1});
         c.apply(SetActiveLayerIntent{"s", "layer-1"});   // the layer entity 1 is already on
         CHECK(c.selection().primaryEntity == 1);         // survives: still the active layer
@@ -5664,7 +5598,7 @@ int main() {
         TilemapComponent tm;
         tm.tilesetAssetId = "tiles-1";
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Ground", "Ground", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Ground", {}, "layer-1"}).ok);
         CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
 
         c.apply(SetActiveLayerIntent{"s", "fg"});   // active is "fg"; entity 1 is on "layer-1"
@@ -5693,7 +5627,7 @@ int main() {
         TilemapComponent tm;
         tm.tilesetAssetId = "tiles-1";
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Ground", "Ground", {}, ""}).ok);   // "" -> default layer
+                  "s", 1, "obj-1", "Ground", {}, ""}).ok);   // "" -> default layer
         CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
         CHECK(c.execute(SetLayerLockedCommand{"s", "layer-1", true}).ok);   // locks the default
 
@@ -5714,7 +5648,7 @@ int main() {
         c.apply(SelectSceneIntent{"s"});
         CHECK(c.execute(AddSceneLayerCommand{"s", "fg", "Foreground", 1}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Hero", {}, "layer-1"}).ok);
         c.apply(SelectEntityIntent{1});
         CHECK(c.activeLayerId("s") == "layer-1");
 
@@ -5742,7 +5676,7 @@ int main() {
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         c.apply(SelectSceneIntent{"s"});
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Hero", {}, "layer-1"}).ok);
         c.apply(SelectEntityIntent{1});
         const std::size_t undoBefore = c.undoSize();
         const std::size_t consoleBefore = c.consoleLog().size();
@@ -5762,7 +5696,7 @@ int main() {
         CHECK(c.execute(AddSceneLayerCommand{"s", "bg", "Background", 1}).ok);
         c.apply(ToggleLayerEditorVisibilityIntent{"s", "bg"});   // hide it
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Hero", {}, "layer-1"}).ok);
         c.apply(SelectEntityIntent{1});
         const std::size_t consoleBefore = c.consoleLog().size();
 
@@ -5777,7 +5711,7 @@ int main() {
         CHECK(c.sceneView("s").hiddenLayerIds.count("bg") == 1);
 
         const std::size_t consoleAfterMove = c.consoleLog().size();
-        CHECK(c.execute(RenameEntityCommand{"s", 1, "Hero Renamed"}).ok);   // unrelated command
+        CHECK(c.execute(RenameObjectTypeCommand{"obj-1", "Hero Renamed"}).ok);
         CHECK(c.consoleLog().size() == consoleAfterMove);   // no repeated announcement
     }
 
@@ -5794,7 +5728,7 @@ int main() {
         CHECK(c.execute(ChangeTilesetSlicingCommand{
                   "tiles-1", slicing, tilesForSlicing(64, 64, slicing)}).ok);   // "tile-1".."tile-4"
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Ground", "Ground", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Ground", {}, "layer-1"}).ok);
         TilemapComponent tm;
         tm.tilesetAssetId = "tiles-1";
         CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
@@ -5830,11 +5764,11 @@ int main() {
                   "tiles-1", TilesetSlicing{32, 32},
                   tilesForSlicing(64, 64, TilesetSlicing{32, 32})}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Ground", "Ground", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Ground", {}, "layer-1"}).ok);
         TilemapComponent tm; tm.tilesetAssetId = "tiles-1";
         CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 2, "obj-2", "Hero", "Hero", {5.f, 5.f}, "layer-1"}).ok);
+                  "s", 2, "obj-2", "Hero", {5.f, 5.f}, "layer-1"}).ok);
 
         // 1. Eraser active on the tilemap entity.
         c.apply(SelectEntityIntent{1});
@@ -5875,7 +5809,7 @@ int main() {
                   "tiles-1", TilesetSlicing{32, 32},
                   tilesForSlicing(64, 64, TilesetSlicing{32, 32})}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Ground", "Ground", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Ground", {}, "layer-1"}).ok);
         TilemapComponent tm; tm.tilesetAssetId = "tiles-1";
         CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
 
@@ -5913,11 +5847,11 @@ int main() {
                   tilesForSlicing(32, 32, TilesetSlicing{32, 32})}).ok);
 
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Ground", "Ground", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Ground", {}, "layer-1"}).ok);
         TilemapComponent tmA; tmA.tilesetAssetId = "tiles-1";
         CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tmA}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 2, "obj-2", "Decoration", "Decoration", {}, "layer-1"}).ok);
+                  "s", 2, "obj-2", "Decoration", {}, "layer-1"}).ok);
         TilemapComponent tmB; tmB.tilesetAssetId = "tiles-2";
         CHECK(c.execute(AddTilemapComponentCommand{"s", 2, tmB}).ok);
 
@@ -5959,7 +5893,7 @@ int main() {
                   "tiles-1", TilesetSlicing{32, 32},
                   tilesForSlicing(64, 64, TilesetSlicing{32, 32})}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Ground", "Ground", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Ground", {}, "layer-1"}).ok);
         TilemapComponent tm; tm.tilesetAssetId = "tiles-1";
         CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
 
@@ -5983,7 +5917,7 @@ int main() {
         CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
         c.apply(SelectSceneIntent{"s"});
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Hero", "Hero", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Hero", {}, "layer-1"}).ok);
         c.apply(SetActiveToolIntent{EditorTool::Pan});
         CHECK(c.apply(SelectEntityIntent{1}).ok);
         CHECK(c.state().activeTool == EditorTool::Pan);
@@ -6003,11 +5937,11 @@ int main() {
                   "tiles-1", TilesetSlicing{32, 32},
                   tilesForSlicing(64, 64, TilesetSlicing{32, 32})}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Ground", "Ground", {}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Ground", {}, "layer-1"}).ok);
         TilemapComponent tm1; tm1.tilesetAssetId = "tiles-1";
         CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm1}).ok);
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 2, "obj-2", "Decoration", "Decoration", {}, "layer-1"}).ok);
+                  "s", 2, "obj-2", "Decoration", {}, "layer-1"}).ok);
         TilemapComponent tm2; tm2.tilesetAssetId = "tiles-1";
         CHECK(c.execute(AddTilemapComponentCommand{"s", 2, tm2}).ok);
 
@@ -6036,7 +5970,7 @@ int main() {
                   tilesForSlicing(64, 64, TilesetSlicing{32, 32})}).ok);
 
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 1, "obj-1", "Ground", "Ground", {16.f, 16.f}, "layer-1"}).ok);
+                  "s", 1, "obj-1", "Ground", {16.f, 16.f}, "layer-1"}).ok);
         TilemapComponent tm; tm.tilesetAssetId = "tiles-1"; tm.cellSize = {32.f, 32.f};
         CHECK(c.execute(AddTilemapComponentCommand{"s", 1, tm}).ok);
         std::vector<TilemapCellChange> changes;
@@ -6045,7 +5979,7 @@ int main() {
         CHECK(c.execute(PaintTilemapCellsCommand{"s", 1, changes}).ok);
 
         CHECK(c.execute(CreateEntityWithDefaultTypeCommand{
-                  "s", 2, "obj-2", "Hero", "Hero", {16.f, 16.f}, "fg"}).ok);
+                  "s", 2, "obj-2", "Hero", {16.f, 16.f}, "fg"}).ok);
         CHECK(c.execute(AddSpriteRendererToObjectTypeCommand{"obj-2"}).ok);
         CHECK(c.execute(SetObjectTypeSpriteSourceCommand{
             "obj-2", ObjectTypeSpriteSourceKind::Image, "img-1"}).ok);
@@ -6300,7 +6234,6 @@ int main() {
         SceneInstanceDef second;
         second.id = 314;
         second.objectTypeId = "Hero";
-        second.instanceName = "Hero 2";
         second.transform.position = {100.f, 200.f};
         doc.scenes.at(kSceneA).instances.push_back(second);
 
@@ -6309,7 +6242,7 @@ int main() {
         CHECK(c.execute(SetBoxColliderOffsetCommand{"Hero", Vec2{2.f, 3.f}}).ok);
         CHECK(c.execute(SetBoxColliderSizeCommand{"Hero", Vec2{10.f, 20.f}}).ok);
 
-        c.execute(CreateEntityCommand{kSceneA, 777, "Enemy", "Enemy", {300.f, 400.f}});
+        c.execute(CreateEntityCommand{kSceneA, 777, "Enemy", {300.f, 400.f}});
 
         const std::vector<SceneFrameCollider> bounds =
             collectBoxColliderBounds(c.document(), kSceneA, kHero);
@@ -6325,7 +6258,7 @@ int main() {
         CHECK(!bounds[1].selected);
 
         // Instance scale must enlarge/shrink the overlay the same way Play
-        // scales CollisionWorld::shapeInstance (ADR-0014 local size × |scale|).
+        // scales CollisionWorld::shapeInstance (ADR-0014 local size Ã— |scale|).
         {
             CHECK(c.execute(SetEntityTransformCommand{
                 kSceneA, kHero,
@@ -6464,7 +6397,7 @@ int main() {
     }
 
     // ========================================================================
-    // ADR-0030 — RecentProjectsStore (app-local MRU; no ProjectDocument)
+    // ADR-0030 â€” RecentProjectsStore (app-local MRU; no ProjectDocument)
     // ========================================================================
     {
         RecentProjectsStore store;
@@ -6516,7 +6449,7 @@ int main() {
             CHECK(roundtrip.entries()[i].displayName == store.entries()[i].displayName);
             CHECK(roundtrip.entries()[i].lastOpenedUtc == store.entries()[i].lastOpenedUtc);
         }
-        // Equivalent content → no revision bump.
+        // Equivalent content â†’ no revision bump.
         CHECK(roundtrip.fromJson(json));
         CHECK(roundtrip.revision() == 1);
 

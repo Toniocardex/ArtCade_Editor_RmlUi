@@ -127,7 +127,7 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
         // (a separate, editor-only declutter concept) deliberately does
         // instead - see the loop below.
         SceneFrameEntity entityEntry{
-            inst.id, inst.instanceName,
+            inst.id, document.instanceDisplayName(sceneId, inst.id),
             fill ? *fill : Vec3{0.47f, 0.49f, 0.52f}, bounds, selected, xf.rotationRadians};
         entityEntry.visibleInGame = inst.visible;
         snapshot.entities.push_back(entityEntry);

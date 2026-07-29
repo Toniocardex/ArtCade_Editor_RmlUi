@@ -31,7 +31,9 @@ vendor/dist/
 # ADR-0019: shipping player binary (refreshed via scripts/refresh-export-templates.bat)
 src/editor-native/resources/export-templates/**/game.exe
 
-# Phase-4 visual regression artefacts (references and fixture are committed)
+# Phase-4 visual regression artefacts (references are committed; the editable
+# visual-fixture project is local test data)
 tests/reference/*.actual.png
 tests/reference/*.diff.png
 ui-capture.png
+tests/reference/visual-fixture/visual-fixture.artcade

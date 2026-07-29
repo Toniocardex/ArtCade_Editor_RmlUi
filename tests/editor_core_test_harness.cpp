@@ -34,6 +34,7 @@ int g_failed = 0;
 
 ProjectDoc makeDoc() {
     ProjectDoc doc;
+    doc.formatVersion = 12;
     doc.projectName = "spike";
     doc.activeSceneId = kSceneA; // persisted gameplay start scene, not editor focus
 
@@ -49,7 +50,6 @@ ProjectDoc makeDoc() {
     SceneInstanceDef hero;
     hero.id = kHero;
     hero.objectTypeId = "Hero";
-    hero.instanceName = "Hero";
     hero.layerId = "layer-1";
     hero.transform.position = {10.f, 20.f};
     a.instances.push_back(hero);
@@ -71,6 +71,7 @@ ProjectDoc makeDoc() {
 
 ProjectDoc makeReplacementDoc() {
     ProjectDoc doc;
+    doc.formatVersion = 12;
     doc.projectName = "replacement";
     doc.activeSceneId = "scene-replacement";
 
@@ -82,7 +83,6 @@ ProjectDoc makeReplacementDoc() {
     SceneInstanceDef instance;
     instance.id = 77;
     instance.objectTypeId = "Enemy";
-    instance.instanceName = "Enemy";
     instance.layerId = "layer-1";
     instance.transform.position = {7.f, 8.f};
     scene.instances.push_back(instance);
@@ -173,6 +173,7 @@ ProjectDoc makeTopDownDoc(float speed) {
 
 ProjectDoc makeEmptyDoc() {
     ProjectDoc doc;
+    doc.formatVersion = 12;
     doc.projectName = "empty";
     doc.activeSceneId = "missing";
     return doc;
@@ -180,34 +181,41 @@ ProjectDoc makeEmptyDoc() {
 
 std::string validProjectJson() {
     return R"json({
-  "formatVersion": 1,
+  "formatVersion": 12,
   "projectName": "LoadedProject",
   "activeSceneId": "loaded-scene",
-  "scenes": [
-    {
+  "globalVariables": [],
+  "objectTypes": [{ "id": "LoadedType", "name": "Loaded Type", "visible": true }],
+  "scenes": {
+    "loaded-scene": {
       "id": "loaded-scene",
       "name": "Loaded Scene",
+      "layers": [{ "id": "layer-1", "name": "Layer 1", "locked": false }],
+      "defaultLayerId": "layer-1",
       "instances": [
         {
           "id": 88,
           "objectTypeId": "LoadedType",
-          "instanceName": "Loaded Entity",
+          "layerId": "layer-1",
           "transform": { "position": { "x": 123, "y": 456 } }
         }
       ]
     }
-  ]
+  }
 })json";
 }
 
 std::string danglingStartJson() {
     return R"json({
-  "formatVersion": 1,
+  "formatVersion": 12,
   "projectName": "Dangling",
   "activeSceneId": "missing",
-  "scenes": [
-    { "id": "real-scene", "name": "Real Scene" }
-  ]
+  "globalVariables": [],
+  "objectTypes": [],
+  "scenes": { "real-scene": {
+    "id": "real-scene", "name": "Real Scene",
+    "layers": [{ "id": "layer-1", "name": "Layer 1" }], "defaultLayerId": "layer-1"
+  }}
 })json";
 }
 

@@ -64,6 +64,10 @@ bool validate_scene_document(const SceneDef &scene, std::string &error_message)
     }
     EntityId cameraTargetId = INVALID_ENTITY;
     for (const SceneInstanceDef &instance : scene.instances) {
+        if (instance.id == INVALID_ENTITY || instance.objectTypeId.empty()) {
+            error_message = "Scene \"" + scene.id + "\" contains an instance without id or objectTypeId.";
+            return false;
+        }
         if (instance.layerId.empty() || !scene_has_layer(scene, instance.layerId)) {
             error_message = "Scene \"" + scene.id + "\" contains an instance with an invalid layerId.";
             return false;
@@ -123,6 +127,17 @@ bool validate_current_project_document(const ProjectDoc &document, std::string &
     if (!validate_current_global_variables_document(document.globalVariables, error_message)) {
         return false;
     }
+    std::unordered_set<std::string> object_type_names;
+    for (const auto &[object_type_id, object_type] : document.objectTypes) {
+        if (object_type_id.empty() || normalized_name(object_type.name).empty()) {
+            error_message = "Object Type id and name must be non-empty.";
+            return false;
+        }
+        if (!object_type_names.insert(normalized_name(object_type.name)).second) {
+            error_message = "Object Type names must be unique.";
+            return false;
+        }
+    }
     for (const auto &[scene_id, scene] : document.scenes) {
         if (scene_id != scene.id) {
             error_message = "Scene map key and scene id must match.";
@@ -130,6 +145,13 @@ bool validate_current_project_document(const ProjectDoc &document, std::string &
         }
         if (!validate_scene_document(scene, error_message)) {
             return false;
+        }
+        for (const SceneInstanceDef &instance : scene.instances) {
+            if (document.objectTypes.find(instance.objectTypeId) == document.objectTypes.end()) {
+                error_message = "Scene \"" + scene_id
+                    + "\" references a missing Object Type \"" + instance.objectTypeId + "\".";
+                return false;
+            }
         }
     }
     return true;
@@ -169,6 +191,32 @@ bool validate_current_project_json(const nlohmann::json &root, std::string &erro
     ProjectDoc document;
     document.formatVersion = kCurrentProjectFormatVersion;
     document.activeSceneId = root["activeSceneId"].get<std::string>();
+    if (!root.contains("objectTypes") || !root["objectTypes"].is_array()) {
+        error_message = "Project requires an objectTypes array.";
+        return false;
+    }
+    std::unordered_set<std::string> object_type_ids;
+    std::unordered_set<std::string> object_type_names;
+    for (const auto &raw_type : root["objectTypes"]) {
+        if (!raw_type.is_object() || !raw_type.contains("id") || !raw_type["id"].is_string()
+            || raw_type["id"].get<std::string>().empty()
+            || !raw_type.contains("name") || !raw_type["name"].is_string()
+            || normalized_name(raw_type["name"].get<std::string>()).empty()) {
+            error_message = "Each Object Type requires a non-empty id and name.";
+            return false;
+        }
+        const std::string id = raw_type["id"].get<std::string>();
+        const std::string name = raw_type["name"].get<std::string>();
+        if (!object_type_ids.insert(id).second
+            || !object_type_names.insert(normalized_name(name)).second) {
+            error_message = "Object Type ids and names must be unique.";
+            return false;
+        }
+        EntityDef type;
+        type.className = id;
+        type.name = name;
+        document.objectTypes.emplace(id, std::move(type));
+    }
     for (const auto &[scene_id, raw_scene] : root["scenes"].items()) {
         if (!raw_scene.is_object()
             || reject_legacy_key(raw_scene, "default_layer_id", error_message)
@@ -214,9 +262,16 @@ bool validate_current_project_json(const nlohmann::json &root, std::string &erro
             }
             bool has_camera_target = false;
             for (const auto &raw_instance : raw_scene["instances"]) {
-                if (!raw_instance.is_object() || !raw_instance.contains("layerId")
+                if (!raw_instance.is_object() || raw_instance.contains("instanceName")
+                    || !raw_instance.contains("id") || !raw_instance["id"].is_number_unsigned()
+                    || raw_instance["id"].get<EntityId>() == INVALID_ENTITY
+                    || !raw_instance.contains("objectTypeId")
+                    || !raw_instance["objectTypeId"].is_string()
+                    || raw_instance["objectTypeId"].get<std::string>().empty()
+                    || !raw_instance.contains("layerId")
                     || !raw_instance["layerId"].is_string()) {
-                    error_message = "Scene \"" + scene_id + "\" has an instance without layerId.";
+                    error_message = "Scene \"" + scene_id
+                        + "\" has an invalid instance record.";
                     return false;
                 }
                 if (raw_instance.contains("cameraTarget")) {
@@ -233,6 +288,8 @@ bool validate_current_project_json(const nlohmann::json &root, std::string &erro
                     has_camera_target = true;
                 }
                 SceneInstanceDef instance;
+                instance.id = raw_instance["id"].get<EntityId>();
+                instance.objectTypeId = raw_instance["objectTypeId"].get<std::string>();
                 instance.layerId = raw_instance["layerId"].get<std::string>();
                 scene.instances.push_back(std::move(instance));
             }

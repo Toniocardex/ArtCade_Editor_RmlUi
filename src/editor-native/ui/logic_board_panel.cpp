@@ -253,9 +253,9 @@ std::string logicRuleSummary(const LogicRuleDef& rule) {
 
 const char* executionModeLabel(LogicExecutionMode mode) {
     switch (mode) {
-    case LogicExecutionMode::OncePerActivation: return "Once per activation";
+    case LogicExecutionMode::OncePerActivation: return "Once when active";
     case LogicExecutionMode::EveryOccurrence:
-    default: return "Every occurrence";
+    default: return "Every time";
     }
 }
 
@@ -1011,11 +1011,11 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             if (runDropdownOpen) {
                 html += "<div class=\"drop-list logic-key-list\">"
                      + dropEntry(
-                           dropdownNav_, "Every occurrence", "every_occurrence",
+                           dropdownNav_, "Every time", "every_occurrence",
                            actionDef.executionMode == LogicExecutionMode::EveryOccurrence,
                            runDropdownId, "set-logic-action-execution-mode", arg)
                      + dropEntry(
-                           dropdownNav_, "Once per activation", "once_per_activation",
+                           dropdownNav_, "Once when active", "once_per_activation",
                            actionDef.executionMode == LogicExecutionMode::OncePerActivation,
                            runDropdownId, "set-logic-action-execution-mode", arg)
                      + "</div>";

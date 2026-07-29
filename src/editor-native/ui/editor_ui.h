@@ -268,10 +268,6 @@ public:
     bool copySelectedConsoleMessage();
     bool hasConsoleMessageSelected() const;
 
-    // F2: rename the selected instance in Hierarchy; otherwise the active Scene Layer.
-    void beginHierarchyOrLayerRename();
-    bool hasHierarchyRenameDraft() const;
-    void cancelHierarchyRename();
     bool hasBackgroundOpacityDraft() const;
     /** Expand layer + scroll Hierarchy to an instance after Duplicate (presentation only). */
     void requestHierarchyReveal(const SceneId& sceneId, EntityId id, const std::string& layerId);

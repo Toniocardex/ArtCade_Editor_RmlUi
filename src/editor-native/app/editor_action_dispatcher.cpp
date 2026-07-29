@@ -113,9 +113,6 @@ EditorActionResult EditorActionDispatcher::executeEnabled(
     case EditorActionId::SceneCreateInstanceOfSelectedType:
         addInstanceOfSelectedType(coordinator_);
         return EditorActionResult::executed();
-    case EditorActionId::SceneRenameSelection:
-        ui_.beginHierarchyOrLayerRename();
-        return EditorActionResult::executed();
     case EditorActionId::SceneDeleteSelection:
         deleteSelectedEntity(coordinator_);
         return EditorActionResult::executed();
@@ -186,9 +183,6 @@ EditorActionResult EditorActionDispatcher::executeEnabled(
             ui_.hideContextMenus();
             ui_.dismissInspectorTransientMenus();
             ui_.dismissLogicBoardTransientMenus();
-            return EditorActionResult::executed();
-        case EscapeOwner::InlineRename:
-            ui_.cancelHierarchyRename();
             return EditorActionResult::executed();
         case EscapeOwner::BackgroundOpacityDraft:
             ui_.cancelSceneBackgroundOpacityDrag();

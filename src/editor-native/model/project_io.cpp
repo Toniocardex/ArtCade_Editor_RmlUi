@@ -47,7 +47,7 @@ namespace {
 // carry no mirrored display name; provenance is derived and validated.
 // v7: Object-Type-owned ordered Script attachments. Project JSON still stores
 // metadata only; source text remains in project-relative .lua files.
-constexpr int kCurrentSchemaVersion = 11;
+constexpr int kCurrentSchemaVersion = 12;
 
 } // namespace
 
@@ -379,7 +379,8 @@ bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
     out = SceneInstanceDef{};
     out.id = readNumber<EntityId>(value, "id", 0u, "scenes[].instances[].id");
     out.objectTypeId = readString(value, "objectTypeId", "object_type_id");
-    out.instanceName = readString(value, "instanceName", "instance_name");
+    if (value.contains("instanceName") || value.contains("instance_name"))
+        throw JsonReadError("scenes[].instances[].instanceName is not supported in format v12");
     if (value.contains("transform")) out.transform = readTransform(value["transform"]);
     out.visible = readBool(value, "visible", out.visible, "scenes[].instances[].visible");
     out.layerId = readString(value, "layerId", "layer_id");
@@ -803,7 +804,6 @@ nlohmann::json instanceToJson(const SceneInstanceDef& instance) {
     nlohmann::json json{
         {"id", instance.id},
         {"objectTypeId", instance.objectTypeId},
-        {"instanceName", instance.instanceName},
         {"transform", transformToJson(instance.transform)},
         {"visible", instance.visible},
         {"layerId", instance.layerId},
@@ -1539,28 +1539,20 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
     doc.formatVersion = readAliasedNumber<int>(
         root, "formatVersion", "format_version", 0, "formatVersion");
 
-    // RU-01: current-format files delegate entirely to the canonical
-    // ProjectJson::read_* readers (deserializeCanonical, above) - the same
-    // ones AssetLoader::parseProjectJson uses. `validate_current_project_json`
-    // (called first, inside deserializeCanonical) enforces the runtime's full
-    // export-time contract - e.g. every scene needs a non-empty `layers`
-    // array - which is stricter than what the editor's own authoring model
-    // requires while a document is still mid-edit (several editor test
-    // fixtures deliberately build layer-less scenes because they're not
-    // exercising the layer system). A conformant v9 file always takes this
-    // path and returns here; one that doesn't fully conform yet falls through
-    // to the legacy parser below unchanged, exactly like before RU-01 - the
-    // editor stays able to open/round-trip an in-progress document the
-    // runtime's stricter contract would reject outright. Older files
-    // (formatVersion < kCurrentSchemaVersion) always fall through too: the
-    // canonical parser rejects anything but the current format by design
-    // (RU-01a), and ProjectMigration::migrate (unchanged) needs a fully-
-    // parsed legacy-shape ProjectDoc to upgrade from.
-    if (doc.formatVersion == kCurrentSchemaVersion) {
-        DeserializeResult canonical = deserializeCanonical(root);
-        if (canonical.ok) return canonical;
+    // ADR-0048: alpha schema v12 is deliberately strict and has no legacy
+    // import path. Reject before any fallback parser can materialise obsolete
+    // fields into memory.
+    if (doc.formatVersion != kCurrentSchemaVersion) {
+        return DeserializeResult::failure("Unsupported project schema version");
     }
+    DeserializeResult canonical = deserializeCanonical(root);
+    if (canonical.ok) return canonical;
 
+    // The editor may persist a v12 document while it is still being authored
+    // (for example an intentionally empty new project), which is not yet a
+    // runtime-exportable canonical project. Its parser remains permitted here,
+    // but only after the strict schema gate above; readInstance() rejects the
+    // removed instanceName member on this path as well.
     readScenes(root, doc);
 
     if (const nlohmann::json* objectTypes = optionalArray(root, "objectTypes", "objectTypes")) {
@@ -2213,25 +2205,8 @@ SerializeResult ProjectSerializer::serialize(const ProjectDocument& document) {
 
 DeserializeResult ProjectMigration::migrate(ProjectDocument document) {
     const int version = document.data().formatVersion;
-    if (version < 0 || version > kCurrentSchemaVersion) {
+    if (version != kCurrentSchemaVersion) {
         return DeserializeResult::failure("Unsupported project schema version");
-    }
-    if (version < kCurrentSchemaVersion) {
-        ProjectDoc migrated = document.data();
-        if (version < 4) migrateSpriteOwnershipToObjectTypes(migrated);
-        if (version < 8) migrateGeneratedSfxAuthority(migrated);
-        if (version < 9) migrateSpriteAnimationOwnershipV9(migrated);
-        if (version < 10) migrateSpritePresentationV10(migrated);
-        if (version < 11) {
-            // ADR-0028: Logic Board schema 3→4 is applied by logicBoardFromJson on
-            // disk load; bump any already-materialized boards still marked 3.
-            for (auto& [_, type] : migrated.objectTypes) {
-                if (type.logicBoard && type.logicBoard->schemaVersion == 3u)
-                    type.logicBoard->schemaVersion = Logic::kLogicBoardSchemaVersion;
-            }
-        }
-        migrated.formatVersion = kCurrentSchemaVersion;
-        return DeserializeResult::success(ProjectDocument{std::move(migrated)});
     }
     return DeserializeResult::success(std::move(document));
 }
@@ -2239,13 +2214,35 @@ DeserializeResult ProjectMigration::migrate(ProjectDocument document) {
 DeserializeResult ProjectValidator::validate(ProjectDocument document) {
     const ProjectDoc& data = document.data();
 
+    if (data.formatVersion != kCurrentSchemaVersion) {
+        return DeserializeResult::failure("Unsupported project schema version");
+    }
+
     std::string globalVariableError;
     if (!ProjectJson::validate_current_global_variables_document(
             data.globalVariables, globalVariableError)) {
         return DeserializeResult::failure(globalVariableError);
     }
 
+    std::unordered_set<std::string> objectTypeNames;
     for (const auto& [objectTypeId, type] : data.objectTypes) {
+        if (objectTypeId.empty() || type.name.empty()) {
+            return DeserializeResult::failure("Object Type id and name cannot be empty");
+        }
+        std::string normalizedName;
+        normalizedName.reserve(type.name.size());
+        for (const unsigned char character : type.name) {
+            normalizedName.push_back(static_cast<char>(std::tolower(character)));
+        }
+        const std::size_t first = normalizedName.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos) {
+            return DeserializeResult::failure("Object Type name cannot be blank");
+        }
+        normalizedName = normalizedName.substr(
+            first, normalizedName.find_last_not_of(" \t\r\n") - first + 1);
+        if (!objectTypeNames.insert(normalizedName).second) {
+            return DeserializeResult::failure("Object Type name must be unique");
+        }
         // ADR-0031: an Object Type's own variables answer to the same key and
         // type rules as the project's.
         std::string objectVariableError;
@@ -2589,11 +2586,7 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
                 && layerIds.count(instance.layerId) == 0) {
                 return DeserializeResult::failure("Instance references a missing scene layer");
             }
-            // When the project defines an object-type catalog, every instance must
-            // reference an existing type (a dangling reference is rejected). A
-            // catalog-less minimal project leaves objectTypeId as a free label.
-            if (!data.objectTypes.empty()
-                && data.objectTypes.find(instance.objectTypeId) == data.objectTypes.end()) {
+            if (data.objectTypes.find(instance.objectTypeId) == data.objectTypes.end()) {
                 return DeserializeResult::failure("Instance references a missing object type");
             }
             ResolvedSpritePresentation presentation;

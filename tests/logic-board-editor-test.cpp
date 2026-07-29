@@ -34,7 +34,7 @@ static int failed = 0;
 // (per-entity gameplay/physics internals) - only the render hand-off,
 // renderables(), which needs a SpriteComponent (see makeProjectData()'s
 // spriteRenderer) to enumerate an entity at all.
-// renderables() returns by value — never return & into that temporary.
+// renderables() returns by value â€” never return & into that temporary.
 static std::optional<ArtCade::RenderableEntitySnapshot> findRenderable(
     const PlaySession& session, EntityId id) {
     for (const auto& entity : session.renderables())
@@ -50,7 +50,7 @@ static AssetId resolvedSpriteAssetId(const ArtCade::RenderableEntitySnapshot& en
 
 static ProjectDoc makeProjectData() {
     ProjectDoc doc;
-    doc.formatVersion = 4;
+    doc.formatVersion = 12;
     doc.projectName = "Logic Test";
     EntityDef hero;
     hero.name = "Hero";
@@ -71,7 +71,6 @@ static ProjectDoc makeProjectData() {
     SceneInstanceDef instance;
     instance.id = 1;
     instance.objectTypeId = "Hero";
-    instance.instanceName = "Hero 1";
     instance.layerId = "layer-1";
     instance.transform.position = {5.f, 6.f};
     scene.instances.push_back(instance);
@@ -112,7 +111,7 @@ static void testCommandsAndPersistence() {
 
     const auto serialized = ProjectSerializer::serialize(coordinator.document());
     CHECK(serialized.ok);
-    CHECK(serialized.value.find("\"formatVersion\": 11") != std::string::npos);
+    CHECK(serialized.value.find("\"formatVersion\": 12") != std::string::npos);
     const auto loaded = ProjectSerializer::deserialize(serialized.value);
     CHECK(loaded.ok);
     CHECK(loaded.value.data().objectTypes.at("Hero").logicBoard.has_value());
@@ -132,17 +131,15 @@ static void testCommandsAndPersistence() {
         while (end < v2.size() && (v2[end] == '\r' || v2[end] == '\n')) ++end;
         v2.erase(boardAt, end - boardAt);
     }
-    const std::string currentVersion = "\"formatVersion\": 11";
+    const std::string currentVersion = "\"formatVersion\": 12";
     const std::size_t version = v2.find(currentVersion);
     if (version != std::string::npos) {
         v2.replace(version, currentVersion.size(), "\"formatVersion\": 2");
     }
-    auto migratedRaw = ProjectSerializer::deserialize(v2);
-    CHECK(migratedRaw.ok);
-    auto migrated = ProjectMigration::migrate(std::move(migratedRaw.value));
-    CHECK(migrated.ok);
-    CHECK(migrated.value.data().formatVersion == 11);
-    CHECK(!migrated.value.data().objectTypes.at("Hero").logicBoard.has_value());
+    // ADR-0048: schema v12 is alpha-breaking; older files are rejected
+    // rather than migrated or partially imported.
+    const auto migratedRaw = ProjectSerializer::deserialize(v2);
+    CHECK(!migratedRaw.ok);
 
     std::string malformed = serialized.value;
     const std::size_t trigger = malformed.find("event.on_start");
@@ -721,7 +718,7 @@ static void testConditionCompatibility() {
     const LogicBoardDef& empty = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     const LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
-    // Is Grounded requires Platformer — StructuralCommit still allows the edit
+    // Is Grounded requires Platformer â€” StructuralCommit still allows the edit
     // (ADR-0013); AuthoringDiagnostics reports LB_INCOMPATIBLE_BLOCK.
     const auto result = coordinator.execute(AddLogicConditionCommand{
         "Hero", rule.id, Logic::makeDefaultCondition(), 0});
@@ -739,7 +736,7 @@ static void testConditionCompatibility() {
 
 static ProjectDoc makePlatformerProjectData() {
     ProjectDoc doc;
-    doc.formatVersion = 4;
+    doc.formatVersion = 12;
     doc.projectName = "Platformer Logic Test";
     doc.activeSceneId = "s";
 
@@ -769,7 +766,6 @@ static ProjectDoc makePlatformerProjectData() {
     SceneInstanceDef heroInstance;
     heroInstance.id = 1;
     heroInstance.objectTypeId = "Hero";
-    heroInstance.instanceName = "Hero 1";
     heroInstance.layerId = "layer-1";
     heroInstance.transform.position = {0.f, 0.f};
     scene.instances.push_back(heroInstance);
@@ -778,7 +774,6 @@ static ProjectDoc makePlatformerProjectData() {
     SceneInstanceDef floorInstance;
     floorInstance.id = 2;
     floorInstance.objectTypeId = "Floor";
-    floorInstance.instanceName = "Floor 1";
     floorInstance.layerId = "layer-1";
     floorInstance.transform.position = {0.f, 100.f};
     scene.instances.push_back(floorInstance);
@@ -971,7 +966,7 @@ static void testIsFallingEventTrueWhileDescendingFalseWhenGroundedOrRising() {
     CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
     const LogicBoardDef& initial = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
 
-    // While falling → hide. A paired Is Grounded → show restores visibility on
+    // While falling â†’ hide. A paired Is Grounded â†’ show restores visibility on
     // land so rising can be asserted without mutating PlaySession entities.
     // Logic dispatchTick runs *before* platformer physics each frame.
     LogicRuleDef fallRule = Logic::makeDefaultRule(nextLogicRuleId(initial));
@@ -1007,11 +1002,11 @@ static void testIsFallingEventTrueWhileDescendingFalseWhenGroundedOrRising() {
     CHECK(findRenderable(*coordinator.playSession(), 1)->visibleInGame);
 
     RuntimeInputSnapshot none;
-    // Frame 1: tick still sees vy=0 → not falling; physics then applies gravity.
+    // Frame 1: tick still sees vy=0 â†’ not falling; physics then applies gravity.
     coordinator.tickRuntime(none, 1.f / 60.f);
     CHECK(findRenderable(*coordinator.playSession(), 1)->visibleInGame);
 
-    // Frame 2: tick sees descending → Is Falling fires → hide.
+    // Frame 2: tick sees descending â†’ Is Falling fires â†’ hide.
     coordinator.tickRuntime(none, 1.f / 60.f);
     CHECK(!findRenderable(*coordinator.playSession(), 1)->visibleInGame);
 
@@ -1019,7 +1014,7 @@ static void testIsFallingEventTrueWhileDescendingFalseWhenGroundedOrRising() {
     for (int i = 0; i < 600; ++i) coordinator.tickRuntime(none, 1.f / 60.f);
     CHECK(findRenderable(*coordinator.playSession(), 1)->visibleInGame);
 
-    // Jump: while rising, Is Falling must stay false → remain visible.
+    // Jump: while rising, Is Falling must stay false â†’ remain visible.
     RuntimeInputSnapshot jump;
     jump.pressedLogicKeys.push_back(LogicKey::Space);
     coordinator.tickRuntime(jump, 1.f / 60.f);
@@ -1506,7 +1501,6 @@ static void testCollisionEventOtherAndDeferredDestroy() {
     SceneInstanceDef pickupInstance;
     pickupInstance.id = 2;
     pickupInstance.objectTypeId = "Pickup";
-    pickupInstance.instanceName = "Pickup 1";
     pickupInstance.layerId = "layer-1";
     pickupInstance.transform.position = {5.f, 6.f}; // overlaps Hero from the first runtime frame
     data.scenes.at("scene-1").instances.push_back(pickupInstance);
@@ -1514,7 +1508,6 @@ static void testCollisionEventOtherAndDeferredDestroy() {
     SceneInstanceDef sensorInstance;
     sensorInstance.id = 3;
     sensorInstance.objectTypeId = "Sensor";
-    sensorInstance.instanceName = "Sensor 1";
     sensorInstance.layerId = "layer-1";
     sensorInstance.transform.position = {5.f, 6.f};
     data.scenes.at("scene-1").instances.push_back(sensorInstance);
@@ -1555,7 +1548,7 @@ static void testCollisionEventOtherAndDeferredDestroy() {
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", exitRule, 1}).ok);
 
     // ADR-0014: BoxCollider2D materialises into CollisionBody on the shared
-    // spawn path — enter destroys Pickup; exit hides Hero once Sensor separates.
+    // spawn path â€” enter destroys Pickup; exit hides Hero once Sensor separates.
     CHECK(coordinator.playCurrentScene().ok);
     RuntimeInputSnapshot none;
     // Destroy Self queues during collision dispatch; same-frame post-dispatch
@@ -1642,7 +1635,7 @@ static void testAnimationActionValidation() {
     board.rules.push_back(missingAsset);
     data.objectTypes.at("Hero").logicBoard = board;
     // Missing animation asset is semantic (AuthoringDiagnostics / Executable), not
-    // StructuralCommit — ProjectValidator must still accept the document.
+    // StructuralCommit â€” ProjectValidator must still accept the document.
     CHECK(ProjectValidator::validate(ProjectDocument{data}).ok);
     CHECK(Logic::hasLogicErrors(Logic::validateBoard(
         "Hero", *data.objectTypes.at("Hero").logicBoard,
@@ -1681,7 +1674,7 @@ static void testPlaySoundAction() {
 
     // Deterministic default: the only StaticSound asset in the project is
     // picked automatically the moment the action is added (see
-    // assignDefaultAudioAsset in logic_board_commands.cpp) — never left to
+    // assignDefaultAudioAsset in logic_board_commands.cpp) â€” never left to
     // depend on unordered_map iteration order.
     CHECK(coordinator.execute(AddLogicActionCommand{
         "Hero", "logic:Hero", start.id,
@@ -1865,7 +1858,7 @@ static void testPlaySoundActionValidation() {
     missingRule.actions[0].block.properties[0].value = LogicAssetReference{"missing.wav"};
     missingBoard.rules.push_back(missingRule);
     missing.objectTypes.at("Hero").logicBoard = missingBoard;
-    // Missing / stream / bad-volume audio are semantic — StructuralCommit allows.
+    // Missing / stream / bad-volume audio are semantic â€” StructuralCommit allows.
     CHECK(ProjectValidator::validate(ProjectDocument{missing}).ok);
     CHECK(Logic::hasLogicErrors(Logic::validateBoard(
         "Hero", *missing.objectTypes.at("Hero").logicBoard,
@@ -1926,7 +1919,6 @@ static void testWorkspaceTargetAndSwitchPolicy() {
     SceneInstanceDef enemyInstance;
     enemyInstance.id = 2;
     enemyInstance.objectTypeId = "Enemy";
-    enemyInstance.instanceName = "Enemy 1";
     enemyInstance.layerId = "layer-1";
     data.scenes.at("scene-1").instances.push_back(enemyInstance);
     data.scenes.at("scene-1").entityIds.push_back(2);
@@ -2033,7 +2025,7 @@ static void testExecutionModeCommand() {
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
               .actions.at(0).executionMode == LogicExecutionMode::OncePerActivation);
 
-    // Same mode → no-op (no dirty/revision bump).
+    // Same mode â†’ no-op (no dirty/revision bump).
     const uint64_t afterSet = coordinator.document().revision();
     CHECK(coordinator.execute(SetLogicActionExecutionModeCommand{
         "Hero", "logic:Hero", rule.id, rule.actions[0].id,
@@ -2291,7 +2283,6 @@ static ProjectDoc makeMultiSceneProjectData() {
     SceneInstanceDef ghostInstance;
     ghostInstance.id = 2;
     ghostInstance.objectTypeId = "Ghost";
-    ghostInstance.instanceName = "Ghost 1";
     ghostInstance.layerId = "layer-s2";
     ghostInstance.transform.position = {7.f, 8.f};
     second.instances.push_back(ghostInstance);
@@ -2510,7 +2501,7 @@ static void testSceneRestartRestoresAuthoredLayoutAndRefiresOnStart() {
     CHECK(coordinator.stopPlaying().ok);
 }
 
-// ADR-0026: the collect loop authored on the COLLECTOR's board only — the
+// ADR-0026: the collect loop authored on the COLLECTOR's board only â€” the
 // coin needs no board of its own.
 static void testDestroyOtherCollectsPickup() {
     ProjectDoc data = makeProjectData();
@@ -2543,7 +2534,6 @@ static void testDestroyOtherCollectsPickup() {
     SceneInstanceDef coinInstance;
     coinInstance.id = 2;
     coinInstance.objectTypeId = "Coin";
-    coinInstance.instanceName = "Coin 1";
     coinInstance.layerId = "layer-1";
     coinInstance.transform.position = {5.f, 6.f}; // overlaps Hero from frame one
     data.scenes.at("scene-1").instances.push_back(coinInstance);
@@ -2588,7 +2578,7 @@ static void testDestroyOtherCollectsPickup() {
 
 static void testCoordinatorProjectsLogicExpressionDiagnostics() {
     // ADR-0028 gap 3: UI reads diagnostics only via Coordinator projection
-    // (PlaySession → tickRuntime → console), never LogicRuntime directly.
+    // (PlaySession â†’ tickRuntime â†’ console), never LogicRuntime directly.
     ProjectDoc data = makeProjectData();
     data.scenes.at("scene-1").instances[0].transform.position = {1.f, 6.f};
     EditorCoordinator coordinator{std::move(data)};
@@ -2881,11 +2871,11 @@ static void testSetPositionPropertyEditorIsATypedField() {
     CHECK(markup.find("|position|y") != std::string::npos);
     // A literal renders in the same field, so reverting never needs a modal.
     CHECK(markup.find("value=\"0\"") != std::string::npos);
-    // HiddenSelfTarget: no Target row — only Position group.
+    // HiddenSelfTarget: no Target row â€” only Position group.
     CHECK(markup.find(">Target<") == std::string::npos);
     CHECK(markup.find(">Position<") != std::string::npos);
 
-    // Set Scale stays LiteralOnly — plain numeric axes, no expression field.
+    // Set Scale stays LiteralOnly â€” plain numeric axes, no expression field.
     LogicRuleDef scale = Logic::makeDefaultRule("rule-scale");
     scale.actions[0].block = Logic::makeDefaultBlock(Logic::kSetScale, Logic::BlockKind::Action);
     const std::string scaleMarkup = renderLogicProperties(
@@ -3098,7 +3088,7 @@ static void testExpressionReferencesCountAsReferences() {
 
 // ADR-0031 A1.1. The definition belongs to the Object Type and the override to
 // the instance; the override is dependent state, so it follows a rename and
-// dies with the definition — but only after being captured, or undo would hand
+// dies with the definition â€” but only after being captured, or undo would hand
 // back a definition whose instance values had silently evaporated.
 static const GameVariableDefinition* heroVariable(const EditorCoordinator& coordinator,
                                                   const GameVariableId& key) {

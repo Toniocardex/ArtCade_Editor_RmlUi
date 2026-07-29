@@ -17,7 +17,7 @@ namespace ArtCade::EditorNative {
 class CreateEntityCommand final : public EditorCommand {
 public:
     CreateEntityCommand(SceneId sceneId, EntityId id, std::string objectTypeId,
-                        std::string instanceName, Vec2 position = {}, std::string layerId = {});
+                        Vec2 position = {}, std::string layerId = {});
 
     EditorOperationResult apply(ProjectDocument& document) override;
     EditorOperationResult undo(ProjectDocument& document) override;
@@ -27,7 +27,6 @@ private:
     SceneId     sceneId_;
     EntityId    id_;
     std::string objectTypeId_;
-    std::string instanceName_;
     Vec2        position_{};
     std::string layerId_;   // "" = scene default (the caller passes the active layer)
     // Gates the target-layer lock check to the first apply() only - a later
@@ -47,8 +46,7 @@ class CreateEntityWithDefaultTypeCommand final : public EditorCommand {
 public:
     CreateEntityWithDefaultTypeCommand(SceneId sceneId, EntityId id,
                                        std::string objectTypeId, std::string objectTypeName,
-                                       std::string instanceName, Vec2 position = {},
-                                       std::string layerId = {});
+                                       Vec2 position = {}, std::string layerId = {});
 
     EditorOperationResult apply(ProjectDocument& document) override;
     EditorOperationResult undo(ProjectDocument& document) override;
@@ -59,7 +57,6 @@ private:
     EntityId    id_;
     std::string objectTypeId_;
     std::string objectTypeName_;
-    std::string instanceName_;
     Vec2        position_{};
     std::string layerId_;   // "" = scene default (the caller passes the active layer)
     bool        captured_ = false;   // see CreateEntityCommand::captured_
@@ -83,13 +80,13 @@ private:
 };
 
 /** Place a copy of an existing instance — same object type and per-instance
- *  overrides (sprite, layer, visibility, local variables), fresh id/name/
+ *  overrides (sprite, layer, visibility, local variables), fresh id/
  *  position, inserted immediately after the source (ADR-0023).
  *  Invalidates Hierarchy | Inspector | Viewport. */
 class DuplicateInstanceCommand final : public EditorCommand {
 public:
     DuplicateInstanceCommand(SceneId sceneId, EntityId sourceId, EntityId newId,
-                             std::string newName, Vec2 newPosition);
+                             Vec2 newPosition);
 
     EditorOperationResult apply(ProjectDocument& document) override;
     EditorOperationResult undo(ProjectDocument& document) override;
@@ -99,7 +96,6 @@ private:
     SceneId     sceneId_;
     EntityId    sourceId_;
     EntityId    newId_;
-    std::string newName_;
     Vec2        newPosition_{};
 
     SceneInstanceDef duplicateSnapshot_{};
@@ -131,23 +127,6 @@ private:
     bool                   captured_ = false;
 };
 
-/** Rename one instance. Invalidates Hierarchy | Inspector. */
-class RenameEntityCommand final : public EditorCommand {
-public:
-    RenameEntityCommand(SceneId sceneId, EntityId id, std::string name);
-
-    EditorOperationResult apply(ProjectDocument& document) override;
-    EditorOperationResult undo(ProjectDocument& document) override;
-    const char* name() const override { return "RenameEntity"; }
-
-private:
-    SceneId     sceneId_;
-    EntityId    id_;
-    std::string newName_;
-    std::string oldName_;
-    bool        captured_ = false;
-};
-
 /** Set the root visibility of one scene instance. This is distinct from the
  *  SpriteRenderer's visibility: false gates the entire instance in Edit and
  *  Play rendering, including tilemaps and editor placeholders. */
@@ -167,8 +146,7 @@ private:
     bool captured_ = false;
 };
 
-/** Rename an object type's display name (shared by every instance of that
-    type - not the same as RenameEntityCommand, which renames one instance). */
+/** Rename an Object Type's sole display name, shared by every instance. */
 class RenameObjectTypeCommand final : public EditorCommand {
 public:
     RenameObjectTypeCommand(std::string objectTypeId, std::string name);

@@ -1,4 +1,4 @@
-// sprite-animation-test.cpp — Sprite Animation Editor model / commands.
+// sprite-animation-test.cpp â€” Sprite Animation Editor model / commands.
 
 #include "editor_core_test_harness.h"
 
@@ -348,9 +348,8 @@ int main() {
         ProjectDoc doc = makeAnimationDoc();
         SceneInstanceDef second = doc.scenes.at(kSceneA).instances.front();
         second.id = 77;
-        second.instanceName = "Hero 2";
         doc.scenes.at(kSceneA).instances.push_back(second);
-        // Inherited override: clip only — no explicit animationAssetId.
+        // Inherited override: clip only â€” no explicit animationAssetId.
         SpriteAnimatorOverride inheritedClip;
         inheritedClip.defaultClipId = std::string{"idle"};
         doc.scenes.at(kSceneA).instances.front().spriteAnimatorOverride = inheritedClip;
@@ -466,7 +465,6 @@ int main() {
         ProjectDoc doc = makeAnimationDoc();
         SceneInstanceDef second = doc.scenes.at(kSceneA).instances.front();
         second.id = 77;
-        second.instanceName = "Hero 2";
         second.transform.position.x += 80.f;
         doc.scenes.at(kSceneA).instances.push_back(second);
         EditorCoordinator c{std::move(doc)};

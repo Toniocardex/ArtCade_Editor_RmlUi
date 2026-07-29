@@ -4,6 +4,7 @@
 #include "editor-native/model/tilemap_validation.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <unordered_set>
 #include <utility>
@@ -22,6 +23,26 @@ constexpr EditorInvalidation kStructureInvalidation =
 bool validCellSize(Vec2 size) {
     return std::isfinite(size.x) && std::isfinite(size.y) && size.x > 0.f && size.y > 0.f;
 }
+
+std::string normalizedObjectTypeName(const std::string& value) {
+    std::string normalized;
+    normalized.reserve(value.size());
+    for (const unsigned char character : value) {
+        normalized.push_back(static_cast<char>(std::tolower(character)));
+    }
+    const std::size_t first = normalized.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return {};
+    return normalized.substr(first, normalized.find_last_not_of(" \t\r\n") - first + 1);
+}
+
+bool objectTypeNameTaken(const ProjectDocument& document, const std::string& candidate) {
+    const std::string normalized = normalizedObjectTypeName(candidate);
+    for (const auto& [unusedId, type] : document.data().objectTypes) {
+        (void)unusedId;
+        if (normalizedObjectTypeName(type.name) == normalized) return true;
+    }
+    return false;
+}
 } // namespace
 
 // ----------------------------------------------------------------------------
@@ -29,11 +50,10 @@ bool validCellSize(Vec2 size) {
 // ----------------------------------------------------------------------------
 CreateTilemapEntityCommand::CreateTilemapEntityCommand(
     SceneId sceneId, EntityId id, std::string objectTypeId, std::string objectTypeName,
-    std::string instanceName, Vec2 position, std::string layerId, AssetId tilesetAssetId)
+    Vec2 position, std::string layerId, AssetId tilesetAssetId)
     : sceneId_(std::move(sceneId)), id_(id),
       objectTypeId_(std::move(objectTypeId)), objectTypeName_(std::move(objectTypeName)),
-      instanceName_(std::move(instanceName)), position_(position),
-      layerId_(std::move(layerId)), tilesetAssetId_(std::move(tilesetAssetId)) {}
+      position_(position), layerId_(std::move(layerId)), tilesetAssetId_(std::move(tilesetAssetId)) {}
 
 EditorOperationResult CreateTilemapEntityCommand::apply(ProjectDocument& document) {
     if (id_ == 0) {
@@ -41,6 +61,12 @@ EditorOperationResult CreateTilemapEntityCommand::apply(ProjectDocument& documen
     }
     if (objectTypeId_.empty()) {
         return EditorOperationResult::failure("Object type id cannot be empty");
+    }
+    if (normalizedObjectTypeName(objectTypeName_).empty()) {
+        return EditorOperationResult::failure("Object Type name cannot be empty");
+    }
+    if (objectTypeNameTaken(document, objectTypeName_)) {
+        return EditorOperationResult::failure("Object Type name is already in use");
     }
     if (!std::isfinite(position_.x) || !std::isfinite(position_.y)) {
         return EditorOperationResult::failure("Entity position must be finite");
@@ -98,7 +124,6 @@ EditorOperationResult CreateTilemapEntityCommand::apply(ProjectDocument& documen
     SceneInstanceDef instance;
     instance.id                 = id_;
     instance.objectTypeId       = objectTypeId_;
-    instance.instanceName       = instanceName_;
     instance.transform.position = position_;
     instance.layerId            = targetLayer;
     instance.tilemap            = std::move(component);

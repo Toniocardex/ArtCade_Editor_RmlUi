@@ -32,13 +32,13 @@ void read_entity_id_list(const nlohmann::json& sceneJson, std::vector<EntityId>&
 } // namespace
 
 bool read_scene_instance(const nlohmann::json& instanceJson, SceneInstanceDef& out) {
-    if (!instanceJson.is_object())
+    if (!instanceJson.is_object() || instanceJson.contains("instanceName")
+        || instanceJson.contains("instance_name"))
         return false;
 
     out = SceneInstanceDef{};
     out.id = instanceJson.value("id", 0u);
     out.objectTypeId = instanceJson.value("objectTypeId", std::string{});
-    out.instanceName = instanceJson.value("instanceName", std::string{});
     if (instanceJson.contains("transform"))
         out.transform = read_transform(instanceJson["transform"]);
     if (instanceJson.contains("visible") && instanceJson["visible"].is_boolean())

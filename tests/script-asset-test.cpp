@@ -1,4 +1,4 @@
-// script-asset-test.cpp — script assets, file service, manual runtime.
+// script-asset-test.cpp â€” script assets, file service, manual runtime.
 
 #include "editor_core_test_harness.h"
 
@@ -935,7 +935,6 @@ end }
     SceneInstanceDef enemyInstance;
     enemyInstance.id = 99;
     enemyInstance.objectTypeId = "Enemy";
-    enemyInstance.instanceName = "Enemy";
     enemyInstance.transform.position = {10.f, 20.f};
     collisionDoc.scenes.at(kSceneA).instances.push_back(enemyInstance);
     collisionDoc.scriptAssets.push_back(

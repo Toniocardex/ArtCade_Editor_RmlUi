@@ -1521,7 +1521,6 @@ int EditorApp::run(int argc, char** argv) {
         escapeCtx.modalOpen = modalOpen;
         escapeCtx.logicKeyCapture = exclusiveCapture.active();
         escapeCtx.contextMenuOpen = popupOpenEarly;
-        escapeCtx.inlineRenameActive = ui.hasHierarchyRenameDraft();
         escapeCtx.backgroundOpacityDraft = ui.hasBackgroundOpacityDraft();
         escapeCtx.tilemapOperationActive =
             coordinator.state().tilemapEditor.pendingStroke.has_value()
@@ -1536,7 +1535,6 @@ int EditorApp::run(int argc, char** argv) {
         const bool rmlOwnsEscape =
             (scriptFocused || rml.textFocus)
             && !modalOpen && !exclusiveCapture.active()
-            && !ui.hasHierarchyRenameDraft()
             && !ui.hasBackgroundOpacityDraft();
 
         // EscapeOwner owns Escape before the catalog router (typed switch).

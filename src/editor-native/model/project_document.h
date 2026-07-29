@@ -19,7 +19,6 @@ class EditorCoordinator;
 class AddLinearMoverCommand;
 class RemoveBoxColliderCommand;
 class RemoveLinearMoverCommand;
-class RenameEntityCommand;
 class CreateAndAssignGlobalVariableCommand;
 class SetEntityTransformCommand;
 struct AuthoredTransformPatch;
@@ -147,6 +146,11 @@ public:
     const SceneDef*          findScene(const SceneId& id) const;
     bool                     hasScene(const SceneId& id) const;
     const SceneInstanceDef*  findInstanceInScene(const SceneId& sceneId, EntityId id) const;
+    /** Single presentation label for a placed instance (ADR-0048).
+     *  It is derived from the resolved Object Type display name and the stable,
+     *  scene-local EntityId rank; it is never persisted. */
+    std::string              instanceDisplayName(const SceneId& sceneId,
+                                                 EntityId id) const;
     /** True if @p id is a known object type (ProjectDoc.objectTypes). */
     bool                     hasObjectType(const std::string& id) const;
     /** True if @p layerId is a render layer of scene @p sceneId. */
@@ -233,7 +237,6 @@ private:
     friend class EditorCoordinator;
     friend class RemoveBoxColliderCommand;
     friend class RemoveLinearMoverCommand;
-    friend class RenameEntityCommand;
     friend class SetEntityTransformCommand;
     friend class SetInstanceVisibleCommand;
     friend class SetBoxColliderEnabledCommand;
@@ -364,7 +367,6 @@ private:
     // Authored fields only (position / rotation / scale). Never touches velocity.
     bool patchInstanceTransform(const SceneId& sceneId, EntityId id,
                                 const AuthoredTransformPatch& patch);
-    bool setInstanceName(const SceneId& sceneId, EntityId id, std::string name);
     bool setInstanceVisible(const SceneId& sceneId, EntityId id, bool visible);
     bool setSceneName(const SceneId& sceneId, std::string name);
     // The scene world size (Dimensions). Resizing never moves instances — an

@@ -21,8 +21,6 @@ inline std::optional<EditorActionId> mapUiActionToEditorAction(std::string_view 
         return EditorActionId::SceneDuplicateInstance;
     if (action == "add-instance")
         return EditorActionId::SceneCreateInstanceOfSelectedType;
-    if (action == "begin-hierarchy-rename")
-        return EditorActionId::SceneRenameSelection;
     if (action == "delete-entity")
         return EditorActionId::SceneDeleteSelection;
     if (action == "focus-selection")

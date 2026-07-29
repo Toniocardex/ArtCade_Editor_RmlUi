@@ -169,7 +169,9 @@ void TilePaletteDockPanel::refresh(Rml::ElementDocument* document,
     // which tileset - not just the tileset name.
     std::string title = "TILE PALETTE";
     if (inst && inst->tilemap.has_value()) {
-        title = "Painting: " + escapeRml(inst->instanceName);
+        title = "Painting: " + escapeRml(
+            coordinator.document().instanceDisplayName(
+                coordinator.state().activeSceneId, inst->id));
         const SceneId& sceneId = coordinator.state().activeSceneId;
         if (const SceneDef* scene = coordinator.document().findScene(sceneId)) {
             const std::string layerId =

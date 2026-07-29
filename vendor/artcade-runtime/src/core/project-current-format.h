@@ -8,7 +8,7 @@
 namespace ArtCade::ProjectJson {
 
 /** Current persisted project contract. Older formats are rejected, never migrated. */
-inline constexpr int kCurrentProjectFormatVersion = 11;
+inline constexpr int kCurrentProjectFormatVersion = 12;
 
 /**
  * Validates the current JSON document contract before any parser consumes it.

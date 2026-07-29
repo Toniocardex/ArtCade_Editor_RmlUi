@@ -25,7 +25,7 @@ namespace {
 
 struct HierarchyInstancePresentation {
     EntityId entityId = INVALID_ENTITY;
-    std::string instanceName;
+    std::string displayName;
     std::string objectTypeName;
     std::string objectTypeId;
     std::string layerName;
@@ -51,7 +51,7 @@ bool containsInsensitive(std::string_view hay, std::string_view needle) {
 
 HierarchySearchFields toSearchFields(const HierarchyInstancePresentation& item) {
     HierarchySearchFields fields;
-    fields.instanceName = item.instanceName;
+    fields.displayName = item.displayName;
     fields.objectTypeName = item.objectTypeName;
     fields.objectTypeId = item.objectTypeId;
     fields.layerName = item.layerName;
@@ -97,7 +97,7 @@ std::string useExistingTypeList(const ProjectDocument& doc, bool disabled) {
 }
 
 std::string instanceTooltip(const HierarchyInstancePresentation& item) {
-    std::string tip = "Instance: " + escapeRml(item.instanceName)
+    std::string tip = "Placement: " + escapeRml(item.displayName)
                     + "&#10;Object Type: " + escapeRml(item.objectTypeName)
                     + "&#10;Type ID: " + escapeRml(item.objectTypeId)
                     + "&#10;Instance ID: " + std::to_string(item.entityId)
@@ -123,18 +123,6 @@ void HierarchyPanel::requestReveal(const SceneId& sceneId, EntityId id,
     if (!layerId.empty())
         collapsedLayers_[sceneId].erase(layerId);
     pendingRevealId_ = id;
-}
-
-void HierarchyPanel::beginRename(const SceneId& sceneId, EntityId id,
-                                 const std::string& name) {
-    renameDraft_.sceneId = sceneId;
-    renameDraft_.entityId = id;
-    renameDraft_.originalName = name;
-    renameDraft_.editedName = name;
-}
-
-void HierarchyPanel::cancelRename() {
-    renameDraft_ = {};
 }
 
 void HierarchyPanel::reconcileCollapseState(const ProjectDocument& doc) {
@@ -190,15 +178,6 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
     const bool playing = coordinator.isPlaying();
     const SceneDef* scene = doc.findScene(activeSceneId);
 
-    // Cancel rename when scene/selection/Play/instance become invalid.
-    if (renameDraft_.entityId != INVALID_ENTITY) {
-        const bool sceneOk = renameDraft_.sceneId == activeSceneId;
-        const bool instOk = sceneOk
-            && doc.findInstanceInScene(activeSceneId, renameDraft_.entityId) != nullptr;
-        if (playing || !sceneOk || !instOk)
-            cancelRename();
-    }
-
     // Stable filter field (same pattern as Assets): never rebuild while focused.
     if (Rml::Element* slot = document->GetElementById("hierarchy-search-slot")) {
         if (!slot->HasChildNodes()) {
@@ -228,7 +207,7 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
         -> HierarchyInstancePresentation {
         HierarchyInstancePresentation item;
         item.entityId = inst.id;
-        item.instanceName = inst.instanceName;
+        item.displayName = doc.instanceDisplayName(activeSceneId, inst.id);
         item.objectTypeId = inst.objectTypeId;
         item.objectTypeName = inst.objectTypeId;
         if (const EntityDef* type = doc.findObjectType(inst.objectTypeId))
@@ -268,18 +247,8 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
         row += item.tilemap ? "" UI_ICON_GRID "" : typeIcon(item.objectTypeId);
         row += "</span>";
 
-        if (renameDraft_.entityId == item.entityId
-            && renameDraft_.sceneId == activeSceneId) {
-            row += "<input id=\"hierarchy-rename-input\" class=\"row-name-input\" type=\"text\" "
-                   "data-action=\"commit-hierarchy-rename\" data-arg=\""
-                 + std::to_string(item.entityId) + "\" value=\""
-                 + escapeRml(renameDraft_.editedName) + "\"/>";
-        } else {
-            row += "<span class=\"row-name\" title=\"" + escapeRml(item.instanceName)
-                 + "\" data-dbl-action=\"begin-hierarchy-rename\" data-arg=\""
-                 + std::to_string(item.entityId) + "\">"
-                 + escapeRml(item.instanceName) + "</span>";
-        }
+        row += "<span class=\"row-name\" title=\"" + escapeRml(item.displayName)
+             + "\">" + escapeRml(item.displayName) + "</span>";
 
         row += "<span class=\"row-indicators\">";
         if (item.hasOverrides) {
@@ -393,10 +362,10 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
         rows = "<div class=\"hierarchy-empty-state\">"
                "<span class=\"hierarchy-empty-icon\">" UI_ICON_EMPTY_HIERARCHY "</span>"
                "<span class=\"hierarchy-empty-title\">Your scene is empty</span>"
-               "<span class=\"hierarchy-empty-copy\">Create an entity to start building this scene.</span>"
+               "<span class=\"hierarchy-empty-copy\">Add an object to start building this scene.</span>"
                "<button class=\"panel-btn hierarchy-empty-action";
         if (playing) rows += " disabled";
-        rows += "\" data-action=\"add-entity\">Create Entity</button></div>";
+        rows += "\" data-action=\"add-entity\">Add Object</button></div>";
     } else if (!anyRowMatchedFilter && filterActive) {
         rows = "<div class=\"tree-empty\">No instances match the current filter.</div>";
     } else if (!rows.empty() && scene && !scene->instances.empty()) {
@@ -411,11 +380,6 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
         if (Rml::Element* el = document->GetElementById(eid.c_str()))
             el->ScrollIntoView();
         pendingRevealId_ = INVALID_ENTITY;
-    }
-
-    if (renameDraft_.entityId != INVALID_ENTITY) {
-        if (Rml::Element* input = document->GetElementById("hierarchy-rename-input"))
-            input->Focus(true);
     }
 
     const bool hasActiveScene = scene != nullptr;

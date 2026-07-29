@@ -189,12 +189,12 @@ EditorOperationResult SetEntityLayerCommand::apply(ProjectDocument& document) {
         // reuses this same command and must not be blocked by whatever the
         // source/target layers' lock state happens to be at redo time.
         if (document.isInstanceLayerLocked(sceneId_, *inst)) {
-            return EditorOperationResult::failure("Cannot move \"" + inst->instanceName
-                + "\": its current layer is locked");
+            return EditorOperationResult::failure(
+                "Cannot move instance: its current layer is locked");
         }
         if (document.isLayerLocked(sceneId_, newLayerId_)) {
-            return EditorOperationResult::failure("Cannot move \"" + inst->instanceName
-                + "\": the target layer is locked");
+            return EditorOperationResult::failure(
+                "Cannot move instance: the target layer is locked");
         }
         oldLayerId_ = inst->layerId;
         captured_ = true;

@@ -1,5 +1,5 @@
 // ============================================================================
-// ADR-0034 spike — Inspector Layer dropdown keyboard navigation.
+// ADR-0034 spike â€” Inspector Layer dropdown keyboard navigation.
 //
 // This suite starts at the real rendered `.drop-trigger`/`.drop-entry`
 // elements and crosses EditorUi's single listener, the same discipline as
@@ -99,7 +99,7 @@ void pressKey(Rml::Element* element, Rml::Input::KeyIdentifier key) {
 
 ProjectDoc makeTwoLayerProject() {
     ProjectDoc doc;
-    doc.formatVersion = 11;
+    doc.formatVersion = 12;
     doc.projectName = "Layer Dropdown Keyboard";
 
     EntityDef hero;
@@ -119,7 +119,6 @@ ProjectDoc makeTwoLayerProject() {
     SceneInstanceDef instance;
     instance.id = 1;
     instance.objectTypeId = "Hero";
-    instance.instanceName = "Hero 1";
     instance.layerId = "layer-2";
     scene.instances.push_back(instance);
     scene.entityIds.push_back(1);
@@ -182,7 +181,7 @@ int main() {
     // -- Opening: trigger is tab-focusable, entries render, nothing highlighted yet.
     // refresh() rebuilds #inspector-body's markup on every dropdown/highlight
     // change (toggleDropdown, moveDropdownHighlight, closeDropdowns all call
-    // it), which destroys and recreates the trigger/entry elements — so every
+    // it), which destroys and recreates the trigger/entry elements â€” so every
     // element pointer must be re-fetched after each frame(), never reused
     // across one, exactly as real RmlUi usage would require.
     auto findSelectedEntry = [&]() -> Rml::Element* {
