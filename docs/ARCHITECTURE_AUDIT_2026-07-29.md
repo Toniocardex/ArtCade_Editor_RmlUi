@@ -74,15 +74,15 @@ Non è possibile attribuire con certezza il difetto alla modifica non committata
 
 **Azione richiesta:** riprodurre da build pulita, loggare il path e l'owner di ogni scratch directory, e aggiungere una regressione che verifichi cleanup sia su Start riuscito sia su Start fallito.
 
-### P1 — `EditorUi` è un hub di routing troppo grande
+### P2 — routing UI: concentrazione residua, non God router
 
-`src/editor-native/ui/editor_ui.cpp` contiene 4.643 righe; il suo router `EditorUi::handleAction(...)` riceve azioni string-based e coordina molte aree funzionali. `EditorUi` possiede inoltre il listener RmlUi e conosce tutti i pannelli principali.
+`src/editor-native/ui/editor_ui.cpp` contiene 4.643 righe e `EditorUi` possiede il listener RmlUi e conosce i pannelli principali. Una rilettura successiva ha però confermato che `handleAction(...)` non è più una catena monolitica: è un dispatcher che delega a handler per progetto, console, asset, toolbar, gerarchia e inspector, oltre ai controller dedicati per Logic Board, Script, Sprite Animation e Tileset.
 
-Il singolo ingresso RmlUi è corretto. Il problema non è il confine, ma la densità: ogni nuova azione può interagire con focus, pending edit, menù, refresh e policy Play nello stesso punto.
+Il singolo ingresso RmlUi è corretto e la suddivisione attuale è un confine semantico reale. Rimane un rischio nel protocollo comune basato su stringhe/argomenti e nelle poche azioni shell condivise che gestiscono menu transitori, focus e pending edit.
 
-**Rischio:** regressioni incrociate e crescita di un protocollo implicito di stringhe/argomenti.
+**Rischio:** regressioni incrociate se il protocollo di stringhe cresce senza catalogo/contratto coperto da test.
 
-**Azione richiesta:** estrarre progressivamente router per area (`Hierarchy`, `Inspector`, `Assets`, `Logic`, `Script`) che producano gli stessi Intent/Command. Conservare `EditorUi` come ingress controller e proprietario del lifecycle; non introdurre un event bus generico.
+**Azione richiesta:** non estrarre file artificialmente. Quando emergerà una nuova famiglia di azioni, aggiungerla a un handler/controller di dominio esistente e coprirne il contratto RmlUi. Un eventuale passaggio da stringhe a `EditorActionId` va fatto solo dopo avere una copertura verde del gate e senza introdurre un event bus generico.
 
 Riferimenti:
 
@@ -158,7 +158,8 @@ verde.
 | Gate CTest autosufficiente | Implementato | Il target `artcade-editor-tests` dipende da tutti i 21 eseguibili registrati; `build.bat --test` lo costruisce e poi invoca CTest. |
 | Directory di lavoro CTest | Implementata | Ogni test viene eseguito dalla root del repository, come avveniva già nello script, evitando falsi fallimenti di fixture relative. |
 | Entry point CMake legacy | Chiuso | `src/editor-native/CMakeLists.txt` fallisce intenzionalmente e rinvia al root CMake. |
-| Decomposizione di router UI/serializer | Non avviata intenzionalmente | Non è sicuro iniziare un refactor strutturale mentre il gate runtime non è affidabile. |
+| Decomposizione router UI | P1 chiuso dopo riesame | I router di dominio e i controller dedicati esistono già; una divisione fisica ulteriore non ridurrebbe un rischio concreto. Rimane P2 il protocollo string-based condiviso. |
+| Modularizzazione serializer | Non avviata intenzionalmente | Non è sicuro iniziare un refactor strutturale mentre il gate runtime non è affidabile. |
 
 ### Verifica eseguita dopo le modifiche
 
