@@ -35,10 +35,8 @@
 // callback-capture gap.
 //
 // sceneManager()/entityGateway()/spriteAnimator() stay as live accessors:
-// RU-02g deliberately keeps gizmo_pass.cpp (editor selection overlay) and
-// scene_background_pass.cpp (sceneLayers()/tilesets()) reading these
-// directly, since they're authoring-adjacent/editor-overlay data stable for
-// the frame, not mutable simulation control - not the concern D-20 targets.
+// The native host reads scene and entity state at the presentation boundary;
+// that data is stable for the rendered frame and not simulation control.
 
 #include "gameplay_host_ports.h"
 #include "../render/tilemap_component_resolve.h"
@@ -301,10 +299,8 @@ public:
         profilerPort_ = profiler;
     }
 
-    // D-20: SceneManager/RuntimeEntityGateway stay exposed - RU-02g already
-    // approved gizmo_pass.cpp/scene_background_pass.cpp reading these live
-    // for editor-overlay/authoring-adjacent presentation data (not mutable
-    // simulation control, the thing D-20 actually targets).
+    // SceneManager/RuntimeEntityGateway stay exposed for native presentation
+    // data, not mutable simulation control.
     Modules::SceneManager& sceneManager() { return *sceneManager_; }
     Modules::RuntimeEntityGateway& entityGateway() { return *entityGateway_; }
 
@@ -361,12 +357,7 @@ public:
     // mutating call sites (project load).
     void loadLuaSource(const std::string& source);
     bool loadLuaBytecode(const uint8_t* data, size_t size, std::string* error);
-    // Kept, narrowly: Application's EditorAPI::wireLua() static wiring call
-    // (app_bootstrap.cpp) needs a raw LuaHost* handle - EditorAPI's own
-    // static-wiring debt (D-18) is explicitly "post RU-03" in the register,
-    // out of scope here. loadLuaSource()/loadLuaBytecode() above already
-    // cover every other Application call site that used to go through the
-    // removed accessor.
+    // Native bootstrap may inspect the Lua host without taking ownership.
     Modules::LuaHost* luaHostHandle() { return luaHost_.get(); }
 
     // D-20/D-08/D-09: Logic/Script scope bookkeeping and install/cancel moved

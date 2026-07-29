@@ -2,7 +2,6 @@
 
 #include "app_modules.h"
 
-#include "../../modules/editor-api/include/editor-api.h"
 #include "../../modules/presentation/include/presentation_mode.h"
 #include "../../modules/game-state/include/splash-state.h"
 #include "../../modules/sprite-animator/include/animation-clips-registry.h"
@@ -45,25 +44,19 @@ void Application::applyRuntimeSettings(const ProjectRuntimeSettings& settings,
             : 1.f;
         mod_->timeManager->setTimeScale(timeScale, "gameplay");
     }
-#ifdef ARTCADE_WASM
-    EditorAPI::s_physicsDebugDraw = settings.physicsDebugDraw;
-#endif
 
     if (!mod_ || !mod_->renderer || !mod_->sceneManager) return;
     const SceneDef* scene = mod_->sceneManager->activeScene();
     if (!scene) return;
 
     if (policy == ViewportPolicy::EditorPreview) {
-#ifndef ARTCADE_WASM
-        // Native edit window tracks world size 1:1; WASM framebuffer is owned by
-        // editor_resize_surface (Phase 6) and must not be reset here.
+        // Native edit window tracks world size 1:1.
         if (scene->worldSize.x > 0.f && scene->worldSize.y > 0.f) {
             mod_->renderer->setWindowSize(
                 static_cast<uint32_t>(scene->worldSize.x),
                 static_cast<uint32_t>(scene->worldSize.y),
                 "ArtCade V2");
         }
-#endif
         mod_->editorViewport->set_presentation_mode(
             ArtCade::Presentation::PresentationMode::SceneEdit);
         mod_->renderer->setGameViewCompositorEnabled(false);
@@ -76,133 +69,14 @@ void Application::applyRuntimeSettings(const ProjectRuntimeSettings& settings,
     mod_->renderer->setOutputPolicy(settings.outputPolicy);
 
     if (scene->viewportSize.x > 0.f && scene->viewportSize.y > 0.f) {
-#ifdef ARTCADE_WASM
-        mod_->renderer->setWindowSize(
-            static_cast<uint32_t>(scene->viewportSize.x),
-            static_cast<uint32_t>(scene->viewportSize.y),
-            "ArtCade V2");
-#else
         mod_->renderer->setWindowSizeForLogicalViewport(
             static_cast<uint32_t>(scene->viewportSize.x),
             static_cast<uint32_t>(scene->viewportSize.y),
             "ArtCade V2");
-#endif
     }
     // Camera start is World::resetCameraForActiveScene (ADR-0018). Do not push
     // SceneDef::cameraStart into the renderer independently of World.
 }
-
-#ifdef ARTCADE_WASM
-void Application::onProjectReplaced() {
-    if (!mod_->gameplaySession) return;
-    mod_->gameplaySession->bumpSceneRevision();
-    pendingSceneInvalidations_ |=
-        ArtCade::Modules::SceneInvalidation::SceneActivation
-        | ArtCade::Modules::SceneInvalidation::Collision;
-}
-
-void Application::applyEditorProjectCommon(
-    const std::vector<TilePaletteEntry>& tilePalette,
-    const std::vector<TilesetAsset>& tilesets,
-    bool evictAssets) {
-    tileColors_.clear();
-    for (const auto& tile : tilePalette) tileColors_[tile.id] = tile.color;
-
-    tilesets_.clear();
-    for (const auto& tileset : tilesets) tilesets_[tileset.assetId] = tileset;
-    mod_->sceneManager->setTilesets(tilesets);
-
-    onProjectReplaced();
-
-    // Edit↔play transitions reuse the already-uploaded textures: evicting here
-    // would blank the sprite for the first frame(s) of play until the editor's
-    // async re-upload lands (the "first play shows the placeholder square" bug).
-    // Only drop the caches when the project content may actually have changed.
-    if (!evictAssets) return;
-    if (mod_->textureManager) mod_->textureManager->unloadAll();
-    if (mod_->renderer) mod_->renderer->evictCachedAssets();
-}
-
-void Application::resetGameplayRuntimeModules() {
-    if (mod_->tweenManager) mod_->tweenManager->cancelAll();
-    if (mod_->spriteAnimator) mod_->spriteAnimator->clearInstances();
-    if (mod_->audio) {
-        mod_->audio->stopAll();
-        mod_->audio->evictSoundCache();
-    }
-
-    if (mod_->eventBus) { mod_->eventBus->shutdown(); mod_->eventBus->init(); }
-    if (mod_->saveLoadManager) {
-        mod_->saveLoadManager->shutdown();
-        mod_->saveLoadManager->init();
-    }
-    if (mod_->timeManager) { mod_->timeManager->shutdown(); mod_->timeManager->init(); }
-    if (mod_->gameStateManager) {
-        mod_->gameStateManager->shutdown();
-        mod_->gameStateManager->init();
-    }
-    if (mod_->cameraManager) mod_->cameraManager->init();
-
-    accumulator_ = 0.f;
-}
-
-void Application::applyEditorProjectLoaded(
-    const std::vector<TilePaletteEntry>& tilePalette,
-    const std::vector<TilesetAsset>& tilesets,
-    const std::vector<GameVariableDefinition>& variables,
-    const ProjectRuntimeSettings& settings) {
-    applyEditorProjectCommon(tilePalette, tilesets);
-    applyRuntimeSettings(settings, ViewportPolicy::EditorPreview);
-
-    if (mod_->dialogManager && mod_->assetLoader) {
-        mod_->dialogManager->loadDialogsFromDirectory(mod_->assetLoader->projectRoot());
-    }
-    resetGameplayRuntimeModules();
-    if (mod_->variableManager) mod_->variableManager->configureGlobals(variables);
-    if (mod_->gameplaySession) mod_->gameplaySession->syncWorldAfterEditorProject(tilePalette);
-}
-
-void Application::applyEditorPreviewRestore(
-    const std::vector<TilePaletteEntry>& tilePalette,
-    const std::vector<TilesetAsset>& tilesets,
-    const std::vector<GameVariableDefinition>& variables,
-    const ProjectRuntimeSettings& settings) {
-    applyEditorProjectCommon(tilePalette, tilesets);
-    applyRuntimeSettings(settings, ViewportPolicy::EditorPreview);
-    resetGameplayRuntimeModules();
-    if (mod_->variableManager) mod_->variableManager->configureGlobals(variables);
-    if (mod_->gameplaySession) mod_->gameplaySession->restoreWorldDesignState(tilePalette);
-}
-
-void Application::applyEditorEnterPlay(
-    const std::vector<TilePaletteEntry>& tilePalette,
-    const std::vector<TilesetAsset>& tilesets,
-    const std::vector<GameVariableDefinition>& variables,
-    const ProjectRuntimeSettings& settings) {
-    applyEditorProjectCommon(tilePalette, tilesets, /*evictAssets=*/false);
-    applyRuntimeSettings(settings, ViewportPolicy::NativePlay);
-    resetGameplayRuntimeModules();
-    if (mod_->variableManager) mod_->variableManager->configureGlobals(variables);
-    if (mod_->gameplaySession) mod_->gameplaySession->syncWorldAfterEditorProject(tilePalette);
-    // The reset above wiped the animator instances that replaceProject created
-    // for playClipOnSpawn entities — re-arm them now that modules are fresh.
-    if (mod_->entityGateway) mod_->entityGateway->replayActiveSpawnClips();
-}
-
-void Application::applyEditorExitPlay(
-    const std::vector<TilePaletteEntry>& tilePalette,
-    const std::vector<TilesetAsset>& tilesets,
-    const std::vector<GameVariableDefinition>& variables,
-    const ProjectRuntimeSettings& settings,
-    const std::string& luaSource) {
-    applyEditorProjectCommon(tilePalette, tilesets, /*evictAssets=*/false);
-    applyRuntimeSettings(settings, ViewportPolicy::EditorPreview);
-    if (mod_->gameplaySession && !luaSource.empty()) mod_->gameplaySession->loadLuaSource(luaSource);
-    resetGameplayRuntimeModules();
-    if (mod_->variableManager) mod_->variableManager->configureGlobals(variables);
-    if (mod_->gameplaySession) mod_->gameplaySession->restoreWorldDesignState(tilePalette);
-}
-#endif
 
 bool Application::loadProject(const std::string& projectPath) {
     const auto endsWith = [](const std::string& value, const char* suffix) {

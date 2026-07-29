@@ -27,7 +27,7 @@ struct SceneFrameContext {
 
     Modules::Renderer* renderer = nullptr;
     // RU-02g: still queried live, but only by editor-authoring overlays
-    // (gizmo_pass - selection/hidden-in-game outlines), not by the gameplay
+    // at the native host's render boundary, not by the gameplay
     // entity draw pass - out of the RU-02g gate's scope ("handle authoring").
     Modules::SpriteAnimator* spriteAnimator = nullptr;
     Modules::RuntimeEntityGateway* entityGateway = nullptr;

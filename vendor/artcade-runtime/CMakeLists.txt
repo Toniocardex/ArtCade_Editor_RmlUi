@@ -19,12 +19,10 @@ endif()
 
 project(ArtCade-Runtime CXX C)
 
-# The historical Studio V2 application exposed the engine through editor-api
-# and a Web/WASM host. The native RmlUi editor links GameplaySession directly,
-# so that bridge must stay outside its dependency graph. Keep it opt-in only
-# while standalone export compatibility is retired in a later slice.
-option(ARTCADE_BUILD_LEGACY_STUDIO_BRIDGE
-    "Build the legacy Studio V2 host and editor-api bridge" OFF)
+# The native player is produced separately for the editor's Windows export
+# template. The RmlUi editor itself links engine libraries only.
+option(ARTCADE_BUILD_NATIVE_PLAYER
+    "Build the native Windows export player" OFF)
 
 # Root of this runtime tree — use instead of CMAKE_SOURCE_DIR in submodules when
 # the runtime is add_subdirectory'd from another project (e.g. artcade-editor).
@@ -256,11 +254,7 @@ if(ARTCADE_HAS_RAYLIB AND ARTCADE_HAS_LUA)
         lua54
     )
 
-    # The historical game host needs this target, but the runtime libraries and
-    # native RmlUi editor never do. Declare it first so accidental missing
-    # target names cannot degrade into a linker-library lookup.
-    if(ARTCADE_BUILD_LEGACY_STUDIO_BRIDGE)
-        add_subdirectory(src/modules/editor-api)
+    if(ARTCADE_BUILD_NATIVE_PLAYER)
         add_subdirectory(src/app)
     endif()
 endif()

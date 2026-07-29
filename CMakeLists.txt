@@ -44,10 +44,9 @@ endif()
 # Engine libraries only — this repo ships the native RmlUi editor, not WASM/React.
 set(ARTCADE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(ARTCADE_BUILD_SMOKE_TESTS OFF CACHE BOOL "" FORCE)
-# The retired Studio V2 host and its editor-api bridge are not part of the
-# RmlUi product graph. They remain opt-in only for the temporary standalone
-# export compatibility build inside the runtime tree.
-set(ARTCADE_BUILD_LEGACY_STUDIO_BRIDGE OFF CACHE BOOL "" FORCE)
+# The RmlUi editor links engine libraries only. The player is built separately
+# when generating the Windows export template.
+set(ARTCADE_BUILD_NATIVE_PLAYER OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(${ARTCADE_RUNTIME_DIR} ${CMAKE_BINARY_DIR}/_runtime)
 

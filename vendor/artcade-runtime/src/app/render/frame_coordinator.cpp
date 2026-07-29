@@ -2,7 +2,6 @@
 
 #include "scene_frame_snapshot.h"
 
-#include "../../modules/editor-api/include/editor-api.h"
 #include "../../modules/presentation/include/editor_viewport_service.h"
 #include "../../modules/presentation/include/presentation_input_builder.h"
 #include "../../modules/renderer/include/renderer.h"
@@ -36,11 +35,6 @@ SceneFrameSnapshot frame_coordinator_build_frame(const FrameCoordinatorInput& in
 #ifndef NDEBUG
     assert(snap.presentationRevision == snap.presentation.revision);
 #endif
-
-    EditorAPI::commit_scene_frame({
-        snap.sceneRevision,
-        snap.layerSettings,
-    });
 
     return snap;
 }

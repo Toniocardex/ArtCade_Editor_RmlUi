@@ -277,13 +277,11 @@ if(ARTCADE_HAS_RAYLIB AND ARTCADE_HAS_LUA)
         ${ARTCADE_RUNTIME_ROOT}/src/app/render
         ${ARTCADE_RUNTIME_ROOT}/src/modules/renderer/include
         ${ARTCADE_RUNTIME_ROOT}/src/modules/presentation/include
-        ${ARTCADE_RUNTIME_ROOT}/src/modules/editor-api/include
     )
     target_link_libraries(frame_coordinator_test PRIVATE
         artcade-renderer
         artcade-presentation
         artcade-scene-system
-        artcade-editor-api
     )
     add_test(NAME frame_coordinator_test COMMAND frame_coordinator_test)
 

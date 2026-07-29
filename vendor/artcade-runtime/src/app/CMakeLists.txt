@@ -4,7 +4,6 @@ add_executable(game
     src/app_bootstrap.cpp
     src/app_loop.cpp
     src/app_project_lifecycle.cpp
-    src/app_scene_mutation.cpp
     src/app_scene_lifecycle.cpp
     src/app_scene_invalidation.cpp
     src/app_scene_render.cpp
@@ -15,7 +14,6 @@ add_executable(game
     render/tilemap-renderer.cpp
     render/parallax-renderer.cpp
     render/passes/grid_pass.cpp
-    render/passes/gizmo_pass.cpp
     render/passes/debug_pass.cpp
     render/passes/scene_background_pass.cpp
     render/passes/scene_entities_pass.cpp
@@ -40,7 +38,6 @@ target_link_libraries(game PRIVATE
     artcade-audio
     artcade-scene-system
     artcade-runtime-entity-gateway
-    artcade-editor-api          # WASM bridge (no-op stubs on native)
     # Stateless modules
     artcade-time
     artcade-event-bus

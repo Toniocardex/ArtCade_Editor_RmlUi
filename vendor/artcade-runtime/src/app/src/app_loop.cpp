@@ -2,7 +2,6 @@
 
 #include "app_modules.h"
 
-#include "../../modules/editor-api/include/editor-api.h"
 #include "../../modules/game-state/include/splash-state.h"
 // D-20: needed directly now for Logic::supportedLogicKeys()/logicInputCode()
 // - this file used to get logic-core.h transitively via app_modules.h's
@@ -12,9 +11,6 @@
 
 #include <raylib.h>
 
-#ifdef ARTCADE_WASM
-#include <emscripten/emscripten.h>
-#endif
 
 #include <chrono>
 #include <cmath>
@@ -115,11 +111,7 @@ void Application::tickGameplayActivation() {
 // the startup gate itself needs no re-checking here - only the WASM
 // edit/play toggle does.
 void Application::tickGameplay(float frameDt) {
-#ifdef ARTCADE_WASM
-    const bool canSimulate = EditorAPI::s_mode == 1;
-#else
     const bool canSimulate = true;
-#endif
 
     float simulatedDt = 0.f;
     if (canSimulate) {
@@ -204,35 +196,18 @@ void Application::tickFrameEnd(GameplayStartupPhase framePhase) {
         }
         profiler_.setRenderMs(elapsedMs(start));
     }
-    EditorAPI::flushConsoleLines();
-    EditorAPI::processSpritesheetPreviewQueue();
     mod_->input->resetFrameState();
     profiler_.endFrame();
 
     if (!mod_->renderer) return;
-    const float dt = mod_->renderer->deltaTime();
-    const float fps = (dt > 1e-6f) ? (1.f / dt) : 0.f;
-    const auto snapshot = profiler_.snapshot();
-    EditorAPI::publishRuntimeProfile(
-        fps, static_cast<float>(snapshot.luaMs),
-        static_cast<float>(snapshot.physicsMs),
-        static_cast<float>(snapshot.renderMs),
-        snapshot.entityCount, snapshot.activePhysicsBodies);
-    EditorAPI::notifyRuntimeProfile(
-        fps, static_cast<float>(snapshot.luaMs),
-        static_cast<float>(snapshot.physicsMs),
-        static_cast<float>(snapshot.renderMs),
-        snapshot.entityCount, snapshot.activePhysicsBodies);
 }
 
 void Application::loopIteration() {
     profiler_.beginFrame();
-#ifndef ARTCADE_WASM
     if (!running_ || mod_->renderer->shouldClose()) {
         running_ = false;
         return;
     }
-#endif
 
     // ADR-0039 §4: captured once, before anything this frame can mutate it,
     // so ticking and rendering always agree on which phase produced them.
@@ -241,14 +216,12 @@ void Application::loopIteration() {
     const float frameDt = sanitizeFrameDt(mod_->renderer->deltaTime());
 
     mod_->input->poll();
-#ifndef ARTCADE_WASM
     // Host input allowed in every phase, including Splash (ADR-0039 §12).
     if (mod_->input->wasKeyPressed("F11")) {
         const auto mode = mod_->renderer->toggleBorderlessFullscreen();
         if (mod_->editorViewport)
             mod_->editorViewport->set_presentation_mode(mode);
     }
-#endif
 
     switch (framePhase) {
     case GameplayStartupPhase::Splash:
@@ -267,12 +240,7 @@ void Application::loopIteration() {
 }
 
 void Application::mainLoop() {
-#ifdef ARTCADE_WASM
-    webInstance_ = this;
-    emscripten_set_main_loop(webLoopCallback, 0, 1);
-#else
     while (running_ && !mod_->renderer->shouldClose()) loopIteration();
-#endif
 }
 
 } // namespace ArtCade

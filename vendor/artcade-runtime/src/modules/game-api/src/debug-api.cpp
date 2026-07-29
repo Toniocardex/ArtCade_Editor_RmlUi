@@ -1,7 +1,6 @@
 #include "../include/game-api.h"
 #include "../../../core/runtime-profiler.h"
 #include "../../renderer/include/renderer.h"
-#include "../../editor-api/include/editor-api.h"
 
 #include <sol/sol.hpp>
 #include <iostream>
@@ -14,7 +13,6 @@ void GameAPI::bindDebugAPI(sol::state& lua) {
 
     lua.set_function("debug_log", [](const std::string& msg) {
         std::cout << "[Lua] " << msg << std::endl;  // endl flushes, ensuring capture in redirected stdout
-        EditorAPI::queueConsoleLine(("[Lua] " + msg).c_str(), "lua");
     });
 
     lua.set_function("debug_drawLine",

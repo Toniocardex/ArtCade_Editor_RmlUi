@@ -2,7 +2,6 @@
 
 #include "app_modules.h"
 
-#include "../../modules/editor-api/include/editor-api.h"
 #include "../../modules/presentation/include/presentation_types.h"
 #include "../../modules/presentation/include/editor_viewport_service.h"
 #include "render_pass_id.h"
@@ -11,7 +10,6 @@
 
 #include "passes/debug_pass.h"
 #include "passes/grid_pass.h"
-#include "passes/gizmo_pass.h"
 #include "passes/scene_background_pass.h"
 #include "passes/scene_entities_pass.h"
 #include "frame_coordinator.h"
@@ -20,9 +18,6 @@
 
 #include <vector>
 
-#ifdef ARTCADE_WASM
-#include <emscripten.h>
-#endif
 
 #ifndef NDEBUG
 #include <cassert>
@@ -38,14 +33,9 @@ RenderPipeline::ViewRenderFeatures build_view_features(
     const EditorOverlayState& overlay) {
     RenderPipeline::ViewRenderFeatures features{};
     features.drawGrid = overlay.inEditMode && overlay.guidesEnabled;
-    features.drawGizmos = overlay.inEditMode;
-    features.drawSelection = overlay.inEditMode && overlay.selectedId != 0u;
-#ifdef ARTCADE_WASM
-    features.drawPhysicsDebug =
-        EditorAPI::s_physicsDebugDraw && !overlay.inEditMode;
-#else
+    features.drawGizmos = false;
+    features.drawSelection = false;
     features.drawPhysicsDebug = false;
-#endif
     return features;
 }
 
@@ -77,11 +67,7 @@ void Application::renderActiveScene() {
     applyPendingSceneInvalidations();
 
     const SceneDef* activeScene = mod_->sceneManager->activeScene();
-#ifdef ARTCADE_WASM
-    const bool inEditOverlay = EditorAPI::s_mode == 0;
-#else
     const bool inEditOverlay = false;
-#endif
     // Edit margins stay darker than the scene background so the framed world reads.
     const Vec4 clearColor = inEditOverlay
         ? Vec4{0.028f, 0.032f, 0.042f, 1.f}
@@ -94,20 +80,8 @@ void Application::renderActiveScene() {
         static_cast<double>(mod_->cameraManager->shakeRotationOffset()),
     });
 
-#ifdef ARTCADE_WASM
-    const EditorOverlayState overlay{
-        EditorAPI::s_mode == 0,
-        EditorAPI::s_editorGuidesEnabled,
-        EditorAPI::s_editorGridSize,
-        EditorAPI::s_selectedEntityId,
-    };
-    std::vector<EntityId> selectedEntityIds = EditorAPI::s_selectedEntityIds;
-    if (selectedEntityIds.empty() && EditorAPI::s_selectedEntityId != 0u)
-        selectedEntityIds.push_back(EditorAPI::s_selectedEntityId);
-#else
     const EditorOverlayState overlay{false, false, 0.f, 0u};
     std::vector<EntityId> selectedEntityIds;
-#endif
 
     const float sceneFadeAlpha = mod_->entityGateway
         ? mod_->entityGateway->sceneFadeAlpha()
@@ -178,7 +152,8 @@ void Application::renderActiveScene() {
             AppRenderPasses::execute_scene_entities_pass(frameCtx);
             break;
         case RenderPipeline::RenderPassId::Gizmo:
-            AppRenderPasses::execute_gizmo_pass(frameCtx);
+            // Editor-only selection and resize handles are deliberately absent
+            // from the exported native player.
             break;
         case RenderPipeline::RenderPassId::Debug:
             if (mod_->gameplaySession)

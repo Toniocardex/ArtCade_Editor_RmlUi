@@ -2,11 +2,11 @@
 
 #include "app_modules.h"
 
-#include "../../modules/editor-api/include/editor-api.h"
 #include "../../modules/scene-system/include/scene-mutation-result.h"
 #include "../../modules/scene-system/include/scene-patch.h"
 
 #include <memory>
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -16,7 +16,7 @@ namespace {
 
 bool boot_step(const char* step, bool ok) {
     if (ok) return true;
-    EditorAPI::recordBootFailure(step);
+    std::cerr << "[App] Boot step failed: " << step << "\n";
     return false;
 }
 
@@ -150,71 +150,7 @@ bool Application::initSubsystems() {
         ctx_, *mod_->audio, boot_step);
     if (!gameplayModulesOk) return false;
 
-    // D-20: logicHost/logicRuntime/gameAPI no longer have Application-level
-    // aliases at all (zero remaining call sites once install*/loadLogicPrograms
-    // moved into GameplaySession); luaHostHandle() stays only for the
-    // EditorAPI::wireLua() call below (D-18 debt, out of scope here).
-    EditorAPI::wireEngine(mod_->entityGateway);
-    EditorAPI::wireLua(mod_->gameplaySession->luaHostHandle());
-    EditorAPI::wireRenderer(mod_->renderer.get());
-    EditorAPI::wireEditorViewport(mod_->editorViewport.get());
-    EditorAPI::wireDialog(mod_->dialogManager.get());
-    EditorAPI::wireSpriteAnimator(mod_->spriteAnimator);
     mod_->entityGateway->setSpriteAnimator(mod_->spriteAnimator);
-    EditorAPI::wireAudio(mod_->audio.get());
-    EditorAPI::wireVariables(mod_->variableManager);
-    EditorAPI::init("#artcade-canvas");
-
-#ifdef ARTCADE_WASM
-    EditorAPI::setSceneMutationBridge(
-        [this](const SceneId& sceneId,
-               const ArtCade::Modules::ScenePatch& patch) {
-            return mod_->gameplaySession->applySceneMutation(sceneId, patch);
-        },
-        [this](const ArtCade::Modules::SceneMutationResult& result) {
-            handleSceneMutation(result);
-        });
-    EditorAPI::setSceneInvalidationQueueHandler(
-        [this](const ArtCade::Modules::SceneInvalidation flags) {
-            queueSceneInvalidations(flags);
-        });
-    EditorAPI::setAuthoringSyncBatchHandlers(
-        [this]() { beginAuthoringSyncBatch(); },
-        [this]() { endAuthoringSyncBatch(); });
-    EditorAPI::setSceneMutationBatchOpenPredicate(
-        [this]() {
-            return mod_->gameplaySession && mod_->gameplaySession->sceneMutationBatchOpen();
-        });
-    EditorAPI::setProjectLoadedHandler(
-        [this](const std::vector<TilePaletteEntry>& palette,
-               const std::vector<TilesetAsset>& tilesets,
-               const std::vector<GameVariableDefinition>& variables,
-               const ProjectRuntimeSettings& settings) {
-            applyEditorProjectLoaded(palette, tilesets, variables, settings);
-        });
-    EditorAPI::setPreviewRestoreHandler(
-        [this](const std::vector<TilePaletteEntry>& palette,
-               const std::vector<TilesetAsset>& tilesets,
-               const std::vector<GameVariableDefinition>& variables,
-               const ProjectRuntimeSettings& settings) {
-            applyEditorPreviewRestore(palette, tilesets, variables, settings);
-        });
-    EditorAPI::setEnterPlayHandler(
-        [this](const std::vector<TilePaletteEntry>& palette,
-               const std::vector<TilesetAsset>& tilesets,
-               const std::vector<GameVariableDefinition>& variables,
-               const ProjectRuntimeSettings& settings) {
-            applyEditorEnterPlay(palette, tilesets, variables, settings);
-        });
-    EditorAPI::setExitPlayHandler(
-        [this](const std::vector<TilePaletteEntry>& palette,
-               const std::vector<TilesetAsset>& tilesets,
-               const std::vector<GameVariableDefinition>& variables,
-               const ProjectRuntimeSettings& settings,
-               const std::string& luaSource) {
-            applyEditorExitPlay(palette, tilesets, variables, settings, luaSource);
-        });
-#endif
 
     // RU-02c/RU-02e-1/2/3/RU-02f: every gameplay module GameplaySession needs
     // is session-owned now; wireHostPorts() wires only the three host-port
@@ -231,10 +167,6 @@ bool Application::initSubsystems() {
 
 void Application::shutdownModules() {
     if (!mod_) return;
-
-#ifdef ARTCADE_WASM
-    EditorAPI::clearEngineWiring();
-#endif
 
     // GameplaySession's host-port adapters are dropped first so nothing
     // holds a dangling reference once the modules they forward to reset

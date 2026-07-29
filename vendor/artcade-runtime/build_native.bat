@@ -115,7 +115,7 @@ echo [Native 2/4] Configuring CMake (Ninja, !CONFIG!)...
     -DCMAKE_BUILD_TYPE=!CONFIG! ^
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ^
     -DARTCADE_BUILD_TESTS=ON ^
-    -DARTCADE_BUILD_LEGACY_STUDIO_BRIDGE=ON
+    -DARTCADE_BUILD_NATIVE_PLAYER=ON
 if errorlevel 1 (
     popd >nul
     echo [FAIL] CMake configure failed.

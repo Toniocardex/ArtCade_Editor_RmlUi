@@ -310,7 +310,14 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const PlaySession& session) {
         const bool entityVisible = rend ? rend->visibleInGame
                                         : (tilemap && tilemap->visible);
         const bool showTilemap = entityVisible && tilemap && !tilemap->cells.empty();
-        const bool showRenderable = rend && rend->visibleInGame;
+        const bool hasSprite = rend
+            && (!rend->sprite.spriteAssetId.empty() || !rend->spriteFrame.assetId.empty());
+        const bool hasOtherVisual = rend && (rend->text.has_value() || rend->gauge.has_value());
+        // Play never renders the editor's generic placeholder. A tilemap owner
+        // with no painted cells and no independent visual is therefore absent.
+        const bool emptyTilemapOnly = tilemap && tilemap->cells.empty()
+            && !hasSprite && !hasOtherVisual;
+        const bool showRenderable = rend && rend->visibleInGame && !emptyTilemapOnly;
         if (!showRenderable && !showTilemap) continue;
 
         if (showRenderable) {

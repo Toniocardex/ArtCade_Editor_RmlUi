@@ -14,7 +14,7 @@ namespace ArtCade::Presentation {
 /**
  * Owns editor viewport navigation (ViewController + PresentationSystem) and the
  * mutable host context (editor camera, mode, DPR). Application wires this to
- * EditorAPI; Renderer is a read-only consumer of committed snapshots.
+ * the native player host; Renderer is a read-only consumer of committed snapshots.
  */
 class EditorViewportService {
 public:
