@@ -102,6 +102,9 @@ if defined VCToolsInstallDir if exist "!VCToolsInstallDir!lib\onecore\x64\oldnam
 
 pushd "%SCRIPT_DIR%" >nul
 
+set "CMAKE_BUILD_TESTS=ON"
+if "!RUN_TESTS!"=="0" set "CMAKE_BUILD_TESTS=OFF"
+
 if exist "!BUILD_DIR!\CMakeCache.txt" (
     findstr /C:"CMAKE_GENERATOR:INTERNAL=Ninja" "!BUILD_DIR!\CMakeCache.txt" >nul 2>&1
     if errorlevel 1 (
@@ -114,7 +117,7 @@ echo [Native 2/4] Configuring CMake (Ninja, !CONFIG!)...
 "%CMAKE_EXE%" -S . -B "!BUILD_DIR!" -G Ninja -Wno-dev ^
     -DCMAKE_BUILD_TYPE=!CONFIG! ^
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ^
-    -DARTCADE_BUILD_TESTS=ON ^
+    -DARTCADE_BUILD_TESTS=!CMAKE_BUILD_TESTS! ^
     -DARTCADE_BUILD_NATIVE_PLAYER=ON
 if errorlevel 1 (
     popd >nul

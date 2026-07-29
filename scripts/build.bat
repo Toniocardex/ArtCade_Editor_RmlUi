@@ -64,19 +64,30 @@ if "!DO_CLEAN!"=="1" if exist "!BUILD_DIR!" (
     rmdir /s /q "!BUILD_DIR!"
 )
 
-echo [editor 1/3] Loading MSVC environment...
+echo [editor 1/4] Loading MSVC environment...
 call "!VSDEVCMD!" -arch=x64 >nul || ( echo [FAIL] VsDevCmd failed & exit /b 1 )
 if defined VCToolsInstallDir if exist "!VCToolsInstallDir!lib\onecore\x64\oldnames.lib" set "LIB=!VCToolsInstallDir!lib\onecore\x64;!LIB!"
 
 pushd "%ROOT%" >nul
-echo [editor 2/3] Configuring (Ninja, Release)...
+set "RUNTIME_BUILD_ARGS=--no-test --config Release"
+if "!DO_CLEAN!"=="1" set "RUNTIME_BUILD_ARGS=--clean --no-test --config Release"
+
+echo [export 2/4] Building the native Windows player...
+call "!ROOT!\vendor\artcade-runtime\build_native.bat" !RUNTIME_BUILD_ARGS!
+if errorlevel 1 ( popd >nul & echo [FAIL] native Windows player build failed. & exit /b 1 )
+
+echo [editor 3/4] Configuring (Ninja, Release)...
 "%CMAKE_EXE%" -S . -B "!BUILD_DIR!" -G Ninja -Wno-dev ^
     -DCMAKE_BUILD_TYPE=Release ^
     -DCMAKE_MAKE_PROGRAM="!NINJA_EXE!" ^
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 if errorlevel 1 ( popd >nul & echo [FAIL] configure failed. & exit /b 1 )
 
-echo [editor 3/3] Building artcade-editor-native...
+echo [export] Synchronizing the Windows export template...
+call "!ROOT!\scripts\refresh-export-templates.bat"
+if errorlevel 1 ( popd >nul & echo [FAIL] export template refresh failed. & exit /b 1 )
+
+echo [editor 4/4] Building artcade-editor-native...
 "%CMAKE_EXE%" --build "!BUILD_DIR!" --target artcade-editor-native
 if errorlevel 1 ( popd >nul & echo [FAIL] build failed. & exit /b 1 )
 
