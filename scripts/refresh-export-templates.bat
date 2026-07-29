@@ -58,7 +58,7 @@ if exist "%BUILD_DIR%" (
     if exist "C:\Program Files\CMake\bin\cmake.exe" set "CMAKE_EXE=C:\Program Files\CMake\bin\cmake.exe"
 
     echo [refresh-export-templates] Re-syncing build-output resources...
-    "%CMAKE_EXE%" --build "%BUILD_DIR%" --target artcade-editor-native-resources
+    "!CMAKE_EXE!" --build "!BUILD_DIR!" --target artcade-editor-native-resources
     if errorlevel 1 (
         echo [FAIL] Could not refresh build-output resources under %BUILD_DIR%.
         echo        The editor will still export the OLD game.exe. Rebuild manually:

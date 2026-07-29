@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iostream>
 #include <random>
 #include <sstream>
 #include <system_error>
@@ -120,9 +121,15 @@ bool AssetLoader::loadArtcade(const std::string& archivePath, ProjectDoc& out) {
         ec.clear();
     }
     const auto tempDir = createExtractionDirectory();
-    if (!tempDir) return false;
+    if (!tempDir) {
+        std::cerr << "[AssetLoader] Could not create extraction directory for: "
+                  << archivePath << "\n";
+        return false;
+    }
     const std::string tmpDir = tempDir->string();
     if (!extractZip(archivePath, tmpDir)) {
+        std::cerr << "[AssetLoader] Could not decrypt or extract archive: "
+                  << archivePath << "\n";
         fs::remove_all(*tempDir, ec);
         return false;
     }
@@ -132,9 +139,15 @@ bool AssetLoader::loadArtcade(const std::string& archivePath, ProjectDoc& out) {
     devMode_  = false;
     loadManifestForRoot(tmpDir);
     try {
-        if (!parseProjectJson(tmpDir + "/project.json", out)) return false;
+        if (!parseProjectJson(tmpDir + "/project.json", out)) {
+            std::cerr << "[AssetLoader] Invalid or missing project.json in archive: "
+                      << archivePath << "\n";
+            return false;
+        }
         parseGameJson(tmpDir + "/game.json", out);
     } catch (...) {
+        std::cerr << "[AssetLoader] Project parsing raised an exception for: "
+                  << archivePath << "\n";
         return false;
     }
     return true;
