@@ -98,16 +98,16 @@ struct ChangeLogicTriggerTypeIntent {
 
 struct AddLogicActionTypeIntent {
     ObjectTypeId objectTypeId;
+    LogicBoardId boardId;
     LogicRuleId  ruleId;
-    LogicActionBranchId branchId;
     std::string  typeId;
 };
 
 struct ChangeLogicActionTypeIntent {
     ObjectTypeId objectTypeId;
+    LogicBoardId boardId;
     LogicRuleId  ruleId;
-    LogicActionBranchId branchId;
-    std::size_t  actionIndex = 0;
+    LogicActionId actionId;
     std::string  typeId;
 };
 
@@ -115,7 +115,6 @@ struct AddLogicConditionTypeIntent {
     ObjectTypeId objectTypeId;
     LogicRuleId  ruleId;
     std::string  typeId;
-    LogicActionBranchId branchId;
 };
 
 struct ChangeLogicConditionTypeIntent {
@@ -123,7 +122,6 @@ struct ChangeLogicConditionTypeIntent {
     LogicRuleId  ruleId;
     std::size_t  conditionIndex = 0;
     std::string  typeId;
-    LogicActionBranchId branchId;
 };
 
 struct OpenScriptBufferIntent {

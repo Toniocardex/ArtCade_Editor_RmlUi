@@ -66,7 +66,7 @@ struct Vec4 { float r = 1.f, g = 1.f, b = 1.f, a = 1.f; };
 
 using LogicBoardId = std::string;
 using LogicRuleId  = std::string;
-using LogicActionBranchId = std::string;
+using LogicActionId = std::string;
 
 enum class LogicKey {
     A, B, C, D, E, F, G, H, I, J, K, L, M,
@@ -131,22 +131,21 @@ struct LogicSectionDef {
     std::string name;
 };
 
-/** How often an Action Group may run after its WHEN predicate becomes true. */
+/** How often an action may run after its rule predicate becomes true. */
 enum class LogicExecutionMode {
     EveryOccurrence,   // default: run every time WHEN evaluates true
     OncePerActivation, // rising-edge gate on the complete WHEN expression
 };
 
 /**
- * One ordered THEN group under a rule's single authoritative trigger.
- * `id` is persistent runtime identity: branch order must never be used as a
- * gate key because moving a branch is an authoring-only operation.
+ * One ordered action under a rule's single authoritative trigger.
+ * `id` is persistent runtime identity: authored order must never be used as a
+ * gate key because moving an action is an authoring-only operation.
  */
-struct LogicActionBranchDef {
-    LogicActionBranchId                id;
-    LogicExecutionMode                  executionMode = LogicExecutionMode::EveryOccurrence;
-    std::vector<LogicConditionClause>  conditions;
-    std::vector<LogicBlockDef>          actions;
+struct LogicActionDef {
+    LogicActionId       id;
+    LogicExecutionMode executionMode = LogicExecutionMode::EveryOccurrence;
+    LogicBlockDef      block;
 };
 
 struct LogicRuleDef {
@@ -156,12 +155,12 @@ struct LogicRuleDef {
     std::string               sectionId;  // optional LogicSectionDef.id; empty = unsectioned
     LogicBlockDef             trigger;
     std::vector<LogicConditionClause> conditions;
-    std::vector<LogicActionBranchDef> branches;
+    std::vector<LogicActionDef> actions;
 };
 
 struct LogicBoardDef {
     LogicBoardId              id;
-    uint32_t                  schemaVersion = 5;
+    uint32_t                  schemaVersion = 6;
     uint32_t                  apiVersion = 2;
     std::vector<LogicSectionDef> sections;  // display grouping; optional
     std::vector<LogicRuleDef> rules;

@@ -230,7 +230,8 @@ bool RuntimeLogicHostAdapter::setVelocity(EntityId owner, Vec2 velocity) {
     return true;
 }
 bool RuntimeLogicHostAdapter::isKeyDown(LogicKey key) {
-    return input_ && input_->isKeyDown(Logic::logicInputCode(key));
+    return std::find(heldLogicKeys_.begin(), heldLogicKeys_.end(), key)
+        != heldLogicKeys_.end();
 }
 EntityId RuntimeLogicHostAdapter::spawnObjectType(
     EntityId owner, const ObjectTypeId& objectTypeId, float x, float y) {
@@ -431,7 +432,6 @@ Vec2 GameplaySession::presentationCameraCenter() const {
 bool GameplaySession::initializeGameplayModules(
     EngineContext& ctx,
     Modules::Audio& audio,
-    Modules::Input& input,
     const BootStepFn& bootStep) {
     logicHost_ = std::make_unique<RuntimeLogicHostAdapter>(
         *entityGateway_, audio, *cameraManager_);
@@ -440,7 +440,6 @@ bool GameplaySession::initializeGameplayModules(
 
     logicHost_->setWorld(world_.get());
     logicHost_->setVariableManager(variableManager_.get());
-    logicHost_->setInput(&input);
     logicHost_->setPhysics(physics_.get());
     logicHost_->setSpawnInstaller([this](EntityId id) { return installLogicScopeForEntity(id); });
 
@@ -820,6 +819,7 @@ void GameplaySession::dispatchInput(const GameplayInputFrame& input) {
     // Top Down Move each input frame (typically While Key Held). Sticky
     // intents made platformer keep walking after key release.
     world_->clearFrameMovementIntents();
+    if (logicHost_) logicHost_->setHeldLogicKeys(input.held);
     if (logicRuntime_) logicRuntime_->beginFrame();
     Scripts::ScriptInputSnapshot scriptInput;
     for (LogicKey key : input.pressed) {

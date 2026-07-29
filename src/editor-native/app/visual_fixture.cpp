@@ -49,8 +49,8 @@ LogicRuleDef makeKeyRule() {
     LogicRuleDef rule = Logic::makeDefaultRule("rule-hide");
     rule.name = "Hide on Space";
     rule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
-    rule.branches.at(0).actions[0] = {Logic::kSetVisible,
-                       {{"target", LogicEntityReference{}}, {"visible", false}}};
+    rule.actions.at(0).block = {Logic::kSetVisible,
+                               {{"target", LogicEntityReference{}}, {"visible", false}}};
     LogicBlockDef visible =
         Logic::makeDefaultBlock(Logic::kIsVisible, Logic::BlockKind::Condition);
     rule.conditions.push_back(
@@ -66,12 +66,13 @@ LogicRuleDef makeCollectRule() {
     rule.trigger =
         Logic::makeDefaultBlock(Logic::kCollisionEnter, Logic::BlockKind::Trigger);
     rule.trigger.properties[0].value = LogicStringValue{"Coin"};
-    rule.branches.at(0).actions[0] =
+    rule.actions.at(0).block =
         Logic::makeDefaultBlock(Logic::kDestroyOther, Logic::BlockKind::Action);
-    rule.branches.at(0).actions.push_back(LogicBlockDef{
-        Logic::kStateAdd,
-        {{"key", LogicVariableReference{"score"}},
-         {"amount", NumberExpression::literal(1.0)}}});
+    rule.actions.push_back(LogicActionDef{
+        "action-2", LogicExecutionMode::EveryOccurrence,
+        LogicBlockDef{Logic::kStateAdd,
+            {{"key", LogicVariableReference{"score"}},
+             {"amount", NumberExpression::literal(1.0)}}}});
     return rule;
 }
 
@@ -90,15 +91,19 @@ LogicRuleDef makeCloneRule() {
     LogicVec2Value position;
     position.x = NumberExpression{std::move(random)};
     position.y = NumberExpression::literal(160.0);
-    rule.branches.at(0).actions[0] = {Logic::kSetPosition,
-                       {{"target", LogicEntityReference{}}, {"position", position}}};
+    rule.actions.at(0).block = {Logic::kSetPosition,
+                               {{"target", LogicEntityReference{}}, {"position", position}}};
     // Move By and Set Velocity took expressions in 14b1c18. They render through
     // the generic property editor, unlike Set Position which used to have its
     // own path — so the reference is what proves all three offer the field.
-    rule.branches.at(0).actions.push_back(LogicBlockDef{
-        Logic::kTranslateBy, {{"offset", LogicVec2Value::literal(4.0, 0.0)}}});
-    rule.branches.at(0).actions.push_back(LogicBlockDef{
-        Logic::kSetVelocity, {{"velocity", LogicVec2Value::literal(0.0, -120.0)}}});
+    rule.actions.push_back(LogicActionDef{
+        "action-2", LogicExecutionMode::EveryOccurrence,
+        LogicBlockDef{Logic::kTranslateBy,
+                      {{"offset", LogicVec2Value::literal(4.0, 0.0)}}}});
+    rule.actions.push_back(LogicActionDef{
+        "action-3", LogicExecutionMode::EveryOccurrence,
+        LogicBlockDef{Logic::kSetVelocity,
+                      {{"velocity", LogicVec2Value::literal(0.0, -120.0)}}}});
     return rule;
 }
 

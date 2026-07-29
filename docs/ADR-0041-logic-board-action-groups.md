@@ -1,11 +1,15 @@
 # ADR-0041 — Logic Board Action Groups
 
-**Status:** Proposed — pending review
+**Status:** Superseded by [ADR-0042](ADR-0042-per-action-execution-mode.md)
 **Date:** 2026-07-28
 **Scope:** Logic Board persistent model, JSON migration, validation, generated Lua, runtime execution-state keys, editor Commands/Intents, and the native Logic Board UI.
 **Related:** Constitution ownership/command invariants; ADR-0013 validation purposes; existing `LogicExecutionMode` behavior and generated-Lua runtime contract.
 
 ---
+
+> Action Groups were removed before becoming a supported project format. The
+> accepted design is the flat per-action model in ADR-0042. This document is
+> retained only as decision history.
 
 ## Context
 

@@ -1298,12 +1298,11 @@ void migrateSpriteAnimationOwnershipV9(ProjectDoc& document) {
     };
     auto remapLogicBoard = [&](LogicBoardDef& board) {
         for (LogicRuleDef& rule : board.rules) {
-            for (LogicActionBranchDef& branch : rule.branches) {
-            for (LogicBlockDef& action : branch.actions) {
-                if (action.typeId != Logic::kAnimationPlayClip) continue;
+            for (LogicActionDef& action : rule.actions) {
+                if (action.block.typeId != Logic::kAnimationPlayClip) continue;
                 LogicPropertyDef* assetProp = nullptr;
                 LogicPropertyDef* clipProp = nullptr;
-                for (LogicPropertyDef& property : action.properties) {
+                for (LogicPropertyDef& property : action.block.properties) {
                     if (property.key == "animationAssetId") assetProp = &property;
                     if (property.key == "clipId") clipProp = &property;
                 }
@@ -1318,7 +1317,7 @@ void migrateSpriteAnimationOwnershipV9(ProjectDoc& document) {
                 if (resolved != assetRef->id) {
                     assetProp->value = LogicAssetReference{resolved};
                 }
-            }}
+            }
         }
     };
 

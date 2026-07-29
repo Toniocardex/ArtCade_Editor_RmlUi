@@ -19,7 +19,7 @@ bool requiresComponent(const Logic::LogicBlockDescriptor& descriptor,
 void appendRef(LogicComponentReferenceReport& report,
                const ObjectTypeId& objectTypeId,
                const LogicRuleId& ruleId,
-               const LogicActionBranchId& branchId,
+               const LogicActionId& actionId,
                LogicReferenceSlot slot,
                std::size_t blockIndex,
                const LogicBlockDef& block,
@@ -27,7 +27,7 @@ void appendRef(LogicComponentReferenceReport& report,
     LogicComponentReference ref;
     ref.objectTypeId = objectTypeId;
     ref.ruleId = ruleId;
-    ref.branchId = branchId;
+    ref.actionId = actionId;
     ref.slot = slot;
     ref.blockIndex = blockIndex;
     ref.typeId = block.typeId;
@@ -57,26 +57,14 @@ void collectRequiring(LogicComponentReferenceReport& report,
                 }
             }
         }
-        for (const LogicActionBranchDef& branch : rule.branches) {
-            for (std::size_t i = 0; i < branch.conditions.size(); ++i) {
-                const LogicBlockDef& block = branch.conditions[i].block;
-                if (const Logic::LogicBlockDescriptor* descriptor =
-                        Logic::findDescriptor(block.typeId)) {
-                    if (requiresComponent(*descriptor, component)) {
-                        appendRef(report, objectTypeId, rule.id, branch.id,
-                                  LogicReferenceSlot::Condition, i, block, *descriptor);
-                    }
-                }
-            }
-            for (std::size_t i = 0; i < branch.actions.size(); ++i) {
-                const LogicBlockDef& block = branch.actions[i];
-                if (const Logic::LogicBlockDescriptor* descriptor =
-                        Logic::findDescriptor(block.typeId)) {
-                    if (requiresComponent(*descriptor, component)) {
-                        appendRef(report, objectTypeId, rule.id, branch.id,
-                                  LogicReferenceSlot::Action, i,
-                                  block, *descriptor);
-                    }
+        for (std::size_t i = 0; i < rule.actions.size(); ++i) {
+            const LogicActionDef& action = rule.actions[i];
+            if (const Logic::LogicBlockDescriptor* descriptor =
+                    Logic::findDescriptor(action.block.typeId)) {
+                if (requiresComponent(*descriptor, component)) {
+                    appendRef(report, objectTypeId, rule.id, action.id,
+                              LogicReferenceSlot::Action, i,
+                              action.block, *descriptor);
                 }
             }
         }
@@ -166,26 +154,14 @@ LogicComponentReferenceReport collectIncompatibleLogicReferences(
                 }
             }
         }
-        for (const LogicActionBranchDef& branch : rule.branches) {
-            for (std::size_t i = 0; i < branch.conditions.size(); ++i) {
-                const LogicBlockDef& block = branch.conditions[i].block;
-                if (blockIncompatible(*type, block, triggerDesc)) {
-                    if (const Logic::LogicBlockDescriptor* descriptor =
-                            Logic::findDescriptor(block.typeId)) {
-                        appendRef(report, objectTypeId, rule.id, branch.id,
-                                  LogicReferenceSlot::Condition, i, block, *descriptor);
-                    }
-                }
-            }
-            for (std::size_t i = 0; i < branch.actions.size(); ++i) {
-                const LogicBlockDef& block = branch.actions[i];
-                if (blockIncompatible(*type, block, triggerDesc)) {
-                    if (const Logic::LogicBlockDescriptor* descriptor =
-                            Logic::findDescriptor(block.typeId)) {
-                        appendRef(report, objectTypeId, rule.id, branch.id,
-                                  LogicReferenceSlot::Action, i,
-                                  block, *descriptor);
-                    }
+        for (std::size_t i = 0; i < rule.actions.size(); ++i) {
+            const LogicActionDef& action = rule.actions[i];
+            if (blockIncompatible(*type, action.block, triggerDesc)) {
+                if (const Logic::LogicBlockDescriptor* descriptor =
+                        Logic::findDescriptor(action.block.typeId)) {
+                    appendRef(report, objectTypeId, rule.id, action.id,
+                              LogicReferenceSlot::Action, i,
+                              action.block, *descriptor);
                 }
             }
         }

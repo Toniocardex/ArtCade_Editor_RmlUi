@@ -13,11 +13,11 @@ enum class LogicNumericComponent { X, Y };
 
 struct LogicNumberExpressionAddress {
     ObjectTypeId objectTypeId;
+    LogicBoardId boardId;
     LogicRuleId ruleId;
-    std::size_t actionIndex = 0;
+    LogicActionId actionId;
     std::string parameterId;
     LogicNumericComponent component = LogicNumericComponent::X;
-    LogicActionBranchId branchId;
 };
 
 /** ADR-0028: replace one Vec2 component NumberExpression (Set Position.X/Y). */

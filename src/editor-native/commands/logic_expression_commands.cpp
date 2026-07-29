@@ -39,17 +39,20 @@ SetLogicNumberExpressionCommand::SetLogicNumberExpressionCommand(
 
 EditorOperationResult SetLogicNumberExpressionCommand::apply(ProjectDocument& document) {
     const LogicBoardDef* current = boardOf(document, address_.objectTypeId);
-    if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
+    if (!current || current->id != address_.boardId)
+        return EditorOperationResult::failure("Unknown or replaced Logic Board");
     LogicBoardDef next = *current;
     auto ruleIt = std::find_if(next.rules.begin(), next.rules.end(),
         [&](const LogicRuleDef& rule) { return rule.id == address_.ruleId; });
-    const auto branch = ruleIt == next.rules.end() ? std::vector<LogicActionBranchDef>::iterator{}
-        : std::find_if(ruleIt->branches.begin(), ruleIt->branches.end(),
-            [&](const LogicActionBranchDef& candidate) { return candidate.id == address_.branchId; });
-    if (ruleIt == next.rules.end() || branch == ruleIt->branches.end()
-        || address_.actionIndex >= branch->actions.size())
+    const auto actionDef = ruleIt == next.rules.end()
+        ? std::vector<LogicActionDef>::iterator{}
+        : std::find_if(ruleIt->actions.begin(), ruleIt->actions.end(),
+            [&](const LogicActionDef& candidate) {
+                return candidate.id == address_.actionId;
+            });
+    if (ruleIt == next.rules.end() || actionDef == ruleIt->actions.end())
         return EditorOperationResult::failure("Logic action not found");
-    LogicBlockDef& action = branch->actions[address_.actionIndex];
+    LogicBlockDef& action = actionDef->block;
     const Logic::LogicBlockDescriptor* block = Logic::findDescriptor(action.typeId);
     if (!block) return EditorOperationResult::failure("Unknown Logic action");
     const auto propertyDesc = std::find_if(

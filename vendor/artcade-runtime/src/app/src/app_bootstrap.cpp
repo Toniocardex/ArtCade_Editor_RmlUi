@@ -147,7 +147,7 @@ bool Application::initSubsystems() {
     // since that method (and the scope bookkeeping it needs) moved into the
     // session too.
     const bool gameplayModulesOk = mod_->gameplaySession->initializeGameplayModules(
-        ctx_, *mod_->audio, *mod_->input, boot_step);
+        ctx_, *mod_->audio, boot_step);
     if (!gameplayModulesOk) return false;
 
     // D-20: logicHost/logicRuntime/gameAPI no longer have Application-level

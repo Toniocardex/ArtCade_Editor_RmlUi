@@ -101,7 +101,7 @@ struct LogicRuntime::Impl {
 
     struct ContextProxy;
 
-    struct RuleExecutionState {
+    struct ExecutionGateState {
         bool activationLatched = false;
     };
 
@@ -113,8 +113,9 @@ struct LogicRuntime::Impl {
         // Lua closures retain `context`; keep the referenced C++ object at a
         // stable heap address for the complete scope lifetime.
         std::unique_ptr<ContextProxy> context;
-        // Rising-edge gate state for OncePerActivation (per rule, per instance).
-        std::unordered_map<LogicRuleId, RuleExecutionState> ruleStates;
+        // Rising-edge state for OncePerActivation, keyed by the stable
+        // boardId:ruleId:actionId identity within this runtime instance.
+        std::unordered_map<std::string, ExecutionGateState> executionGateStates;
         // ADR-0028: deterministic board-instance RNG (never math.random).
         uint32_t rngState = 1u;
     };
@@ -423,7 +424,7 @@ struct LogicRuntime::Impl {
          * Pulse triggers treat every event as a fresh activation; Level triggers
          * latch while WHEN stays true and rearm when it becomes false.
          */
-        bool shouldExecute(const std::string& ruleId, const std::string& modeName,
+        bool shouldExecute(const std::string& gateKey, const std::string& modeName,
                            const std::string& activationKindName, bool whenActive) {
             if (!impl) return false;
             const auto mode = logicExecutionModeFromString(modeName);
@@ -436,7 +437,7 @@ struct LogicRuntime::Impl {
             if (*activationKind == LogicTriggerActivationKind::Pulse) return whenActive;
             Scope* scope = impl->findScope(this->scope);
             if (!scope || !scope->active) return false;
-            RuleExecutionState& state = scope->ruleStates[ruleId];
+            ExecutionGateState& state = scope->executionGateStates[gateKey];
             if (!whenActive) {
                 state.activationLatched = false;
                 return false;

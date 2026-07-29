@@ -94,12 +94,12 @@ static void testCommandsAndPersistence() {
     const LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
     CHECK(coordinator.execute(RemoveLogicActionCommand{
-        "Hero", rule.id, 0, "branch-1"}).ok);
+        "Hero", "logic:Hero", rule.id, rule.actions[0].id}).ok);
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
-              .branches.at(0).actions.empty());
+              .actions.empty());
     CHECK(coordinator.undo().ok);
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
-              .branches.at(0).actions.size()
+              .actions.size()
           == 1);
 
     const auto beforeUndo = Logic::logicBoardToJson(
@@ -167,7 +167,7 @@ static void testDuplicateLogicRule() {
     LogicRuleDef source = Logic::makeDefaultRule("rule-1");
     source.name = "Move";
     source.enabled = false;
-    source.branches.at(0).executionMode = LogicExecutionMode::OncePerActivation;
+    source.actions.at(0).executionMode = LogicExecutionMode::OncePerActivation;
     source.sectionId = "movement";
     source.trigger = {Logic::kKeyPressed, {{"key", LogicKey::D}}};
     LogicConditionClause condition;
@@ -175,7 +175,7 @@ static void testDuplicateLogicRule() {
     condition.negated = true;
     condition.block = Logic::makeDefaultBlock(Logic::kIsVisible, Logic::BlockKind::Condition);
     source.conditions.push_back(std::move(condition));
-    source.branches.at(0).actions[0] = {Logic::kSetVisible,
+    source.actions[0].block = {Logic::kSetVisible,
         {{"target", LogicEntityReference{}}, {"visible", false}}};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", source, 0}).ok);
 
@@ -188,15 +188,15 @@ static void testDuplicateLogicRule() {
     CHECK(clone.id == "rule-2");
     CHECK(clone.name == "Move Copy");
     CHECK(clone.enabled == source.enabled);
-    CHECK(clone.branches.at(0).executionMode == source.branches.at(0).executionMode);
+    CHECK(clone.actions.at(0).executionMode == source.actions.at(0).executionMode);
     CHECK(clone.sectionId == source.sectionId);
     CHECK(clone.trigger.typeId == source.trigger.typeId);
     CHECK(std::get<LogicKey>(Logic::findProperty(clone.trigger, "key")->value) == LogicKey::D);
     CHECK(clone.conditions.size() == 1);
     CHECK(clone.conditions[0].joinBefore == LogicConditionJoin::And);
     CHECK(clone.conditions[0].negated);
-    CHECK(clone.branches.at(0).actions.size() == source.branches.at(0).actions.size());
-    CHECK(std::get<bool>(Logic::findProperty(clone.branches.at(0).actions[0], "visible")->value) == false);
+    CHECK(clone.actions.size() == source.actions.size());
+    CHECK(std::get<bool>(Logic::findProperty(clone.actions[0].block, "visible")->value) == false);
     CHECK(coordinator.document().revision() == revisionBefore + 1);
     CHECK(coordinator.undoSize() == undoBefore + 1);
 
@@ -262,19 +262,19 @@ static void testGlobalVariableCommands() {
     const LogicBoardDef& empty =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
-    rule.branches.at(0).actions[0] =
+    rule.actions[0].block =
         Logic::makeDefaultBlock(Logic::kStateAdd, Logic::BlockKind::Action);
-    Logic::applyDeterministicVariableDefault(coordinator.document().data(), rule.branches.at(0).actions[0]);
+    Logic::applyDeterministicVariableDefault(coordinator.document().data(), rule.actions[0].block);
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
     CHECK(coordinator.execute(AddLogicConditionCommand{
         "Hero", rule.id,
         Logic::makeDefaultBlock(Logic::kStateCompare, Logic::BlockKind::Condition), 0}).ok);
     CHECK(coordinator.execute(SetLogicPropertyCommand{
         "Hero", rule.id, LogicPropertyTarget::Action, 0,
-        "key", LogicVariableReference{"score"}, "branch-1"}).ok);
+        "key", LogicVariableReference{"score"}, rule.actions[0].id, "logic:Hero"}).ok);
     CHECK(coordinator.execute(SetLogicPropertyCommand{
         "Hero", rule.id, LogicPropertyTarget::Condition, 0,
-        "key", LogicVariableReference{"score"}, LogicActionBranchId{}}).ok);
+        "key", LogicVariableReference{"score"}}).ok);
     CHECK(countGlobalVariableReferences(coordinator.document(), "score") == 2);
 
     const uint64_t beforeBlockedRemove = coordinator.document().revision();
@@ -287,7 +287,7 @@ static void testGlobalVariableCommands() {
     const LogicBoardDef& renamed =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     CHECK(std::get<LogicVariableReference>(
-        Logic::findProperty(renamed.rules[0].branches.at(0).actions[0], "key")->value).id == "points");
+        Logic::findProperty(renamed.rules[0].actions[0].block, "key")->value).id == "points");
     CHECK(std::get<LogicVariableReference>(
         Logic::findProperty(renamed.rules[0].conditions[0].block, "key")->value).id == "points");
     CHECK(coordinator.undo().ok);
@@ -336,7 +336,7 @@ static void testGlobalVariableCommands() {
     CHECK(!ProjectValidator::validate(ProjectDocument{std::move(invalid)}).ok);
 
     CHECK(coordinator.execute(ChangeLogicActionTypeCommand{
-        "Hero", rule.id, 0, Logic::kSetVisible, "branch-1"}).ok);
+        "Hero", "logic:Hero", rule.id, rule.actions[0].id, Logic::kSetVisible}).ok);
     CHECK(coordinator.execute(RemoveLogicConditionCommand{"Hero", rule.id, 0}).ok);
     CHECK(countGlobalVariableReferences(coordinator.document(), "points") == 0);
     CHECK(coordinator.execute(RemoveGlobalVariableCommand{"points"}).ok);
@@ -358,14 +358,15 @@ static void testCreateAndAssignGlobalVariableCommand() {
     const LogicBoardDef& empty =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
-    rule.branches.at(0).actions[0] =
+    rule.actions[0].block =
         Logic::makeDefaultBlock(Logic::kStateAdd, Logic::BlockKind::Action);
-    for (LogicPropertyDef& property : rule.branches.at(0).actions[0].properties)
+    for (LogicPropertyDef& property : rule.actions[0].block.properties)
         if (property.key == "key")
             property.value = LogicVariableReference{"score"};
-    rule.branches.at(0).actions.push_back(
-        Logic::makeDefaultBlock(Logic::kStateToggle, Logic::BlockKind::Action));
-    for (LogicPropertyDef& property : rule.branches.at(0).actions[1].properties)
+    rule.actions.push_back(LogicActionDef{
+        "action-2", LogicExecutionMode::EveryOccurrence,
+        Logic::makeDefaultBlock(Logic::kStateToggle, Logic::BlockKind::Action)});
+    for (LogicPropertyDef& property : rule.actions[1].block.properties)
         if (property.key == "key")
             property.value = LogicVariableReference{"doorOpen"};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
@@ -374,7 +375,8 @@ static void testCreateAndAssignGlobalVariableCommand() {
     const uint64_t beforeCreateRevision = coordinator.document().revision();
     const auto created = coordinator.execute(CreateAndAssignGlobalVariableCommand{
         "Hero", rule.id, LogicPropertyTarget::Action, 0, "key",
-        {"health", GameVariableDefinition::Type::Number, 0.0, {}}, "branch-1"});
+        {"health", GameVariableDefinition::Type::Number, 0.0, {}},
+        "action-1", "logic:Hero"});
     CHECK(created.ok);
     CHECK(has(created.invalidation, EditorInvalidation::LogicBoard));
     CHECK(has(created.invalidation, EditorInvalidation::Inspector));
@@ -385,7 +387,7 @@ static void testCreateAndAssignGlobalVariableCommand() {
     const auto& createdBoard =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     CHECK(std::get<LogicVariableReference>(
-        Logic::findProperty(createdBoard.rules[0].branches.at(0).actions[0], "key")->value).id
+        Logic::findProperty(createdBoard.rules[0].actions[0].block, "key")->value).id
         == "health");
 
     CHECK(coordinator.undo().ok);
@@ -393,27 +395,28 @@ static void testCreateAndAssignGlobalVariableCommand() {
     const auto& undoneBoard =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     CHECK(std::get<LogicVariableReference>(
-        Logic::findProperty(undoneBoard.rules[0].branches.at(0).actions[0], "key")->value).id
+        Logic::findProperty(undoneBoard.rules[0].actions[0].block, "key")->value).id
         == "score");
     CHECK(coordinator.redo().ok);
     CHECK(coordinator.document().data().globalVariables.back().key == "health");
     const auto& redoneBoard =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     CHECK(std::get<LogicVariableReference>(
-        Logic::findProperty(redoneBoard.rules[0].branches.at(0).actions[0], "key")->value).id
+        Logic::findProperty(redoneBoard.rules[0].actions[0].block, "key")->value).id
         == "health");
 
     const std::size_t beforeBooleanUndo = coordinator.undoSize();
     CHECK(coordinator.execute(CreateAndAssignGlobalVariableCommand{
         "Hero", rule.id, LogicPropertyTarget::Action, 1, "key",
-        {"enabled", GameVariableDefinition::Type::Boolean, false, {}}, "branch-1"}).ok);
+        {"enabled", GameVariableDefinition::Type::Boolean, false, {}},
+        "action-2", "logic:Hero"}).ok);
     CHECK(coordinator.undoSize() == beforeBooleanUndo + 1);
     CHECK(coordinator.document().data().globalVariables.back().type
           == GameVariableDefinition::Type::Boolean);
     const auto& booleanBoard =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     CHECK(std::get<LogicVariableReference>(
-        Logic::findProperty(booleanBoard.rules[0].branches.at(0).actions[1], "key")->value).id
+        Logic::findProperty(booleanBoard.rules[0].actions[1].block, "key")->value).id
         == "enabled");
 
     const uint64_t beforeFailures = coordinator.document().revision();
@@ -422,19 +425,24 @@ static void testCreateAndAssignGlobalVariableCommand() {
         coordinator.document().data().globalVariables.size();
     CHECK(!coordinator.execute(CreateAndAssignGlobalVariableCommand{
         "Hero", rule.id, LogicPropertyTarget::Action, 0, "key",
-        {"wrongType", GameVariableDefinition::Type::Boolean, false, {}}, "branch-1"}).ok);
+        {"wrongType", GameVariableDefinition::Type::Boolean, false, {}},
+        "action-1", "logic:Hero"}).ok);
     CHECK(!coordinator.execute(CreateAndAssignGlobalVariableCommand{
         "Hero", rule.id, LogicPropertyTarget::Action, 0, "amount",
-        {"notSemantic", GameVariableDefinition::Type::Number, 0.0, {}}, "branch-1"}).ok);
+        {"notSemantic", GameVariableDefinition::Type::Number, 0.0, {}},
+        "action-1", "logic:Hero"}).ok);
     CHECK(!coordinator.execute(CreateAndAssignGlobalVariableCommand{
         "Hero", "missing", LogicPropertyTarget::Action, 0, "key",
-        {"missingRule", GameVariableDefinition::Type::Number, 0.0, {}}, "branch-1"}).ok);
+        {"missingRule", GameVariableDefinition::Type::Number, 0.0, {}},
+        "action-1", "logic:Hero"}).ok);
     CHECK(!coordinator.execute(CreateAndAssignGlobalVariableCommand{
         "Hero", rule.id, LogicPropertyTarget::Action, 0, "key",
-        {"health", GameVariableDefinition::Type::Number, 0.0, {}}, "branch-1"}).ok);
+        {"health", GameVariableDefinition::Type::Number, 0.0, {}},
+        "action-1", "logic:Hero"}).ok);
     CHECK(!coordinator.execute(CreateAndAssignGlobalVariableCommand{
         "Hero", rule.id, LogicPropertyTarget::Action, 0, "key",
-        {"1bad", GameVariableDefinition::Type::Number, 0.0, {}}, "branch-1"}).ok);
+        {"1bad", GameVariableDefinition::Type::Number, 0.0, {}},
+        "action-1", "logic:Hero"}).ok);
     CHECK(coordinator.document().revision() == beforeFailures);
     CHECK(coordinator.undoSize() == undoBeforeFailures);
     CHECK(coordinator.document().data().globalVariables.size()
@@ -444,7 +452,8 @@ static void testCreateAndAssignGlobalVariableCommand() {
     const uint64_t playingRevision = coordinator.document().revision();
     CHECK(!coordinator.execute(CreateAndAssignGlobalVariableCommand{
         "Hero", rule.id, LogicPropertyTarget::Action, 0, "key",
-        {"duringPlay", GameVariableDefinition::Type::Number, 0.0, {}}, "branch-1"}).ok);
+        {"duringPlay", GameVariableDefinition::Type::Number, 0.0, {}},
+        "action-1", "logic:Hero"}).ok);
     CHECK(coordinator.document().revision() == playingRevision);
     CHECK(coordinator.stopPlaying().ok);
 }
@@ -471,7 +480,7 @@ static void testConditionCommands() {
 
     CHECK(coordinator.execute(SetLogicPropertyCommand{
         "Hero", rule.id, LogicPropertyTarget::Condition, 0, "expected", false,
-        LogicActionBranchId{}}).ok);
+        LogicActionId{}}).ok);
     CHECK(std::get<bool>(coordinator.document().data().objectTypes.at("Hero").logicBoard
         ->rules[0].conditions[0].block.properties[0].value) == false);
 
@@ -571,40 +580,40 @@ static void testConditionControllerAndGenericProperties() {
     CHECK(board->rules[0].conditions[1].negated);
 
     CHECK(controller.handleAction(
-        "change-logic-action", rule.id + "|branch-1|0", Logic::kStateSet, {}));
+        "change-logic-action", rule.id + "|action-1", Logic::kStateSet, {}));
     CHECK(controller.handleAction(
-        "pick-logic-property", rule.id + "|branch-1|a|0|key", "score", {}));
+        "pick-logic-property", rule.id + "|action-1|a|0|key", "score", {}));
     CHECK(controller.handleAction(
-        "commit-logic-property", rule.id + "|branch-1|a|0|value", "42", {}));
+        "commit-logic-property", rule.id + "|action-1|a|0|value", "42", {}));
     board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
     CHECK(literalNumberValue(std::get<NumberExpression>(
-        Logic::findProperty(board->rules[0].branches.at(0).actions[0], "value")->value)) == 42.0);
+        Logic::findProperty(board->rules[0].actions[0].block, "value")->value)) == 42.0);
 
     CHECK(controller.handleAction(
-        "change-logic-action", rule.id + "|branch-1|0", Logic::kStateAdd, {}));
+        "change-logic-action", rule.id + "|action-1", Logic::kStateAdd, {}));
     CHECK(controller.handleAction(
-        "commit-logic-property", rule.id + "|branch-1|a|0|amount", "3", {}));
+        "commit-logic-property", rule.id + "|action-1|a|0|amount", "3", {}));
     CHECK(controller.handleAction(
-        "change-logic-action", rule.id + "|branch-1|0", Logic::kStateSubtract, {}));
+        "change-logic-action", rule.id + "|action-1", Logic::kStateSubtract, {}));
     CHECK(controller.handleAction(
-        "commit-logic-property", rule.id + "|branch-1|a|0|amount", "2", {}));
+        "commit-logic-property", rule.id + "|action-1|a|0|amount", "2", {}));
     CHECK(controller.handleAction(
-        "change-logic-action", rule.id + "|branch-1|0", Logic::kStateToggle, {}));
+        "change-logic-action", rule.id + "|action-1", Logic::kStateToggle, {}));
     CHECK(controller.handleAction(
-        "pick-logic-property", rule.id + "|branch-1|a|0|key", "doorOpen", {}));
+        "pick-logic-property", rule.id + "|action-1|a|0|key", "doorOpen", {}));
     board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
     CHECK(std::get<LogicVariableReference>(
-        Logic::findProperty(board->rules[0].branches.at(0).actions[0], "key")->value).id == "doorOpen");
+        Logic::findProperty(board->rules[0].actions[0].block, "key")->value).id == "doorOpen");
 
     CHECK(controller.handleAction(
-        "change-logic-action", rule.id + "|branch-1|0", Logic::kSetVelocity, {}));
+        "change-logic-action", rule.id + "|action-1", Logic::kSetVelocity, {}));
     CHECK(controller.handleAction(
-        "commit-logic-property-component", rule.id + "|branch-1|a|0|velocity|x", "7.5", {}));
+        "commit-logic-property-component", rule.id + "|action-1|a|0|velocity|x", "7.5", {}));
     CHECK(controller.handleAction(
-        "commit-logic-property-component", rule.id + "|branch-1|a|0|velocity|y", "-4", {}));
+        "commit-logic-property-component", rule.id + "|action-1|a|0|velocity|y", "-4", {}));
     board = &*coordinator.document().data().objectTypes.at("Hero").logicBoard;
     const LogicVec2Value velocity = std::get<LogicVec2Value>(
-        Logic::findProperty(board->rules[0].branches.at(0).actions[0], "velocity")->value);
+        Logic::findProperty(board->rules[0].actions[0].block, "velocity")->value);
     CHECK(literalNumberValue(velocity.x).value_or(0.0) == 7.5);
     CHECK(literalNumberValue(velocity.y).value_or(0.0) == -4.0);
 
@@ -763,7 +772,7 @@ static void testConditionGatesRuntimeDispatch() {
 
     LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(initial));
     rule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
-    rule.branches.at(0).actions[0] = {Logic::kSetVisible, {{"target", LogicEntityReference{}}, {"visible", false}}};
+    rule.actions[0].block = {Logic::kSetVisible, {{"target", LogicEntityReference{}}, {"visible", false}}};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
     CHECK(coordinator.execute(AddLogicConditionCommand{
         "Hero", rule.id, Logic::makeDefaultCondition(), 0}).ok);
@@ -794,7 +803,7 @@ static void testIsGroundedEventRunsOnTick() {
 
     LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(initial));
     rule.trigger = Logic::makeDefaultEventBlock(Logic::kIsGrounded);
-    rule.branches.at(0).actions[0] = {Logic::kSetVisible,
+    rule.actions[0].block = {Logic::kSetVisible,
         {{"target", LogicEntityReference{}}, {"visible", false}}};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
 
@@ -819,7 +828,7 @@ static void testIsFallingEventTrueWhileDescendingFalseWhenGroundedOrRising() {
     // Logic dispatchTick runs *before* platformer physics each frame.
     LogicRuleDef fallRule = Logic::makeDefaultRule(nextLogicRuleId(initial));
     fallRule.trigger = Logic::makeDefaultEventBlock(Logic::kIsFalling);
-    fallRule.branches.at(0).actions[0] = {Logic::kSetVisible,
+    fallRule.actions[0].block = {Logic::kSetVisible,
         {{"target", LogicEntityReference{}}, {"visible", false}}};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", fallRule, 0}).ok);
 
@@ -827,7 +836,7 @@ static void testIsFallingEventTrueWhileDescendingFalseWhenGroundedOrRising() {
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     LogicRuleDef landRule = Logic::makeDefaultRule(nextLogicRuleId(withFall));
     landRule.trigger = Logic::makeDefaultEventBlock(Logic::kIsGrounded);
-    landRule.branches.at(0).actions[0] = {Logic::kSetVisible,
+    landRule.actions[0].block = {Logic::kSetVisible,
         {{"target", LogicEntityReference{}}, {"visible", true}}};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", landRule, 1}).ok);
 
@@ -838,7 +847,7 @@ static void testIsFallingEventTrueWhileDescendingFalseWhenGroundedOrRising() {
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     LogicRuleDef jumpRule = Logic::makeDefaultRule(nextLogicRuleId(withLand));
     jumpRule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
-    jumpRule.branches.at(0).actions[0] = Logic::makeDefaultBlock(Logic::kJump, Logic::BlockKind::Action);
+    jumpRule.actions[0].block = Logic::makeDefaultBlock(Logic::kJump, Logic::BlockKind::Action);
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", jumpRule, 2}).ok);
 
     CHECK(coordinator.playCurrentScene().ok);
@@ -890,20 +899,21 @@ static void testIsVisibleEventAndMoveBy() {
 
     LogicRuleDef visibleRule = Logic::makeDefaultRule(nextLogicRuleId(initial));
     visibleRule.trigger = Logic::makeDefaultEventBlock(Logic::kIsVisible);
-    visibleRule.branches.at(0).actions[0] = {Logic::kTranslateBy, {{"offset", LogicVec2Value::literal(10., 20.)}}};
+    visibleRule.actions[0].block = {Logic::kTranslateBy, {{"offset", LogicVec2Value::literal(10., 20.)}}};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", visibleRule, 0}).ok);
 
     const LogicBoardDef& authored =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     CHECK(authored.rules[0].trigger.typeId == Logic::kIsVisible);
-    CHECK(authored.rules[0].branches.at(0).actions[0].typeId == Logic::kTranslateBy);
+    CHECK(authored.rules[0].actions[0].block.typeId == Logic::kTranslateBy);
     CHECK(coordinator.execute(SetLogicPropertyCommand{
         "Hero", authored.rules[0].id, LogicPropertyTarget::Action, 0,
-        "offset", LogicVec2Value::literal(12.0, -3.0), "branch-1"}).ok);
+        "offset", LogicVec2Value::literal(12.0, -3.0),
+        authored.rules[0].actions[0].id, "logic:Hero"}).ok);
     const LogicBoardDef& updated =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     const LogicPropertyDef* offset =
-        Logic::findProperty(updated.rules[0].branches.at(0).actions[0], "offset");
+        Logic::findProperty(updated.rules[0].actions[0].block, "offset");
     CHECK(offset != nullptr);
     const auto* offsetValue = std::get_if<LogicVec2Value>(&offset->value);
     CHECK(offsetValue != nullptr);
@@ -935,7 +945,7 @@ static void testBooleanPropertySetsRatherThanToggles() {
     const LogicBoardDef& initial =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(initial));
-    rule.branches.at(0).actions[0] = {Logic::kSetVisible,
+    rule.actions[0].block = {Logic::kSetVisible,
                        {{"target", LogicEntityReference{}}, {"visible", true}}};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
     CHECK(coordinator.apply(OpenLogicBoardIntent{"Hero"}).ok);
@@ -945,9 +955,9 @@ static void testBooleanPropertySetsRatherThanToggles() {
         const LogicBoardDef& board =
             *coordinator.document().data().objectTypes.at("Hero").logicBoard;
         return std::get<bool>(
-            Logic::findProperty(board.rules[0].branches.at(0).actions[0], "visible")->value);
+            Logic::findProperty(board.rules[0].actions[0].block, "visible")->value);
     };
-    const std::string actionArg = rule.id + "|branch-1|0";
+    const std::string actionArg = rule.id + "|action-1";
 
     CHECK(visibleNow());
     // Re-picking the current option leaves it alone...
@@ -992,7 +1002,7 @@ static void testInvalidExpressionKeepsTheTypedText() {
     board.id = "logic:Hero";
     LogicRuleDef rule = Logic::makeDefaultRule("rule-pos");
     rule.trigger = {Logic::kOnStart, {}};
-    rule.branches.at(0).actions[0] = Logic::makeDefaultBlock(Logic::kSetPosition, Logic::BlockKind::Action);
+    rule.actions[0].block = Logic::makeDefaultBlock(Logic::kSetPosition, Logic::BlockKind::Action);
     board.rules.push_back(std::move(rule));
     project.objectTypes.at("Hero").logicBoard = std::move(board);
     EditorCoordinator coordinator{std::move(project)};
@@ -1002,7 +1012,8 @@ static void testInvalidExpressionKeepsTheTypedText() {
     const LogicBoardDef& authored =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     const LogicPropertyAddress address{
-        authored.rules[0].id, "branch-1", LogicPropertyTarget::Action, 0};
+        authored.rules[0].id, authored.rules[0].actions[0].id,
+        LogicPropertyTarget::Action, 0};
     const std::string axis = encodeLogicPropertyAddress(address, "position") + "|x";
 
     // A valid expression commits.
@@ -1012,7 +1023,7 @@ static void testInvalidExpressionKeepsTheTypedText() {
         const LogicBoardDef& now =
             *coordinator.document().data().objectTypes.at("Hero").logicBoard;
         return std::get<LogicVec2Value>(
-            Logic::findProperty(now.rules[0].branches.at(0).actions[0], "position")->value).x;
+            Logic::findProperty(now.rules[0].actions[0].block, "position")->value).x;
     };
     CHECK(Logic::formatNumberExpression(
               positionOf(), Logic::NumberExpressionFormatStyle::Code) == "random(0, 100)");
@@ -1033,7 +1044,7 @@ static void testInvalidExpressionKeepsTheTypedText() {
     const std::string markup = renderLogicProperties(
         coordinator.document(), nullptr,
         coordinator.document().data().objectTypes.at("Hero")
-            .logicBoard->rules[0].branches.at(0).actions[0],
+            .logicBoard->rules[0].actions[0].block,
         address, "", LogicKeyBindingEditorState{}, broken, /*playing=*/false);
     CHECK(markup.find("random(0, 100\"") != std::string::npos);
     CHECK(markup.find("logic-expression-error") != std::string::npos);
@@ -1058,7 +1069,7 @@ static void testTopDownMovementViaLogicInput() {
             *coordinator.document().data().objectTypes.at("Hero").logicBoard;
         LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(board));
         rule.trigger = {Logic::kKeyHeld, {{"key", key}}};
-        rule.branches.at(0).actions[0] = {Logic::kTopDownMove,
+        rule.actions[0].block = {Logic::kTopDownMove,
                            {{"direction", LogicStringValue{direction}}}};
         return coordinator.execute(AddLogicRuleCommand{"Hero", std::move(rule),
                                                         board.rules.size()}).ok;
@@ -1158,7 +1169,7 @@ static void testTopDownMovementViaLogicInput() {
     invalidBoard.id = "logic:Hero";
     LogicRuleDef invalidRule = Logic::makeDefaultRule("rule-1");
     invalidRule.trigger = {Logic::kKeyHeld, {{"key", LogicKey::ArrowLeft}}};
-    invalidRule.branches.at(0).actions[0] = {Logic::kTopDownMove,
+    invalidRule.actions[0].block = {Logic::kTopDownMove,
                               {{"direction", LogicStringValue{"Diagonal"}}}};
     invalidBoard.rules.push_back(std::move(invalidRule));
     invalidDirection.objectTypes.at("Hero").logicBoard = std::move(invalidBoard);
@@ -1169,7 +1180,7 @@ static void testTopDownMovementViaLogicInput() {
     facingBoard.id = "logic:Hero";
     LogicRuleDef facingRule = Logic::makeDefaultRule("rule-1");
     facingRule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::ArrowLeft}}};
-    facingRule.branches.at(0).actions[0] = {Logic::kSpriteSetFacing,
+    facingRule.actions[0].block = {Logic::kSpriteSetFacing,
                              {{"facing", LogicStringValue{"Up"}}}};
     facingBoard.rules.push_back(std::move(facingRule));
     invalidFacing.objectTypes.at("Hero").logicBoard = std::move(facingBoard);
@@ -1180,7 +1191,7 @@ static void testTopDownMovementViaLogicInput() {
     leftBoard.id = "logic:Hero";
     LogicRuleDef leftRule = Logic::makeDefaultRule("rule-1");
     leftRule.trigger = {Logic::kOnStart, {}};
-    leftRule.branches.at(0).actions[0] = {Logic::kSpriteSetFacing,
+    leftRule.actions[0].block = {Logic::kSpriteSetFacing,
                            {{"facing", LogicStringValue{"Left"}}}};
     leftBoard.rules.push_back(std::move(leftRule));
     leftFacing.objectTypes.at("Hero").logicBoard = std::move(leftBoard);
@@ -1203,7 +1214,7 @@ static void testTopDownMovementViaLogicInput() {
     moveBoard.id = "logic:Hero";
     LogicRuleDef moveRule = Logic::makeDefaultRule("rule-1");
     moveRule.trigger = {Logic::kKeyHeld, {{"key", LogicKey::A}}};
-    moveRule.branches.at(0).actions[0] = {Logic::kMoveHorizontal,
+    moveRule.actions[0].block = {Logic::kMoveHorizontal,
                            {{"direction", LogicStringValue{"Left"}}}};
     moveBoard.rules.push_back(std::move(moveRule));
     platformerMove.objectTypes.at("Hero").logicBoard = std::move(moveBoard);
@@ -1221,7 +1232,7 @@ static void testTopDownMovementViaLogicInput() {
             *coordinator.document().data().objectTypes.at("Hero").logicBoard;
         LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(board));
         rule.trigger = {Logic::kKeyHeld, {{"key", LogicKey::D}}};
-        rule.branches.at(0).actions[0] = {Logic::kMoveHorizontal,
+        rule.actions[0].block = {Logic::kMoveHorizontal,
                            {{"direction", LogicStringValue{"Right"}}}};
         CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", std::move(rule), 0}).ok);
         CHECK(coordinator.playCurrentScene().ok);
@@ -1257,7 +1268,7 @@ static void testFlipHorizontalProjectsToSceneView() {
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(board));
     rule.trigger = {Logic::kOnStart, {}};
-    rule.branches.at(0).actions[0] = {Logic::kSpriteSetFacing,
+    rule.actions[0].block = {Logic::kSpriteSetFacing,
                        {{"facing", LogicStringValue{"Left"}}}};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", std::move(rule), 0}).ok);
 
@@ -1290,13 +1301,13 @@ static void testPlayRuntimeIsolation() {
     const LogicBoardDef& initial = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
 
     LogicRuleDef start = Logic::makeDefaultRule(nextLogicRuleId(initial));
-    std::get<bool>(start.branches.at(0).actions[0].properties[1].value) = false;
+    std::get<bool>(start.actions[0].block.properties[1].value) = false;
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", start, 0}).ok);
 
     const LogicBoardDef& withStart = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     LogicRuleDef key = Logic::makeDefaultRule(nextLogicRuleId(withStart));
     key.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
-    key.branches.at(0).actions[0] = {Logic::kSetPosition,
+    key.actions[0].block = {Logic::kSetPosition,
         {{"target", LogicEntityReference{}}, {"position", LogicVec2Value::literal(40., 50.)}}};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", key, 1}).ok);
 
@@ -1366,7 +1377,7 @@ static void testCollisionEventOtherAndDeferredDestroy() {
     const LogicBoardDef& empty = *coordinator.document().data().objectTypes.at("Pickup").logicBoard;
     LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
     rule.trigger = Logic::makeDefaultBlock(Logic::kCollisionEnter, Logic::BlockKind::Trigger);
-    rule.branches.at(0).actions[0] = Logic::makeDefaultBlock(Logic::kDestroySelf, Logic::BlockKind::Action);
+    rule.actions[0].block = Logic::makeDefaultBlock(Logic::kDestroySelf, Logic::BlockKind::Action);
     LogicBlockDef other = Logic::makeDefaultBlock(Logic::kOtherIsObjectType, Logic::BlockKind::Condition);
     other.properties[0].value = LogicStringValue{"Hero"};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Pickup", rule, 0}).ok);
@@ -1391,7 +1402,7 @@ static void testCollisionEventOtherAndDeferredDestroy() {
     const LogicBoardDef& heroBoard = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     LogicRuleDef exitRule = Logic::makeDefaultRule(nextLogicRuleId(heroBoard));
     exitRule.trigger = Logic::makeDefaultBlock(Logic::kCollisionExit, Logic::BlockKind::Trigger);
-    exitRule.branches.at(0).actions[0] = {Logic::kSetVisible,
+    exitRule.actions[0].block = {Logic::kSetVisible,
                            {{"target", LogicEntityReference{}}, {"visible", false}}};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", exitRule, 1}).ok);
 
@@ -1419,21 +1430,23 @@ static void testAnimationActions() {
     const LogicBoardDef& empty = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
 
     LogicRuleDef start = Logic::makeDefaultRule(nextLogicRuleId(empty));
-    start.branches.at(0).actions.clear();
+    start.actions.clear();
     LogicBlockDef play = Logic::makeDefaultBlock(Logic::kAnimationPlayClip, Logic::BlockKind::Action);
     play.properties[0].value = LogicAssetReference{"alt.anim"};
     play.properties[1].value = LogicStringValue{"run"};
     LogicBlockDef speed = Logic::makeDefaultBlock(
         Logic::kAnimationSetPlaybackSpeed, Logic::BlockKind::Action);
     speed.properties[0].value = NumberExpression::literal(2.0);
-    start.branches.at(0).actions.push_back(play);
-    start.branches.at(0).actions.push_back(speed);
+    start.actions.push_back(LogicActionDef{
+        "action-1", LogicExecutionMode::EveryOccurrence, std::move(play)});
+    start.actions.push_back(LogicActionDef{
+        "action-2", LogicExecutionMode::EveryOccurrence, std::move(speed)});
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", start, 0}).ok);
 
     const LogicBoardDef& withStart = *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     LogicRuleDef stop = Logic::makeDefaultRule(nextLogicRuleId(withStart));
     stop.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
-    stop.branches.at(0).actions[0] = Logic::makeDefaultBlock(Logic::kAnimationStop, Logic::BlockKind::Action);
+    stop.actions[0].block = Logic::makeDefaultBlock(Logic::kAnimationStop, Logic::BlockKind::Action);
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", stop, 1}).ok);
 
     const auto compiled = Logic::compileProjectLogic(coordinator.document().data());
@@ -1455,14 +1468,15 @@ static void testAnimationActions() {
     CHECK(coordinator.stopPlaying().ok);
 
     CHECK(coordinator.execute(SetLogicAnimationClipCommand{
-        "Hero", start.id, 0, "hero.anim", "idle", "branch-1"}).ok);
+        "Hero", "logic:Hero", start.id, start.actions[0].id,
+        "hero.anim", "idle"}).ok);
     const LogicBlockDef& changed = coordinator.document().data().objectTypes.at("Hero")
-        .logicBoard->rules[0].branches.at(0).actions[0];
+        .logicBoard->rules[0].actions[0].block;
     CHECK(std::get<LogicAssetReference>(changed.properties[0].value).id == "hero.anim");
     CHECK(std::get<LogicStringValue>(changed.properties[1].value).value == "idle");
     CHECK(coordinator.undo().ok);
     const LogicBlockDef& undone = coordinator.document().data().objectTypes.at("Hero")
-        .logicBoard->rules[0].branches.at(0).actions[0];
+        .logicBoard->rules[0].actions[0].block;
     CHECK(std::get<LogicAssetReference>(undone.properties[0].value).id == "alt.anim");
     CHECK(std::get<LogicStringValue>(undone.properties[1].value).value == "run");
     CHECK(coordinator.redo().ok);
@@ -1473,10 +1487,10 @@ static void testAnimationActionValidation() {
     LogicBoardDef board;
     board.id = "logic:Hero";
     LogicRuleDef missingAsset = Logic::makeDefaultRule("rule-1");
-    missingAsset.branches.at(0).actions[0] = Logic::makeDefaultBlock(
+    missingAsset.actions[0].block = Logic::makeDefaultBlock(
         Logic::kAnimationPlayClip, Logic::BlockKind::Action);
-    missingAsset.branches.at(0).actions[0].properties[0].value = LogicAssetReference{"missing.anim"};
-    missingAsset.branches.at(0).actions[0].properties[1].value = LogicStringValue{"idle"};
+    missingAsset.actions[0].block.properties[0].value = LogicAssetReference{"missing.anim"};
+    missingAsset.actions[0].block.properties[1].value = LogicStringValue{"idle"};
     board.rules.push_back(missingAsset);
     data.objectTypes.at("Hero").logicBoard = board;
     // Missing animation asset is semantic (AuthoringDiagnostics / Executable), not
@@ -1501,7 +1515,7 @@ static void testAnimationActionValidation() {
     LogicBoardDef draftBoard;
     draftBoard.id = "logic:Hero";
     LogicRuleDef draftRule = Logic::makeDefaultRule("rule-1");
-    draftRule.branches.at(0).actions[0] = Logic::makeDefaultBlock(
+    draftRule.actions[0].block = Logic::makeDefaultBlock(
         Logic::kAnimationPlayClip, Logic::BlockKind::Action);
     draftBoard.rules.push_back(draftRule);
     draft.objectTypes.at("Hero").logicBoard = draftBoard;
@@ -1522,11 +1536,14 @@ static void testPlaySoundAction() {
     // assignDefaultAudioAsset in logic_board_commands.cpp) — never left to
     // depend on unordered_map iteration order.
     CHECK(coordinator.execute(AddLogicActionCommand{
-        "Hero", start.id,
-        Logic::makeDefaultBlock(Logic::kAudioPlaySound, Logic::BlockKind::Action),
-        0, "branch-1"}).ok);
+        "Hero", "logic:Hero", start.id,
+        LogicActionDef{
+            "action-2", LogicExecutionMode::EveryOccurrence,
+            Logic::makeDefaultBlock(
+                Logic::kAudioPlaySound, Logic::BlockKind::Action)},
+        0}).ok);
     const LogicBlockDef* added = &coordinator.document().data().objectTypes.at("Hero")
-        .logicBoard->rules[0].branches.at(0).actions[0];
+        .logicBoard->rules[0].actions[0].block;
     CHECK(added->typeId == Logic::kAudioPlaySound);
     const LogicPropertyDef* defaultAsset = Logic::findProperty(*added, "audioAssetId");
     CHECK(defaultAsset && std::get<LogicAssetReference>(defaultAsset->value).id == "jump.wav");
@@ -1535,10 +1552,10 @@ static void testPlaySoundAction() {
     // actions dispatch (logic_board_editor_controller.cpp).
     CHECK(coordinator.execute(SetLogicPropertyCommand{
         "Hero", start.id, LogicPropertyTarget::Action, 0,
-        "audioAssetId", LogicAssetReference{"jump.wav"}, "branch-1"}).ok);
+        "audioAssetId", LogicAssetReference{"jump.wav"}, "action-2", "logic:Hero"}).ok);
     CHECK(coordinator.execute(SetLogicPropertyCommand{
         "Hero", start.id, LogicPropertyTarget::Action, 0, "volume",
-        NumberExpression::literal(0.5), "branch-1"}).ok);
+        NumberExpression::literal(0.5), "action-2", "logic:Hero"}).ok);
 
     const auto compiled = Logic::compileProjectLogic(coordinator.document().data());
     CHECK(compiled.ok());
@@ -1553,10 +1570,10 @@ static void testPlaySoundAction() {
 
     CHECK(coordinator.execute(SetLogicPropertyCommand{
         "Hero", start.id, LogicPropertyTarget::Action, 0, "volume",
-        NumberExpression::literal(0.9), "branch-1"}).ok);
+        NumberExpression::literal(0.9), "action-2", "logic:Hero"}).ok);
     CHECK(coordinator.undo().ok);
     const LogicBlockDef& undone = coordinator.document().data().objectTypes.at("Hero")
-        .logicBoard->rules[0].branches.at(0).actions[0];
+        .logicBoard->rules[0].actions[0].block;
     CHECK(literalNumberValue(std::get<NumberExpression>(
         Logic::findProperty(undone, "volume")->value)) == 0.5);
 }
@@ -1574,11 +1591,11 @@ static void testPlaySoundCanBeSelectedBeforeImportingAudio() {
     // Command path used by the picker, not merely the Command in isolation.
     const uint64_t revisionBefore = coordinator.document().revision();
     CHECK(controller.handleAction(
-        "change-logic-action", start.id + "|branch-1|0", Logic::kAudioPlaySound, {}));
+        "change-logic-action", start.id + "|action-1", Logic::kAudioPlaySound, {}));
     CHECK(coordinator.document().revision() == revisionBefore + 1);
     CHECK(coordinator.document().isDirty());
     const LogicBlockDef& selected = coordinator.document().data().objectTypes.at("Hero")
-        .logicBoard->rules[0].branches.at(0).actions[0];
+        .logicBoard->rules[0].actions[0].block;
     CHECK(selected.typeId == Logic::kAudioPlaySound);
     const LogicPropertyDef* audioAsset = Logic::findProperty(selected, "audioAssetId");
     CHECK(audioAsset && std::get<LogicAssetReference>(audioAsset->value).id.empty());
@@ -1588,18 +1605,18 @@ static void testPlaySoundCanBeSelectedBeforeImportingAudio() {
 
     CHECK(coordinator.undo().ok);
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
-        ->rules[0].branches.at(0).actions[0].typeId == Logic::kSetVisible);
+        ->rules[0].actions[0].block.typeId == Logic::kSetVisible);
     CHECK(coordinator.redo().ok);
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
-        ->rules[0].branches.at(0).actions[0].typeId == Logic::kAudioPlaySound);
+        ->rules[0].actions[0].block.typeId == Logic::kAudioPlaySound);
 
     // Other edits remain linear while the draft is incomplete: no Command
     // locally reinterprets the core diagnostic policy.
     CHECK(controller.handleAction(
-        "commit-logic-audio-volume", start.id + "|branch-1|0", "0.4", {}));
+        "commit-logic-audio-volume", start.id + "|action-1", "0.4", {}));
     CHECK(std::abs(literalNumberValue(std::get<NumberExpression>(Logic::findProperty(
         coordinator.document().data().objectTypes.at("Hero").logicBoard
-            ->rules[0].branches.at(0).actions[0], "volume")->value)).value_or(0.0) - 0.4) < 1e-6);
+            ->rules[0].actions[0].block, "volume")->value)).value_or(0.0) - 0.4) < 1e-6);
 
     // Drafts are real authoring states: Save/Load preserves them, while the
     // executable validator above continues to block Play.
@@ -1612,7 +1629,7 @@ static void testPlaySoundCanBeSelectedBeforeImportingAudio() {
     EditorCoordinator reloaded;
     CHECK(loadProjectFromFile(reloaded, draftPath).ok);
     const LogicBlockDef& reloadedDraft = reloaded.document().data().objectTypes.at("Hero")
-        .logicBoard->rules[0].branches.at(0).actions[0];
+        .logicBoard->rules[0].actions[0].block;
     CHECK(reloadedDraft.typeId == Logic::kAudioPlaySound);
     CHECK(std::get<LogicAssetReference>(
         Logic::findProperty(reloadedDraft, "audioAssetId")->value).id.empty());
@@ -1626,7 +1643,7 @@ static void testPlaySoundCanBeSelectedBeforeImportingAudio() {
     CHECK(reloaded.apply(OpenLogicBoardIntent{"Hero"}).ok);
     LogicBoardEditorController reloadedController{reloaded, nullptr};
     CHECK(reloadedController.handleAction(
-        "set-logic-audio-asset", start.id + "|branch-1|0", "jump.wav", {}));
+        "set-logic-audio-asset", start.id + "|action-1", "jump.wav", {}));
     CHECK(Logic::compileProjectLogic(reloaded.document().data()).ok());
     CHECK(saveProjectToFile(reloaded, draftPath).ok);
     CHECK(reloaded.playCurrentScene().ok);
@@ -1643,9 +1660,9 @@ static void testPlaySoundCanBeSelectedBeforeImportingAudio() {
     CHECK(addCoordinator.apply(OpenLogicBoardIntent{"Hero"}).ok);
     LogicBoardEditorController addController{addCoordinator, nullptr};
     CHECK(addController.handleAction(
-        "add-logic-action-type", addRule.id + "|branch-1", Logic::kAudioPlaySound, {}));
+        "add-logic-action-type", addRule.id, Logic::kAudioPlaySound, {}));
     CHECK(addCoordinator.document().data().objectTypes.at("Hero").logicBoard
-        ->rules[0].branches.at(0).actions[1].typeId == Logic::kAudioPlaySound);
+        ->rules[0].actions[1].block.typeId == Logic::kAudioPlaySound);
 }
 
 static void testCatalogPickersShareIntentCommandPath() {
@@ -1696,8 +1713,8 @@ static void testPlaySoundActionValidation() {
     LogicBoardDef missingBoard;
     missingBoard.id = "logic:Hero";
     LogicRuleDef missingRule = Logic::makeDefaultRule("rule-1");
-    missingRule.branches.at(0).actions[0] = Logic::makeDefaultBlock(Logic::kAudioPlaySound, Logic::BlockKind::Action);
-    missingRule.branches.at(0).actions[0].properties[0].value = LogicAssetReference{"missing.wav"};
+    missingRule.actions[0].block = Logic::makeDefaultBlock(Logic::kAudioPlaySound, Logic::BlockKind::Action);
+    missingRule.actions[0].block.properties[0].value = LogicAssetReference{"missing.wav"};
     missingBoard.rules.push_back(missingRule);
     missing.objectTypes.at("Hero").logicBoard = missingBoard;
     // Missing / stream / bad-volume audio are semantic — StructuralCommit allows.
@@ -1711,8 +1728,8 @@ static void testPlaySoundActionValidation() {
     LogicBoardDef streamBoard;
     streamBoard.id = "logic:Hero";
     LogicRuleDef streamRule = Logic::makeDefaultRule("rule-1");
-    streamRule.branches.at(0).actions[0] = Logic::makeDefaultBlock(Logic::kAudioPlaySound, Logic::BlockKind::Action);
-    streamRule.branches.at(0).actions[0].properties[0].value = LogicAssetReference{"theme.ogg"};
+    streamRule.actions[0].block = Logic::makeDefaultBlock(Logic::kAudioPlaySound, Logic::BlockKind::Action);
+    streamRule.actions[0].block.properties[0].value = LogicAssetReference{"theme.ogg"};
     streamBoard.rules.push_back(streamRule);
     stream.objectTypes.at("Hero").logicBoard = streamBoard;
     CHECK(ProjectValidator::validate(ProjectDocument{stream}).ok);
@@ -1725,9 +1742,9 @@ static void testPlaySoundActionValidation() {
     LogicBoardDef volumeBoard;
     volumeBoard.id = "logic:Hero";
     LogicRuleDef volumeRule = Logic::makeDefaultRule("rule-1");
-    volumeRule.branches.at(0).actions[0] = Logic::makeDefaultBlock(Logic::kAudioPlaySound, Logic::BlockKind::Action);
-    volumeRule.branches.at(0).actions[0].properties[0].value = LogicAssetReference{"jump.wav"};
-    volumeRule.branches.at(0).actions[0].properties[1].value = NumberExpression::literal(1.5);
+    volumeRule.actions[0].block = Logic::makeDefaultBlock(Logic::kAudioPlaySound, Logic::BlockKind::Action);
+    volumeRule.actions[0].block.properties[0].value = LogicAssetReference{"jump.wav"};
+    volumeRule.actions[0].block.properties[1].value = NumberExpression::literal(1.5);
     volumeBoard.rules.push_back(volumeRule);
     badVolume.objectTypes.at("Hero").logicBoard = volumeBoard;
     CHECK(ProjectValidator::validate(ProjectDocument{badVolume}).ok);
@@ -1853,46 +1870,49 @@ static void testExecutionModeCommand() {
     // LB_EXECUTION_MODE_PULSE_REDUNDANT, or AssetLoader rejects Play (warnings count).
     LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
     rule.trigger = Logic::makeDefaultBlock(Logic::kKeyHeld, Logic::BlockKind::Trigger);
-    rule.branches.at(0).actions[0] = Logic::makeDefaultBlock(Logic::kSetVisible, Logic::BlockKind::Action);
+    rule.actions[0].block = Logic::makeDefaultBlock(Logic::kSetVisible, Logic::BlockKind::Action);
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
-              .branches.at(0).executionMode == LogicExecutionMode::EveryOccurrence);
+              .actions.at(0).executionMode == LogicExecutionMode::EveryOccurrence);
 
     const uint64_t revision = coordinator.document().revision();
     const bool dirtyBefore = coordinator.document().isDirty();
-    CHECK(coordinator.execute(SetLogicActionBranchExecutionModeCommand{
-        "Hero", rule.id, "branch-1", LogicExecutionMode::OncePerActivation}).ok);
+    CHECK(coordinator.execute(SetLogicActionExecutionModeCommand{
+        "Hero", "logic:Hero", rule.id, rule.actions[0].id,
+        LogicExecutionMode::OncePerActivation}).ok);
     CHECK(coordinator.document().revision() == revision + 1);
     CHECK(coordinator.document().isDirty());
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
-              .branches.at(0).executionMode == LogicExecutionMode::OncePerActivation);
+              .actions.at(0).executionMode == LogicExecutionMode::OncePerActivation);
 
     // Same mode → no-op (no dirty/revision bump).
     const uint64_t afterSet = coordinator.document().revision();
-    CHECK(coordinator.execute(SetLogicActionBranchExecutionModeCommand{
-        "Hero", rule.id, "branch-1", LogicExecutionMode::OncePerActivation}).ok);
+    CHECK(coordinator.execute(SetLogicActionExecutionModeCommand{
+        "Hero", "logic:Hero", rule.id, rule.actions[0].id,
+        LogicExecutionMode::OncePerActivation}).ok);
     CHECK(coordinator.document().revision() == afterSet);
 
     CHECK(coordinator.undo().ok);
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
-              .branches.at(0).executionMode == LogicExecutionMode::EveryOccurrence);
+              .actions.at(0).executionMode == LogicExecutionMode::EveryOccurrence);
     CHECK(coordinator.redo().ok);
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
-              .branches.at(0).executionMode == LogicExecutionMode::OncePerActivation);
+              .actions.at(0).executionMode == LogicExecutionMode::OncePerActivation);
 
     const auto serialized = ProjectSerializer::serialize(coordinator.document());
     CHECK(serialized.ok);
     CHECK(serialized.value.find("once_per_activation") != std::string::npos);
     const auto loaded = ProjectSerializer::deserialize(serialized.value);
     CHECK(loaded.ok);
-    CHECK(loaded.value.data().objectTypes.at("Hero").logicBoard->rules[0].branches.at(0).executionMode
+    CHECK(loaded.value.data().objectTypes.at("Hero").logicBoard->rules[0].actions.at(0).executionMode
           == LogicExecutionMode::OncePerActivation);
 
     CHECK(coordinator.playCurrentScene().ok);
-    CHECK(!coordinator.execute(SetLogicActionBranchExecutionModeCommand{
-        "Hero", rule.id, "branch-1", LogicExecutionMode::EveryOccurrence}).ok);
+    CHECK(!coordinator.execute(SetLogicActionExecutionModeCommand{
+        "Hero", "logic:Hero", rule.id, rule.actions[0].id,
+        LogicExecutionMode::EveryOccurrence}).ok);
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]
-              .branches.at(0).executionMode == LogicExecutionMode::OncePerActivation);
+              .actions.at(0).executionMode == LogicExecutionMode::OncePerActivation);
     CHECK(coordinator.stopPlaying().ok);
     (void)dirtyBefore;
 }
@@ -1986,8 +2006,9 @@ static void testIncompatibleBoardRecovery() {
     board.id = "logic:Hero";
     for (int i = 0; i < 8; ++i) {
         LogicRuleDef rule = Logic::makeDefaultRule("rule-" + std::to_string(i + 1));
-        rule.branches.at(0).actions = {
-            Logic::makeDefaultBlock(Logic::kTopDownMove, Logic::BlockKind::Action)};
+        rule.actions = {LogicActionDef{
+            "action-1", LogicExecutionMode::EveryOccurrence,
+            Logic::makeDefaultBlock(Logic::kTopDownMove, Logic::BlockKind::Action)}};
         board.rules.push_back(std::move(rule));
     }
     project.objectTypes.at("Hero").logicBoard = std::move(board);
@@ -2013,7 +2034,8 @@ static void testIncompatibleBoardRecovery() {
 
     CHECK(coordinator
               .execute(ChangeLogicActionTypeCommand{
-                  "Hero", "rule-2", 0, Logic::kSetVisible, "branch-1"})
+                  "Hero", "logic:Hero", "rule-2", "action-1",
+                  Logic::kSetVisible})
               .ok);
     const auto authoringAfter = Logic::validateBoard(
         "Hero", *coordinator.document().data().objectTypes.at("Hero").logicBoard,
@@ -2158,11 +2180,11 @@ static void testSceneActionCatalogAndDefaults() {
     LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(initial));
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
     CHECK(coordinator.execute(ChangeLogicActionTypeCommand{
-        "Hero", rule.id, 0, Logic::kSceneGoTo, "branch-1"}).ok);
+        "Hero", "logic:Hero", rule.id, rule.actions[0].id, Logic::kSceneGoTo}).ok);
     const LogicBoardDef& authored =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     const LogicPropertyDef* sceneProperty =
-        Logic::findProperty(authored.rules[0].branches.at(0).actions[0], "sceneId");
+        Logic::findProperty(authored.rules[0].actions[0].block, "sceneId");
     CHECK(sceneProperty != nullptr);
     const auto* sceneValue = std::get_if<LogicStringValue>(&sceneProperty->value);
     CHECK(sceneValue != nullptr && sceneValue->value == "scene-1");
@@ -2170,11 +2192,12 @@ static void testSceneActionCatalogAndDefaults() {
     // RmlUi projection: the SceneReference dropdown lists scenes by display
     // name and carries the pick-logic-property action for each entry.
     const LogicPropertyAddress address{
-        authored.rules[0].id, "branch-1", LogicPropertyTarget::Action, 0};
+        authored.rules[0].id, authored.rules[0].actions[0].id,
+        LogicPropertyTarget::Action, 0};
     const std::string dropdownId =
         "property|" + encodeLogicPropertyAddress(address, "sceneId");
     const std::string markup = renderLogicProperties(
-        coordinator.document(), nullptr, authored.rules[0].branches.at(0).actions[0], address,
+        coordinator.document(), nullptr, authored.rules[0].actions[0].block, address,
         dropdownId, LogicKeyBindingEditorState{}, LogicExpressionFieldState{},
         /*playing=*/false);
     CHECK(markup.find("Scene 2") != std::string::npos);
@@ -2187,8 +2210,8 @@ static void testSceneActionValidation() {
     LogicBoardDef board;
     board.id = "logic:Hero";
     LogicRuleDef rule = Logic::makeDefaultRule("rule-1");
-    rule.branches.at(0).actions[0] = Logic::makeDefaultBlock(Logic::kSceneGoTo, Logic::BlockKind::Action);
-    rule.branches.at(0).actions[0].properties[0].value = LogicStringValue{"scene-2"};
+    rule.actions[0].block = Logic::makeDefaultBlock(Logic::kSceneGoTo, Logic::BlockKind::Action);
+    rule.actions[0].block.properties[0].value = LogicStringValue{"scene-2"};
     board.rules.push_back(rule);
     data.objectTypes.at("Hero").logicBoard = board;
 
@@ -2213,7 +2236,7 @@ static void testSceneActionValidation() {
     // Unknown / empty scene: semantic error (LB_SCENE_REFERENCE) on the
     // authoring and executable paths, while StructuralCommit stays loadable.
     ProjectDoc unknown = data;
-    unknown.objectTypes.at("Hero").logicBoard->rules[0].branches.at(0).actions[0].properties[0].value =
+    unknown.objectTypes.at("Hero").logicBoard->rules[0].actions[0].block.properties[0].value =
         LogicStringValue{"scene-missing"};
     CHECK(ProjectValidator::validate(ProjectDocument{unknown}).ok);
     CHECK(Logic::hasLogicErrors(Logic::validateBoard(
@@ -2222,7 +2245,7 @@ static void testSceneActionValidation() {
         Logic::LogicValidationPurpose::AuthoringDiagnostics)));
 
     ProjectDoc empty = data;
-    empty.objectTypes.at("Hero").logicBoard->rules[0].branches.at(0).actions[0].properties[0].value =
+    empty.objectTypes.at("Hero").logicBoard->rules[0].actions[0].block.properties[0].value =
         LogicStringValue{};
     CHECK(Logic::hasLogicErrors(Logic::validateBoard(
         "Hero", *empty.objectTypes.at("Hero").logicBoard,
@@ -2231,7 +2254,7 @@ static void testSceneActionValidation() {
 
     // Restart Scene has no properties and no scene reference to validate.
     ProjectDoc restart = data;
-    restart.objectTypes.at("Hero").logicBoard->rules[0].branches.at(0).actions[0] =
+    restart.objectTypes.at("Hero").logicBoard->rules[0].actions[0].block =
         Logic::makeDefaultBlock(Logic::kSceneRestart, Logic::BlockKind::Action);
     CHECK(!Logic::hasLogicErrors(Logic::validateBoard(
         "Hero", *restart.objectTypes.at("Hero").logicBoard,
@@ -2247,11 +2270,12 @@ static void testSceneGoToSwitchesSceneAndFiresOnStart() {
     LogicBoardDef heroBoard;
     heroBoard.id = "logic:Hero";
     LogicRuleDef heroRule = Logic::makeDefaultRule("rule-1");
-    heroRule.branches.at(0).actions[0] = Logic::makeDefaultBlock(Logic::kSceneGoTo, Logic::BlockKind::Action);
-    heroRule.branches.at(0).actions[0].properties[0].value = LogicStringValue{"scene-2"};
+    heroRule.actions[0].block = Logic::makeDefaultBlock(Logic::kSceneGoTo, Logic::BlockKind::Action);
+    heroRule.actions[0].block.properties[0].value = LogicStringValue{"scene-2"};
     LogicBlockDef secondGoTo = Logic::makeDefaultBlock(Logic::kSceneGoTo, Logic::BlockKind::Action);
     secondGoTo.properties[0].value = LogicStringValue{"scene-3"};
-    heroRule.branches.at(0).actions.push_back(secondGoTo);
+    heroRule.actions.push_back(LogicActionDef{
+        "action-2", LogicExecutionMode::EveryOccurrence, std::move(secondGoTo)});
     heroBoard.rules.push_back(heroRule);
     data.objectTypes.at("Hero").logicBoard = heroBoard;
 
@@ -2272,11 +2296,11 @@ static void testSceneGoToSwitchesSceneAndFiresOnStart() {
 
     // Single Go To scene-2: the incoming scene's own On Start must fire
     // (Ghost's Move By runs), and scene-1's Hero leaves the renderables.
-    data.objectTypes.at("Hero").logicBoard->rules[0].branches.at(0).actions.pop_back();
+    data.objectTypes.at("Hero").logicBoard->rules[0].actions.pop_back();
     LogicBoardDef ghostBoard;
     ghostBoard.id = "logic:Ghost";
     LogicRuleDef ghostRule = Logic::makeDefaultRule("rule-1");
-    ghostRule.branches.at(0).actions[0] = LogicBlockDef{
+    ghostRule.actions[0].block = LogicBlockDef{
         Logic::kTranslateBy, {{"offset", LogicVec2Value::literal(10., 20.)}}};
     ghostBoard.rules.push_back(ghostRule);
     data.objectTypes.at("Ghost").logicBoard = ghostBoard;
@@ -2305,17 +2329,17 @@ static void testSceneRestartRestoresAuthoredLayoutAndRefiresOnStart() {
     LogicBoardDef board;
     board.id = "logic:Hero";
     LogicRuleDef startRule = Logic::makeDefaultRule("rule-1");
-    startRule.branches.at(0).actions[0] = LogicBlockDef{
+    startRule.actions[0].block = LogicBlockDef{
         Logic::kTranslateBy, {{"offset", LogicVec2Value::literal(10., 0.)}}};
     board.rules.push_back(startRule);
     LogicRuleDef nudgeRule = Logic::makeDefaultRule("rule-2");
     nudgeRule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::D}}};
-    nudgeRule.branches.at(0).actions[0] = LogicBlockDef{
+    nudgeRule.actions[0].block = LogicBlockDef{
         Logic::kTranslateBy, {{"offset", LogicVec2Value::literal(100., 0.)}}};
     board.rules.push_back(nudgeRule);
     LogicRuleDef restartRule = Logic::makeDefaultRule("rule-3");
     restartRule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
-    restartRule.branches.at(0).actions[0] =
+    restartRule.actions[0].block =
         Logic::makeDefaultBlock(Logic::kSceneRestart, Logic::BlockKind::Action);
     board.rules.push_back(restartRule);
     data.objectTypes.at("Hero").logicBoard = board;
@@ -2366,7 +2390,7 @@ static void testDestroyOtherCollectsPickup() {
     LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
     rule.trigger = Logic::makeDefaultBlock(Logic::kCollisionEnter, Logic::BlockKind::Trigger);
     rule.trigger.properties[0].value = LogicStringValue{"Coin"};
-    rule.branches.at(0).actions[0] = Logic::makeDefaultBlock(Logic::kDestroyOther, Logic::BlockKind::Action);
+    rule.actions[0].block = Logic::makeDefaultBlock(Logic::kDestroyOther, Logic::BlockKind::Action);
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
 
     // Picker availability mirrors the trigger's provided context.
@@ -2414,7 +2438,7 @@ static void testCoordinatorProjectsLogicExpressionDiagnostics() {
     LogicVec2Value position;
     position.x = NumberExpression{std::move(divide)};
     position.y = NumberExpression::literal(10.0);
-    rule.branches.at(0).actions[0] = {Logic::kSetPosition,
+    rule.actions[0].block = {Logic::kSetPosition,
         {{"target", LogicEntityReference{}}, {"position", std::move(position)}}};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
 
@@ -2462,7 +2486,7 @@ static void testSetPositionNonFiniteRateLimitedDiagnostics() {
     LogicVec2Value position;
     position.x = NumberExpression{std::move(divide)};
     position.y = NumberExpression::literal(10.0);
-    rule.branches.at(0).actions[0] = {Logic::kSetPosition,
+    rule.actions[0].block = {Logic::kSetPosition,
         {{"target", LogicEntityReference{}}, {"position", std::move(position)}}};
     board.rules.push_back(std::move(rule));
 
@@ -2470,7 +2494,8 @@ static void testSetPositionNonFiniteRateLimitedDiagnostics() {
     CHECK(compiled.ok());
     CHECK(compiled.programs[0].source.find("logic.diagnostics.expression_once")
           != std::string::npos);
-    CHECK(compiled.programs[0].source.find("logic:Pos:rule-nan:0:position")
+    CHECK(compiled.programs[0].source.find(
+              "logic:Pos:rule-nan:action-1:position")
           != std::string::npos);
 
     struct Host final : IGameplayRuntimeHost {
@@ -2540,7 +2565,8 @@ static void testSetPositionNonFiniteRateLimitedDiagnostics() {
     CHECK(host.position.x == 1.f && host.position.y == 2.f);
     CHECK(runtime.diagnostics().size() == 1);
     CHECK(runtime.diagnostics().front().find("non-finite") != std::string::npos);
-    CHECK(runtime.diagnostics().front().find("logic:Pos:rule-nan:0:position")
+    CHECK(runtime.diagnostics().front().find(
+              "logic:Pos:rule-nan:action-1:position")
           != std::string::npos);
 
     // Drain clears the log buffer but keeps once-per-key rate-limit state.
@@ -2562,7 +2588,7 @@ static void testSetLogicNumberExpressionCommand() {
     board.id = "logic:Hero";
     LogicRuleDef rule = Logic::makeDefaultRule("rule-pos");
     rule.trigger = {Logic::kOnStart, {}};
-    rule.branches.at(0).actions[0] = {Logic::kSetPosition,
+    rule.actions[0].block = {Logic::kSetPosition,
         {{"target", LogicEntityReference{}},
          {"position", LogicVec2Value::literal(10., 20.)}}};
     board.rules.push_back(std::move(rule));
@@ -2570,7 +2596,8 @@ static void testSetLogicNumberExpressionCommand() {
     EditorCoordinator coordinator{std::move(project)};
 
     LogicNumberExpressionAddress xAddress{
-        "Hero", "rule-pos", 0, "position", LogicNumericComponent::X, "branch-1"};
+        "Hero", "logic:Hero", "rule-pos", "action-1",
+        "position", LogicNumericComponent::X};
     NumberExpression addX{NumberBinaryExpression{
         NumberBinaryOperator::Add,
         boxNumberExpression(NumberExpression::literal(1.0)),
@@ -2582,7 +2609,7 @@ static void testSetLogicNumberExpressionCommand() {
     CHECK(coordinator.undoSize() == undoBefore + 1);
     const LogicPropertyDef* positionProperty = Logic::findProperty(
         coordinator.document().data().objectTypes.at("Hero").logicBoard
-            ->rules[0].branches.at(0).actions[0],
+            ->rules[0].actions[0].block,
         "position");
     CHECK(positionProperty != nullptr);
     const LogicVec2Value* vec =
@@ -2604,7 +2631,7 @@ static void testSetLogicNumberExpressionCommand() {
         yAddress, NumberExpression::literal(99.0)}).ok);
     positionProperty = Logic::findProperty(
         coordinator.document().data().objectTypes.at("Hero").logicBoard
-            ->rules[0].branches.at(0).actions[0],
+            ->rules[0].actions[0].block,
         "position");
     vec = positionProperty ? std::get_if<LogicVec2Value>(&positionProperty->value) : nullptr;
     if (vec) {
@@ -2616,7 +2643,7 @@ static void testSetLogicNumberExpressionCommand() {
     CHECK(coordinator.undo().ok);
     positionProperty = Logic::findProperty(
         coordinator.document().data().objectTypes.at("Hero").logicBoard
-            ->rules[0].branches.at(0).actions[0],
+            ->rules[0].actions[0].block,
         "position");
     vec = positionProperty ? std::get_if<LogicVec2Value>(&positionProperty->value) : nullptr;
     if (vec) {
@@ -2629,19 +2656,21 @@ static void testSetLogicNumberExpressionCommand() {
     // decided against a literal, which is the ADR's rule for such a check.
     LogicRuleDef move = Logic::makeDefaultRule("rule-move");
     move.trigger = {Logic::kOnStart, {}};
-    move.branches.at(0).actions[0] = Logic::makeDefaultBlock(Logic::kTranslateBy, Logic::BlockKind::Action);
+    move.actions[0].block = Logic::makeDefaultBlock(Logic::kTranslateBy, Logic::BlockKind::Action);
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", move, 1}).ok);
     LogicNumberExpressionAddress moveAddress{
-        "Hero", "rule-move", 0, "offset", LogicNumericComponent::X, "branch-1"};
+        "Hero", "logic:Hero", "rule-move", "action-1",
+        "offset", LogicNumericComponent::X};
     CHECK(coordinator.execute(
         SetLogicNumberExpressionCommand{moveAddress, addX}).ok);
 
     LogicRuleDef scaled = Logic::makeDefaultRule("rule-scale");
     scaled.trigger = {Logic::kOnStart, {}};
-    scaled.branches.at(0).actions[0] = Logic::makeDefaultBlock(Logic::kSetScale, Logic::BlockKind::Action);
+    scaled.actions[0].block = Logic::makeDefaultBlock(Logic::kSetScale, Logic::BlockKind::Action);
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", scaled, 2}).ok);
     LogicNumberExpressionAddress scaleAddress{
-        "Hero", "rule-scale", 0, "scale", LogicNumericComponent::X, "branch-1"};
+        "Hero", "logic:Hero", "rule-scale", "action-1",
+        "scale", LogicNumericComponent::X};
     const auto rejected = coordinator.execute(
         SetLogicNumberExpressionCommand{scaleAddress, addX});
     CHECK(!rejected.ok);
@@ -2653,7 +2682,7 @@ static void testSetPositionPropertyEditorIsATypedField() {
     board.id = "logic:Hero";
     LogicRuleDef rule = Logic::makeDefaultRule("rule-pos");
     rule.trigger = {Logic::kOnStart, {}};
-    rule.branches.at(0).actions[0] = Logic::makeDefaultBlock(Logic::kSetPosition, Logic::BlockKind::Action);
+    rule.actions[0].block = Logic::makeDefaultBlock(Logic::kSetPosition, Logic::BlockKind::Action);
     board.rules.push_back(std::move(rule));
     project.objectTypes.at("Hero").logicBoard = std::move(board);
 
@@ -2661,9 +2690,10 @@ static void testSetPositionPropertyEditorIsATypedField() {
     const LogicBoardDef& authored =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     const LogicPropertyAddress address{
-        authored.rules[0].id, "branch-1", LogicPropertyTarget::Action, 0};
+        authored.rules[0].id, authored.rules[0].actions[0].id,
+        LogicPropertyTarget::Action, 0};
     const std::string markup = renderLogicProperties(
-        coordinator.document(), nullptr, authored.rules[0].branches.at(0).actions[0], address,
+        coordinator.document(), nullptr, authored.rules[0].actions[0].block, address,
         "", LogicKeyBindingEditorState{}, LogicExpressionFieldState{},
         /*playing=*/false);
 
@@ -2684,10 +2714,11 @@ static void testSetPositionPropertyEditorIsATypedField() {
 
     // Set Scale stays LiteralOnly — plain numeric axes, no expression field.
     LogicRuleDef scale = Logic::makeDefaultRule("rule-scale");
-    scale.branches.at(0).actions[0] = Logic::makeDefaultBlock(Logic::kSetScale, Logic::BlockKind::Action);
+    scale.actions[0].block = Logic::makeDefaultBlock(Logic::kSetScale, Logic::BlockKind::Action);
     const std::string scaleMarkup = renderLogicProperties(
-        coordinator.document(), nullptr, scale.branches.at(0).actions[0],
-        LogicPropertyAddress{scale.id, "branch-1", LogicPropertyTarget::Action, 0},
+        coordinator.document(), nullptr, scale.actions[0].block,
+        LogicPropertyAddress{scale.id, scale.actions[0].id,
+                             LogicPropertyTarget::Action, 0},
         "", LogicKeyBindingEditorState{}, LogicExpressionFieldState{}, false);
     CHECK(scaleMarkup.find("open-number-expression-editor") == std::string::npos);
     CHECK(scaleMarkup.find("logic-expression-input") == std::string::npos);
@@ -2699,7 +2730,7 @@ static void testSetPositionPropertyEditorIsATypedField() {
     LogicExpressionFieldState focused;
     focused.focusAddress = encodeLogicPropertyAddress(address, "position") + "|y";
     const std::string focusedMarkup = renderLogicProperties(
-        coordinator.document(), nullptr, authored.rules[0].branches.at(0).actions[0], address,
+        coordinator.document(), nullptr, authored.rules[0].actions[0].block, address,
         "", LogicKeyBindingEditorState{}, focused, /*playing=*/false);
     CHECK(focusedMarkup.find("logic-expression-completions") != std::string::npos);
     CHECK(focusedMarkup.find("random(min, max)") != std::string::npos);
@@ -2720,7 +2751,7 @@ static void testSetLogicNumberExpressionCommandAcceptsGlobalVariable() {
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(board));
     rule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
-    rule.branches.at(0).actions[0] = {Logic::kSetPosition,
+    rule.actions[0].block = {Logic::kSetPosition,
         {{"target", LogicEntityReference{}},
          {"position", LogicVec2Value::literal(0., 0.)}}};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", std::move(rule), 0}).ok);
@@ -2731,11 +2762,12 @@ static void testSetLogicNumberExpressionCommandAcceptsGlobalVariable() {
     variable.scope = NumberVariableScope::Global;
     variable.variableId = "TargetX";
     CHECK(coordinator.execute(SetLogicNumberExpressionCommand{
-        {"Hero", ruleId, 0, "position", LogicNumericComponent::X, "branch-1"},
+        {"Hero", "logic:Hero", ruleId, "action-1",
+         "position", LogicNumericComponent::X},
         NumberExpression{variable}}).ok);
 
     const LogicPropertyDef* position = Logic::findProperty(
-        coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0].branches.at(0).actions[0],
+        coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0].actions[0].block,
         "position");
     CHECK(position != nullptr);
     const auto* vec = std::get_if<LogicVec2Value>(&position->value);
@@ -2796,7 +2828,7 @@ static NumberExpression clampedAdd(NumberVariableScope scope, const std::string&
 static const NumberExpression* positionComponent(const EditorCoordinator& coordinator,
                                                  LogicNumericComponent component) {
     const LogicPropertyDef* position = Logic::findProperty(
-        coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0].branches.at(0).actions[0],
+        coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0].actions[0].block,
         "position");
     if (!position) return nullptr;
     const auto* vec = std::get_if<LogicVec2Value>(&position->value);
@@ -2823,7 +2855,7 @@ static void testExpressionReferencesCountAsReferences() {
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(board));
     rule.trigger = {Logic::kOnStart, {}};
-    rule.branches.at(0).actions[0] = {Logic::kSetPosition,
+    rule.actions[0].block = {Logic::kSetPosition,
         {{"target", LogicEntityReference{}},
          {"position", LogicVec2Value::literal(0., 0.)}}};
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", std::move(rule), 0}).ok);
@@ -2831,9 +2863,11 @@ static void testExpressionReferencesCountAsReferences() {
         coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0].id;
 
     const LogicNumberExpressionAddress xAddress{
-        "Hero", ruleId, 0, "position", LogicNumericComponent::X, "branch-1"};
+        "Hero", "logic:Hero", ruleId, "action-1",
+        "position", LogicNumericComponent::X};
     const LogicNumberExpressionAddress yAddress{
-        "Hero", ruleId, 0, "position", LogicNumericComponent::Y, "branch-1"};
+        "Hero", "logic:Hero", ruleId, "action-1",
+        "position", LogicNumericComponent::Y};
     CHECK(coordinator.execute(SetLogicNumberExpressionCommand{
         xAddress, clampedAdd(NumberVariableScope::Global, "TargetX")}).ok);
     CHECK(coordinator.execute(SetLogicNumberExpressionCommand{
@@ -3028,19 +3062,15 @@ static void testObjectVariableDefinitionsAndOverrides() {
     CHECK(coordinator.undoSize() == undoSize);
 }
 
-static void testActionBranchesCompileWithStableGateKeys() {
+static void testPerActionModesCompileWithStableGateKeys() {
     LogicBoardDef board;
     board.id = "board-1";
     LogicRuleDef rule = Logic::makeDefaultRule("rule-1");
-    LogicActionBranchDef once;
-    once.id = "branch-2";
-    once.executionMode = LogicExecutionMode::OncePerActivation;
-    LogicConditionClause localCondition;
-    localCondition.block =
-        Logic::makeDefaultBlock(Logic::kIsVisible, Logic::BlockKind::Condition);
-    once.conditions.push_back(std::move(localCondition));
-    once.actions.push_back(Logic::makeDefaultAction());
-    rule.branches.push_back(std::move(once));
+    rule.actions[0].id = "show-every";
+    rule.actions[0].executionMode = LogicExecutionMode::EveryOccurrence;
+    rule.actions.push_back(LogicActionDef{
+        "show-once", LogicExecutionMode::OncePerActivation,
+        Logic::makeDefaultAction().block});
     board.rules.push_back(std::move(rule));
 
     const auto structural = Logic::validateBoard(
@@ -3049,29 +3079,31 @@ static void testActionBranchesCompileWithStableGateKeys() {
     const Logic::LogicCompileResult compiled = Logic::compileBoard("Hero", board);
     CHECK(compiled.ok());
     CHECK(compiled.programs.size() == 1);
-    CHECK(compiled.programs[0].source.find("board-1:rule-1:branch-1") != std::string::npos);
-    CHECK(compiled.programs[0].source.find("board-1:rule-1:branch-2") != std::string::npos);
-    CHECK(compiled.programs[0].source.find("local _branch_1_eligible") != std::string::npos);
-    CHECK(compiled.programs[0].source.find("local _branch_2_eligible") != std::string::npos);
-    const std::size_t branch1Runs =
-        compiled.programs[0].source.find("local _branch_1_runs");
-    const std::size_t branch2Runs =
-        compiled.programs[0].source.find("local _branch_2_runs");
-    const std::size_t firstAction =
-        compiled.programs[0].source.find("if _branch_1_runs then");
-    CHECK(branch1Runs != std::string::npos && branch1Runs < firstAction);
-    CHECK(branch2Runs != std::string::npos && branch2Runs < firstAction);
+    CHECK(compiled.programs[0].source.find(
+              "board-1:rule-1:show-every") != std::string::npos);
+    CHECK(compiled.programs[0].source.find(
+              "board-1:rule-1:show-once") != std::string::npos);
+    CHECK(compiled.programs[0].source.find("board-1:rule-1:show-every")
+          < compiled.programs[0].source.find("board-1:rule-1:show-once"));
+    const std::size_t onceGate =
+        compiled.programs[0].source.find("board-1:rule-1:show-once");
+    const std::size_t onceAction =
+        compiled.programs[0].source.find("context.self:set_visible", onceGate);
+    CHECK(onceAction != std::string::npos && onceGate < onceAction);
 
-    // Vector order changes runtime order only; persistent gate identity stays
-    // branch-qualified, never index-qualified.
-    std::swap(board.rules[0].branches[0], board.rules[0].branches[1]);
+    // Reorder changes authored execution order, never persistent gate identity.
+    std::swap(board.rules[0].actions[0], board.rules[0].actions[1]);
     const Logic::LogicCompileResult reordered = Logic::compileBoard("Hero", board);
     CHECK(reordered.ok());
-    CHECK(reordered.programs[0].source.find("board-1:rule-1:branch-1") != std::string::npos);
-    CHECK(reordered.programs[0].source.find("board-1:rule-1:branch-2") != std::string::npos);
+    CHECK(reordered.programs[0].source.find(
+              "board-1:rule-1:show-every") != std::string::npos);
+    CHECK(reordered.programs[0].source.find(
+              "board-1:rule-1:show-once") != std::string::npos);
+    CHECK(reordered.programs[0].source.find("board-1:rule-1:show-once")
+          < reordered.programs[0].source.find("board-1:rule-1:show-every"));
 }
 
-static void testActionBranchJsonMigrationAndCanonicalSave() {
+static void testPerActionJsonMigrationAndCanonicalSave() {
     LogicBoardDef current;
     current.id = "board-migrate";
     LogicRuleDef rule = Logic::makeDefaultRule("rule-migrate");
@@ -3081,133 +3113,171 @@ static void testActionBranchJsonMigrationAndCanonicalSave() {
     legacy["schemaVersion"] = 4u;
     nlohmann::json& legacyRule = legacy["rules"][0];
     legacyRule["executionMode"] = "once_per_activation";
-    legacyRule["actions"] = legacyRule["branches"][0]["actions"];
-    legacyRule.erase("branches");
+    const nlohmann::json legacyBlock = legacyRule["actions"][0]["block"];
+    legacyRule["actions"] = nlohmann::json::array(
+        {legacyBlock, legacyBlock});
 
     LogicBoardDef migrated;
     const Logic::LogicJsonResult result = Logic::logicBoardFromJson(legacy, migrated);
     CHECK(result.ok);
     CHECK(migrated.schemaVersion == Logic::kLogicBoardSchemaVersion);
     CHECK(migrated.rules.size() == 1);
-    CHECK(migrated.rules[0].branches.size() == 1);
-    CHECK(migrated.rules[0].branches[0].id == "branch-1");
-    CHECK(migrated.rules[0].branches[0].executionMode
+    CHECK(migrated.rules[0].actions.size() == 2);
+    CHECK(migrated.rules[0].actions[0].id == "action-1");
+    CHECK(migrated.rules[0].actions[1].id == "action-2");
+    CHECK(migrated.rules[0].actions[0].executionMode
+          == LogicExecutionMode::OncePerActivation);
+    CHECK(migrated.rules[0].actions[1].executionMode
+          == LogicExecutionMode::OncePerActivation);
+
+    legacy["schemaVersion"] = 3u;
+    LogicBoardDef migratedV3;
+    CHECK(Logic::logicBoardFromJson(legacy, migratedV3).ok);
+    CHECK(migratedV3.rules[0].actions.size() == 2);
+    CHECK(migratedV3.rules[0].actions[0].executionMode
+          == LogicExecutionMode::OncePerActivation);
+    CHECK(migratedV3.rules[0].actions[1].executionMode
           == LogicExecutionMode::OncePerActivation);
 
     const nlohmann::json canonical = Logic::logicBoardToJson(migrated);
     CHECK(canonical["schemaVersion"] == Logic::kLogicBoardSchemaVersion);
-    CHECK(canonical["rules"][0].contains("branches"));
-    CHECK(!canonical["rules"][0].contains("actions"));
+    CHECK(!canonical["rules"][0].contains("branches"));
+    CHECK(canonical["rules"][0].contains("actions"));
     CHECK(!canonical["rules"][0].contains("executionMode"));
+    CHECK(canonical["rules"][0]["actions"][0]["id"] == "action-1");
+    CHECK(canonical["rules"][0]["actions"][0]["executionMode"]
+          == "once_per_activation");
+
+    // Schema 5 groups flatten in authored order and copy each group mode.
+    nlohmann::json grouped = canonical;
+    grouped["schemaVersion"] = 5u;
+    nlohmann::json& groupedRule = grouped["rules"][0];
+    const nlohmann::json block = groupedRule["actions"][0]["block"];
+    groupedRule.erase("actions");
+    groupedRule["branches"] = nlohmann::json::array({
+        {{"id", "branch-1"}, {"executionMode", "every_occurrence"},
+         {"conditions", nlohmann::json::array()},
+         {"actions", nlohmann::json::array({block})}},
+        {{"id", "branch-2"}, {"executionMode", "once_per_activation"},
+         {"conditions", nlohmann::json::array()},
+         {"actions", nlohmann::json::array({block})}},
+    });
+    LogicBoardDef flattened;
+    CHECK(Logic::logicBoardFromJson(grouped, flattened).ok);
+    CHECK(flattened.rules[0].actions.size() == 2);
+    CHECK(flattened.rules[0].actions[0].executionMode
+          == LogicExecutionMode::EveryOccurrence);
+    CHECK(flattened.rules[0].actions[1].executionMode
+          == LogicExecutionMode::OncePerActivation);
+
+    grouped["rules"][0]["branches"][1]["conditions"] =
+        nlohmann::json::array({{
+            {"join", "and"}, {"negated", false},
+            {"block", canonical["rules"][0]["trigger"]},
+        }});
+    LogicBoardDef rejected;
+    const auto localCondition = Logic::logicBoardFromJson(grouped, rejected);
+    CHECK(!localCondition.ok);
+    CHECK(localCondition.error.find("Cannot migrate Action Group conditions")
+          != std::string::npos);
 }
 
-static void testActionBranchCommandsAndLocalConditionRouting() {
+static void testPerActionCommandsPreserveIdentity() {
     EditorCoordinator coordinator{makeProjectData()};
     CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
     const LogicBoardDef& empty =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
+    rule.actions[0].id = "action-a";
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
 
-    LogicActionBranchDef second;
-    second.id = "branch-2";
-    second.actions.push_back(Logic::makeDefaultAction());
-    CHECK(coordinator.execute(AddLogicActionBranchCommand{
-        "Hero", rule.id, second, 1}).ok);
-    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
-              ->rules[0].branches.size() == 2);
-    CHECK(coordinator.undo().ok);
-    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
-              ->rules[0].branches.size() == 1);
-    CHECK(coordinator.redo().ok);
+    LogicActionDef second{
+        "action-b", LogicExecutionMode::OncePerActivation,
+        Logic::makeDefaultAction().block};
+    CHECK(coordinator.execute(AddLogicActionCommand{
+        "Hero", "logic:Hero", rule.id, second, 1}).ok);
+    CHECK(coordinator.execute(MoveLogicActionCommand{
+        "Hero", "logic:Hero", rule.id, "action-b", 0}).ok);
+    const LogicRuleDef& moved =
+        coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0];
+    CHECK(moved.actions[0].id == "action-b");
+    CHECK(moved.actions[0].executionMode
+          == LogicExecutionMode::OncePerActivation);
 
-    CHECK(coordinator.execute(AddLogicConditionCommand{
-        "Hero", rule.id, Logic::makeDefaultBlock(
-            Logic::kIsVisible, Logic::BlockKind::Condition), 0, "branch-2"}).ok);
-    CHECK(coordinator.execute(AddLogicConditionCommand{
-        "Hero", rule.id, Logic::makeDefaultBlock(
-            Logic::kKeyDown, Logic::BlockKind::Condition), 1, "branch-2"}).ok);
-    CHECK(coordinator.execute(SetLogicConditionJoinCommand{
-        "Hero", rule.id, 1, LogicConditionJoin::Or, "branch-2"}).ok);
-    CHECK(coordinator.execute(SetLogicConditionNegatedCommand{
-        "Hero", rule.id, 1, true, "branch-2"}).ok);
-
-    LogicBoardEditorController controller{coordinator, nullptr};
-    CHECK(coordinator.apply(OpenLogicBoardIntent{"Hero"}).ok);
-    CHECK(controller.handleAction(
-        "change-logic-condition", rule.id + "|branch-2|0",
-        Logic::kStateCompare, {}));
-    CHECK(controller.handleAction(
-        "add-logic-condition-type", rule.id + "|branch-2",
-        Logic::kIsGrounded, {}));
-    const LogicActionBranchDef& authored =
-        coordinator.document().data().objectTypes.at("Hero").logicBoard
-            ->rules[0].branches[1];
-    CHECK(authored.conditions.size() == 3);
-    CHECK(authored.conditions[0].block.typeId == Logic::kStateCompare);
-    CHECK(authored.conditions[1].joinBefore == LogicConditionJoin::Or);
-    CHECK(authored.conditions[1].negated);
-    LogicActionBranchDef copy = authored;
-    copy.id = "branch-3";
-
-    const auto beforeMove = Logic::logicBoardToJson(
+    const auto beforeTypeChange = Logic::logicBoardToJson(
         *coordinator.document().data().objectTypes.at("Hero").logicBoard);
-    CHECK(coordinator.execute(MoveLogicActionBranchCommand{
-        "Hero", rule.id, "branch-2", 0}).ok);
+    CHECK(coordinator.execute(ChangeLogicActionTypeCommand{
+        "Hero", "logic:Hero", rule.id, "action-b", Logic::kSetPosition}).ok);
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
-              ->rules[0].branches[0].id == "branch-2");
+              ->rules[0].actions[0].id == "action-b");
     CHECK(coordinator.undo().ok);
     CHECK(Logic::logicBoardToJson(
-        *coordinator.document().data().objectTypes.at("Hero").logicBoard) == beforeMove);
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard)
+          == beforeTypeChange);
 
-    CHECK(coordinator.execute(DuplicateLogicActionBranchCommand{
-        "Hero", rule.id, "branch-2", copy, 2}).ok);
+    // Duplication is an Add with a freshly allocated action identity.
+    LogicActionDef copy = second;
+    copy.id = nextLogicActionId(
+        coordinator.document().data().objectTypes.at("Hero").logicBoard->rules[0]);
+    CHECK(copy.id != second.id);
+    CHECK(coordinator.execute(AddLogicActionCommand{
+        "Hero", "logic:Hero", rule.id, copy, 2}).ok);
     CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
-              ->rules[0].branches[2].id == "branch-3");
-    CHECK(coordinator.undo().ok);
+              ->rules[0].actions[2].id == copy.id);
+    const Logic::LogicCompileResult duplicated = Logic::compileBoard(
+        "Hero",
+        *coordinator.document().data().objectTypes.at("Hero").logicBoard);
+    CHECK(duplicated.ok());
+    CHECK(duplicated.programs[0].source.find(
+              "logic:Hero:" + rule.id + ":action-b") != std::string::npos);
+    CHECK(duplicated.programs[0].source.find(
+              "logic:Hero:" + rule.id + ":" + copy.id) != std::string::npos);
 
-    CHECK(coordinator.execute(RemoveLogicActionBranchCommand{
-        "Hero", rule.id, "branch-2"}).ok);
-    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
-              ->rules[0].branches.size() == 1);
-    CHECK(!coordinator.execute(RemoveLogicActionBranchCommand{
-        "Hero", rule.id, "branch-1"}).ok);
+    CHECK(!coordinator.execute(SetLogicPropertyCommand{
+        "Hero", rule.id, LogicPropertyTarget::Action, 0, "visible", false,
+        "action-b", "stale-board"}).ok);
+    CHECK(!coordinator.execute(RemoveLogicActionCommand{
+        "Hero", "stale-board", rule.id, "action-a"}).ok);
+    CHECK(coordinator.execute(RemoveLogicActionCommand{
+        "Hero", "logic:Hero", rule.id, "action-a"}).ok);
     CHECK(coordinator.undo().ok);
-    CHECK(coordinator.document().data().objectTypes.at("Hero").logicBoard
-              ->rules[0].branches[1].conditions.size() == 3);
 }
 
-static void testActionBranchesRunIndependentModesInPlay() {
+static void testActionsRunIndependentModesInPlay() {
     EditorCoordinator coordinator{makeProjectData()};
     CHECK(coordinator.execute(CreateLogicBoardCommand{"Hero"}).ok);
     const LogicBoardDef& empty =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(empty));
-    rule.trigger = Logic::makeDefaultEventBlock(Logic::kIsVisible);
-    rule.branches[0].actions[0] = {
+    rule.trigger = {Logic::kKeyHeld, {{"key", LogicKey::Space}}};
+    rule.actions[0].block = {
         Logic::kSetPosition,
         {{"target", LogicEntityReference{}},
          {"position", LogicVec2Value::literal(10.0, 5.0)}}};
 
-    LogicActionBranchDef once;
-    once.id = "branch-2";
-    once.executionMode = LogicExecutionMode::OncePerActivation;
-    once.actions.push_back({
-        Logic::kSetPosition,
-        {{"target", LogicEntityReference{}},
-         {"position", LogicVec2Value::literal(20.0, 5.0)}}});
-    rule.branches.push_back(std::move(once));
+    rule.actions.push_back(LogicActionDef{
+        "action-2", LogicExecutionMode::OncePerActivation,
+        LogicBlockDef{
+            Logic::kSetPosition,
+            {{"target", LogicEntityReference{}},
+             {"position", LogicVec2Value::literal(20.0, 5.0)}}}});
     CHECK(coordinator.execute(AddLogicRuleCommand{"Hero", std::move(rule), 0}).ok);
 
     CHECK(coordinator.playCurrentScene().ok);
-    RuntimeInputSnapshot none;
-    coordinator.tickRuntime(none, 1.f / 60.f);
+    RuntimeInputSnapshot held;
+    held.heldLogicKeys.push_back(LogicKey::Space);
+    coordinator.tickRuntime(held, 1.f / 60.f);
     CHECK(findRenderable(*coordinator.playSession(), 1)->transform.position.x == 20.f);
 
-    // Group 1 keeps running; Group 2 is gated until the shared predicate
-    // deactivates, so authored order leaves Group 1's position on tick two.
-    coordinator.tickRuntime(none, 1.f / 60.f);
+    // Action 1 keeps running; Action 2 is independently gated until the shared
+    // predicate deactivates, so authored order leaves Action 1 on tick two.
+    coordinator.tickRuntime(held, 1.f / 60.f);
     CHECK(findRenderable(*coordinator.playSession(), 1)->transform.position.x == 10.f);
+
+    RuntimeInputSnapshot released;
+    coordinator.tickRuntime(released, 1.f / 60.f);
+    coordinator.tickRuntime(held, 1.f / 60.f);
+    CHECK(findRenderable(*coordinator.playSession(), 1)->transform.position.x == 20.f);
     CHECK(coordinator.stopPlaying().ok);
 }
 
@@ -3253,10 +3323,10 @@ int main() {
     testSetLogicNumberExpressionCommandAcceptsGlobalVariable();
     testExpressionReferencesCountAsReferences();
     testObjectVariableDefinitionsAndOverrides();
-    testActionBranchesCompileWithStableGateKeys();
-    testActionBranchJsonMigrationAndCanonicalSave();
-    testActionBranchCommandsAndLocalConditionRouting();
-    testActionBranchesRunIndependentModesInPlay();
+    testPerActionModesCompileWithStableGateKeys();
+    testPerActionJsonMigrationAndCanonicalSave();
+    testPerActionCommandsPreserveIdentity();
+    testActionsRunIndependentModesInPlay();
     std::cout << "logic-board-editor-test: " << passed << " passed, "
               << failed << " failed\n";
     return failed == 0 ? 0 : 1;

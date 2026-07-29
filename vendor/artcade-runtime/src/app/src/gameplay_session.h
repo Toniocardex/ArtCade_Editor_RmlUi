@@ -143,7 +143,7 @@ enum class GameplayActivationState {
 // (moved verbatim from app_modules.h, previously private to the `game`
 // executable target) so GameplaySession can own an instance directly.
 // Forwards transform/platformer/animation/variable/destroy calls to
-// World/RuntimeEntityGateway/VariableManager/Input/Physics - method bodies
+// World/RuntimeEntityGateway/VariableManager/Physics - method bodies
 // live in gameplay_session.cpp, where those concrete headers are already
 // fully included; only reference/pointer members are declared here, so this
 // header itself does not need their complete definitions.
@@ -170,9 +170,9 @@ public:
     /** World is constructed after this adapter; wired in once available. */
     void setWorld(World* world) { world_ = world; }
     void setVariableManager(Modules::VariableManager* variables) { variables_ = variables; }
-    void setInput(Modules::Input* input) { input_ = input; }
     void setPhysics(Modules::Physics* physics) { physics_ = physics; }
     void setSpawnInstaller(SpawnInstaller installer) { spawnInstaller_ = std::move(installer); }
+    void setHeldLogicKeys(const std::vector<LogicKey>& keys) { heldLogicKeys_ = keys; }
 
     bool setVisible(EntityId owner, bool value) override;
     bool isVisible(EntityId owner) override;
@@ -222,8 +222,8 @@ private:
     Modules::CameraManager& cameraManager_;
     World* world_ = nullptr;
     Modules::VariableManager* variables_ = nullptr;
-    Modules::Input* input_ = nullptr;
     Modules::Physics* physics_ = nullptr;
+    std::vector<LogicKey> heldLogicKeys_;
     SpawnInstaller spawnInstaller_;
     std::optional<PendingSceneRequest> pendingSceneRequest_;
 };
@@ -279,14 +279,13 @@ public:
     // Application's own EngineContext (still host-owned - GameAPI needs it
     // fully populated with renderer/physics/input/audio/etc. by this point);
     // this method only sets `ctx.gameAPI`/`ctx.luaHost`, mirroring what
-    // Application used to do right after constructing each. `audio`/`input`
-    // are the two Application-owned modules RuntimeLogicHostAdapter needs.
+    // Application used to do right after constructing each. `audio` is the
+    // Application-owned module RuntimeLogicHostAdapter needs.
     // The Logic spawn installer now wires to installLogicScopeForEntity()
     // internally (D-20/D-08) - no external spawnInstaller callback needed
     // anymore, since that method lives here too.
     bool initializeGameplayModules(EngineContext& ctx,
                                     Modules::Audio& audio,
-                                    Modules::Input& input,
                                     const BootStepFn& bootStep);
 
     // RU-02f: replaces the transitional GameplayRuntimeRefs struct (T-01,

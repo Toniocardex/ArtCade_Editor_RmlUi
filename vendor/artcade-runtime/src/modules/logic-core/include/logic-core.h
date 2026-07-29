@@ -9,13 +9,12 @@
 
 namespace ArtCade::Logic {
 
-inline constexpr uint32_t kLogicBoardSchemaVersion = 5;
+inline constexpr uint32_t kLogicBoardSchemaVersion = 6;
 inline constexpr uint32_t kLogicApiVersion = 2;
 inline constexpr std::size_t kMaxRulesPerBoard = 128;
 inline constexpr std::size_t kMaxSectionsPerBoard = 64;
 inline constexpr std::size_t kMaxConditionsPerRule = 16;
 inline constexpr std::size_t kMaxActionsPerRule = 16;
-inline constexpr std::size_t kMaxLogicActionBranchesPerRule = 8;
 inline constexpr std::size_t kMaxBlocksPerProject = 8192;
 inline constexpr std::size_t kMaxLogicIdLength = 128;
 
@@ -189,7 +188,7 @@ struct LogicDiagnostic {
     ObjectTypeId objectTypeId;
     LogicBoardId boardId;
     LogicRuleId ruleId;
-    LogicActionBranchId branchId;
+    LogicActionId actionId;
     std::string blockTypeId;
     std::string propertyKey;
 };
@@ -266,7 +265,7 @@ LogicBlockAvailability blockAvailability(const EntityDef& owner,
                                          const LogicBlockDescriptor* trigger = nullptr);
 
 LogicBlockDef makeDefaultTrigger();
-LogicBlockDef makeDefaultAction();
+LogicActionDef makeDefaultAction(LogicActionId id = "action-1");
 LogicBlockDef makeDefaultCondition();
 LogicRuleDef makeDefaultRule(LogicRuleId id);
 

@@ -513,10 +513,8 @@ int main() {
         setScore.properties.push_back(
             LogicPropertyDef{"key", LogicValue{LogicVariableReference{"score"}}});
         setScore.properties.push_back(LogicPropertyDef{"value", LogicValue{NumberExpression::literal(1.0)}});
-        LogicActionBranchDef branch;
-        branch.id = "branch-1";
-        branch.actions.push_back(std::move(setScore));
-        rule.branches.push_back(std::move(branch));
+        rule.actions.push_back(LogicActionDef{
+            "action-1", LogicExecutionMode::EveryOccurrence, std::move(setScore)});
         board.rules.push_back(std::move(rule));
         hero.logicBoard = std::move(board);
         doc.objectTypes.emplace("Hero", hero);
@@ -760,10 +758,9 @@ int main() {
         guardedHero.spriteRenderer.reset();
         guardedHero.spriteAnimator.reset();
         LogicRuleDef animationRule;
-        LogicActionBranchDef animationBranch;
-        animationBranch.id = "branch-1";
-        animationBranch.actions.push_back(LogicBlockDef{"animation.stop", {}});
-        animationRule.branches.push_back(std::move(animationBranch));
+        animationRule.actions.push_back(LogicActionDef{
+            "action-1", LogicExecutionMode::EveryOccurrence,
+            LogicBlockDef{"animation.stop", {}}});
         LogicBoardDef guardedBoard;
         guardedBoard.rules.push_back(std::move(animationRule));
         guardedHero.logicBoard = std::move(guardedBoard);
@@ -839,11 +836,12 @@ int main() {
         LogicBoardDef board;
         LogicRuleDef rule;
         rule.id = "animation-rule";
-        LogicActionBranchDef branch;
-        branch.id = "branch-1";
-        branch.actions.push_back(LogicBlockDef{"animation.play_clip", {}});
-        branch.actions.push_back(LogicBlockDef{"animation.stop", {}});
-        rule.branches.push_back(std::move(branch));
+        rule.actions.push_back(LogicActionDef{
+            "action-1", LogicExecutionMode::EveryOccurrence,
+            LogicBlockDef{"animation.play_clip", {}}});
+        rule.actions.push_back(LogicActionDef{
+            "action-2", LogicExecutionMode::EveryOccurrence,
+            LogicBlockDef{"animation.stop", {}}});
         board.rules.push_back(std::move(rule));
         guardedDoc.objectTypes.at("Hero").logicBoard = std::move(board);
         EditorCoordinator guarded{std::move(guardedDoc)};

@@ -873,10 +873,8 @@ end }
         Logic::makeDefaultBlock(Logic::kSetPosition, Logic::BlockKind::Action);
     for (LogicPropertyDef& property : setPosition.properties)
         if (property.key == "position") property.value = LogicVec2Value::literal(1., 2.);
-    LogicActionBranchDef branch;
-    branch.id = "branch-1";
-    branch.actions.push_back(std::move(setPosition));
-    startRule.branches.push_back(std::move(branch));
+    startRule.actions.push_back(LogicActionDef{
+        "action-1", LogicExecutionMode::EveryOccurrence, std::move(setPosition)});
     board.rules.push_back(std::move(startRule));
     hero.logicBoard = std::move(board);
     hero.scripts = ScriptComponent{{ScriptAttachmentDef{"script-1", "visibility", true}}};

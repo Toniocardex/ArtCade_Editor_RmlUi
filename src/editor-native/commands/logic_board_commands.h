@@ -84,60 +84,6 @@ private:
     std::optional<LogicBoardDef> before_;
 };
 
-class AddLogicActionBranchCommand final : public EditorCommand {
-public:
-    AddLogicActionBranchCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
-                                LogicActionBranchDef branch, std::size_t index);
-    ARTCADE_LOGIC_BOARD_COMMAND_COMMON(AddLogicActionBranch)
-private:
-    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; LogicActionBranchDef branch_;
-    std::size_t index_ = 0; std::optional<LogicBoardDef> before_;
-};
-
-class RemoveLogicActionBranchCommand final : public EditorCommand {
-public:
-    RemoveLogicActionBranchCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
-                                   LogicActionBranchId branchId);
-    ARTCADE_LOGIC_BOARD_COMMAND_COMMON(RemoveLogicActionBranch)
-private:
-    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; LogicActionBranchId branchId_;
-    std::optional<LogicBoardDef> before_;
-};
-
-class MoveLogicActionBranchCommand final : public EditorCommand {
-public:
-    MoveLogicActionBranchCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
-                                 LogicActionBranchId branchId, std::size_t index);
-    ARTCADE_LOGIC_BOARD_COMMAND_COMMON(MoveLogicActionBranch)
-private:
-    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; LogicActionBranchId branchId_;
-    std::size_t index_ = 0; std::optional<LogicBoardDef> before_;
-};
-
-class DuplicateLogicActionBranchCommand final : public EditorCommand {
-public:
-    DuplicateLogicActionBranchCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
-                                      LogicActionBranchId sourceBranchId,
-                                      LogicActionBranchDef copy, std::size_t index);
-    ARTCADE_LOGIC_BOARD_COMMAND_COMMON(DuplicateLogicActionBranch)
-private:
-    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; LogicActionBranchId sourceBranchId_;
-    LogicActionBranchDef copy_; std::size_t index_ = 0;
-    std::optional<LogicBoardDef> before_;
-};
-
-class SetLogicActionBranchExecutionModeCommand final : public EditorCommand {
-public:
-    SetLogicActionBranchExecutionModeCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
-                                             LogicActionBranchId branchId,
-                                             LogicExecutionMode mode);
-    ARTCADE_LOGIC_BOARD_COMMAND_COMMON(SetLogicActionBranchExecutionMode)
-private:
-    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; LogicActionBranchId branchId_;
-    LogicExecutionMode mode_ = LogicExecutionMode::EveryOccurrence;
-    std::optional<LogicBoardDef> before_;
-};
-
 class ReplaceLogicTriggerCommand final : public EditorCommand {
 public:
     ReplaceLogicTriggerCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
@@ -150,100 +96,111 @@ private:
 
 class AddLogicActionCommand final : public EditorCommand {
 public:
-    AddLogicActionCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
-                          LogicBlockDef action, std::size_t index,
-                          LogicActionBranchId branchId);
+    AddLogicActionCommand(ObjectTypeId objectTypeId, LogicBoardId boardId,
+                          LogicRuleId ruleId, LogicActionDef action,
+                          std::size_t index);
     ARTCADE_LOGIC_BOARD_COMMAND_COMMON(AddLogicAction)
 private:
-    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; LogicBlockDef action_; std::size_t index_ = 0;
-    LogicActionBranchId branchId_;
+    ObjectTypeId objectTypeId_; LogicBoardId boardId_; LogicRuleId ruleId_;
+    LogicActionDef action_; std::size_t index_ = 0;
     std::optional<LogicBoardDef> before_;
 };
 
 class RemoveLogicActionCommand final : public EditorCommand {
 public:
-    RemoveLogicActionCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId, std::size_t index,
-                             LogicActionBranchId branchId);
+    RemoveLogicActionCommand(ObjectTypeId objectTypeId, LogicBoardId boardId,
+                             LogicRuleId ruleId, LogicActionId actionId);
     ARTCADE_LOGIC_BOARD_COMMAND_COMMON(RemoveLogicAction)
 private:
-    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t index_ = 0; LogicActionBranchId branchId_;
+    ObjectTypeId objectTypeId_; LogicBoardId boardId_; LogicRuleId ruleId_;
+    LogicActionId actionId_;
     std::optional<LogicBoardDef> before_;
 };
 
 class MoveLogicActionCommand final : public EditorCommand {
 public:
-    MoveLogicActionCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
-                           std::size_t from, std::size_t to,
-                           LogicActionBranchId branchId);
+    MoveLogicActionCommand(ObjectTypeId objectTypeId, LogicBoardId boardId,
+                           LogicRuleId ruleId, LogicActionId actionId,
+                           std::size_t to);
     ARTCADE_LOGIC_BOARD_COMMAND_COMMON(MoveLogicAction)
 private:
-    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t from_ = 0, to_ = 0; LogicActionBranchId branchId_;
+    ObjectTypeId objectTypeId_; LogicBoardId boardId_; LogicRuleId ruleId_;
+    LogicActionId actionId_; std::size_t to_ = 0;
     std::optional<LogicBoardDef> before_;
 };
 
 class ChangeLogicActionTypeCommand final : public EditorCommand {
 public:
-    ChangeLogicActionTypeCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
-                                 std::size_t index, std::string typeId,
-                                 LogicActionBranchId branchId);
+    ChangeLogicActionTypeCommand(ObjectTypeId objectTypeId, LogicBoardId boardId,
+                                 LogicRuleId ruleId, LogicActionId actionId,
+                                 std::string typeId);
     ARTCADE_LOGIC_BOARD_COMMAND_COMMON(ChangeLogicActionType)
 private:
-    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t index_ = 0; std::string typeId_; LogicActionBranchId branchId_;
+    ObjectTypeId objectTypeId_; LogicBoardId boardId_; LogicRuleId ruleId_;
+    LogicActionId actionId_; std::string typeId_;
+    std::optional<LogicBoardDef> before_;
+};
+
+class SetLogicActionExecutionModeCommand final : public EditorCommand {
+public:
+    SetLogicActionExecutionModeCommand(
+        ObjectTypeId objectTypeId, LogicBoardId boardId,
+        LogicRuleId ruleId, LogicActionId actionId, LogicExecutionMode mode);
+    ARTCADE_LOGIC_BOARD_COMMAND_COMMON(SetLogicActionExecutionMode)
+private:
+    ObjectTypeId objectTypeId_; LogicBoardId boardId_; LogicRuleId ruleId_;
+    LogicActionId actionId_;
+    LogicExecutionMode mode_ = LogicExecutionMode::EveryOccurrence;
     std::optional<LogicBoardDef> before_;
 };
 
 class AddLogicConditionCommand final : public EditorCommand {
 public:
     AddLogicConditionCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
-                             LogicBlockDef condition, std::size_t index,
-                             LogicActionBranchId branchId = {});
+                             LogicBlockDef condition, std::size_t index);
     ARTCADE_LOGIC_BOARD_COMMAND_COMMON(AddLogicCondition)
 private:
-    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; LogicBlockDef condition_; std::size_t index_ = 0; LogicActionBranchId branchId_;
+    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; LogicBlockDef condition_; std::size_t index_ = 0;
     std::optional<LogicBoardDef> before_;
 };
 
 class RemoveLogicConditionCommand final : public EditorCommand {
 public:
-    RemoveLogicConditionCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId, std::size_t index,
-                                LogicActionBranchId branchId = {});
+    RemoveLogicConditionCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
+                                std::size_t index);
     ARTCADE_LOGIC_BOARD_COMMAND_COMMON(RemoveLogicCondition)
 private:
-    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t index_ = 0; LogicActionBranchId branchId_;
+    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t index_ = 0;
     std::optional<LogicBoardDef> before_;
 };
 
 class MoveLogicConditionCommand final : public EditorCommand {
 public:
     MoveLogicConditionCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
-                              std::size_t from, std::size_t to,
-                              LogicActionBranchId branchId = {});
+                              std::size_t from, std::size_t to);
     ARTCADE_LOGIC_BOARD_COMMAND_COMMON(MoveLogicCondition)
 private:
-    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t from_ = 0, to_ = 0; LogicActionBranchId branchId_;
+    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t from_ = 0, to_ = 0;
     std::optional<LogicBoardDef> before_;
 };
 
 class ChangeLogicConditionTypeCommand final : public EditorCommand {
 public:
     ChangeLogicConditionTypeCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
-                                    std::size_t index, std::string typeId,
-                                    LogicActionBranchId branchId = {});
+                                    std::size_t index, std::string typeId);
     ARTCADE_LOGIC_BOARD_COMMAND_COMMON(ChangeLogicConditionType)
 private:
-    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t index_ = 0; std::string typeId_; LogicActionBranchId branchId_;
+    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t index_ = 0; std::string typeId_;
     std::optional<LogicBoardDef> before_;
 };
 
 class SetLogicConditionJoinCommand final : public EditorCommand {
 public:
     SetLogicConditionJoinCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
-                                 std::size_t index, LogicConditionJoin join,
-                                 LogicActionBranchId branchId = {});
+                                 std::size_t index, LogicConditionJoin join);
     ARTCADE_LOGIC_BOARD_COMMAND_COMMON(SetLogicConditionJoin)
 private:
     ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t index_ = 0;
-    LogicActionBranchId branchId_;
     LogicConditionJoin join_ = LogicConditionJoin::And;
     std::optional<LogicBoardDef> before_;
 };
@@ -251,12 +208,10 @@ private:
 class SetLogicConditionNegatedCommand final : public EditorCommand {
 public:
     SetLogicConditionNegatedCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
-                                    std::size_t index, bool negated,
-                                    LogicActionBranchId branchId = {});
+                                    std::size_t index, bool negated);
     ARTCADE_LOGIC_BOARD_COMMAND_COMMON(SetLogicConditionNegated)
 private:
     ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t index_ = 0;
-    LogicActionBranchId branchId_;
     bool negated_ = false;
     std::optional<LogicBoardDef> before_;
 };
@@ -268,11 +223,14 @@ public:
     SetLogicPropertyCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
                             LogicPropertyTarget target, std::size_t blockIndex,
                             std::string propertyKey, LogicValue value,
-                            LogicActionBranchId branchId);
+                            LogicActionId actionId = {},
+                            LogicBoardId boardId = {});
     ARTCADE_LOGIC_BOARD_COMMAND_COMMON(SetLogicProperty)
 private:
     ObjectTypeId objectTypeId_; LogicRuleId ruleId_; LogicPropertyTarget target_;
-    std::size_t blockIndex_ = 0; std::string propertyKey_; LogicValue value_; LogicActionBranchId branchId_;
+    std::size_t blockIndex_ = 0; std::string propertyKey_; LogicValue value_;
+    LogicActionId actionId_;
+    LogicBoardId boardId_;
     std::optional<LogicBoardDef> before_;
 };
 
@@ -286,7 +244,7 @@ public:
         ObjectTypeId objectTypeId, LogicRuleId ruleId,
         LogicPropertyTarget target, std::size_t blockIndex,
         std::string propertyKey, GameVariableDefinition definition,
-        LogicActionBranchId branchId);
+        LogicActionId actionId = {}, LogicBoardId boardId = {});
     EditorOperationResult apply(ProjectDocument& document) override;
     EditorOperationResult undo(ProjectDocument& document) override;
     const char* name() const override { return "CreateAndAssignGlobalVariable"; }
@@ -297,19 +255,21 @@ private:
     std::size_t blockIndex_ = 0;
     std::string propertyKey_;
     GameVariableDefinition definition_;
-    LogicActionBranchId branchId_;
+    LogicActionId actionId_;
+    LogicBoardId boardId_;
     std::optional<LogicValue> previousValue_;
 };
 
 class SetLogicAnimationClipCommand final : public EditorCommand {
 public:
-    SetLogicAnimationClipCommand(ObjectTypeId objectTypeId, LogicRuleId ruleId,
-                                 std::size_t actionIndex, AssetId animationAssetId,
-                                 std::string clipId, LogicActionBranchId branchId);
+    SetLogicAnimationClipCommand(ObjectTypeId objectTypeId, LogicBoardId boardId,
+                                 LogicRuleId ruleId, LogicActionId actionId,
+                                 AssetId animationAssetId, std::string clipId);
     ARTCADE_LOGIC_BOARD_COMMAND_COMMON(SetLogicAnimationClip)
 private:
-    ObjectTypeId objectTypeId_; LogicRuleId ruleId_; std::size_t actionIndex_ = 0;
-    AssetId animationAssetId_; std::string clipId_; LogicActionBranchId branchId_;
+    ObjectTypeId objectTypeId_; LogicBoardId boardId_;
+    LogicRuleId ruleId_; LogicActionId actionId_;
+    AssetId animationAssetId_; std::string clipId_;
     std::optional<LogicBoardDef> before_;
 };
 
@@ -333,7 +293,7 @@ private:
 #undef ARTCADE_LOGIC_BOARD_COMMAND_COMMON
 
 LogicRuleId nextLogicRuleId(const LogicBoardDef& board);
-LogicActionBranchId nextLogicActionBranchId(const LogicRuleDef& rule);
+LogicActionId nextLogicActionId(const LogicRuleDef& rule);
 
 } // namespace ArtCade::EditorNative
 

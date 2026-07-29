@@ -66,8 +66,7 @@ private:
     struct ClearedLogicRef {
         ObjectTypeId objectTypeId;
         std::string ruleId;
-        LogicActionBranchId branchId;
-        std::size_t actionIndex = 0;
+        LogicActionId actionId;
         AssetId previousAnimationAssetId;
         std::string previousClipId;
     };

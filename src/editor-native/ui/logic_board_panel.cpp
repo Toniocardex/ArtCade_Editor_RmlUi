@@ -52,9 +52,8 @@ std::string number(double value) {
     return out.str();
 }
 
-std::string actionArg(const LogicRuleId& ruleId, const LogicActionBranchId& branchId,
-                      std::size_t index) {
-    return ruleId + "|" + branchId + "|" + std::to_string(index);
+std::string actionArg(const LogicRuleId& ruleId, const LogicActionId& actionId) {
+    return ruleId + "|" + actionId;
 }
 
 // A `.drop-list` entry: the current value marks itself and just closes the
@@ -243,15 +242,10 @@ std::string logicRuleSummary(const LogicRuleDef& rule) {
     } else {
         head = descriptorLabel(rule.trigger.typeId);
     }
-    if (rule.branches.size() == 1) {
-        const LogicActionBranchDef& branch = rule.branches[0];
-        if (branch.executionMode == LogicExecutionMode::OncePerActivation)
-            head += " \xC2\xB7 once per activation";
-        if (!branch.actions.empty())
-            head += " \xE2\x86\x92 " + descriptorLabel(branch.actions[0].typeId);
-    } else if (rule.branches.size() > 1) {
-        head += " \xC2\xB7 " + std::to_string(rule.branches.size()) + " action groups";
-    }
+    if (!rule.actions.empty())
+        head += " \xE2\x86\x92 " + descriptorLabel(rule.actions[0].block.typeId);
+    if (rule.actions.size() > 1)
+        head += " \xC2\xB7 " + std::to_string(rule.actions.size()) + " actions";
     return head;
 }
 
@@ -654,8 +648,8 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         std::string searchable = lower(rule.id + " " + rule.trigger.typeId + " " + summary);
         for (const LogicConditionClause& clause : rule.conditions)
             searchable += " " + lower(clause.block.typeId);
-        for (const LogicActionBranchDef& branch : rule.branches)
-            for (const LogicBlockDef& action : branch.actions) searchable += " " + lower(action.typeId);
+        for (const LogicActionDef& action : rule.actions)
+            searchable += " " + lower(action.block.typeId);
         if (!query.empty() && searchable.find(query) == std::string::npos) continue;
         ++renderedRules;
 
@@ -736,37 +730,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             openDropdownId_, keyBinding, expressionField, playing,
             variableCreation);
         html += "</div>"; // .logic-block (WHEN trigger)
-        if (rule.branches.size() == 1
-            && rule.branches[0].executionMode == LogicExecutionMode::OncePerActivation) {
-            // Projected into WHEN; never stored in rule.conditions[].
-            html += "<div class=\"logic-execution-clause\" title=\"Run Once per Activation\">"
-                    "<span class=\"logic-execution-join\">AND</span>"
-                    "<span class=\"logic-execution-label\">Once per activation</span>"
-                    "</div>";
-        }
         html += "</div>"; // .logic-col-content
-        if (rule.branches.size() == 1) {
-            const LogicActionBranchDef& branch = rule.branches[0];
-            const std::string branchArg = rule.id + "|" + branch.id;
-            const std::string executionDropdownId = "execution|" + branchArg;
-            const bool executionOpen = openDropdownId_ == executionDropdownId && !playing;
-            html += "<div class=\"logic-col-footer logic-execution-footer\">"
-                    "<span class=\"logic-block-label\">Execution</span>";
-            html += dropdownTriggerMarkup(executionModeLabel(branch.executionMode),
-                                          "toggle-logic-dropdown", executionDropdownId,
-                                          executionOpen, playing, "logic-execution-trigger");
-            if (executionOpen) {
-                html += "<div class=\"drop-list logic-key-list\">";
-                html += dropEntry(dropdownNav_, "Every occurrence", "every_occurrence",
-                                  branch.executionMode == LogicExecutionMode::EveryOccurrence,
-                                  executionDropdownId, "set-logic-execution-mode", branchArg);
-                html += dropEntry(dropdownNav_, "Run once per activation", "once_per_activation",
-                                  branch.executionMode == LogicExecutionMode::OncePerActivation,
-                                  executionDropdownId, "set-logic-execution-mode", branchArg);
-                html += "</div>";
-            }
-            html += "</div>"; // .logic-col-footer
-        }
         html += "</div>"; // event-col
 
         // IF — zero or more authored clauses. The connector belongs to the
@@ -848,120 +812,12 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         html += "<div class=\"logic-rule-col actions-col\">"
                 "<div class=\"logic-col-head\">THEN</div>"
                 "<div class=\"logic-col-content\">";
-        std::size_t totalConditionCount = rule.conditions.size();
-        for (const LogicActionBranchDef& candidate : rule.branches)
-            totalConditionCount += candidate.conditions.size();
-        for (std::size_t branchIndex = 0; branchIndex < rule.branches.size(); ++branchIndex) {
-        const LogicActionBranchDef& branch = rule.branches[branchIndex];
-        const std::vector<LogicBlockDef>& actions = branch.actions;
-        const std::string branchArg = rule.id + "|" + branch.id;
-        if (rule.branches.size() > 1) {
-            html += "<div class=\"logic-col-head logic-branch-head\">THEN GROUP "
-                 + std::to_string(branchIndex + 1) + " <span>"
-                 + executionModeLabel(branch.executionMode) + "</span>"
-                 + modeOption("Every", "every_occurrence",
-                     branch.executionMode == LogicExecutionMode::EveryOccurrence,
-                     "set-logic-action-branch-execution-mode", branchArg, playing)
-                 + modeOption("Once", "once_per_activation",
-                     branch.executionMode == LogicExecutionMode::OncePerActivation,
-                     "set-logic-action-branch-execution-mode", branchArg, playing)
-                 + "<button class=\"logic-icon-btn" + (playing || branchIndex == 0 ? " disabled" : "")
-                 + "\" data-action=\"move-logic-action-branch-up\" data-arg=\"" + escapeRml(branchArg)
-                 + "\" title=\"Move action group up\">&#8593;</button>"
-                 + "<button class=\"logic-icon-btn" + (playing || branchIndex + 1 == rule.branches.size() ? " disabled" : "")
-                 + "\" data-action=\"move-logic-action-branch-down\" data-arg=\"" + escapeRml(branchArg)
-                 + "\" title=\"Move action group down\">&#8595;</button>"
-                 + "<button class=\"logic-icon-btn" + (playing ? " disabled" : "")
-                 + "\" data-action=\"duplicate-logic-action-branch\" data-arg=\"" + escapeRml(branchArg)
-                 + "\" title=\"Duplicate action group\">" + iconMarkup("" UI_ICON_DUPLICATE "") + "</button>"
-                 + "<button class=\"comp-remove" + (playing || rule.branches.size() == 1 ? " disabled" : "")
-                 + "\" data-action=\"remove-logic-action-branch\" data-arg=\"" + escapeRml(branchArg) + "\">"
-                 + iconMarkup("" UI_ICON_DELETE "") + "</button></div>";
-        }
-        // While a rule owns a single group, a group-local condition is exactly
-        // the shared IF column: surfacing both is duplicate chrome on the card
-        // authors see most. Group conditions appear once a second group exists,
-        // or when this branch already carries authored ones.
-        const bool showBranchConditions =
-            rule.branches.size() > 1 || !branch.conditions.empty();
-        if (showBranchConditions) {
-        html += "<div class=\"logic-branch-conditions\">";
-        if (!branch.conditions.empty())
-            html += "<div class=\"logic-block-label\">GROUP IF</div>";
-        for (std::size_t conditionIndex = 0;
-             conditionIndex < branch.conditions.size(); ++conditionIndex) {
-            const LogicConditionClause& clause = branch.conditions[conditionIndex];
-            const std::string conditionArg =
-                branchArg + "|" + std::to_string(conditionIndex);
-            const std::string dropdownId = "branch-condition|" + conditionArg;
-            const bool dropdownOpen = openDropdownId_ == dropdownId && !playing;
-            html += "<div class=\"logic-block logic-condition-block\">"
-                    "<div class=\"logic-condition-toolbar\">";
-            if (conditionIndex == 0) {
-                html += "<span class=\"logic-condition-join fixed\">AND</span>";
-            } else {
-                html += modeOption("AND", "and",
-                    clause.joinBefore == LogicConditionJoin::And,
-                    "set-logic-condition-join", conditionArg, playing);
-                html += modeOption("OR", "or",
-                    clause.joinBefore == LogicConditionJoin::Or,
-                    "set-logic-condition-join", conditionArg, playing);
-            }
-            html += "<button class=\"logic-btn";
-            if (clause.negated) html += " active";
-            if (playing) html += " disabled";
-            html += "\" data-action=\"toggle-logic-condition-negated\" data-arg=\""
-                  + escapeRml(conditionArg) + "\">NOT</button>";
-            html += "<button class=\"logic-icon-btn";
-            if (playing || conditionIndex == 0) html += " disabled";
-            html += "\" data-action=\"move-logic-condition-up\" data-arg=\""
-                  + escapeRml(conditionArg) + "\">&#8593;</button><button class=\"logic-icon-btn";
-            if (playing || conditionIndex + 1 == branch.conditions.size()) html += " disabled";
-            html += "\" data-action=\"move-logic-condition-down\" data-arg=\""
-                  + escapeRml(conditionArg) + "\">&#8595;</button><button class=\"comp-remove";
-            if (playing) html += " disabled";
-            html += "\" data-action=\"remove-logic-condition\" data-arg=\""
-                  + escapeRml(conditionArg) + "\" title=\"Delete group condition\">"
-                  + iconMarkup("" UI_ICON_DELETE "") + "</button></div>";
-            html += dropdownTriggerMarkup(
-                descriptorLabel(clause.block.typeId), "toggle-logic-dropdown",
-                dropdownId, dropdownOpen, playing);
-            if (dropdownOpen) {
-                html += catalogEntries(
-                    dropdownNav_, objectType, Logic::findDescriptor(rule.trigger.typeId),
-                    Logic::BlockKind::Condition, clause.block.typeId, dropdownId,
-                    "change-logic-condition", conditionArg);
-            }
-            html += renderLogicProperties(
-                coordinator.document(), selectedType, clause.block,
-                LogicPropertyAddress{
-                    rule.id, branch.id, LogicPropertyTarget::Condition, conditionIndex},
-                openDropdownId_, keyBinding, expressionField, playing,
-                variableCreation);
-            html += "</div>";
-        }
-        const std::string addBranchConditionDropdownId =
-            "add-branch-condition|" + branchArg;
-        const bool addBranchConditionOpen =
-            openDropdownId_ == addBranchConditionDropdownId && !playing;
-        html += "<div class=\"logic-col-footer\"><button class=\"logic-btn";
-        if (playing || totalConditionCount >= Logic::kMaxConditionsPerRule)
-            html += " disabled";
-        html += "\" data-action=\"toggle-logic-dropdown\" data-arg=\""
-              + escapeRml(addBranchConditionDropdownId)
-              + "\">+ Add Group Condition</button></div>";
-        if (addBranchConditionOpen) {
-            html += catalogEntries(
-                dropdownNav_, objectType, Logic::findDescriptor(rule.trigger.typeId),
-                Logic::BlockKind::Condition, {}, addBranchConditionDropdownId,
-                "add-logic-condition-type", branchArg);
-        }
-        html += "</div>";
-        }
+        const std::vector<LogicActionDef>& actions = rule.actions;
         if (actions.empty()) html += "<div class=\"logic-muted\">No actions yet.</div>";
         for (std::size_t actionIndex = 0; actionIndex < actions.size(); ++actionIndex) {
-            const LogicBlockDef& action = actions[actionIndex];
-            const std::string arg = actionArg(rule.id, branch.id, actionIndex);
+            const LogicActionDef& actionDef = actions[actionIndex];
+            const LogicBlockDef& action = actionDef.block;
+            const std::string arg = actionArg(rule.id, actionDef.id);
             const std::string dropdownId = "action|" + arg;
             const bool dropdownOpen = openDropdownId_ == dropdownId && !playing;
             html += "<div class=\"logic-block\"><div class=\"logic-action-row\"><div class=\"logic-action-main\">"
@@ -1116,13 +972,33 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 html += renderLogicProperties(
                     coordinator.document(), selectedType, action,
                     LogicPropertyAddress{
-                        rule.id, branch.id, LogicPropertyTarget::Action, actionIndex},
+                        rule.id, actionDef.id, LogicPropertyTarget::Action, actionIndex},
                     openDropdownId_, keyBinding, expressionField, playing,
                     variableCreation);
             }
+            const std::string runDropdownId = "action-run|" + arg;
+            const bool runDropdownOpen = openDropdownId_ == runDropdownId && !playing;
+            html += "<div class=\"logic-inline\"><span class=\"logic-block-label\">Run</span>"
+                 + dropdownTriggerMarkup(
+                       executionModeLabel(actionDef.executionMode),
+                       "toggle-logic-dropdown", runDropdownId,
+                       runDropdownOpen, playing)
+                 + "</div>";
+            if (runDropdownOpen) {
+                html += "<div class=\"drop-list logic-key-list\">"
+                     + dropEntry(
+                           dropdownNav_, "Every occurrence", "every_occurrence",
+                           actionDef.executionMode == LogicExecutionMode::EveryOccurrence,
+                           runDropdownId, "set-logic-action-execution-mode", arg)
+                     + dropEntry(
+                           dropdownNav_, "Once per activation", "once_per_activation",
+                           actionDef.executionMode == LogicExecutionMode::OncePerActivation,
+                           runDropdownId, "set-logic-action-execution-mode", arg)
+                     + "</div>";
+            }
             html += "</div>";
         }
-        const std::string addActionDropdownId = "add-action|" + rule.id + "|" + branch.id;
+        const std::string addActionDropdownId = "add-action|" + rule.id;
         const bool addActionOpen = openDropdownId_ == addActionDropdownId && !playing;
         html += "<div class=\"logic-col-footer\"><button class=\"logic-btn logic-add-action";
         const std::size_t actionCount = actions.size();
@@ -1133,14 +1009,9 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             html += catalogEntries(dropdownNav_, objectType,
                                    Logic::findDescriptor(rule.trigger.typeId),
                                    Logic::BlockKind::Action, {}, addActionDropdownId,
-                                   "add-logic-action-type", rule.id + "|" + branch.id);
-        }
+                                   "add-logic-action-type", rule.id);
         }
         html += "</div>"; // .logic-col-content
-        html += "<div class=\"logic-col-footer\"><button class=\"logic-btn";
-        if (playing || rule.branches.size() >= Logic::kMaxLogicActionBranchesPerRule) html += " disabled";
-        html += "\" data-action=\"add-logic-action-branch\" data-arg=\""
-              + escapeRml(rule.id) + "\">+ Add Action Group</button></div>";
         html += "</div>"; // actions-col
 
         html += "</div>"; // .logic-rule-body

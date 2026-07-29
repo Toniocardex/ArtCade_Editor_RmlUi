@@ -342,7 +342,7 @@ std::optional<PlaySession> PlaySession::materialize(
     }
 
     if (!session.runtime_->initializeGameplayModules(
-            ctx, *session.audio_, *session.input_, bootStep)) {
+            ctx, *session.audio_, bootStep)) {
         if (error) *error = bootError;
         return std::nullopt;
     }

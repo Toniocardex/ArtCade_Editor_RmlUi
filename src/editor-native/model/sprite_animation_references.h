@@ -26,8 +26,7 @@ struct AnimationAssetReference {
     SceneId sceneId;
     EntityId entityId = INVALID_ENTITY;
     std::string ruleId;
-    LogicActionBranchId branchId;
-    std::size_t actionIndex = 0;
+    LogicActionId actionId;
 };
 
 struct AnimationClipReference {
@@ -36,8 +35,7 @@ struct AnimationClipReference {
     SceneId sceneId;
     EntityId entityId = INVALID_ENTITY;
     std::string ruleId;
-    LogicActionBranchId branchId;
-    std::size_t actionIndex = 0;
+    LogicActionId actionId;
 };
 
 struct AnimationSourceReference {

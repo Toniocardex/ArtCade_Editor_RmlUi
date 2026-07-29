@@ -187,7 +187,7 @@ std::string renderLogicBooleanChoice(
 
 std::string encodeLogicPropertyAddress(
     const LogicPropertyAddress& address, const std::string& propertyKey) {
-    return address.ruleId + "|" + (address.branchId.empty() ? "-" : address.branchId)
+    return address.ruleId + "|" + (address.actionId.empty() ? "-" : address.actionId)
          + "|" + targetToken(address.target) + "|"
          + std::to_string(address.blockIndex) + "|" + propertyKey;
 }

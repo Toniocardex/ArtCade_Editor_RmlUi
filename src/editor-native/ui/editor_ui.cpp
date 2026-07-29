@@ -743,7 +743,7 @@ public:
         // A button/entry standing in for what used to be a <select> option
         // (Logic Board's Event/Action/Key/Object-Type pickers) carries the
         // value it represents in data-value, separate from data-arg (which
-        // stays the addressing key — a ruleId, or "ruleId|actionIndex").
+        // stays the addressing key — a ruleId, or "ruleId|actionId").
         const std::string value = (actionElement && actionElement->HasAttribute("data-value"))
             ? attribute(actionElement, "data-value")
             : formValue(actionElement, event);

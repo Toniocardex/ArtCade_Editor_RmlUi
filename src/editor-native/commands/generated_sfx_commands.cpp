@@ -40,8 +40,8 @@ void clearAudioAssetReferences(ProjectDoc& document, const AssetId& assetId) {
             clearBlock(rule.trigger);
             for (LogicConditionClause& condition : rule.conditions)
                 clearBlock(condition.block);
-            for (LogicActionBranchDef& branch : rule.branches)
-                for (LogicBlockDef& action : branch.actions) clearBlock(action);
+            for (LogicActionDef& action : rule.actions)
+                clearBlock(action.block);
         }
     }
 }
