@@ -65,6 +65,8 @@
 #include "editor-native/model/sprite_render_view.h"
 #include "editor-native/view/scene_grid.h"
 #include "editor-native/view/scene_view_camera.h"
+
+#include <raylib.h>
 #include "logic-core.h"
 #include "script-runtime.h"
 
@@ -1225,6 +1227,17 @@ int main() {
         session.reset();
         CHECK(c.document().findInstanceInScene(kSceneA, kHero) != nullptr);
         CHECK(c.document().revision() == revBefore);
+    }
+
+    // AC-LIFE-002: Play borrows a process-global audio device from its host;
+    // it must not initialize one when the headless test host has none.
+    {
+        const bool deviceWasReady = IsAudioDeviceReady();
+        EditorCoordinator c{makeDoc()};
+        CHECK(c.playProject().ok);
+        CHECK(IsAudioDeviceReady() == deviceWasReady);
+        CHECK(c.stopPlaying().ok);
+        CHECK(IsAudioDeviceReady() == deviceWasReady);
     }
 
     // -- â”¬Âº24.13  Invalid NumberField parse does not modify the document --------

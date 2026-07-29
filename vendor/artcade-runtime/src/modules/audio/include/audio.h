@@ -9,6 +9,13 @@
 
 namespace ArtCade::Modules {
 
+// The Raylib audio device is process-global. Hosts own its lifecycle;
+// gameplay sessions may only borrow an already-open device.
+enum class AudioDeviceAccess {
+    OpenIfUnavailable,
+    BorrowOnly,
+};
+
 /**
  * Audio — sound effects and music via Raylib audio (miniaudio backend).
  *
@@ -21,6 +28,7 @@ public:
     ~Audio();
 
     bool init()     override;
+    bool init(AudioDeviceAccess access);
     void shutdown() override;
 
     // Sound effects (fire-and-forget; same file is reused from cache)

@@ -92,41 +92,14 @@ echo [editor 4/4] Building artcade-editor-native...
 if errorlevel 1 ( popd >nul & echo [FAIL] build failed. & exit /b 1 )
 
 if "!DO_TEST!"=="1" (
-    echo [editor] Building + running editor core suites and sfx_synthesizer_test...
-    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target editor_core_test editor_actions_shortcut_test sprite_animation_test tileset_tilemap_test generated_sfx_model_test script_asset_test script_delete_disk_test export_foundation_test script_text_ops_test script_api_catalog_test generated_sfx_editor_controller_test generated_sfx_generation_service_test sfx_synthesizer_test ui_stylesheet_tokens_test ui_markup_flex_text_test
+    echo [editor] Building every CTest-registered executable...
+    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target artcade-editor-tests
     if errorlevel 1 ( popd >nul & echo [FAIL] test build failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\editor_core_test.exe"
-    if errorlevel 1 ( popd >nul & echo [FAIL] editor_core_test failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\editor_actions_shortcut_test.exe"
-    if errorlevel 1 ( popd >nul & echo [FAIL] editor_actions_shortcut_test failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\sprite_animation_test.exe"
-    if errorlevel 1 ( popd >nul & echo [FAIL] sprite_animation_test failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\tileset_tilemap_test.exe"
-    if errorlevel 1 ( popd >nul & echo [FAIL] tileset_tilemap_test failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\generated_sfx_model_test.exe"
-    if errorlevel 1 ( popd >nul & echo [FAIL] generated_sfx_model_test failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\script_asset_test.exe"
-    set "SCRIPT_ASSET_EC=!ERRORLEVEL!"
-    echo script_asset_test exit=!SCRIPT_ASSET_EC!
-    if not "!SCRIPT_ASSET_EC!"=="0" ( popd >nul & echo [FAIL] script_asset_test failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\script_delete_disk_test.exe"
-    if not "!ERRORLEVEL!"=="0" ( popd >nul & echo [FAIL] script_delete_disk_test failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\export_foundation_test.exe"
-    if not "!ERRORLEVEL!"=="0" ( popd >nul & echo [FAIL] export_foundation_test failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\script_text_ops_test.exe"
-    if not "!ERRORLEVEL!"=="0" ( popd >nul & echo [FAIL] script_text_ops_test failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\script_api_catalog_test.exe"
-    if not "!ERRORLEVEL!"=="0" ( popd >nul & echo [FAIL] script_api_catalog_test failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\generated_sfx_editor_controller_test.exe"
-    if errorlevel 1 ( popd >nul & echo [FAIL] generated_sfx_editor_controller_test failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\generated_sfx_generation_service_test.exe"
-    if errorlevel 1 ( popd >nul & echo [FAIL] generated_sfx_generation_service_test failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\sfx_synthesizer_test.exe"
-    if errorlevel 1 ( popd >nul & echo [FAIL] sfx_synthesizer_test failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\ui_stylesheet_tokens_test.exe"
-    if errorlevel 1 ( popd >nul & echo [FAIL] ui_stylesheet_tokens_test failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\ui_markup_flex_text_test.exe"
-    if errorlevel 1 ( popd >nul & echo [FAIL] ui_markup_flex_text_test failed. & exit /b 1 )
+    for %%I in ("%CMAKE_EXE%") do set "CTEST_EXE=%%~dpIctest.exe"
+    if not exist "!CTEST_EXE!" set "CTEST_EXE=ctest"
+    echo [editor] Running CTest gate...
+    "!CTEST_EXE!" --test-dir "!BUILD_DIR!" --output-on-failure
+    if errorlevel 1 ( popd >nul & echo [FAIL] CTest gate failed. & exit /b 1 )
     rem ADR-0027 phase 4: renders the component gallery and diffs it against the
     rem committed reference. Needs Python + Pillow, and a real GPU render — the
     rem reference is machine-specific, so regenerate it (--update) if the editor
@@ -134,44 +107,6 @@ if "!DO_TEST!"=="1" (
     echo [editor] Checking the component gallery against its reference...
     python "%ROOT%\scripts\check_ui_gallery.py"
     if errorlevel 1 ( popd >nul & echo [FAIL] UI gallery differs from its reference. & exit /b 1 )
-    echo [editor] Building + running logic_board_editor_test...
-    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target logic_board_editor_test
-    if errorlevel 1 ( popd >nul & echo [FAIL] Logic Board test build failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\logic_board_editor_test.exe"
-    if errorlevel 1 ( popd >nul & echo [FAIL] logic_board_editor_test failed. & exit /b 1 )
-    rem ADR-0029: drives a real RmlUi focus event through EditorUi's listener,
-    rem so it links the editor UI objects rather than editor-core alone.
-    echo [editor] Building + running logic_expression_focus_routing_test...
-    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target logic_expression_focus_routing_test
-    if errorlevel 1 ( popd >nul & echo [FAIL] Expression focus test build failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\logic_expression_focus_routing_test.exe"
-    if errorlevel 1 ( popd >nul & echo [FAIL] logic_expression_focus_routing_test failed. & exit /b 1 )
-    rem ADR-0031 A2: drives real Inspector rendering and Object Variables events
-    rem through EditorUi, including the section-marker and dropdown regressions.
-    echo [editor] Building + running inspector_object_variables_routing_test...
-    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target inspector_object_variables_routing_test
-    if errorlevel 1 ( popd >nul & echo [FAIL] Inspector Object Variables test build failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\inspector_object_variables_routing_test.exe"
-    if errorlevel 1 ( popd >nul & echo [FAIL] inspector_object_variables_routing_test failed. & exit /b 1 )
-    rem ADR-0034 spike: Layer dropdown arrow-key highlight, Enter-commit,
-    rem Escape-close, and the hasOpenContextMenu() gap fix.
-    echo [editor] Building + running inspector_layer_dropdown_keyboard_test...
-    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target inspector_layer_dropdown_keyboard_test
-    if errorlevel 1 ( popd >nul & echo [FAIL] Inspector Layer Dropdown Keyboard test build failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\inspector_layer_dropdown_keyboard_test.exe"
-    if errorlevel 1 ( popd >nul & echo [FAIL] inspector_layer_dropdown_keyboard_test failed. & exit /b 1 )
-    rem ADR-0035: Logic Board WHEN trigger-type catalog keyboard nav + Escape gap fix.
-    echo [editor] Building + running logic_board_dropdown_keyboard_test...
-    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target logic_board_dropdown_keyboard_test
-    if errorlevel 1 ( popd >nul & echo [FAIL] Logic Board Dropdown Keyboard test build failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\logic_board_dropdown_keyboard_test.exe"
-    if errorlevel 1 ( popd >nul & echo [FAIL] logic_board_dropdown_keyboard_test failed. & exit /b 1 )
-    rem ADR-0036: Text component Font picker data plumbing.
-    echo [editor] Building + running inspector_text_font_picker_test...
-    "%CMAKE_EXE%" --build "!BUILD_DIR!" --target inspector_text_font_picker_test
-    if errorlevel 1 ( popd >nul & echo [FAIL] Inspector Text Font Picker test build failed. & exit /b 1 )
-    "!BUILD_DIR!\tests\inspector_text_font_picker_test.exe"
-    if errorlevel 1 ( popd >nul & echo [FAIL] inspector_text_font_picker_test failed. & exit /b 1 )
 )
 
 if "!DO_FIXTURE_DEMO!"=="1" (

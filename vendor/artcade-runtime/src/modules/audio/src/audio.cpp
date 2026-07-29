@@ -49,11 +49,16 @@ Audio::Audio()  : impl_(std::make_unique<Impl>()) {}
 Audio::~Audio() = default;
 
 bool Audio::init() {
+    return init(AudioDeviceAccess::OpenIfUnavailable);
+}
+
+bool Audio::init(AudioDeviceAccess access) {
     // Idempotent: a second init() must not re-evaluate ownership (it would
     // observe the device we opened ourselves and silently drop ownership).
     if (impl_->deviceOpen) return true;
     const bool deviceWasReady = IsAudioDeviceReady();
-    if (!deviceWasReady) InitAudioDevice();
+    if (!deviceWasReady && access == AudioDeviceAccess::OpenIfUnavailable)
+        InitAudioDevice();
     // InitAudioDevice() returns void: re-check instead of assuming success,
     // so we never claim ownership of (or use) a device that failed to open.
     if (!IsAudioDeviceReady()) {

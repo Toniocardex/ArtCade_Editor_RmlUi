@@ -5,6 +5,11 @@ function(artcade_test TARGET SOURCES LIBS)
         ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(${TARGET} PRIVATE ${LIBS})
     add_test(NAME ${TARGET} COMMAND ${TARGET})
+    # Several editor/runtime fixtures are intentionally resolved from the
+    # repository root. The build script already runs tests from there; declare
+    # the same contract for direct CTest so both gates execute identical code.
+    set_tests_properties(${TARGET} PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 endfunction()
 
 # Shared fixtures for the split editor-core suites.
@@ -158,6 +163,8 @@ target_compile_definitions(ui_stylesheet_tokens_test PRIVATE
     ARTCADE_UI_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/src/editor-native/resources/ui"
     ARTCADE_UI_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src/editor-native")
 add_test(NAME ui_stylesheet_tokens_test COMMAND ui_stylesheet_tokens_test)
+set_tests_properties(ui_stylesheet_tokens_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # A bare text node inside a `display: flex` element is invisible in RmlUi.
 # Cross-checks the shipped .rml — and the markup the editor builds in C++ —
@@ -167,3 +174,33 @@ target_compile_definitions(ui_markup_flex_text_test PRIVATE
     ARTCADE_UI_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/src/editor-native/resources/ui"
     ARTCADE_UI_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src/editor-native")
 add_test(NAME ui_markup_flex_text_test COMMAND ui_markup_flex_text_test)
+set_tests_properties(ui_markup_flex_text_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# The authoritative local/CI gate. A plain `ctest` is only meaningful after
+# every registered executable exists; the native editor target alone does not
+# build test-only UI executables. Keep this list next to their registrations so
+# adding a test requires making that contract explicit.
+add_custom_target(artcade-editor-tests
+    DEPENDS
+        editor_core_test
+        editor_actions_shortcut_test
+        sprite_animation_test
+        tileset_tilemap_test
+        generated_sfx_model_test
+        script_asset_test
+        script_delete_disk_test
+        export_foundation_test
+        script_text_ops_test
+        script_api_catalog_test
+        generated_sfx_editor_controller_test
+        generated_sfx_generation_service_test
+        logic_board_editor_test
+        logic_expression_focus_routing_test
+        inspector_object_variables_routing_test
+        inspector_layer_dropdown_keyboard_test
+        logic_board_dropdown_keyboard_test
+        inspector_text_font_picker_test
+        sfx_synthesizer_test
+        ui_stylesheet_tokens_test
+        ui_markup_flex_text_test)

@@ -145,3 +145,36 @@ Rieseguire questo audit quando sarà completato il punto 1 o quando `EditorUi::h
 - un build/test gate ripetibile;
 - dipendenze core → UI impossibili per costruzione.
 
+## Stato di attuazione — 2026-07-29
+
+Questa sezione registra le azioni intraprese dopo l'audit. Non sostituisce i
+rilievi precedenti: un punto è chiuso soltanto quando la verifica pertinente è
+verde.
+
+| Azione | Stato | Evidenza |
+|---|---|---|
+| Ownership scratch directory Play | Implementata, verifica completa del gate pendente | `PlaySession` crea una directory esclusiva con `create_directory`, non adotta residui PID/counter, e rende Start Play fallibile se il cleanup finale non riesce. |
+| Audio process-global di Play | Implementata | `PlaySession` richiede esclusivamente un device audio già aperto dall'host; nei test headless Play resta silenzioso e non inizializza miniaudio. |
+| Gate CTest autosufficiente | Implementato | Il target `artcade-editor-tests` dipende da tutti i 21 eseguibili registrati; `build.bat --test` lo costruisce e poi invoca CTest. |
+| Directory di lavoro CTest | Implementata | Ogni test viene eseguito dalla root del repository, come avveniva già nello script, evitando falsi fallimenti di fixture relative. |
+| Entry point CMake legacy | Chiuso | `src/editor-native/CMakeLists.txt` fallisce intenzionalmente e rinvia al root CMake. |
+| Decomposizione di router UI/serializer | Non avviata intenzionalmente | Non è sicuro iniziare un refactor strutturale mentre il gate runtime non è affidabile. |
+
+### Verifica eseguita dopo le modifiche
+
+- La riconfigurazione dal root CMake è riuscita.
+- `cmake --build build --target artcade-editor-tests` ha costruito anche i test
+  UI precedentemente assenti dagli artefatti CTest.
+- Il file generato `build/tests/CTestTestfile.cmake` dichiara ora
+  `WORKING_DIRECTORY` uguale alla root del repository per tutti i test.
+- La configurazione diretta di `src/editor-native` fallisce con il messaggio
+  previsto, prima di costruire un grafo alternativo.
+
+La suite completa non è ancora dichiarabile verde. L'isolamento audio ha
+eliminato le inizializzazioni miniaudio dal percorso Play headless, ma
+`editor_core_test` continua a fallire in casi preesistenti di
+migrazione/serializzazione e New Project quando è eseguito dalla root del
+repository, che è anche la directory usata da `build.bat`. Tali failure devono
+essere riprodotte e corrette prima di procedere con refactor strutturali. Non
+vanno mascherate con timeout, cambi di working directory opportunistici o
+indebolimento dei test.

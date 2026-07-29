@@ -39,12 +39,12 @@ namespace ArtCade::EditorNative {
 
 namespace {
 
-// RU-04 (docs/PLAY_RUNTIME_UNIFICATION_ROADMAP.md §11): a fresh, unique
-// scratch directory per materialize() call - never reused, always removed
-// before returning. Only ever holds project.json (see materialize()'s
-// comment on why asset bytes never need to be copied here), so this can be
-// created/torn down synchronously within a single Play-start.
-std::filesystem::path makeScratchDir() {
+// RU-04 (docs/PLAY_RUNTIME_UNIFICATION_ROADMAP.md §11): a fresh, exclusively
+// owned scratch directory per materialize() call. It is never reused and its
+// cleanup is verified before a successful PlaySession escapes materialize().
+// Only project.json is written here (see materialize() below), so the full
+// lifecycle is synchronous within Start Play.
+std::optional<std::filesystem::path> makeScratchDir(std::string* error) {
     static std::atomic<unsigned> counter{0};
     const unsigned long pid =
 #ifdef _WIN32
@@ -53,19 +53,55 @@ std::filesystem::path makeScratchDir() {
         static_cast<unsigned long>(::getpid());
 #endif
     std::error_code ec;
-    std::filesystem::path dir = std::filesystem::temp_directory_path(ec);
-    if (ec) dir = std::filesystem::current_path();
-    dir /= "artcade-play-" + std::to_string(pid) + "-"
-         + std::to_string(counter.fetch_add(1, std::memory_order_relaxed));
-    std::filesystem::create_directories(dir, ec);
-    return dir;
+    const std::filesystem::path tempRoot = std::filesystem::temp_directory_path(ec);
+    if (ec) {
+        if (error) *error = "Cannot start Play: cannot resolve the temporary directory";
+        return std::nullopt;
+    }
+
+    // create_directory() is deliberate: unlike create_directories(), it never
+    // adopts a pre-existing directory left by a terminated process with a
+    // recycled PID. The retry gives this materialization a directory it owns.
+    constexpr unsigned kMaxScratchDirAttempts = 1024;
+    for (unsigned attempt = 0; attempt < kMaxScratchDirAttempts; ++attempt) {
+        const std::filesystem::path dir = tempRoot / (
+            "artcade-play-" + std::to_string(pid) + "-"
+            + std::to_string(counter.fetch_add(1, std::memory_order_relaxed)));
+        if (std::filesystem::create_directory(dir, ec)) return dir;
+        if (ec) {
+            if (error) *error = "Cannot start Play: cannot create temporary project package";
+            return std::nullopt;
+        }
+        // No error means the candidate already exists; choose a new one.
+    }
+    if (error) *error = "Cannot start Play: cannot allocate a unique temporary project package";
+    return std::nullopt;
 }
 
 struct ScratchDirGuard {
     std::filesystem::path dir;
-    ~ScratchDirGuard() {
+    bool active = true;
+
+    bool cleanup(std::string* error = nullptr) {
+        if (!active) return true;
         std::error_code ec;
         std::filesystem::remove_all(dir, ec);
+        if (ec) {
+            if (error) {
+                *error = "Cannot start Play: failed to remove temporary project package: "
+                       + ec.message();
+            }
+            return false;
+        }
+        active = false;
+        return true;
+    }
+
+    ~ScratchDirGuard() {
+        // Error reporting is impossible during stack unwinding. Successful
+        // materialization always calls cleanup() explicitly below; this is
+        // only the failure-path fallback.
+        cleanup();
     }
 };
 
@@ -238,10 +274,15 @@ std::optional<PlaySession> PlaySession::materialize(
     // AudioAssetDef the Generate step already produced), which is the same
     // gap the exported game already has today, not one introduced here.
     // RU-04: round-trip the exact preflight JSON through AssetLoader.
-    const std::filesystem::path scratchDir = makeScratchDir();
-    ScratchDirGuard scratchDirGuard{scratchDir};
+    std::string scratchError;
+    const std::optional<std::filesystem::path> scratchDir = makeScratchDir(&scratchError);
+    if (!scratchDir) {
+        if (error) *error = std::move(scratchError);
+        return std::nullopt;
+    }
+    ScratchDirGuard scratchDirGuard{*scratchDir};
     {
-        std::ofstream projectFile(scratchDir / "project.json", std::ios::binary);
+        std::ofstream projectFile(*scratchDir / "project.json", std::ios::binary);
         if (!projectFile) {
             if (error) *error = "Cannot start Play: failed to write temp project package";
             return std::nullopt;
@@ -254,11 +295,13 @@ std::optional<PlaySession> PlaySession::materialize(
     }
 
     ProjectDoc doc;
-    Modules::AssetLoader loader;
-    loader.init();
-    if (!loader.loadDirectory(scratchDir.string(), doc)) {
-        if (error) *error = "Cannot start Play: canonical loader rejected the project";
-        return std::nullopt;
+    {
+        Modules::AssetLoader loader;
+        loader.init();
+        if (!loader.loadDirectory(scratchDir->string(), doc)) {
+            if (error) *error = "Cannot start Play: canonical loader rejected the project";
+            return std::nullopt;
+        }
     }
 
     // World::init(doc) activates whatever doc.activeSceneId names - Play
@@ -329,10 +372,11 @@ std::optional<PlaySession> PlaySession::materialize(
     }
 
     session.audio_ = std::make_unique<Modules::Audio>();
-    // Audio device availability is host environment, not a Play precondition:
-    // a missing/unavailable device degrades to silent Play Sound rather than
-    // blocking Play (see setAssetRoot()'s doc comment - the same philosophy).
-    session.audio_->init();
+    // AC-LIFE-002: the editor host owns Raylib's process-global audio device.
+    // PlaySession may borrow it, never initialize or close it. Headless tests
+    // consequently run Play silently instead of creating a miniaudio device.
+    // Audio availability is not a Play precondition.
+    session.audio_->init(Modules::AudioDeviceAccess::BorrowOnly);
     session.audio_->setRuntimeAssetCatalog(doc.audioAssets);
 
     session.input_ = std::make_unique<Modules::Input>();
@@ -422,6 +466,15 @@ std::optional<PlaySession> PlaySession::materialize(
         session.scenesById_.emplace(id, std::move(block));
     }
     session.activateMaterializedScene(sceneId);
+
+    // A successful PlaySession must not retain filesystem state from
+    // materialization. Treat a failed removal as a failed Start Play rather
+    // than silently returning an apparently valid session with leaked state.
+    if (!scratchDirGuard.cleanup(&scratchError)) {
+        session.shutdownRuntime();
+        if (error) *error = std::move(scratchError);
+        return std::nullopt;
+    }
 
     return session;
 }
