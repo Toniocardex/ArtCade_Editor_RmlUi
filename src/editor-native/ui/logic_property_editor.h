@@ -13,8 +13,14 @@ class ProjectDocument;
 
 struct LogicPropertyAddress {
     LogicRuleId ruleId;
+    LogicActionBranchId branchId;
     LogicPropertyTarget target = LogicPropertyTarget::Trigger;
     std::size_t blockIndex = 0;
+
+    LogicPropertyAddress() = default;
+    LogicPropertyAddress(LogicRuleId rule, LogicActionBranchId branch,
+                         LogicPropertyTarget slot, std::size_t index)
+        : ruleId(std::move(rule)), branchId(std::move(branch)), target(slot), blockIndex(index) {}
 };
 
 // Pure presentation state for every Key-valued Logic property. The encoded
@@ -26,7 +32,7 @@ struct LogicKeyBindingEditorState {
     std::string searchQuery;
 };
 
-/** Stable controller address: rule|t/a/c|index|property. */
+/** Stable controller address: rule|branch|t/a/c|index|property. */
 std::string encodeLogicPropertyAddress(
     const LogicPropertyAddress& address, const std::string& propertyKey);
 

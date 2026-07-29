@@ -182,9 +182,10 @@ bool blockFromJson(const nlohmann::json& json, LogicBlockDef& out, std::string& 
 nlohmann::json logicBoardToJson(const LogicBoardDef& board) {
     nlohmann::json rules = nlohmann::json::array();
     for (const LogicRuleDef& rule : board.rules) {
-        nlohmann::json conditions = nlohmann::json::array();
-        for (std::size_t index = 0; index < rule.conditions.size(); ++index) {
-            const LogicConditionClause& clause = rule.conditions[index];
+        const auto clausesToJson = [](const std::vector<LogicConditionClause>& clauses) {
+            nlohmann::json conditions = nlohmann::json::array();
+            for (std::size_t index = 0; index < clauses.size(); ++index) {
+            const LogicConditionClause& clause = clauses[index];
             if (index == 0 && clause.joinBefore != LogicConditionJoin::And) {
                 throw std::logic_error("First Logic condition must use AND");
             }
@@ -204,19 +205,27 @@ nlohmann::json logicBoardToJson(const LogicBoardDef& board) {
                 {"negated", clause.negated},
                 {"block", blockToJson(clause.block)},
             });
+            }
+            return conditions;
+        };
+        nlohmann::json branches = nlohmann::json::array();
+        for (const LogicActionBranchDef& branch : rule.branches) {
+            nlohmann::json actions = nlohmann::json::array();
+            for (const LogicBlockDef& block : branch.actions) actions.push_back(blockToJson(block));
+            branches.push_back({
+                {"id", branch.id},
+                {"executionMode", logicExecutionModeToString(branch.executionMode)},
+                {"conditions", clausesToJson(branch.conditions)},
+                {"actions", std::move(actions)},
+            });
         }
-        nlohmann::json actions = nlohmann::json::array();
-        for (const LogicBlockDef& block : rule.actions) actions.push_back(blockToJson(block));
         nlohmann::json ruleJson = {
             {"id", rule.id}, {"enabled", rule.enabled},
             {"trigger", blockToJson(rule.trigger)},
-            {"conditions", std::move(conditions)},
-            {"actions", std::move(actions)},
+            {"conditions", clausesToJson(rule.conditions)},
+            {"branches", std::move(branches)},
         };
         ruleJson["name"] = rule.name;
-        // Default EveryOccurrence may be omitted by older writers; always emit
-        // the token so round-trips stay explicit and readable.
-        ruleJson["executionMode"] = logicExecutionModeToString(rule.executionMode);
         // Empty display grouping metadata is omitted from the current format.
         if (!rule.sectionId.empty()) ruleJson["sectionId"] = rule.sectionId;
         rules.push_back(std::move(ruleJson));
@@ -247,10 +256,12 @@ LogicJsonResult logicBoardFromJson(const nlohmann::json& json, LogicBoardDef& ou
             return {false, "Logic Board apiVersion is invalid"};
         parsed.schemaVersion = json["schemaVersion"].get<uint32_t>();
         parsed.apiVersion = json["apiVersion"].get<uint32_t>();
-        // ADR-0028: schema 3 → numeric-only vec2 → in-memory 4; schema 4 allows
-        // structured NumberExpression objects. Reject anything else.
-        const bool allowStructuredExpressions = parsed.schemaVersion == kLogicBoardSchemaVersion;
-        if (parsed.schemaVersion != 3u && parsed.schemaVersion != kLogicBoardSchemaVersion) {
+        // Schema 3 used literal vec2 values, schema 4 added expressions, and
+        // schema 5 replaces rule actions with Action Groups.
+        const bool legacyActions = parsed.schemaVersion < kLogicBoardSchemaVersion;
+        const bool allowStructuredExpressions = parsed.schemaVersion >= 4u;
+        if (parsed.schemaVersion != 3u && parsed.schemaVersion != 4u
+            && parsed.schemaVersion != kLogicBoardSchemaVersion) {
             return {false, "Unsupported Logic Board schemaVersion"};
         }
         if (parsed.apiVersion != kLogicApiVersion) {
@@ -289,15 +300,6 @@ LogicJsonResult logicBoardFromJson(const nlohmann::json& json, LogicBoardDef& ou
             if (!item.contains("enabled") || !item["enabled"].is_boolean())
                 return {false, "Logic rule enabled is invalid"};
             rule.enabled = item["enabled"].get<bool>();
-            rule.executionMode = LogicExecutionMode::EveryOccurrence;
-            if (item.contains("executionMode")) {
-                if (!item["executionMode"].is_string())
-                    return {false, "Logic rule executionMode is invalid"};
-                const auto mode = logicExecutionModeFromString(
-                    item["executionMode"].get<std::string>());
-                if (!mode) return {false, "Unknown Logic rule executionMode"};
-                rule.executionMode = *mode;
-            }
             if (item.contains("sectionId")) {
                 if (!item["sectionId"].is_string())
                     return {false, "Logic rule sectionId is invalid"};
@@ -310,8 +312,6 @@ LogicJsonResult logicBoardFromJson(const nlohmann::json& json, LogicBoardDef& ou
                 return {false, error.empty() ? "Logic rule trigger is missing" : error};
             if (!item.contains("conditions") || !item["conditions"].is_array())
                 return {false, "Logic rule conditions must be an array"};
-            if (!item.contains("actions") || !item["actions"].is_array())
-                return {false, "Logic rule actions must be an array"};
             for (const auto& raw : item["conditions"]) {
                 if (!raw.is_object() || raw.size() != 3
                     || !raw.contains("join") || !raw["join"].is_string()
@@ -333,12 +333,79 @@ LogicJsonResult logicBoardFromJson(const nlohmann::json& json, LogicBoardDef& ou
                 && rule.conditions.front().joinBefore != LogicConditionJoin::And) {
                 return {false, "First Logic condition must use AND"};
             }
-            for (const auto& raw : item["actions"]) {
-                LogicBlockDef block;
-                if (!blockFromJson(raw, block, error, allowStructuredExpressions))
-                    return {false, error};
-                rule.actions.push_back(std::move(block));
+            const auto readClauses = [&](const nlohmann::json& rawClauses,
+                                         std::vector<LogicConditionClause>& destination) -> bool {
+                if (!rawClauses.is_array()) { error = "Logic conditions must be an array"; return false; }
+                for (const auto& raw : rawClauses) {
+                    if (!raw.is_object() || raw.size() != 3 || !raw.contains("join")
+                        || !raw["join"].is_string() || !raw.contains("negated")
+                        || !raw["negated"].is_boolean() || !raw.contains("block")) {
+                        error = "Logic condition clause is invalid"; return false;
+                    }
+                    LogicConditionClause clause;
+                    const std::string join = raw["join"].get<std::string>();
+                    if (join == "and") clause.joinBefore = LogicConditionJoin::And;
+                    else if (join == "or") clause.joinBefore = LogicConditionJoin::Or;
+                    else { error = "Unknown Logic condition join operator"; return false; }
+                    clause.negated = raw["negated"].get<bool>();
+                    if (!blockFromJson(raw["block"], clause.block, error, allowStructuredExpressions))
+                        return false;
+                    destination.push_back(std::move(clause));
+                }
+                if (!destination.empty() && destination.front().joinBefore != LogicConditionJoin::And) {
+                    error = "First Logic condition must use AND"; return false;
+                }
+                return true;
+            };
+            if (legacyActions) {
+                if (!item.contains("actions") || !item["actions"].is_array())
+                    return {false, "Logic rule actions must be an array"};
+                LogicActionBranchDef branch;
+                branch.id = "branch-1";
+                if (item.contains("executionMode")) {
+                    if (!item["executionMode"].is_string())
+                        return {false, "Logic rule executionMode is invalid"};
+                    const auto mode = logicExecutionModeFromString(item["executionMode"].get<std::string>());
+                    if (!mode) return {false, "Unknown Logic rule executionMode"};
+                    branch.executionMode = *mode;
+                }
+                for (const auto& raw : item["actions"]) {
+                    LogicBlockDef block;
+                    if (!blockFromJson(raw, block, error, allowStructuredExpressions)) return {false, error};
+                    branch.actions.push_back(std::move(block));
+                }
+                rule.branches.push_back(std::move(branch));
+            } else {
+                if (!item.contains("branches") || !item["branches"].is_array())
+                    return {false, "Logic rule branches must be an array"};
+                std::unordered_set<std::string> branchIds;
+                for (const auto& raw : item["branches"]) {
+                    if (!raw.is_object()) return {false, "Logic action branch must be an object"};
+                    LogicActionBranchDef branch;
+                    if (!readString(raw, "id", branch.id) || branch.id.empty())
+                        return {false, "Logic action branch id is missing"};
+                    if (!branchIds.insert(branch.id).second)
+                        return {false, "Duplicate Logic action branch id"};
+                    if (!raw.contains("executionMode") || !raw["executionMode"].is_string())
+                        return {false, "Logic action branch executionMode is invalid"};
+                    const auto mode = logicExecutionModeFromString(raw["executionMode"].get<std::string>());
+                    if (!mode) return {false, "Unknown Logic action branch executionMode"};
+                    branch.executionMode = *mode;
+                    if (!raw.contains("conditions") || !readClauses(raw["conditions"], branch.conditions))
+                        return {false, error.empty() ? "Logic branch conditions are missing" : error};
+                    if (!raw.contains("actions") || !raw["actions"].is_array())
+                        return {false, "Logic branch actions must be an array"};
+                    for (const auto& action : raw["actions"]) {
+                        LogicBlockDef block;
+                        if (!blockFromJson(action, block, error, allowStructuredExpressions)) return {false, error};
+                        branch.actions.push_back(std::move(block));
+                    }
+                    rule.branches.push_back(std::move(branch));
+                }
             }
+            if (rule.branches.empty()) return {false, "Logic rule needs at least one action branch"};
+            if (rule.branches.size() > kMaxLogicActionBranchesPerRule)
+                return {false, "Logic rule action group limit exceeded"};
             parsed.rules.push_back(std::move(rule));
         }
         // ADR-0016: rewrite Is Falling (expected true/default) → Platformer State Falling.
@@ -357,6 +424,9 @@ LogicJsonResult logicBoardFromJson(const nlohmann::json& json, LogicBoardDef& ou
             migrateIsFallingBlock(rule.trigger);
             for (LogicConditionClause& clause : rule.conditions)
                 migrateIsFallingBlock(clause.block);
+            for (LogicActionBranchDef& branch : rule.branches)
+                for (LogicConditionClause& clause : branch.conditions)
+                    migrateIsFallingBlock(clause.block);
         }
         // Schema 3 boards normalize to current schema 4 in memory (ADR-0028).
         parsed.schemaVersion = kLogicBoardSchemaVersion;

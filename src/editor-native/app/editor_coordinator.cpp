@@ -104,30 +104,52 @@ EditorOperationResult EditorCoordinator::apply(const DuplicateLogicRuleIntent& i
 
 EditorOperationResult EditorCoordinator::apply(const AddLogicActionTypeIntent& intent) {
     const LogicRuleDef* rule = findLogicRule(document_, intent.objectTypeId, intent.ruleId);
-    const std::size_t insertionIndex = rule ? rule->actions.size() : 0;
+    const LogicActionBranchDef* branch = nullptr;
+    if (rule) {
+        const auto it = std::find_if(rule->branches.begin(), rule->branches.end(),
+            [&](const LogicActionBranchDef& candidate) {
+                return candidate.id == intent.branchId;
+            });
+        if (it != rule->branches.end()) branch = &*it;
+    }
+    if (!branch) return EditorOperationResult::failure("Unknown Logic action group");
+    const std::size_t insertionIndex = branch->actions.size();
     return execute(AddLogicActionCommand{
         intent.objectTypeId, intent.ruleId,
         Logic::makeDefaultBlock(intent.typeId, Logic::BlockKind::Action),
-        insertionIndex});
+        insertionIndex, intent.branchId});
 }
 
 EditorOperationResult EditorCoordinator::apply(const ChangeLogicActionTypeIntent& intent) {
     return execute(ChangeLogicActionTypeCommand{
-        intent.objectTypeId, intent.ruleId, intent.actionIndex, intent.typeId});
+        intent.objectTypeId, intent.ruleId, intent.actionIndex, intent.typeId,
+        intent.branchId});
 }
 
 EditorOperationResult EditorCoordinator::apply(const AddLogicConditionTypeIntent& intent) {
     const LogicRuleDef* rule = findLogicRule(document_, intent.objectTypeId, intent.ruleId);
-    const std::size_t insertionIndex = rule ? rule->conditions.size() : 0;
+    if (!rule) return EditorOperationResult::failure("Unknown Logic rule");
+    const std::vector<LogicConditionClause>* conditions = &rule->conditions;
+    if (!intent.branchId.empty()) {
+        const auto branch = std::find_if(rule->branches.begin(), rule->branches.end(),
+            [&](const LogicActionBranchDef& candidate) {
+                return candidate.id == intent.branchId;
+            });
+        if (branch == rule->branches.end())
+            return EditorOperationResult::failure("Unknown Logic action group");
+        conditions = &branch->conditions;
+    }
+    const std::size_t insertionIndex = conditions->size();
     return execute(AddLogicConditionCommand{
         intent.objectTypeId, intent.ruleId,
         Logic::makeDefaultBlock(intent.typeId, Logic::BlockKind::Condition),
-        insertionIndex});
+        insertionIndex, intent.branchId});
 }
 
 EditorOperationResult EditorCoordinator::apply(const ChangeLogicConditionTypeIntent& intent) {
     return execute(ChangeLogicConditionTypeCommand{
-        intent.objectTypeId, intent.ruleId, intent.conditionIndex, intent.typeId});
+        intent.objectTypeId, intent.ruleId, intent.conditionIndex, intent.typeId,
+        intent.branchId});
 }
 
 const EditorSceneViewState& EditorCoordinator::sceneView(const SceneId& id) const {

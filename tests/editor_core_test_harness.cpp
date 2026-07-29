@@ -62,6 +62,10 @@ ProjectDoc makeDoc() {
 
     doc.scenes.emplace(kSceneA, a);
     doc.scenes.emplace(kSceneB, b);
+    EntityDef heroType;
+    heroType.className = "Hero";
+    heroType.name = "Hero";
+    doc.objectTypes.emplace("Hero", std::move(heroType));
     return doc;
 }
 
@@ -83,6 +87,10 @@ ProjectDoc makeReplacementDoc() {
     instance.transform.position = {7.f, 8.f};
     scene.instances.push_back(instance);
     doc.scenes.emplace(scene.id, scene);
+    EntityDef enemyType;
+    enemyType.className = "Enemy";
+    enemyType.name = "Enemy";
+    doc.objectTypes.emplace("Enemy", std::move(enemyType));
     return doc;
 }
 
@@ -105,7 +113,7 @@ ProjectDoc makeInheritedDoc() {
     hero.name = "Hero";
     hero.visible = true;
     hero.spriteRenderer = SpriteRendererComponent{"img-hero", true};
-    doc.objectTypes.emplace("Hero", hero);
+    doc.objectTypes.insert_or_assign("Hero", std::move(hero));
     return doc;
 }
 
@@ -130,7 +138,7 @@ ProjectDoc makeAnimationDoc() {
     hero.name = "Hero";
     hero.spriteRenderer = SpriteRendererComponent{{}, true};
     hero.spriteAnimator = SpriteAnimatorComponent{"hero.anim", "idle", true, 1.f};
-    doc.objectTypes.emplace("Hero", std::move(hero));
+    doc.objectTypes.insert_or_assign("Hero", std::move(hero));
     return doc;
 }
 

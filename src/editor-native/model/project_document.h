@@ -337,7 +337,11 @@ private:
     friend class RemoveLogicRuleCommand;
     friend class MoveLogicRuleCommand;
     friend class SetLogicRuleEnabledCommand;
-    friend class SetLogicRuleExecutionModeCommand;
+    friend class AddLogicActionBranchCommand;
+    friend class RemoveLogicActionBranchCommand;
+    friend class MoveLogicActionBranchCommand;
+    friend class DuplicateLogicActionBranchCommand;
+    friend class SetLogicActionBranchExecutionModeCommand;
     friend class ReplaceLogicTriggerCommand;
     friend class AddLogicActionCommand;
     friend class RemoveLogicActionCommand;

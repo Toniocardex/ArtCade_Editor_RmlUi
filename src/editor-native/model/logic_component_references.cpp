@@ -19,6 +19,7 @@ bool requiresComponent(const Logic::LogicBlockDescriptor& descriptor,
 void appendRef(LogicComponentReferenceReport& report,
                const ObjectTypeId& objectTypeId,
                const LogicRuleId& ruleId,
+               const LogicActionBranchId& branchId,
                LogicReferenceSlot slot,
                std::size_t blockIndex,
                const LogicBlockDef& block,
@@ -26,6 +27,7 @@ void appendRef(LogicComponentReferenceReport& report,
     LogicComponentReference ref;
     ref.objectTypeId = objectTypeId;
     ref.ruleId = ruleId;
+    ref.branchId = branchId;
     ref.slot = slot;
     ref.blockIndex = blockIndex;
     ref.typeId = block.typeId;
@@ -41,7 +43,7 @@ void collectRequiring(LogicComponentReferenceReport& report,
         if (const Logic::LogicBlockDescriptor* trigger =
                 Logic::findDescriptor(rule.trigger.typeId)) {
             if (requiresComponent(*trigger, component)) {
-                appendRef(report, objectTypeId, rule.id, LogicReferenceSlot::Trigger, 0,
+                appendRef(report, objectTypeId, rule.id, {}, LogicReferenceSlot::Trigger, 0,
                           rule.trigger, *trigger);
             }
         }
@@ -50,18 +52,31 @@ void collectRequiring(LogicComponentReferenceReport& report,
             if (const Logic::LogicBlockDescriptor* descriptor =
                     Logic::findDescriptor(block.typeId)) {
                 if (requiresComponent(*descriptor, component)) {
-                    appendRef(report, objectTypeId, rule.id, LogicReferenceSlot::Condition, i,
+                    appendRef(report, objectTypeId, rule.id, {}, LogicReferenceSlot::Condition, i,
                               block, *descriptor);
                 }
             }
         }
-        for (std::size_t i = 0; i < rule.actions.size(); ++i) {
-            const LogicBlockDef& block = rule.actions[i];
-            if (const Logic::LogicBlockDescriptor* descriptor =
-                    Logic::findDescriptor(block.typeId)) {
-                if (requiresComponent(*descriptor, component)) {
-                    appendRef(report, objectTypeId, rule.id, LogicReferenceSlot::Action, i,
-                              block, *descriptor);
+        for (const LogicActionBranchDef& branch : rule.branches) {
+            for (std::size_t i = 0; i < branch.conditions.size(); ++i) {
+                const LogicBlockDef& block = branch.conditions[i].block;
+                if (const Logic::LogicBlockDescriptor* descriptor =
+                        Logic::findDescriptor(block.typeId)) {
+                    if (requiresComponent(*descriptor, component)) {
+                        appendRef(report, objectTypeId, rule.id, branch.id,
+                                  LogicReferenceSlot::Condition, i, block, *descriptor);
+                    }
+                }
+            }
+            for (std::size_t i = 0; i < branch.actions.size(); ++i) {
+                const LogicBlockDef& block = branch.actions[i];
+                if (const Logic::LogicBlockDescriptor* descriptor =
+                        Logic::findDescriptor(block.typeId)) {
+                    if (requiresComponent(*descriptor, component)) {
+                        appendRef(report, objectTypeId, rule.id, branch.id,
+                                  LogicReferenceSlot::Action, i,
+                                  block, *descriptor);
+                    }
                 }
             }
         }
@@ -137,7 +152,7 @@ LogicComponentReferenceReport collectIncompatibleLogicReferences(
             Logic::findDescriptor(rule.trigger.typeId);
         if (blockIncompatible(*type, rule.trigger, nullptr)) {
             if (triggerDesc) {
-                appendRef(report, objectTypeId, rule.id, LogicReferenceSlot::Trigger, 0,
+                appendRef(report, objectTypeId, rule.id, {}, LogicReferenceSlot::Trigger, 0,
                           rule.trigger, *triggerDesc);
             }
         }
@@ -146,18 +161,31 @@ LogicComponentReferenceReport collectIncompatibleLogicReferences(
             if (blockIncompatible(*type, block, triggerDesc)) {
                 if (const Logic::LogicBlockDescriptor* descriptor =
                         Logic::findDescriptor(block.typeId)) {
-                    appendRef(report, objectTypeId, rule.id, LogicReferenceSlot::Condition, i,
+                    appendRef(report, objectTypeId, rule.id, {}, LogicReferenceSlot::Condition, i,
                               block, *descriptor);
                 }
             }
         }
-        for (std::size_t i = 0; i < rule.actions.size(); ++i) {
-            const LogicBlockDef& block = rule.actions[i];
-            if (blockIncompatible(*type, block, triggerDesc)) {
-                if (const Logic::LogicBlockDescriptor* descriptor =
-                        Logic::findDescriptor(block.typeId)) {
-                    appendRef(report, objectTypeId, rule.id, LogicReferenceSlot::Action, i,
-                              block, *descriptor);
+        for (const LogicActionBranchDef& branch : rule.branches) {
+            for (std::size_t i = 0; i < branch.conditions.size(); ++i) {
+                const LogicBlockDef& block = branch.conditions[i].block;
+                if (blockIncompatible(*type, block, triggerDesc)) {
+                    if (const Logic::LogicBlockDescriptor* descriptor =
+                            Logic::findDescriptor(block.typeId)) {
+                        appendRef(report, objectTypeId, rule.id, branch.id,
+                                  LogicReferenceSlot::Condition, i, block, *descriptor);
+                    }
+                }
+            }
+            for (std::size_t i = 0; i < branch.actions.size(); ++i) {
+                const LogicBlockDef& block = branch.actions[i];
+                if (blockIncompatible(*type, block, triggerDesc)) {
+                    if (const Logic::LogicBlockDescriptor* descriptor =
+                            Logic::findDescriptor(block.typeId)) {
+                        appendRef(report, objectTypeId, rule.id, branch.id,
+                                  LogicReferenceSlot::Action, i,
+                                  block, *descriptor);
+                    }
                 }
             }
         }

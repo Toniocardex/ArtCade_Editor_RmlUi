@@ -43,9 +43,13 @@ EditorOperationResult SetLogicNumberExpressionCommand::apply(ProjectDocument& do
     LogicBoardDef next = *current;
     auto ruleIt = std::find_if(next.rules.begin(), next.rules.end(),
         [&](const LogicRuleDef& rule) { return rule.id == address_.ruleId; });
-    if (ruleIt == next.rules.end() || address_.actionIndex >= ruleIt->actions.size())
+    const auto branch = ruleIt == next.rules.end() ? std::vector<LogicActionBranchDef>::iterator{}
+        : std::find_if(ruleIt->branches.begin(), ruleIt->branches.end(),
+            [&](const LogicActionBranchDef& candidate) { return candidate.id == address_.branchId; });
+    if (ruleIt == next.rules.end() || branch == ruleIt->branches.end()
+        || address_.actionIndex >= branch->actions.size())
         return EditorOperationResult::failure("Logic action not found");
-    LogicBlockDef& action = ruleIt->actions[address_.actionIndex];
+    LogicBlockDef& action = branch->actions[address_.actionIndex];
     const Logic::LogicBlockDescriptor* block = Logic::findDescriptor(action.typeId);
     if (!block) return EditorOperationResult::failure("Unknown Logic action");
     const auto propertyDesc = std::find_if(

@@ -18,6 +18,7 @@ enum class LogicReferenceSlot { Trigger, Condition, Action };
 struct LogicComponentReference {
     ObjectTypeId objectTypeId;
     LogicRuleId ruleId;
+    LogicActionBranchId branchId;
     LogicReferenceSlot slot = LogicReferenceSlot::Action;
     std::size_t blockIndex = 0;
     std::string typeId;

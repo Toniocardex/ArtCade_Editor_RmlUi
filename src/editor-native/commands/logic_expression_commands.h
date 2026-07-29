@@ -17,6 +17,7 @@ struct LogicNumberExpressionAddress {
     std::size_t actionIndex = 0;
     std::string parameterId;
     LogicNumericComponent component = LogicNumericComponent::X;
+    LogicActionBranchId branchId;
 };
 
 /** ADR-0028: replace one Vec2 component NumberExpression (Set Position.X/Y). */

@@ -120,7 +120,7 @@ ProjectDoc makeLogicBoardProject() {
     // rejected by ReplaceLogicTriggerCommand's board validation over an
     // incompatible default action — this test is about the picker's
     // keyboard-nav plumbing, not about which trigger/action pairs validate.
-    rule.actions.clear();
+    rule.branches.at(0).actions.clear();
     board.rules.push_back(std::move(rule));
     hero.logicBoard = std::move(board);
 

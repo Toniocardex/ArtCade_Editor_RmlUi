@@ -79,6 +79,7 @@
 
 using namespace ArtCade;
 using namespace ArtCade::EditorNative;
+
 using namespace ArtCade::EditorNative::CoreTest;
 
 int main() {
@@ -532,7 +533,7 @@ int main() {
         presentation.source = SpritePresentationAnimation{
             "hero.anim", /*defaultClipId=*/{}, /*autoPlay=*/false, /*playbackSpeed=*/1.f};
         hero.spritePresentation = std::move(presentation);
-        doc.objectTypes.emplace("Hero", std::move(hero));
+        doc.objectTypes.insert_or_assign("Hero", std::move(hero));
 
         ProjectDocument document{std::move(doc)};
         std::string playError;
@@ -606,19 +607,19 @@ int main() {
         EditorCoordinator c{makeAnimationDoc()};
         CHECK(c.execute(CreateLogicBoardCommand{"Hero"}).ok);
         LogicRuleDef rule = Logic::makeDefaultRule("rule-play");
-        rule.actions[0] = Logic::makeDefaultBlock(
+        rule.branches.at(0).actions[0] = Logic::makeDefaultBlock(
             Logic::kAnimationPlayClip, Logic::BlockKind::Action);
-        rule.actions[0].properties[0].value = LogicAssetReference{"hero.anim"};
-        rule.actions[0].properties[1].value = LogicStringValue{"idle"};
+        rule.branches.at(0).actions[0].properties[0].value = LogicAssetReference{"hero.anim"};
+        rule.branches.at(0).actions[0].properties[1].value = LogicStringValue{"idle"};
         CHECK(c.execute(AddLogicRuleCommand{"Hero", rule, 0}).ok);
         CHECK(c.execute(RemoveSpriteAnimationAssetCommand{"hero.anim"}).ok);
         const LogicBlockDef& cleared = c.document().data().objectTypes.at("Hero")
-            .logicBoard->rules[0].actions[0];
+            .logicBoard->rules[0].branches.at(0).actions[0];
         CHECK(std::get<LogicAssetReference>(cleared.properties[0].value).id.empty());
         CHECK(std::get<LogicStringValue>(cleared.properties[1].value).value.empty());
         CHECK(c.undo().ok);
         const LogicBlockDef& restored = c.document().data().objectTypes.at("Hero")
-            .logicBoard->rules[0].actions[0];
+            .logicBoard->rules[0].branches.at(0).actions[0];
         CHECK(std::get<LogicAssetReference>(restored.properties[0].value).id == "hero.anim");
         CHECK(std::get<LogicStringValue>(restored.properties[1].value).value == "idle");
     }
@@ -647,10 +648,10 @@ int main() {
         board.id = "logic:Hero";
         LogicRuleDef rule = Logic::makeDefaultRule("rule-key-play");
         rule.trigger = {Logic::kKeyPressed, {{"key", LogicKey::Space}}};
-        rule.actions[0] = Logic::makeDefaultBlock(
+        rule.branches.at(0).actions[0] = Logic::makeDefaultBlock(
             Logic::kAnimationPlayClip, Logic::BlockKind::Action);
-        rule.actions[0].properties[0].value = LogicAssetReference{"hero.anim"};
-        rule.actions[0].properties[1].value = LogicStringValue{"idle"};
+        rule.branches.at(0).actions[0].properties[0].value = LogicAssetReference{"hero.anim"};
+        rule.branches.at(0).actions[0].properties[1].value = LogicStringValue{"idle"};
         board.rules.push_back(rule);
         doc.objectTypes.at("Hero").logicBoard = board;
         ProjectDocument document{std::move(doc)};

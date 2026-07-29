@@ -28,7 +28,10 @@ void forEachBoardBlock(Doc& project,
         for (auto& rule : type.logicBoard->rules) {
             fn(rule.trigger);
             for (auto& clause : rule.conditions) fn(clause.block);
-            for (auto& action : rule.actions) fn(action);
+            for (auto& branch : rule.branches) {
+                for (auto& clause : branch.conditions) fn(clause.block);
+                for (auto& action : branch.actions) fn(action);
+            }
         }
     };
     if (scope == VariableScope::Object) {

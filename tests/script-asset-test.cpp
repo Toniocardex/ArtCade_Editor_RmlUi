@@ -79,6 +79,7 @@
 
 using namespace ArtCade;
 using namespace ArtCade::EditorNative;
+
 using namespace ArtCade::EditorNative::CoreTest;
 
 void testScriptDeleteDiskWorkflow() {
@@ -872,7 +873,10 @@ end }
         Logic::makeDefaultBlock(Logic::kSetPosition, Logic::BlockKind::Action);
     for (LogicPropertyDef& property : setPosition.properties)
         if (property.key == "position") property.value = LogicVec2Value::literal(1., 2.);
-    startRule.actions.push_back(std::move(setPosition));
+    LogicActionBranchDef branch;
+    branch.id = "branch-1";
+    branch.actions.push_back(std::move(setPosition));
+    startRule.branches.push_back(std::move(branch));
     board.rules.push_back(std::move(startRule));
     hero.logicBoard = std::move(board);
     hero.scripts = ScriptComponent{{ScriptAttachmentDef{"script-1", "visibility", true}}};

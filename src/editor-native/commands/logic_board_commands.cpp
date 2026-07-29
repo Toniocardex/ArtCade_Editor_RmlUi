@@ -28,16 +28,32 @@ LogicRuleDef* ruleOf(LogicBoardDef& board, const LogicRuleId& id) {
     return it == board.rules.end() ? nullptr : &*it;
 }
 
+LogicActionBranchDef* branchOf(LogicRuleDef& rule, const LogicActionBranchId& id) {
+    const auto it = std::find_if(rule.branches.begin(), rule.branches.end(),
+        [&](const LogicActionBranchDef& branch) { return branch.id == id; });
+    return it == rule.branches.end() ? nullptr : &*it;
+}
+
+std::vector<LogicConditionClause>* conditionsOf(LogicRuleDef& rule,
+                                                const LogicActionBranchId& branchId) {
+    if (branchId.empty()) return &rule.conditions;
+    LogicActionBranchDef* branch = branchOf(rule, branchId);
+    return branch ? &branch->conditions : nullptr;
+}
+
 LogicBlockDef* blockOf(LogicRuleDef& rule, LogicPropertyTarget target,
-                       std::size_t blockIndex) {
+                       std::size_t blockIndex, const LogicActionBranchId& branchId) {
     switch (target) {
     case LogicPropertyTarget::Trigger:
         return &rule.trigger;
     case LogicPropertyTarget::Action:
-        return blockIndex < rule.actions.size() ? &rule.actions[blockIndex] : nullptr;
+        if (LogicActionBranchDef* branch = branchOf(rule, branchId);
+            branch && blockIndex < branch->actions.size()) return &branch->actions[blockIndex];
+        return nullptr;
     case LogicPropertyTarget::Condition:
-        return blockIndex < rule.conditions.size()
-            ? &rule.conditions[blockIndex].block : nullptr;
+        if (std::vector<LogicConditionClause>* conditions = conditionsOf(rule, branchId);
+            conditions && blockIndex < conditions->size()) return &(*conditions)[blockIndex].block;
+        return nullptr;
     }
     return nullptr;
 }
@@ -329,21 +345,94 @@ EditorOperationResult SetLogicRuleEnabledCommand::apply(ProjectDocument& documen
 }
 EditorOperationResult SetLogicRuleEnabledCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
-SetLogicRuleExecutionModeCommand::SetLogicRuleExecutionModeCommand(
-    ObjectTypeId id, LogicRuleId ruleId, LogicExecutionMode mode)
-    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), mode_(mode) {}
-EditorOperationResult SetLogicRuleExecutionModeCommand::apply(ProjectDocument& document) {
+AddLogicActionBranchCommand::AddLogicActionBranchCommand(
+    ObjectTypeId id, LogicRuleId ruleId, LogicActionBranchDef branch, std::size_t index)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), branch_(std::move(branch)), index_(index) {}
+EditorOperationResult AddLogicActionBranchCommand::apply(ProjectDocument& document) {
     const LogicBoardDef* current = boardOf(document, objectTypeId_);
     if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
     LogicBoardDef next = *current;
     LogicRuleDef* rule = ruleOf(next, ruleId_);
-    if (!rule) return EditorOperationResult::failure("Unknown Logic rule");
-    rule->executionMode = mode_;
+    if (!rule || branch_.id.empty() || index_ > rule->branches.size()
+        || rule->branches.size() >= Logic::kMaxLogicActionBranchesPerRule
+        || branchOf(*rule, branch_.id))
+        return EditorOperationResult::failure("Invalid Logic action group insertion");
+    rule->branches.insert(rule->branches.begin() + static_cast<std::ptrdiff_t>(index_), branch_);
     COMMIT_NEXT_BOARD(next);
 }
-EditorOperationResult SetLogicRuleExecutionModeCommand::undo(ProjectDocument& document) {
-    UNDO_BOARD();
+EditorOperationResult AddLogicActionBranchCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
+
+RemoveLogicActionBranchCommand::RemoveLogicActionBranchCommand(
+    ObjectTypeId id, LogicRuleId ruleId, LogicActionBranchId branchId)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), branchId_(std::move(branchId)) {}
+EditorOperationResult RemoveLogicActionBranchCommand::apply(ProjectDocument& document) {
+    const LogicBoardDef* current = boardOf(document, objectTypeId_);
+    if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
+    LogicBoardDef next = *current;
+    LogicRuleDef* rule = ruleOf(next, ruleId_);
+    if (!rule || rule->branches.size() <= 1) return EditorOperationResult::failure("A Logic rule needs one action group");
+    const auto it = std::find_if(rule->branches.begin(), rule->branches.end(),
+        [&](const LogicActionBranchDef& branch) { return branch.id == branchId_; });
+    if (it == rule->branches.end()) return EditorOperationResult::failure("Unknown Logic action group");
+    rule->branches.erase(it);
+    COMMIT_NEXT_BOARD(next);
 }
+EditorOperationResult RemoveLogicActionBranchCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
+
+MoveLogicActionBranchCommand::MoveLogicActionBranchCommand(
+    ObjectTypeId id, LogicRuleId ruleId, LogicActionBranchId branchId, std::size_t index)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), branchId_(std::move(branchId)), index_(index) {}
+EditorOperationResult MoveLogicActionBranchCommand::apply(ProjectDocument& document) {
+    const LogicBoardDef* current = boardOf(document, objectTypeId_);
+    if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
+    LogicBoardDef next = *current;
+    LogicRuleDef* rule = ruleOf(next, ruleId_);
+    if (!rule || index_ >= rule->branches.size()) return EditorOperationResult::failure("Invalid Logic action group move");
+    const auto it = std::find_if(rule->branches.begin(), rule->branches.end(),
+        [&](const LogicActionBranchDef& branch) { return branch.id == branchId_; });
+    if (it == rule->branches.end()) return EditorOperationResult::failure("Unknown Logic action group");
+    const std::size_t from = static_cast<std::size_t>(it - rule->branches.begin());
+    if (from == index_) return EditorOperationResult::success(EditorInvalidation::None);
+    LogicActionBranchDef moved = std::move(*it);
+    rule->branches.erase(it);
+    rule->branches.insert(rule->branches.begin() + static_cast<std::ptrdiff_t>(index_), std::move(moved));
+    COMMIT_NEXT_BOARD(next);
+}
+EditorOperationResult MoveLogicActionBranchCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
+
+DuplicateLogicActionBranchCommand::DuplicateLogicActionBranchCommand(
+    ObjectTypeId id, LogicRuleId ruleId, LogicActionBranchId sourceBranchId,
+    LogicActionBranchDef copy, std::size_t index)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), sourceBranchId_(std::move(sourceBranchId)),
+      copy_(std::move(copy)), index_(index) {}
+EditorOperationResult DuplicateLogicActionBranchCommand::apply(ProjectDocument& document) {
+    const LogicBoardDef* current = boardOf(document, objectTypeId_);
+    if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
+    LogicBoardDef next = *current;
+    LogicRuleDef* rule = ruleOf(next, ruleId_);
+    if (!rule || !branchOf(*rule, sourceBranchId_) || copy_.id.empty()
+        || branchOf(*rule, copy_.id) || index_ > rule->branches.size()
+        || rule->branches.size() >= Logic::kMaxLogicActionBranchesPerRule)
+        return EditorOperationResult::failure("Invalid Logic action group duplicate");
+    rule->branches.insert(rule->branches.begin() + static_cast<std::ptrdiff_t>(index_), copy_);
+    COMMIT_NEXT_BOARD(next);
+}
+EditorOperationResult DuplicateLogicActionBranchCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
+
+SetLogicActionBranchExecutionModeCommand::SetLogicActionBranchExecutionModeCommand(
+    ObjectTypeId id, LogicRuleId ruleId, LogicActionBranchId branchId, LogicExecutionMode mode)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), branchId_(std::move(branchId)), mode_(mode) {}
+EditorOperationResult SetLogicActionBranchExecutionModeCommand::apply(ProjectDocument& document) {
+    const LogicBoardDef* current = boardOf(document, objectTypeId_);
+    if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
+    LogicBoardDef next = *current;
+    LogicRuleDef* rule = ruleOf(next, ruleId_);
+    LogicActionBranchDef* branch = rule ? branchOf(*rule, branchId_) : nullptr;
+    if (!branch) return EditorOperationResult::failure("Unknown Logic action group");
+    branch->executionMode = mode_;
+    COMMIT_NEXT_BOARD(next);
+}
+EditorOperationResult SetLogicActionBranchExecutionModeCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
 ReplaceLogicTriggerCommand::ReplaceLogicTriggerCommand(ObjectTypeId id, LogicRuleId ruleId,
                                                        LogicBlockDef trigger)
@@ -363,203 +452,216 @@ EditorOperationResult ReplaceLogicTriggerCommand::apply(ProjectDocument& documen
 EditorOperationResult ReplaceLogicTriggerCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
 AddLogicActionCommand::AddLogicActionCommand(ObjectTypeId id, LogicRuleId ruleId,
-                                             LogicBlockDef action, std::size_t index)
+                                             LogicBlockDef action, std::size_t index,
+                                             LogicActionBranchId branchId)
     : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)),
-      action_(std::move(action)), index_(index) {}
+      action_(std::move(action)), index_(index), branchId_(std::move(branchId)) {}
 EditorOperationResult AddLogicActionCommand::apply(ProjectDocument& document) {
     const LogicBoardDef* current = boardOf(document, objectTypeId_);
     if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
     LogicBoardDef next = *current;
     LogicRuleDef* rule = ruleOf(next, ruleId_);
-    if (!rule || index_ > rule->actions.size())
+    LogicActionBranchDef* branch = rule ? branchOf(*rule, branchId_) : nullptr;
+    if (!branch || index_ > branch->actions.size())
         return EditorOperationResult::failure("Invalid Logic action insertion");
     LogicBlockDef action = action_;
     assignContextualDefaults(document, action);
-    rule->actions.insert(rule->actions.begin() + static_cast<std::ptrdiff_t>(index_), std::move(action));
+    auto& actions = branch->actions;
+    actions.insert(actions.begin() + static_cast<std::ptrdiff_t>(index_), std::move(action));
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult AddLogicActionCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
-RemoveLogicActionCommand::RemoveLogicActionCommand(ObjectTypeId id, LogicRuleId ruleId, std::size_t index)
-    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), index_(index) {}
+RemoveLogicActionCommand::RemoveLogicActionCommand(ObjectTypeId id, LogicRuleId ruleId, std::size_t index,
+                                                   LogicActionBranchId branchId)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), index_(index), branchId_(std::move(branchId)) {}
 EditorOperationResult RemoveLogicActionCommand::apply(ProjectDocument& document) {
     const LogicBoardDef* current = boardOf(document, objectTypeId_);
     if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
     LogicBoardDef next = *current;
     LogicRuleDef* rule = ruleOf(next, ruleId_);
-    if (!rule || index_ >= rule->actions.size())
+    LogicActionBranchDef* branch = rule ? branchOf(*rule, branchId_) : nullptr;
+    if (!branch || index_ >= branch->actions.size())
         return EditorOperationResult::failure("Unknown Logic action");
-    rule->actions.erase(rule->actions.begin() + static_cast<std::ptrdiff_t>(index_));
+    auto& actions = branch->actions;
+    actions.erase(actions.begin() + static_cast<std::ptrdiff_t>(index_));
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult RemoveLogicActionCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
 MoveLogicActionCommand::MoveLogicActionCommand(ObjectTypeId id, LogicRuleId ruleId,
-                                               std::size_t from, std::size_t to)
-    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), from_(from), to_(to) {}
+                                               std::size_t from, std::size_t to,
+                                               LogicActionBranchId branchId)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), from_(from), to_(to), branchId_(std::move(branchId)) {}
 EditorOperationResult MoveLogicActionCommand::apply(ProjectDocument& document) {
     const LogicBoardDef* current = boardOf(document, objectTypeId_);
     if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
     LogicBoardDef next = *current;
     LogicRuleDef* rule = ruleOf(next, ruleId_);
-    if (!rule || from_ >= rule->actions.size() || to_ >= rule->actions.size())
+    LogicActionBranchDef* branch = rule ? branchOf(*rule, branchId_) : nullptr;
+    if (!branch || from_ >= branch->actions.size() || to_ >= branch->actions.size())
         return EditorOperationResult::failure("Invalid Logic action move");
     if (from_ == to_) return EditorOperationResult::success(EditorInvalidation::None);
-    LogicBlockDef moved = std::move(rule->actions[from_]);
-    rule->actions.erase(rule->actions.begin() + static_cast<std::ptrdiff_t>(from_));
-    rule->actions.insert(rule->actions.begin() + static_cast<std::ptrdiff_t>(to_), std::move(moved));
+    auto& actions = branch->actions;
+    LogicBlockDef moved = std::move(actions[from_]);
+    actions.erase(actions.begin() + static_cast<std::ptrdiff_t>(from_));
+    actions.insert(actions.begin() + static_cast<std::ptrdiff_t>(to_), std::move(moved));
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult MoveLogicActionCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
 ChangeLogicActionTypeCommand::ChangeLogicActionTypeCommand(ObjectTypeId id, LogicRuleId ruleId,
-                                                           std::size_t index, std::string typeId)
+                                                           std::size_t index, std::string typeId,
+                                                           LogicActionBranchId branchId)
     : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), index_(index),
-      typeId_(std::move(typeId)) {}
+      typeId_(std::move(typeId)), branchId_(std::move(branchId)) {}
 EditorOperationResult ChangeLogicActionTypeCommand::apply(ProjectDocument& document) {
     const LogicBoardDef* current = boardOf(document, objectTypeId_);
     if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
     LogicBoardDef next = *current;
     LogicRuleDef* rule = ruleOf(next, ruleId_);
-    if (!rule || index_ >= rule->actions.size())
+    LogicActionBranchDef* branch = rule ? branchOf(*rule, branchId_) : nullptr;
+    if (!branch || index_ >= branch->actions.size())
         return EditorOperationResult::failure("Unknown Logic action");
     LogicBlockDef replacement = defaultBlock(typeId_, Logic::BlockKind::Action);
     if (replacement.typeId.empty()) return EditorOperationResult::failure("Unknown Logic action type");
     assignContextualDefaults(document, replacement);
-    rule->actions[index_] = std::move(replacement);
+    branch->actions[index_] = std::move(replacement);
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult ChangeLogicActionTypeCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
 AddLogicConditionCommand::AddLogicConditionCommand(ObjectTypeId id, LogicRuleId ruleId,
-                                                   LogicBlockDef condition, std::size_t index)
+                                                   LogicBlockDef condition, std::size_t index,
+                                                   LogicActionBranchId branchId)
     : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)),
-      condition_(std::move(condition)), index_(index) {}
+      condition_(std::move(condition)), index_(index), branchId_(std::move(branchId)) {}
 EditorOperationResult AddLogicConditionCommand::apply(ProjectDocument& document) {
     const LogicBoardDef* current = boardOf(document, objectTypeId_);
     if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
     LogicBoardDef next = *current;
     LogicRuleDef* rule = ruleOf(next, ruleId_);
-    if (!rule || index_ > rule->conditions.size())
+    std::vector<LogicConditionClause>* conditions = rule ? conditionsOf(*rule, branchId_) : nullptr;
+    if (!conditions || index_ > conditions->size())
         return EditorOperationResult::failure("Invalid Logic condition insertion");
     LogicBlockDef condition = condition_;
     assignContextualDefaults(document, condition);
-    rule->conditions.insert(rule->conditions.begin() + static_cast<std::ptrdiff_t>(index_),
+    conditions->insert(conditions->begin() + static_cast<std::ptrdiff_t>(index_),
                             makeConditionClause(std::move(condition)));
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult AddLogicConditionCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
-RemoveLogicConditionCommand::RemoveLogicConditionCommand(ObjectTypeId id, LogicRuleId ruleId, std::size_t index)
-    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), index_(index) {}
+RemoveLogicConditionCommand::RemoveLogicConditionCommand(ObjectTypeId id, LogicRuleId ruleId,
+                                                         std::size_t index, LogicActionBranchId branchId)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), index_(index), branchId_(std::move(branchId)) {}
 EditorOperationResult RemoveLogicConditionCommand::apply(ProjectDocument& document) {
     const LogicBoardDef* current = boardOf(document, objectTypeId_);
     if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
     LogicBoardDef next = *current;
     LogicRuleDef* rule = ruleOf(next, ruleId_);
-    if (!rule || index_ >= rule->conditions.size())
+    std::vector<LogicConditionClause>* conditions = rule ? conditionsOf(*rule, branchId_) : nullptr;
+    if (!conditions || index_ >= conditions->size())
         return EditorOperationResult::failure("Unknown Logic condition");
-    rule->conditions.erase(rule->conditions.begin() + static_cast<std::ptrdiff_t>(index_));
-    if (!rule->conditions.empty()) rule->conditions.front().joinBefore = LogicConditionJoin::And;
+    conditions->erase(conditions->begin() + static_cast<std::ptrdiff_t>(index_));
+    if (!conditions->empty()) conditions->front().joinBefore = LogicConditionJoin::And;
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult RemoveLogicConditionCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
 MoveLogicConditionCommand::MoveLogicConditionCommand(ObjectTypeId id, LogicRuleId ruleId,
-                                                     std::size_t from, std::size_t to)
-    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), from_(from), to_(to) {}
+                                                     std::size_t from, std::size_t to,
+                                                     LogicActionBranchId branchId)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), from_(from), to_(to), branchId_(std::move(branchId)) {}
 EditorOperationResult MoveLogicConditionCommand::apply(ProjectDocument& document) {
     const LogicBoardDef* current = boardOf(document, objectTypeId_);
     if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
     LogicBoardDef next = *current;
     LogicRuleDef* rule = ruleOf(next, ruleId_);
-    if (!rule || from_ >= rule->conditions.size() || to_ >= rule->conditions.size())
+    std::vector<LogicConditionClause>* conditions = rule ? conditionsOf(*rule, branchId_) : nullptr;
+    if (!conditions || from_ >= conditions->size() || to_ >= conditions->size())
         return EditorOperationResult::failure("Invalid Logic condition move");
     if (from_ == to_) return EditorOperationResult::success(EditorInvalidation::None);
-    LogicConditionClause moved = std::move(rule->conditions[from_]);
-    rule->conditions.erase(rule->conditions.begin() + static_cast<std::ptrdiff_t>(from_));
-    rule->conditions.insert(rule->conditions.begin() + static_cast<std::ptrdiff_t>(to_), std::move(moved));
-    rule->conditions.front().joinBefore = LogicConditionJoin::And;
+    LogicConditionClause moved = std::move((*conditions)[from_]);
+    conditions->erase(conditions->begin() + static_cast<std::ptrdiff_t>(from_));
+    conditions->insert(conditions->begin() + static_cast<std::ptrdiff_t>(to_), std::move(moved));
+    conditions->front().joinBefore = LogicConditionJoin::And;
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult MoveLogicConditionCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
 ChangeLogicConditionTypeCommand::ChangeLogicConditionTypeCommand(
-    ObjectTypeId id, LogicRuleId ruleId, std::size_t index, std::string typeId)
+    ObjectTypeId id, LogicRuleId ruleId, std::size_t index, std::string typeId,
+    LogicActionBranchId branchId)
     : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), index_(index),
-      typeId_(std::move(typeId)) {}
+      typeId_(std::move(typeId)), branchId_(std::move(branchId)) {}
 EditorOperationResult ChangeLogicConditionTypeCommand::apply(ProjectDocument& document) {
     const LogicBoardDef* current = boardOf(document, objectTypeId_);
     if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
     LogicBoardDef next = *current;
     LogicRuleDef* rule = ruleOf(next, ruleId_);
-    if (!rule || index_ >= rule->conditions.size())
+    std::vector<LogicConditionClause>* conditions = rule ? conditionsOf(*rule, branchId_) : nullptr;
+    if (!conditions || index_ >= conditions->size())
         return EditorOperationResult::failure("Unknown Logic condition");
     LogicBlockDef replacement = defaultBlock(typeId_, Logic::BlockKind::Condition);
     if (replacement.typeId.empty()) return EditorOperationResult::failure("Unknown Logic condition type");
     assignContextualDefaults(document, replacement);
-    rule->conditions[index_].block = std::move(replacement);
+    (*conditions)[index_].block = std::move(replacement);
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult ChangeLogicConditionTypeCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
 SetLogicConditionJoinCommand::SetLogicConditionJoinCommand(
-    ObjectTypeId id, LogicRuleId ruleId, std::size_t index, LogicConditionJoin join)
-    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), index_(index), join_(join) {}
+    ObjectTypeId id, LogicRuleId ruleId, std::size_t index, LogicConditionJoin join,
+    LogicActionBranchId branchId)
+    : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), index_(index),
+      branchId_(std::move(branchId)), join_(join) {}
 EditorOperationResult SetLogicConditionJoinCommand::apply(ProjectDocument& document) {
     const LogicBoardDef* current = boardOf(document, objectTypeId_);
     if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
     LogicBoardDef next = *current;
     LogicRuleDef* rule = ruleOf(next, ruleId_);
-    if (!rule || index_ >= rule->conditions.size())
+    std::vector<LogicConditionClause>* conditions = rule ? conditionsOf(*rule, branchId_) : nullptr;
+    if (!conditions || index_ >= conditions->size())
         return EditorOperationResult::failure("Unknown Logic condition");
     if (index_ == 0 && join_ != LogicConditionJoin::And)
         return EditorOperationResult::failure("First Logic condition must use AND");
-    rule->conditions[index_].joinBefore = join_;
+    (*conditions)[index_].joinBefore = join_;
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult SetLogicConditionJoinCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
 SetLogicConditionNegatedCommand::SetLogicConditionNegatedCommand(
-    ObjectTypeId id, LogicRuleId ruleId, std::size_t index, bool negated)
+    ObjectTypeId id, LogicRuleId ruleId, std::size_t index, bool negated,
+    LogicActionBranchId branchId)
     : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)),
-      index_(index), negated_(negated) {}
+      index_(index), branchId_(std::move(branchId)), negated_(negated) {}
 EditorOperationResult SetLogicConditionNegatedCommand::apply(ProjectDocument& document) {
     const LogicBoardDef* current = boardOf(document, objectTypeId_);
     if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
     LogicBoardDef next = *current;
     LogicRuleDef* rule = ruleOf(next, ruleId_);
-    if (!rule || index_ >= rule->conditions.size())
+    std::vector<LogicConditionClause>* conditions = rule ? conditionsOf(*rule, branchId_) : nullptr;
+    if (!conditions || index_ >= conditions->size())
         return EditorOperationResult::failure("Unknown Logic condition");
-    rule->conditions[index_].negated = negated_;
+    (*conditions)[index_].negated = negated_;
     COMMIT_NEXT_BOARD(next);
 }
 EditorOperationResult SetLogicConditionNegatedCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
 SetLogicPropertyCommand::SetLogicPropertyCommand(ObjectTypeId id, LogicRuleId ruleId,
                                                  LogicPropertyTarget target, std::size_t blockIndex,
-                                                 std::string key, LogicValue value)
+                                                 std::string key, LogicValue value,
+                                                 LogicActionBranchId branchId)
     : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), target_(target),
-      blockIndex_(blockIndex), propertyKey_(std::move(key)), value_(std::move(value)) {}
+      blockIndex_(blockIndex), propertyKey_(std::move(key)), value_(std::move(value)), branchId_(std::move(branchId)) {}
 EditorOperationResult SetLogicPropertyCommand::apply(ProjectDocument& document) {
     const LogicBoardDef* current = boardOf(document, objectTypeId_);
     if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
     LogicBoardDef next = *current;
     LogicRuleDef* rule = ruleOf(next, ruleId_);
     if (!rule) return EditorOperationResult::failure("Unknown Logic rule");
-    LogicBlockDef* block = nullptr;
-    switch (target_) {
-        case LogicPropertyTarget::Trigger:
-            block = &rule->trigger;
-            break;
-        case LogicPropertyTarget::Action:
-            block = blockIndex_ < rule->actions.size() ? &rule->actions[blockIndex_] : nullptr;
-            break;
-        case LogicPropertyTarget::Condition:
-            block = blockIndex_ < rule->conditions.size()
-                ? &rule->conditions[blockIndex_].block : nullptr;
-            break;
-    }
+    LogicBlockDef* block = blockOf(*rule, target_, blockIndex_, branchId_);
     if (!block) return EditorOperationResult::failure("Unknown Logic block");
     auto it = std::find_if(block->properties.begin(), block->properties.end(),
         [&](const LogicPropertyDef& property) { return property.key == propertyKey_; });
@@ -572,10 +674,11 @@ EditorOperationResult SetLogicPropertyCommand::undo(ProjectDocument& document) {
 CreateAndAssignGlobalVariableCommand::CreateAndAssignGlobalVariableCommand(
     ObjectTypeId objectTypeId, LogicRuleId ruleId, LogicPropertyTarget target,
     std::size_t blockIndex, std::string propertyKey,
-    GameVariableDefinition definition)
+    GameVariableDefinition definition, LogicActionBranchId branchId)
     : objectTypeId_(std::move(objectTypeId)), ruleId_(std::move(ruleId)),
       target_(target), blockIndex_(blockIndex),
-      propertyKey_(std::move(propertyKey)), definition_(std::move(definition)) {}
+      propertyKey_(std::move(propertyKey)), definition_(std::move(definition)),
+      branchId_(std::move(branchId)) {}
 
 EditorOperationResult CreateAndAssignGlobalVariableCommand::apply(
     ProjectDocument& document) {
@@ -587,7 +690,7 @@ EditorOperationResult CreateAndAssignGlobalVariableCommand::apply(
 
     LogicRuleDef* rule = ruleOf(*objectType->logicBoard, ruleId_);
     if (!rule) return EditorOperationResult::failure("Unknown Logic rule");
-    LogicBlockDef* block = blockOf(*rule, target_, blockIndex_);
+    LogicBlockDef* block = blockOf(*rule, target_, blockIndex_, branchId_);
     if (!block) return EditorOperationResult::failure("Unknown Logic block");
 
     const auto property = std::find_if(
@@ -657,7 +760,8 @@ EditorOperationResult CreateAndAssignGlobalVariableCommand::undo(
         return EditorOperationResult::failure(
             "Cannot undo: Logic Board no longer exists");
     LogicRuleDef* rule = ruleOf(*objectType->logicBoard, ruleId_);
-    LogicBlockDef* block = rule ? blockOf(*rule, target_, blockIndex_) : nullptr;
+    LogicBlockDef* block =
+        rule ? blockOf(*rule, target_, blockIndex_, branchId_) : nullptr;
     if (!block)
         return EditorOperationResult::failure(
             "Cannot undo: Logic block no longer exists");
@@ -704,18 +808,20 @@ EditorOperationResult CreateAndAssignGlobalVariableCommand::undo(
 
 SetLogicAnimationClipCommand::SetLogicAnimationClipCommand(
     ObjectTypeId id, LogicRuleId ruleId, std::size_t actionIndex,
-    AssetId animationAssetId, std::string clipId)
+    AssetId animationAssetId, std::string clipId, LogicActionBranchId branchId)
     : objectTypeId_(std::move(id)), ruleId_(std::move(ruleId)), actionIndex_(actionIndex),
-      animationAssetId_(std::move(animationAssetId)), clipId_(std::move(clipId)) {}
+      animationAssetId_(std::move(animationAssetId)), clipId_(std::move(clipId)),
+      branchId_(std::move(branchId)) {}
 
 EditorOperationResult SetLogicAnimationClipCommand::apply(ProjectDocument& document) {
     const LogicBoardDef* current = boardOf(document, objectTypeId_);
     if (!current) return EditorOperationResult::failure("Object Type has no Logic Board");
     LogicBoardDef next = *current;
     LogicRuleDef* rule = ruleOf(next, ruleId_);
-    if (!rule || actionIndex_ >= rule->actions.size())
+    LogicActionBranchDef* branch = rule ? branchOf(*rule, branchId_) : nullptr;
+    if (!branch || actionIndex_ >= branch->actions.size())
         return EditorOperationResult::failure("Unknown Logic action");
-    LogicBlockDef& action = rule->actions[actionIndex_];
+    LogicBlockDef& action = branch->actions[actionIndex_];
     if (action.typeId != Logic::kAnimationPlayClip)
         return EditorOperationResult::failure("Logic action is not Play Clip");
 
@@ -757,10 +863,12 @@ EditorOperationResult RepairIncompatibleLogicCommand::apply(ProjectDocument& doc
         }
         return false;
     };
-    auto actionIncompatible = [&](const LogicRuleId& ruleId, std::size_t index) {
+    auto actionIncompatible = [&](const LogicRuleId& ruleId,
+                                  const LogicActionBranchId& branchId,
+                                  std::size_t index) {
         for (const LogicComponentReference& ref : hits.references) {
             if (ref.ruleId == ruleId && ref.slot == LogicReferenceSlot::Action
-                && ref.blockIndex == index) {
+                && ref.branchId == branchId && ref.blockIndex == index) {
                 return true;
             }
         }
@@ -775,11 +883,13 @@ EditorOperationResult RepairIncompatibleLogicCommand::apply(ProjectDocument& doc
         break;
     case IncompatibleLogicRepair::RemoveAffectedActions:
         for (LogicRuleDef& rule : next.rules) {
-            for (std::size_t i = rule.actions.size(); i > 0; --i) {
-                const std::size_t index = i - 1;
-                if (actionIncompatible(rule.id, index)) {
-                    rule.actions.erase(rule.actions.begin()
-                                      + static_cast<std::ptrdiff_t>(index));
+            for (LogicActionBranchDef& branch : rule.branches) {
+                for (std::size_t i = branch.actions.size(); i > 0; --i) {
+                    const std::size_t index = i - 1;
+                    if (actionIncompatible(rule.id, branch.id, index)) {
+                        branch.actions.erase(
+                            branch.actions.begin() + static_cast<std::ptrdiff_t>(index));
+                    }
                 }
             }
         }
@@ -806,6 +916,16 @@ LogicRuleId nextLogicRuleId(const LogicBoardDef& board) {
         maxOrdinal = std::max(maxOrdinal, ordinal);
     }
     return "rule-" + std::to_string(maxOrdinal + 1);
+}
+
+LogicActionBranchId nextLogicActionBranchId(const LogicRuleDef& rule) {
+    int maxOrdinal = 0;
+    for (const LogicActionBranchDef& branch : rule.branches) {
+        if (branch.id.rfind("branch-", 0) != 0) continue;
+        const int ordinal = std::atoi(branch.id.c_str() + 7);
+        maxOrdinal = std::max(maxOrdinal, ordinal);
+    }
+    return "branch-" + std::to_string(maxOrdinal + 1);
 }
 
 #undef COMMIT_NEXT_BOARD

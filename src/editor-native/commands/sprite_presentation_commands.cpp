@@ -70,14 +70,15 @@ std::size_t animationActionCount(const EntityDef& type) {
     if (!type.logicBoard) return 0;
     std::size_t count = 0;
     for (const LogicRuleDef& rule : type.logicBoard->rules) {
-        for (const LogicBlockDef& action : rule.actions) {
+        for (const LogicActionBranchDef& branch : rule.branches) {
+        for (const LogicBlockDef& action : branch.actions) {
             if (action.typeId == "animation.play_clip"
                 || action.typeId == "animation.stop"
                 || action.typeId == "animation.set_playback_speed"
                 || action.typeId == "animation.set_speed") {
                 ++count;
             }
-        }
+        }}
     }
     return count;
 }

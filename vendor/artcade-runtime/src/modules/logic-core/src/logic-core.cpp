@@ -1273,9 +1273,11 @@ LogicRuleDef makeDefaultRule(LogicRuleId id) {
     LogicRuleDef rule;
     rule.id = std::move(id);
     rule.name = rule.id;
-    rule.executionMode = LogicExecutionMode::EveryOccurrence;
     rule.trigger = makeDefaultTrigger();
-    rule.actions.push_back(makeDefaultAction());
+    LogicActionBranchDef branch;
+    branch.id = "branch-1";
+    branch.actions.push_back(makeDefaultAction());
+    rule.branches.push_back(std::move(branch));
     return rule;
 }
 
@@ -1368,20 +1370,15 @@ std::vector<LogicDiagnostic> validateBoard(const ObjectTypeId& objectTypeId,
             out.push_back(makeError(objectTypeId, board, "LB_RULE_ID", "Invalid or duplicate rule id", &rule));
         if (rule.name.empty())
             out.push_back(makeError(objectTypeId, board, "LB_RULE_NAME", "Logic rule name is required", &rule));
-        if (!structuralOnly && rule.actions.empty()) {
-            LogicDiagnostic diagnostic = makeError(
-                objectTypeId, board, "LB_ACTION_REQUIRED",
-                "A rule needs at least one action", &rule);
-            if (purpose == LogicValidationPurpose::Executable && !rule.enabled)
-                diagnostic.severity = DiagnosticSeverity::Warning;
-            else if (purpose == LogicValidationPurpose::AuthoringDiagnostics && !rule.enabled)
-                diagnostic.severity = DiagnosticSeverity::Warning;
-            out.push_back(std::move(diagnostic));
-        }
-        if (rule.actions.size() > kMaxActionsPerRule)
-            out.push_back(makeError(objectTypeId, board, "LB_ACTION_LIMIT", "Rule exceeds the action limit", &rule));
-        if (rule.conditions.size() > kMaxConditionsPerRule)
-            out.push_back(makeError(objectTypeId, board, "LB_CONDITION_LIMIT", "Rule exceeds the condition limit", &rule));
+        if (rule.branches.empty())
+            out.push_back(makeError(objectTypeId, board, "LB_BRANCH_REQUIRED",
+                                    "A rule needs at least one action group", &rule));
+        if (rule.branches.size() > kMaxLogicActionBranchesPerRule)
+            out.push_back(makeError(objectTypeId, board, "LB_BRANCH_LIMIT",
+                                    "Rule exceeds the action group limit", &rule));
+        std::unordered_set<std::string> branchIds;
+        std::size_t totalActions = 0;
+        std::size_t totalConditions = rule.conditions.size();
         const LogicBlockDescriptor* trigger = findDescriptor(rule.trigger.typeId);
         validateBlock(objectTypeId, board, rule, rule.trigger, BlockKind::Trigger, owner,
                       nullptr, project, purpose, out);
@@ -1405,20 +1402,58 @@ std::vector<LogicDiagnostic> validateBoard(const ObjectTypeId& objectTypeId,
             validateBlock(objectTypeId, board, rule, clause.block, BlockKind::Condition, owner,
                           trigger, project, purpose, out);
         }
-        for (const LogicBlockDef& action : rule.actions)
-            validateBlock(objectTypeId, board, rule, action, BlockKind::Action, owner,
-                          trigger, project, purpose, out);
-        if (!structuralOnly && rule.executionMode == LogicExecutionMode::OncePerActivation
-            && trigger
-            && trigger->activationKind == LogicTriggerActivationKind::Pulse) {
-            LogicDiagnostic info = makeError(
-                objectTypeId, board, "LB_EXECUTION_MODE_PULSE_REDUNDANT",
-                "This trigger already fires as a discrete event. "
-                "Run Once per Activation does not change its frequency.",
-                &rule, &rule.trigger, {});
-            info.severity = DiagnosticSeverity::Warning;
-            out.push_back(std::move(info));
+        for (const LogicActionBranchDef& branch : rule.branches) {
+            if (!validId(branch.id) || !branchIds.insert(branch.id).second) {
+                LogicDiagnostic diagnostic = makeError(
+                    objectTypeId, board, "LB_BRANCH_ID", "Invalid or duplicate action group id", &rule);
+                diagnostic.branchId = branch.id;
+                out.push_back(std::move(diagnostic));
+            }
+            totalActions += branch.actions.size();
+            totalConditions += branch.conditions.size();
+            if (!structuralOnly && branch.actions.empty()) {
+                LogicDiagnostic diagnostic = makeError(
+                    objectTypeId, board, "LB_BRANCH_ACTION_REQUIRED",
+                    "An action group has no actions", &rule);
+                diagnostic.branchId = branch.id;
+                diagnostic.severity = DiagnosticSeverity::Warning;
+                out.push_back(std::move(diagnostic));
+            }
+            if (!structuralOnly && !branch.conditions.empty() && branch.actions.empty()) {
+                LogicDiagnostic diagnostic = makeError(
+                    objectTypeId, board, "LB_BRANCH_CONDITIONS_WITHOUT_ACTIONS",
+                    "An action group has conditions but no actions", &rule);
+                diagnostic.branchId = branch.id;
+                diagnostic.severity = DiagnosticSeverity::Warning;
+                out.push_back(std::move(diagnostic));
+            }
+            for (std::size_t index = 0; index < branch.conditions.size(); ++index) {
+                const LogicConditionClause& clause = branch.conditions[index];
+                if (index == 0 && clause.joinBefore != LogicConditionJoin::And) {
+                    LogicDiagnostic diagnostic = makeError(objectTypeId, board,
+                        "LB_FIRST_BRANCH_CONDITION_JOIN", "First branch condition must use AND.",
+                        &rule, &clause.block, {});
+                    diagnostic.branchId = branch.id;
+                    out.push_back(std::move(diagnostic));
+                }
+                const std::size_t before = out.size();
+                validateBlock(objectTypeId, board, rule, clause.block, BlockKind::Condition,
+                              owner, trigger, project, purpose, out);
+                for (std::size_t n = before; n < out.size(); ++n) out[n].branchId = branch.id;
+            }
+            for (const LogicBlockDef& action : branch.actions) {
+                const std::size_t before = out.size();
+                validateBlock(objectTypeId, board, rule, action, BlockKind::Action, owner,
+                              trigger, project, purpose, out);
+                for (std::size_t n = before; n < out.size(); ++n) out[n].branchId = branch.id;
+            }
         }
+        if (totalActions > kMaxActionsPerRule)
+            out.push_back(makeError(objectTypeId, board, "LB_ACTION_LIMIT",
+                                    "Rule exceeds the total action limit", &rule));
+        if (totalConditions > kMaxConditionsPerRule)
+            out.push_back(makeError(objectTypeId, board, "LB_CONDITION_LIMIT",
+                                    "Rule exceeds the total condition limit", &rule));
     }
     return out;
 }
@@ -1467,11 +1502,13 @@ LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
         const LogicTriggerActivationKind activationKind = triggerDescriptor
             ? triggerDescriptor->activationKind
             : LogicTriggerActivationKind::Pulse;
-        const bool oncePerActivation =
-            rule.executionMode == LogicExecutionMode::OncePerActivation;
+        const bool hasOncePerActivation = std::any_of(
+            rule.branches.begin(), rule.branches.end(), [](const LogicActionBranchDef& branch) {
+                return branch.executionMode == LogicExecutionMode::OncePerActivation;
+            });
         // Level + OncePerActivation must observe false→true and true→false, so
         // Key Held is compiled as on_update + is_key_down (not on_key_held).
-        const bool levelGateViaUpdate = oncePerActivation
+        const bool levelGateViaUpdate = hasOncePerActivation
             && activationKind == LogicTriggerActivationKind::Level
             && rule.trigger.typeId == kKeyHeld;
 
@@ -1521,65 +1558,54 @@ LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
             result.requiresTick = result.requiresTick || triggerDescriptor->requiresTick;
         }
 
-        if (oncePerActivation) {
-            features.insert("logic.execution.once_per_activation");
-            std::string whenActive = "true";
-            if (levelGateViaUpdate) {
-                const LogicPropertyDef* key = findProperty(rule.trigger, "key");
-                whenActive = "context:is_key_down(\""
-                    + logicKeyName(std::get<LogicKey>(key->value)) + "\")";
-                features.insert("input.key_down");
-            } else if (rule.trigger.typeId == kCollisionEnter
-                       || rule.trigger.typeId == kCollisionExit) {
-                const LogicPropertyDef* filter = findProperty(rule.trigger, "objectTypeId");
-                const auto* type = filter ? std::get_if<LogicStringValue>(&filter->value)
-                                         : nullptr;
-                if (type && !type->value.empty()) {
-                    whenActive = "context:other_is_object_type(other, \""
-                        + escapeLua(type->value) + "\")";
-                    features.insert("collision.other_type");
-                }
-            } else if (isLevelConditionTrigger(rule.trigger.typeId)) {
-                whenActive = emitConditionExpression(rule.trigger, features);
-            }
-            const std::string conditionsExpr =
-                emitConditionsExpression(rule.conditions, features);
-            if (!conditionsExpr.empty()) {
-                whenActive = "(" + whenActive + ") and (" + conditionsExpr + ")";
-            }
-            lua << "    local when_active = " << whenActive << "\n";
-            lua << "    if context:should_execute(\"" << escapeLua(rule.id) << "\", \""
-                << logicExecutionModeToString(rule.executionMode) << "\", \""
-                << logicTriggerActivationKindToString(activationKind)
-                << "\", when_active) then\n";
-            emitActions(lua, rule.actions, 0, features, objectTypeId, board, rule,
-                       codegenDiagnostics);
-            if (features.count("flow.wait")) result.requiresTick = true;
-            lua << "    end\n";
-            lua << "  end)\n";
-            continue;
-        }
-
-        int guardDepth = 0;
-        if (rule.trigger.typeId == kCollisionEnter || rule.trigger.typeId == kCollisionExit) {
+        // Compute every branch predicate and gate before any action runs. An
+        // earlier branch must not be able to alter a later branch's eligibility
+        // during this dispatch.
+        std::string sharedEligible = "true";
+        if (levelGateViaUpdate) {
+            const LogicPropertyDef* key = findProperty(rule.trigger, "key");
+            sharedEligible = "context:is_key_down(\""
+                + logicKeyName(std::get<LogicKey>(key->value)) + "\")";
+            features.insert("input.key_down");
+        } else if (rule.trigger.typeId == kCollisionEnter || rule.trigger.typeId == kCollisionExit) {
             const LogicPropertyDef* filter = findProperty(rule.trigger, "objectTypeId");
             const auto* type = filter ? std::get_if<LogicStringValue>(&filter->value) : nullptr;
             if (type && !type->value.empty()) {
-                lua << "    if context:other_is_object_type(other, \""
-                    << escapeLua(type->value) << "\") then\n";
-                ++guardDepth;
+                sharedEligible = "context:other_is_object_type(other, \""
+                    + escapeLua(type->value) + "\")";
                 features.insert("collision.other_type");
             }
         } else if (isLevelConditionTrigger(rule.trigger.typeId)) {
-            lua << "    if " << emitConditionExpression(rule.trigger, features) << " then\n";
-            ++guardDepth;
+            sharedEligible = emitConditionExpression(rule.trigger, features);
         }
-        if (emitConditionGuard(lua, rule.conditions, features)) ++guardDepth;
-        emitActions(lua, rule.actions, 0, features, objectTypeId, board, rule,
-                   codegenDiagnostics);
-        // Wait is an action (not a trigger) but still needs the tick path.
+        const std::string sharedConditions = emitConditionsExpression(rule.conditions, features);
+        if (!sharedConditions.empty())
+            sharedEligible = "(" + sharedEligible + ") and (" + sharedConditions + ")";
+        lua << "    local _shared_eligible = " << sharedEligible << "\n";
+        for (std::size_t index = 0; index < rule.branches.size(); ++index) {
+            const LogicActionBranchDef& branch = rule.branches[index];
+            std::string eligible = "_shared_eligible";
+            const std::string localConditions = emitConditionsExpression(branch.conditions, features);
+            if (!localConditions.empty()) eligible += " and (" + localConditions + ")";
+            const std::string prefix = "_branch_" + std::to_string(index + 1);
+            const std::string stateKey = board.id + ":" + rule.id + ":" + branch.id;
+            if (branch.executionMode == LogicExecutionMode::OncePerActivation)
+                features.insert("logic.execution.once_per_activation");
+            lua << "    local " << prefix << "_eligible = " << eligible << "\n";
+            lua << "    local " << prefix << "_runs = context:should_execute(\""
+                << escapeLua(stateKey) << "\", \""
+                << logicExecutionModeToString(branch.executionMode) << "\", \""
+                << logicTriggerActivationKindToString(activationKind) << "\", "
+                << prefix << "_eligible)\n";
+        }
+        for (std::size_t index = 0; index < rule.branches.size(); ++index) {
+            const LogicActionBranchDef& branch = rule.branches[index];
+            lua << "    if _branch_" << (index + 1) << "_runs then\n";
+            emitActions(lua, branch.actions, 0, features, objectTypeId, board, rule,
+                        codegenDiagnostics);
+            lua << "    end\n";
+        }
         if (features.count("flow.wait")) result.requiresTick = true;
-        for (int i = 0; i < guardDepth; ++i) lua << "    end\n";
         lua << "  end)\n";
     }
     lua << "end)\n";
@@ -1616,8 +1642,11 @@ LogicCompileResult compileProjectLogic(const ProjectDoc& project) {
     for (const ObjectTypeId& id : ids) {
         const EntityDef& type = project.objectTypes.at(id);
         if (!type.logicBoard) continue;
-        for (const LogicRuleDef& rule : type.logicBoard->rules)
-            blocks += 1 + rule.conditions.size() + rule.actions.size();
+        for (const LogicRuleDef& rule : type.logicBoard->rules) {
+            blocks += 1 + rule.conditions.size();
+            for (const LogicActionBranchDef& branch : rule.branches)
+                blocks += branch.conditions.size() + branch.actions.size();
+        }
         LogicCompileResult one = compileBoard(id, *type.logicBoard, &type, &project);
         result.programs.insert(result.programs.end(),
             std::make_move_iterator(one.programs.begin()), std::make_move_iterator(one.programs.end()));

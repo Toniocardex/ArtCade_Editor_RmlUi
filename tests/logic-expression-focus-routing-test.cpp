@@ -17,6 +17,7 @@
 #include "editor-native/app/editor_coordinator.h"
 #include "editor-native/app/pending_edit.h"
 #include "editor-native/commands/entity_commands.h"
+#include "editor-native/commands/logic_board_commands.h"
 #include "editor-native/commands/logic_expression_commands.h"
 #include "editor-native/ui/editor_ui.h"
 #include "editor-native/ui/logic_property_editor.h"
@@ -157,23 +158,23 @@ ProjectDoc makeProjectWithSetPosition() {
     board.id = "logic:Hero";
     LogicRuleDef rule = Logic::makeDefaultRule("rule-pos");
     rule.trigger = {Logic::kOnStart, {}};
-    rule.actions[0] = Logic::makeDefaultBlock(Logic::kSetPosition, Logic::BlockKind::Action);
+    rule.branches.at(0).actions[0] = Logic::makeDefaultBlock(Logic::kSetPosition, Logic::BlockKind::Action);
     board.rules.push_back(std::move(rule));
 
     LogicRuleDef numberRule = Logic::makeDefaultRule("rule-state-number");
     numberRule.trigger = {Logic::kOnStart, {}};
-    numberRule.actions[0] =
+    numberRule.branches.at(0).actions[0] =
         Logic::makeDefaultBlock(Logic::kStateAdd, Logic::BlockKind::Action);
-    for (LogicPropertyDef& property : numberRule.actions[0].properties)
+    for (LogicPropertyDef& property : numberRule.branches.at(0).actions[0].properties)
         if (property.key == "key")
             property.value = LogicVariableReference{"score"};
     board.rules.push_back(std::move(numberRule));
 
     LogicRuleDef booleanRule = Logic::makeDefaultRule("rule-state-boolean");
     booleanRule.trigger = {Logic::kOnStart, {}};
-    booleanRule.actions[0] =
+    booleanRule.branches.at(0).actions[0] =
         Logic::makeDefaultBlock(Logic::kStateToggle, Logic::BlockKind::Action);
-    for (LogicPropertyDef& property : booleanRule.actions[0].properties)
+    for (LogicPropertyDef& property : booleanRule.branches.at(0).actions[0].properties)
         if (property.key == "key")
             property.value = LogicVariableReference{"flag"};
     board.rules.push_back(std::move(booleanRule));
@@ -269,7 +270,7 @@ void testContextualProjectVariableCreation(
     CHECK(coordinator.apply(OpenLogicBoardIntent{"Hero"}).ok);
     frame(context, ui);
 
-    const std::string numberAddress = "rule-state-number|a|0|key";
+    const std::string numberAddress = "rule-state-number|branch-1|a|0|key";
     const std::string numberDropdown = "property|" + numberAddress;
     Rml::Element* numberTrigger =
         findByAttribute(&document, "data-arg", numberDropdown);
@@ -344,7 +345,7 @@ void testContextualProjectVariableCreation(
     const LogicBoardDef& afterCreate =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     CHECK(std::get<LogicVariableReference>(
-        Logic::findProperty(afterCreate.rules[1].actions[0], "key")->value).id
+        Logic::findProperty(afterCreate.rules[1].branches.at(0).actions[0], "key")->value).id
         == "bonus");
 
     CHECK(coordinator.undo().ok);
@@ -353,12 +354,12 @@ void testContextualProjectVariableCreation(
     const LogicBoardDef& afterUndo =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     CHECK(std::get<LogicVariableReference>(
-        Logic::findProperty(afterUndo.rules[1].actions[0], "key")->value).id
+        Logic::findProperty(afterUndo.rules[1].branches.at(0).actions[0], "key")->value).id
         == "score");
     CHECK(coordinator.redo().ok);
     frame(context, ui);
 
-    const std::string booleanAddress = "rule-state-boolean|a|0|key";
+    const std::string booleanAddress = "rule-state-boolean|branch-1|a|0|key";
     const std::string booleanDropdown = "property|" + booleanAddress;
     click(findByAttribute(&document, "data-arg", booleanDropdown));
     frame(context, ui);
@@ -391,7 +392,7 @@ void testContextualProjectVariableCreation(
         coordinator.document().data().globalVariables.back().initialValue)
         == false);
 
-    const std::string stringAddress = "rule-state-string|c|0|key";
+    const std::string stringAddress = "rule-state-string|-|c|0|key";
     const std::string stringDropdown = "property|" + stringAddress;
     click(findByAttribute(&document, "data-arg", stringDropdown));
     frame(context, ui);
@@ -546,7 +547,7 @@ void testFocusOpensTheCompletionList(Rml::Context& context, Rml::ElementDocument
     frame(context, ui);
 
     // The board renders one expression field per axis (ADR-0029), addressed
-    // rule|a|0|position|x. Locate X without assuming the rule id.
+    // rule|branch|a|0|position|x. Locate X without assuming the rule id.
     Rml::Element* axisX = nullptr;
     {
         std::vector<Rml::Element*> inputs;
@@ -675,7 +676,7 @@ void testEditingAnExistingExpression(Rml::Context& context, Rml::ElementDocument
     const LogicBoardDef& board =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     const LogicPropertyAddress address{
-        board.rules[0].id, LogicPropertyTarget::Action, 0};
+        board.rules[0].id, "branch-1", LogicPropertyTarget::Action, 0};
     const std::string axis = encodeLogicPropertyAddress(address, "position") + "|x";
 
     // Abandon whatever draft the previous case left behind, so this one starts
@@ -690,6 +691,7 @@ void testEditingAnExistingExpression(Rml::Context& context, Rml::ElementDocument
     target.actionIndex = 0;
     target.parameterId = "position";
     target.component = LogicNumericComponent::X;
+    target.branchId = "branch-1";
     CHECK(coordinator.execute(SetLogicNumberExpressionCommand{
         target, Logic::parseNumberExpression("random(0, 100)").value}).ok);
     frame(context, ui);
@@ -736,7 +738,7 @@ void testEditingAnExistingExpression(Rml::Context& context, Rml::ElementDocument
               std::get<LogicVec2Value>(
                   Logic::findProperty(
                       coordinator.document().data().objectTypes.at("Hero")
-                          .logicBoard->rules[0].actions[0], "position")->value).x,
+                          .logicBoard->rules[0].branches.at(0).actions[0], "position")->value).x,
               Logic::NumberExpressionFormatStyle::Code) == "random(0, 100)");
 }
 
@@ -751,7 +753,7 @@ std::string documentExpression(const EditorCoordinator& coordinator) {
         std::get<LogicVec2Value>(
             Logic::findProperty(
                 coordinator.document().data().objectTypes.at("Hero")
-                    .logicBoard->rules[0].actions[0], "position")->value).x,
+                    .logicBoard->rules[0].branches.at(0).actions[0], "position")->value).x,
         Logic::NumberExpressionFormatStyle::Code);
 }
 
@@ -777,7 +779,7 @@ void testEscapeRollsBackAndBlurCommits(Rml::Context& context, Rml::ElementDocume
     const LogicBoardDef& board =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     const LogicPropertyAddress address{
-        board.rules[0].id, LogicPropertyTarget::Action, 0};
+        board.rules[0].id, "branch-1", LogicPropertyTarget::Action, 0};
     const std::string axis = encodeLogicPropertyAddress(address, "position") + "|x";
 
     // Start from a known document value, with nothing pending.
@@ -787,6 +789,7 @@ void testEscapeRollsBackAndBlurCommits(Rml::Context& context, Rml::ElementDocume
     target.actionIndex = 0;
     target.parameterId = "position";
     target.component = LogicNumericComponent::X;
+    target.branchId = "branch-1";
     CHECK(coordinator.execute(SetLogicNumberExpressionCommand{
         target, Logic::parseNumberExpression("random(0, 100)").value}).ok);
     frame(context, ui);
@@ -877,7 +880,7 @@ void testPendingDraftIsResolvedBeforeSave(Rml::Context& context,
     const LogicBoardDef& board =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     const LogicPropertyAddress address{
-        board.rules[0].id, LogicPropertyTarget::Action, 0};
+        board.rules[0].id, "branch-1", LogicPropertyTarget::Action, 0};
     const std::string axis = encodeLogicPropertyAddress(address, "position") + "|x";
 
     LogicNumberExpressionAddress target;
@@ -886,6 +889,7 @@ void testPendingDraftIsResolvedBeforeSave(Rml::Context& context,
     target.actionIndex = 0;
     target.parameterId = "position";
     target.component = LogicNumericComponent::X;
+    target.branchId = "branch-1";
     CHECK(coordinator.execute(SetLogicNumberExpressionCommand{
         target, Logic::parseNumberExpression("0").value}).ok);
     frame(context, ui);
@@ -937,7 +941,7 @@ void testMovingBetweenAxesCommitsTheOneBeingLeft(
     const LogicBoardDef& board =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     const LogicPropertyAddress address{
-        board.rules[0].id, LogicPropertyTarget::Action, 0};
+        board.rules[0].id, "branch-1", LogicPropertyTarget::Action, 0};
     const std::string axisX = encodeLogicPropertyAddress(address, "position") + "|x";
     const std::string axisY = encodeLogicPropertyAddress(address, "position") + "|y";
 
@@ -980,7 +984,7 @@ void testClearedFieldStaysCleared(Rml::Context& context, Rml::ElementDocument& d
     const LogicBoardDef& board =
         *coordinator.document().data().objectTypes.at("Hero").logicBoard;
     const LogicPropertyAddress address{
-        board.rules[0].id, LogicPropertyTarget::Action, 0};
+        board.rules[0].id, "branch-1", LogicPropertyTarget::Action, 0};
     const std::string axis = encodeLogicPropertyAddress(address, "position") + "|x";
 
     typeIntoExpressionField(context, document, ui, axis, "self.x");
@@ -1044,6 +1048,50 @@ void testCommitFieldKeepsItsFocusBaseline(Rml::Context& context,
     CHECK(control->GetValue() == baseline);
 }
 
+// ADR-0041: action-group controls must be encoding-independent. Numeric RML
+// entities and the icon font avoid garbled UTF-8 text in the rendered buttons.
+void testActionGroupControlsUseValidGlyphs(
+    Rml::Context& context, Rml::ElementDocument& document,
+    EditorCoordinator& coordinator, EditorUi& ui) {
+    LogicActionBranchDef second;
+    second.id = "branch-2";
+    second.actions.push_back(Logic::makeDefaultAction());
+    second.conditions.push_back({
+        LogicConditionJoin::And, false,
+        Logic::makeDefaultBlock(Logic::kIsVisible, Logic::BlockKind::Condition)});
+    second.conditions.push_back({
+        LogicConditionJoin::And, false,
+        Logic::makeDefaultBlock(Logic::kIsGrounded, Logic::BlockKind::Condition)});
+
+    CHECK(coordinator.apply(OpenLogicBoardIntent{"Hero"}).ok);
+    CHECK(coordinator.execute(AddLogicActionBranchCommand{
+        "Hero", "rule-pos", std::move(second), 1}).ok);
+    frame(context, ui);
+
+    Rml::Element* groupUp =
+        findByAttribute(&document, "data-action", "move-logic-action-branch-up");
+    Rml::Element* groupDown =
+        findByAttribute(&document, "data-action", "move-logic-action-branch-down");
+    Rml::Element* groupDuplicate =
+        findByAttribute(&document, "data-action", "duplicate-logic-action-branch");
+    Rml::Element* conditionUp =
+        findByAttribute(&document, "data-action", "move-logic-condition-up");
+    Rml::Element* conditionDown =
+        findByAttribute(&document, "data-action", "move-logic-condition-down");
+
+    const std::string upArrow = "\xE2\x86\x91";
+    const std::string downArrow = "\xE2\x86\x93";
+    CHECK(groupUp && groupUp->GetInnerRML() == upArrow);
+    CHECK(groupDown && groupDown->GetInnerRML() == downArrow);
+    CHECK(conditionUp && conditionUp->GetInnerRML() == upArrow);
+    CHECK(conditionDown && conditionDown->GetInnerRML() == downArrow);
+    CHECK(groupDuplicate && groupDuplicate->GetInnerRML().find("class=\"icon\"")
+                               != std::string::npos);
+
+    CHECK(coordinator.undo().ok);
+    frame(context, ui);
+}
+
 } // namespace
 
 int main() {
@@ -1093,6 +1141,8 @@ int main() {
 
     // Scene workspace first: the grid field lives in the Scene toolbar.
     testCommitFieldKeepsItsFocusBaseline(*context, *document);
+    testActionGroupControlsUseValidGlyphs(
+        *context, *document, coordinator, ui);
     testObjectVariableReachabilityGuardrail(
         *context, *document, coordinator, ui);
     testContextualProjectVariableCreation(

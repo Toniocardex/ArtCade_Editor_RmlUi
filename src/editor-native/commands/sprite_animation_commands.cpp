@@ -137,9 +137,11 @@ EditorOperationResult RemoveSpriteAnimationAssetCommand::apply(ProjectDocument& 
                 if (!type || !type->logicBoard) continue;
                 for (const LogicRuleDef& rule : type->logicBoard->rules) {
                     if (rule.id != ref.ruleId) continue;
-                    if (ref.actionIndex >= rule.actions.size()) continue;
-                    const LogicBlockDef& action = rule.actions[ref.actionIndex];
-                    ClearedLogicRef cleared{ref.objectTypeId, ref.ruleId, ref.actionIndex};
+                    const auto branch = std::find_if(rule.branches.begin(), rule.branches.end(),
+                        [&](const LogicActionBranchDef& candidate) { return candidate.id == ref.branchId; });
+                    if (branch == rule.branches.end() || ref.actionIndex >= branch->actions.size()) continue;
+                    const LogicBlockDef& action = branch->actions[ref.actionIndex];
+                    ClearedLogicRef cleared{ref.objectTypeId, ref.ruleId, ref.branchId, ref.actionIndex};
                     if (const LogicPropertyDef* assetProp =
                             Logic::findProperty(action, "animationAssetId")) {
                         if (const auto* value =
@@ -211,10 +213,12 @@ EditorOperationResult RemoveSpriteAnimationAssetCommand::apply(ProjectDocument& 
         }
         for (LogicRuleDef& rule : typeIt->second.logicBoard->rules) {
             if (rule.id != ref.ruleId) continue;
-            if (ref.actionIndex >= rule.actions.size()) {
+            const auto branch = std::find_if(rule.branches.begin(), rule.branches.end(),
+                [&](const LogicActionBranchDef& candidate) { return candidate.id == ref.branchId; });
+            if (branch == rule.branches.end() || ref.actionIndex >= branch->actions.size()) {
                 return EditorOperationResult::failure("Failed to stage Logic animation reference removal");
             }
-            LogicBlockDef& action = rule.actions[ref.actionIndex];
+            LogicBlockDef& action = branch->actions[ref.actionIndex];
             for (LogicPropertyDef& property : action.properties) {
                 if (property.key == "animationAssetId") {
                     property.value = LogicAssetReference{};
@@ -267,10 +271,12 @@ EditorOperationResult RemoveSpriteAnimationAssetCommand::undo(ProjectDocument& d
         }
         for (LogicRuleDef& rule : typeIt->second.logicBoard->rules) {
             if (rule.id != ref.ruleId) continue;
-            if (ref.actionIndex >= rule.actions.size()) {
+            const auto branch = std::find_if(rule.branches.begin(), rule.branches.end(),
+                [&](const LogicActionBranchDef& candidate) { return candidate.id == ref.branchId; });
+            if (branch == rule.branches.end() || ref.actionIndex >= branch->actions.size()) {
                 return EditorOperationResult::failure("Cannot restore Logic animation reference");
             }
-            LogicBlockDef& action = rule.actions[ref.actionIndex];
+            LogicBlockDef& action = branch->actions[ref.actionIndex];
             for (LogicPropertyDef& property : action.properties) {
                 if (property.key == "animationAssetId") {
                     property.value = LogicAssetReference{ref.previousAnimationAssetId};

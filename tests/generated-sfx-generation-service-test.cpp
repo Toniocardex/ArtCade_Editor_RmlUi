@@ -497,14 +497,14 @@ int main() {
             if (property.key == "audioAssetId")
                 property.value = LogicAssetReference{linkedAudioId};
         }
-        rule.actions.push_back(std::move(playSound));
+        rule.branches.at(0).actions.push_back(std::move(playSound));
         board.rules.push_back(std::move(rule));
         soundOwner.logicBoard = std::move(board);
         hardDeleteProject.objectTypes.emplace("SoundOwner", std::move(soundOwner));
 
         const auto referencedAudioId = [](const EditorCoordinator& owner) {
             const LogicBlockDef& action = owner.document().data().objectTypes
-                .at("SoundOwner").logicBoard->rules.front().actions.back();
+                .at("SoundOwner").logicBoard->rules.front().branches.at(0).actions.back();
             const LogicPropertyDef* property = Logic::findProperty(
                 action, "audioAssetId");
             return property

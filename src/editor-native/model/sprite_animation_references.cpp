@@ -28,15 +28,16 @@ void collectLogicAssetRefs(const ObjectTypeId& objectTypeId, const LogicBoardDef
                            const AssetId& animationAssetId,
                            std::vector<AnimationAssetReference>& out) {
     for (const LogicRuleDef& rule : board.rules) {
-        for (std::size_t index = 0; index < rule.actions.size(); ++index) {
-            const LogicBlockDef& action = rule.actions[index];
+        for (const LogicActionBranchDef& branch : rule.branches) {
+        for (std::size_t index = 0; index < branch.actions.size(); ++index) {
+            const LogicBlockDef& action = branch.actions[index];
             if (action.typeId != Logic::kAnimationPlayClip) continue;
             const AssetId* assetId = logicAnimationAssetId(action);
             if (!assetId || *assetId != animationAssetId) continue;
             out.push_back(AnimationAssetReference{
                 AnimationReferenceKind::LogicPlayClip, objectTypeId, {},
-                INVALID_ENTITY, rule.id, index});
-        }
+                INVALID_ENTITY, rule.id, branch.id, index});
+        }}
     }
 }
 
@@ -44,8 +45,9 @@ void collectLogicClipRefs(const ObjectTypeId& objectTypeId, const LogicBoardDef&
                           const AssetId& animationAssetId, const std::string& clipId,
                           std::vector<AnimationClipReference>& out) {
     for (const LogicRuleDef& rule : board.rules) {
-        for (std::size_t index = 0; index < rule.actions.size(); ++index) {
-            const LogicBlockDef& action = rule.actions[index];
+        for (const LogicActionBranchDef& branch : rule.branches) {
+        for (std::size_t index = 0; index < branch.actions.size(); ++index) {
+            const LogicBlockDef& action = branch.actions[index];
             if (action.typeId != Logic::kAnimationPlayClip) continue;
             const AssetId* assetId = logicAnimationAssetId(action);
             const std::string* actionClip = logicClipId(action);
@@ -53,8 +55,8 @@ void collectLogicClipRefs(const ObjectTypeId& objectTypeId, const LogicBoardDef&
             if (!actionClip || *actionClip != clipId) continue;
             out.push_back(AnimationClipReference{
                 AnimationReferenceKind::LogicPlayClip, objectTypeId, {},
-                INVALID_ENTITY, rule.id, index});
-        }
+                INVALID_ENTITY, rule.id, branch.id, index});
+        }}
     }
 }
 

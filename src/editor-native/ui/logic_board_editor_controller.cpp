@@ -45,6 +45,7 @@ std::string defaultClipId(const SpriteAnimationAssetDef& asset) {
 
 struct PropertyAddress {
     LogicRuleId ruleId;
+    LogicActionBranchId branchId;
     LogicPropertyTarget target = LogicPropertyTarget::Trigger;
     std::size_t index = 0;
     std::string key;
@@ -53,17 +54,18 @@ struct PropertyAddress {
 
 std::optional<PropertyAddress> parsePropertyAddress(const std::string& encoded) {
     const std::vector<std::string> parts = splitPipe(encoded);
-    if (parts.size() != 4 && parts.size() != 5) return std::nullopt;
+    if (parts.size() != 5 && parts.size() != 6) return std::nullopt;
     char* end = nullptr;
-    const unsigned long index = std::strtoul(parts[2].c_str(), &end, 10);
-    if (!end || *end != '\0' || parts[0].empty() || parts[3].empty()) return std::nullopt;
+    const unsigned long index = std::strtoul(parts[3].c_str(), &end, 10);
+    if (!end || *end != '\0' || parts[0].empty() || parts[4].empty()) return std::nullopt;
     LogicPropertyTarget target = LogicPropertyTarget::Trigger;
-    if (parts[1] == "a") target = LogicPropertyTarget::Action;
-    else if (parts[1] == "c") target = LogicPropertyTarget::Condition;
-    else if (parts[1] != "t") return std::nullopt;
+    if (parts[2] == "a") target = LogicPropertyTarget::Action;
+    else if (parts[2] == "c") target = LogicPropertyTarget::Condition;
+    else if (parts[2] != "t") return std::nullopt;
     return PropertyAddress{
-        parts[0], target, static_cast<std::size_t>(index), parts[3],
-        parts.size() == 5 ? parts[4] : std::string{}};
+        parts[0], parts[1] == "-" ? std::string{} : parts[1], target,
+        static_cast<std::size_t>(index), parts[4],
+        parts.size() == 6 ? parts[5] : std::string{}};
 }
 
 } // namespace
@@ -187,6 +189,7 @@ std::string LogicBoardEditorController::commitExpressionText(const std::string& 
     LogicNumberExpressionAddress target;
     target.objectTypeId = *view.objectTypeId;
     target.ruleId = parsed->ruleId;
+    target.branchId = parsed->branchId;
     target.actionIndex = parsed->index;
     target.parameterId = parsed->key;
     target.component = parsed->component == "y" ? LogicNumericComponent::Y
@@ -461,16 +464,31 @@ bool LogicBoardEditorController::handleAction(
             if (board.rules[i].id == id) return i;
         return std::nullopt;
     };
-    const auto parseActionArg = [&](const std::string& encoded,
-                                    LogicRuleId& ruleId,
-                                    std::size_t& index) -> bool {
+    const auto parseConditionArg = [&](const std::string& encoded,
+                                       LogicRuleId& ruleId,
+                                       LogicActionBranchId& branchId,
+                                       std::size_t& index) -> bool {
         const std::vector<std::string> parts = splitPipe(encoded);
-        if (parts.size() != 2 || parts[1].empty()) return false;
+        if ((parts.size() != 2 && parts.size() != 3) || parts[0].empty()) return false;
+        const std::size_t indexPart = parts.size() - 1;
         char* end = nullptr;
-        const unsigned long parsed = std::strtoul(parts[1].c_str(), &end, 10);
+        const unsigned long parsed = std::strtoul(parts[indexPart].c_str(), &end, 10);
         if (!end || *end != '\0') return false;
         ruleId = parts[0];
+        branchId = parts.size() == 3 ? parts[1] : LogicActionBranchId{};
         index = static_cast<std::size_t>(parsed);
+        return parts.size() == 2 || !branchId.empty();
+    };
+    const auto parseBranchActionArg = [&](const std::string& encoded,
+                                          LogicRuleId& ruleId,
+                                          LogicActionBranchId& branchId,
+                                          std::size_t& index) -> bool {
+        const std::vector<std::string> parts = splitPipe(encoded);
+        if (parts.size() != 3 || parts[0].empty() || parts[1].empty()) return false;
+        char* end = nullptr;
+        const unsigned long parsed = std::strtoul(parts[2].c_str(), &end, 10);
+        if (!end || *end != '\0') return false;
+        ruleId = parts[0]; branchId = parts[1]; index = static_cast<std::size_t>(parsed);
         return true;
     };
 
@@ -480,17 +498,26 @@ bool LogicBoardEditorController::handleAction(
         switch (address.target) {
         case LogicPropertyTarget::Trigger: return &rule->trigger;
         case LogicPropertyTarget::Action:
-            return address.index < rule->actions.size() ? &rule->actions[address.index] : nullptr;
+            if (const auto it = std::find_if(rule->branches.begin(), rule->branches.end(),
+                    [&](const LogicActionBranchDef& branch) { return branch.id == address.branchId; });
+                it != rule->branches.end() && address.index < it->actions.size())
+                return &it->actions[address.index];
+            return nullptr;
         case LogicPropertyTarget::Condition:
-            return address.index < rule->conditions.size()
-                ? &rule->conditions[address.index].block : nullptr;
+            if (address.branchId.empty())
+                return address.index < rule->conditions.size() ? &rule->conditions[address.index].block : nullptr;
+            if (const auto it = std::find_if(rule->branches.begin(), rule->branches.end(),
+                    [&](const LogicActionBranchDef& branch) { return branch.id == address.branchId; });
+                it != rule->branches.end() && address.index < it->conditions.size())
+                return &it->conditions[address.index].block;
+            return nullptr;
         }
         return nullptr;
     };
     const auto executeProperty = [&](const PropertyAddress& address, LogicValue propertyValue) {
         coordinator_.execute(SetLogicPropertyCommand{
             objectTypeId, address.ruleId, address.target, address.index,
-            address.key, std::move(propertyValue)});
+            address.key, std::move(propertyValue), address.branchId});
     };
 
     if (action == "begin-contextual-global-variable"
@@ -569,7 +596,7 @@ bool LogicBoardEditorController::handleAction(
         const EditorOperationResult result = coordinator_.execute(
             CreateAndAssignGlobalVariableCommand{
                 objectTypeId, address->ruleId, address->target, address->index,
-                address->key, std::move(definition)});
+                address->key, std::move(definition), address->branchId});
         if (result.ok) {
             panel_.discardContextualGlobalVariable();
         } else {
@@ -580,7 +607,12 @@ bool LogicBoardEditorController::handleAction(
     }
 
     if (action == "add-logic-condition-type") {
-        coordinator_.apply(AddLogicConditionTypeIntent{objectTypeId, arg, value});
+        const std::vector<std::string> parts = splitPipe(arg);
+        if (parts.size() == 1)
+            coordinator_.apply(AddLogicConditionTypeIntent{objectTypeId, parts[0], value, {}});
+        else if (parts.size() == 2)
+            coordinator_.apply(AddLogicConditionTypeIntent{
+                objectTypeId, parts[0], value, parts[1]});
         return true;
     }
     if (action == "change-logic-condition" || action == "remove-logic-condition"
@@ -588,37 +620,48 @@ bool LogicBoardEditorController::handleAction(
         || action == "set-logic-condition-join"
         || action == "toggle-logic-condition-negated") {
         LogicRuleId ruleId;
+        LogicActionBranchId branchId;
         std::size_t conditionIndex = 0;
-        if (!parseActionArg(arg, ruleId, conditionIndex)) {
+        if (!parseConditionArg(arg, ruleId, branchId, conditionIndex)) {
             coordinator_.logError("Invalid Logic condition address");
             return true;
         }
         const LogicRuleDef* rule = ruleById(ruleId);
-        if (!rule || conditionIndex >= rule->conditions.size()) {
+        const std::vector<LogicConditionClause>* conditions =
+            rule && branchId.empty() ? &rule->conditions : nullptr;
+        if (rule && !branchId.empty()) {
+            const auto branch = std::find_if(rule->branches.begin(), rule->branches.end(),
+                [&](const LogicActionBranchDef& candidate) {
+                    return candidate.id == branchId;
+                });
+            if (branch != rule->branches.end()) conditions = &branch->conditions;
+        }
+        if (!conditions || conditionIndex >= conditions->size()) {
             coordinator_.logError("Unknown Logic condition");
             return true;
         }
         if (action == "change-logic-condition") {
             coordinator_.apply(ChangeLogicConditionTypeIntent{
-                objectTypeId, ruleId, conditionIndex, value});
+                objectTypeId, ruleId, conditionIndex, value, branchId});
         } else if (action == "remove-logic-condition") {
             coordinator_.execute(RemoveLogicConditionCommand{
-                objectTypeId, ruleId, conditionIndex});
+                objectTypeId, ruleId, conditionIndex, branchId});
         } else if (action == "move-logic-condition-up") {
             if (conditionIndex > 0) coordinator_.execute(MoveLogicConditionCommand{
-                objectTypeId, ruleId, conditionIndex, conditionIndex - 1});
+                objectTypeId, ruleId, conditionIndex, conditionIndex - 1, branchId});
         } else if (action == "move-logic-condition-down") {
-            if (conditionIndex + 1 < rule->conditions.size())
+            if (conditionIndex + 1 < conditions->size())
                 coordinator_.execute(MoveLogicConditionCommand{
-                    objectTypeId, ruleId, conditionIndex, conditionIndex + 1});
+                    objectTypeId, ruleId, conditionIndex, conditionIndex + 1, branchId});
         } else if (action == "set-logic-condition-join") {
             coordinator_.execute(SetLogicConditionJoinCommand{
                 objectTypeId, ruleId, conditionIndex,
-                value == "or" ? LogicConditionJoin::Or : LogicConditionJoin::And});
+                value == "or" ? LogicConditionJoin::Or : LogicConditionJoin::And,
+                branchId});
         } else {
             coordinator_.execute(SetLogicConditionNegatedCommand{
                 objectTypeId, ruleId, conditionIndex,
-                !rule->conditions[conditionIndex].negated});
+                !(*conditions)[conditionIndex].negated, branchId});
         }
         return true;
     }
@@ -698,7 +741,8 @@ bool LogicBoardEditorController::handleAction(
                 clipId = value;
             }
             coordinator_.execute(SetLogicAnimationClipCommand{
-                objectTypeId, address->ruleId, address->index, assetId, clipId});
+                objectTypeId, address->ruleId, address->index, assetId, clipId,
+                address->branchId});
             return true;
         }
 
@@ -747,6 +791,45 @@ bool LogicBoardEditorController::handleAction(
         if (view.tab != LogicBoardTab::Rules) return true;
         coordinator_.execute(AddLogicRuleCommand{
             objectTypeId, Logic::makeDefaultRule(nextLogicRuleId(board)), board.rules.size()});
+    } else if (action == "add-logic-action-branch") {
+        const LogicRuleDef* rule = ruleById(arg);
+        if (!rule) return true;
+        LogicActionBranchDef branch;
+        branch.id = nextLogicActionBranchId(*rule);
+        branch.actions.push_back(Logic::makeDefaultAction());
+        coordinator_.execute(AddLogicActionBranchCommand{
+            objectTypeId, arg, std::move(branch), rule->branches.size()});
+    } else if (action == "remove-logic-action-branch"
+               || action == "duplicate-logic-action-branch"
+               || action == "move-logic-action-branch-up"
+               || action == "move-logic-action-branch-down") {
+        const std::vector<std::string> parts = splitPipe(arg);
+        if (parts.size() != 2) return true;
+        const LogicRuleDef* rule = ruleById(parts[0]);
+        if (!rule) return true;
+        const auto it = std::find_if(rule->branches.begin(), rule->branches.end(),
+            [&](const LogicActionBranchDef& branch) { return branch.id == parts[1]; });
+        if (it == rule->branches.end()) return true;
+        const std::size_t index = static_cast<std::size_t>(it - rule->branches.begin());
+        if (action == "remove-logic-action-branch")
+            coordinator_.execute(RemoveLogicActionBranchCommand{objectTypeId, parts[0], parts[1]});
+        else if (action == "duplicate-logic-action-branch") {
+            LogicActionBranchDef copy = *it;
+            copy.id = nextLogicActionBranchId(*rule);
+            coordinator_.execute(DuplicateLogicActionBranchCommand{
+                objectTypeId, parts[0], parts[1], std::move(copy), index + 1});
+        } else {
+            const std::size_t target = action == "move-logic-action-branch-up"
+                ? (index == 0 ? 0 : index - 1)
+                : std::min(index + 1, rule->branches.size() - 1);
+            coordinator_.execute(MoveLogicActionBranchCommand{objectTypeId, parts[0], parts[1], target});
+        }
+    } else if (action == "set-logic-action-branch-execution-mode") {
+        const std::vector<std::string> parts = splitPipe(arg);
+        const auto mode = Logic::logicExecutionModeFromString(value);
+        if (parts.size() == 2 && mode)
+            coordinator_.execute(SetLogicActionBranchExecutionModeCommand{
+                objectTypeId, parts[0], parts[1], *mode});
     } else if (action == "duplicate-logic-rule") {
         const EditorOperationResult result = coordinator_.apply(
             DuplicateLogicRuleIntent{objectTypeId, arg});
@@ -774,16 +857,28 @@ bool LogicBoardEditorController::handleAction(
         if (const LogicRuleDef* rule = ruleById(arg))
             coordinator_.execute(SetLogicRuleEnabledCommand{objectTypeId, arg, !rule->enabled});
     } else if (action == "set-logic-execution-mode") {
-        if (const auto mode = Logic::logicExecutionModeFromString(value))
-            coordinator_.execute(SetLogicRuleExecutionModeCommand{objectTypeId, arg, *mode});
+        const std::vector<std::string> parts = splitPipe(arg);
+        if (const auto mode = Logic::logicExecutionModeFromString(value);
+            parts.size() == 2 && mode) {
+            coordinator_.execute(SetLogicActionBranchExecutionModeCommand{
+                objectTypeId, parts[0], parts[1], *mode});
+        }
     } else if (action == "change-logic-trigger") {
         coordinator_.apply(ChangeLogicTriggerTypeIntent{objectTypeId, arg, value});
     } else if (action == "set-logic-event-collision-object-type") {
         coordinator_.execute(SetLogicPropertyCommand{
             objectTypeId, arg, LogicPropertyTarget::Trigger, 0,
-            "objectTypeId", LogicStringValue{value}});
+            "objectTypeId", LogicStringValue{value}, {}});
     } else if (action == "add-logic-action-type") {
-        coordinator_.apply(AddLogicActionTypeIntent{objectTypeId, arg, value});
+        const std::vector<std::string> parts = splitPipe(arg);
+        if (parts.size() != 2) return true;
+        const LogicRuleDef* rule = ruleById(parts[0]);
+        if (!rule) return true;
+        const auto branch = std::find_if(rule->branches.begin(), rule->branches.end(),
+            [&](const LogicActionBranchDef& candidate) { return candidate.id == parts[1]; });
+        if (branch == rule->branches.end()) return true;
+        coordinator_.execute(AddLogicActionCommand{objectTypeId, parts[0],
+            Logic::makeDefaultBlock(value, Logic::BlockKind::Action), branch->actions.size(), parts[1]});
     } else if (action == "remove-logic-action" || action == "move-logic-action-up"
                || action == "move-logic-action-down" || action == "change-logic-action"
                || action == "set-logic-visible"
@@ -792,24 +887,28 @@ bool LogicBoardEditorController::handleAction(
                || action == "commit-logic-animation-speed"
                || action == "set-logic-audio-asset" || action == "commit-logic-audio-volume") {
         LogicRuleId ruleId;
+        LogicActionBranchId branchId;
         std::size_t index = 0;
-        if (!parseActionArg(arg, ruleId, index)) return true;
+        if (!parseBranchActionArg(arg, ruleId, branchId, index)) return true;
         const LogicRuleDef* rule = ruleById(ruleId);
-        if (!rule || index >= rule->actions.size()) return true;
+        const auto branchIt = rule ? std::find_if(rule->branches.begin(), rule->branches.end(),
+            [&](const LogicActionBranchDef& branch) { return branch.id == branchId; })
+            : std::vector<LogicActionBranchDef>::const_iterator{};
+        if (!rule || branchIt == rule->branches.end() || index >= branchIt->actions.size()) return true;
         if (action == "remove-logic-action") {
-            coordinator_.execute(RemoveLogicActionCommand{objectTypeId, ruleId, index});
+            coordinator_.execute(RemoveLogicActionCommand{objectTypeId, ruleId, index, branchId});
         } else if (action == "move-logic-action-up" || action == "move-logic-action-down") {
             const std::size_t destination = action == "move-logic-action-up"
                 ? (index == 0 ? 0 : index - 1)
-                : std::min(index + 1, rule->actions.size() - 1);
-            coordinator_.execute(MoveLogicActionCommand{objectTypeId, ruleId, index, destination});
+                : std::min(index + 1, branchIt->actions.size() - 1);
+            coordinator_.execute(MoveLogicActionCommand{objectTypeId, ruleId, index, destination, branchId});
         } else if (action == "change-logic-action") {
-            coordinator_.apply(ChangeLogicActionTypeIntent{
-                objectTypeId, ruleId, index, value});
+            coordinator_.execute(ChangeLogicActionTypeCommand{
+                objectTypeId, ruleId, index, value, branchId});
         } else if (action == "set-logic-visible") {
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, ruleId, LogicPropertyTarget::Action, index, "visible",
-                value == "true"});
+                value == "true", branchId});
         } else if (action == "set-logic-animation-asset") {
             const SpriteAnimationAssetDef* asset =
                 coordinator_.document().findSpriteAnimationAsset(value);
@@ -818,10 +917,10 @@ bool LogicBoardEditorController::handleAction(
                 return true;
             }
             coordinator_.execute(SetLogicAnimationClipCommand{
-                objectTypeId, ruleId, index, asset->id, defaultClipId(*asset)});
+                objectTypeId, ruleId, index, asset->id, defaultClipId(*asset), branchId});
         } else if (action == "set-logic-animation-clip") {
             AssetId animationAssetId;
-            if (const LogicPropertyDef* p = Logic::findProperty(rule->actions[index],
+            if (const LogicPropertyDef* p = Logic::findProperty(branchIt->actions[index],
                                                                 "animationAssetId"))
                 if (const auto* current = std::get_if<LogicAssetReference>(&p->value))
                     animationAssetId = current->id;
@@ -830,7 +929,7 @@ bool LogicBoardEditorController::handleAction(
                 return true;
             }
             coordinator_.execute(SetLogicAnimationClipCommand{
-                objectTypeId, ruleId, index, animationAssetId, value});
+                objectTypeId, ruleId, index, animationAssetId, value, branchId});
         } else if (action == "commit-logic-animation-speed") {
             const std::optional<float> parsed = parseNumberField(value);
             if (!parsed || *parsed <= 0.f) {
@@ -839,7 +938,7 @@ bool LogicBoardEditorController::handleAction(
             }
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, ruleId, LogicPropertyTarget::Action, index,
-                "speed", NumberExpression::literal(*parsed)});
+                "speed", NumberExpression::literal(*parsed), branchId});
         } else if (action == "set-logic-audio-asset") {
             const AudioAssetDef* audio = coordinator_.document().findAudioAsset(value);
             if (!audio || audio->loadMode != AudioLoadMode::StaticSound) {
@@ -848,7 +947,7 @@ bool LogicBoardEditorController::handleAction(
             }
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, ruleId, LogicPropertyTarget::Action, index,
-                "audioAssetId", LogicAssetReference{value}});
+                "audioAssetId", LogicAssetReference{value}, branchId});
         } else if (action == "commit-logic-audio-volume") {
             const std::optional<float> parsed = parseNumberField(value);
             if (!parsed || *parsed < 0.f || *parsed > 1.f) {
@@ -857,7 +956,7 @@ bool LogicBoardEditorController::handleAction(
             }
             coordinator_.execute(SetLogicPropertyCommand{
                 objectTypeId, ruleId, LogicPropertyTarget::Action, index,
-                "volume", NumberExpression::literal(*parsed)});
+                "volume", NumberExpression::literal(*parsed), branchId});
         }
     } else {
         return false;
