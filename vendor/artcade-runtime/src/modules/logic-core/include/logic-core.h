@@ -19,6 +19,8 @@ inline constexpr std::size_t kMaxBlocksPerProject = 8192;
 inline constexpr std::size_t kMaxLogicIdLength = 128;
 
 inline constexpr const char* kOnStart = "event.on_start";
+inline constexpr const char* kOnSceneStart = "scene.on_start";
+inline constexpr const char* kOnDestroy = "lifecycle.on_destroy";
 inline constexpr const char* kEveryFrame = "event.on_update";
 inline constexpr const char* kEverySeconds = "event.every_seconds";
 inline constexpr const char* kKeyPressed = "input.key_pressed";
@@ -114,12 +116,14 @@ enum class NumericExpressionPolicy {
 };
 enum class LogicRequiredComponent { PlatformerController, TopDownController, SpriteAnimator };
 enum class LogicContextCapability {
+    Scene,
     Self,
     EventOther,
     DeltaTime,
     CollisionContact,
     MessagePayload,
 };
+enum class LogicBoardOwnerKind { ObjectType, Scene };
 /**
  * Trigger activation semantics from the registry (not duplicated in UI/runtime
  * switches). Pulse = discrete one-shot event; Level = continuous state.
@@ -195,7 +199,9 @@ struct LogicDiagnostic {
 };
 
 struct LogicProgram {
+    LogicBoardOwnerKind ownerKind = LogicBoardOwnerKind::ObjectType;
     ObjectTypeId objectTypeId;
+    SceneId sceneId;
     LogicBoardId boardId;
     std::string  source;
     bool         requiresTick = false;
@@ -264,6 +270,12 @@ void applyDeterministicVariableDefault(const ProjectDoc& doc, LogicBlockDef& blo
 LogicBlockAvailability blockAvailability(const EntityDef& owner,
                                          const LogicBlockDescriptor& candidate,
                                          const LogicBlockDescriptor* trigger = nullptr);
+/**
+ * Availability policy for a Scene-owned board. Scene has no entity Self and
+ * no component set; descriptors requiring either are deliberately excluded.
+ */
+LogicBlockAvailability sceneBlockAvailability(const LogicBlockDescriptor& candidate,
+                                              const LogicBlockDescriptor* trigger = nullptr);
 
 LogicBlockDef makeDefaultTrigger();
 LogicActionDef makeDefaultAction(LogicActionId id = "action-1");
@@ -304,6 +316,11 @@ LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
                                 const LogicBoardDef& board,
                                 const EntityDef* owner = nullptr,
                                 const ProjectDoc* project = nullptr);
+std::vector<LogicDiagnostic> validateSceneBoard(
+    const SceneId& sceneId, const LogicBoardDef& board, const ProjectDoc* project = nullptr,
+    LogicValidationPurpose purpose = LogicValidationPurpose::Executable);
+LogicCompileResult compileSceneBoard(const SceneId& sceneId, const LogicBoardDef& board,
+                                     const ProjectDoc* project = nullptr);
 LogicCompileResult compileProjectLogic(const ProjectDoc& project);
 
 nlohmann::json logicBoardToJson(const LogicBoardDef& board);

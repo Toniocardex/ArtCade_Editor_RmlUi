@@ -251,6 +251,13 @@ struct Host final : ILogicRuntimeHost {
         }
         return nextSpawnId;
     }
+    EntityId spawnObjectTypeInActiveScene(const ObjectTypeId& objectTypeId,
+                                          float x, float y) override {
+        calls.push_back("spawn_scene:" + objectTypeId + ":"
+                        + std::to_string(static_cast<int>(x)) + ","
+                        + std::to_string(static_cast<int>(y)));
+        return failSpawn ? INVALID_ENTITY : nextSpawnId;
+    }
     bool requestSceneRestart() override {
         calls.push_back("scene_restart");
         return true;
@@ -1044,6 +1051,41 @@ static void testOutsideSceneBounds() {
           != std::string::npos);
 }
 
+static void testOnDestroyTrigger() {
+    const LogicBlockDescriptor* descriptor = findDescriptor(kOnDestroy);
+    CHECK(descriptor != nullptr);
+    CHECK(descriptor && descriptor->kind == BlockKind::Trigger);
+    CHECK(descriptor && descriptor->activationKind == LogicTriggerActivationKind::Pulse);
+    CHECK(descriptor && !descriptor->requiresTick);
+    CHECK(descriptor && descriptor->requiredFeature == std::string("lifecycle.on_destroy"));
+    CHECK(descriptor && isEventEligible(*descriptor));
+
+    LogicBoardDef board;
+    board.id = "logic:OnDestroy";
+    LogicRuleDef rule = makeDefaultRule("rule-destroy");
+    rule.trigger = makeDefaultEventBlock(kOnDestroy);
+    rule.actions = {makeDefaultAction("destroy")};
+    rule.actions[0].block = makeDefaultBlock(kDestroySelf, BlockKind::Action);
+    board.rules.push_back(rule);
+
+    LogicCompileResult compiled = compileBoard("Hero", board);
+    CHECK(compiled.ok());
+    CHECK(!compiled.requiresTick);
+    CHECK(compiled.programs[0].source.find("context:on_destroy") != std::string::npos);
+    CHECK(std::find(compiled.programs[0].requiredFeatures.begin(),
+                    compiled.programs[0].requiredFeatures.end(),
+                    "lifecycle.on_destroy") != compiled.programs[0].requiredFeatures.end());
+
+    Host host;
+    LogicRuntime runtime(host, kTestSessionSeed);
+    std::string error;
+    CHECK(runtime.loadPrograms(compiled.programs, &error));
+    CHECK(runtime.install("Hero", 1, &error).has_value());
+    runtime.beginFrame();
+    runtime.dispatchDestroy(1);
+    CHECK(std::count(host.calls.begin(), host.calls.end(), "destroy:1") == 1);
+}
+
 static void testIsVisibleAsEvent() {
     CHECK(isEventEligible(*findDescriptor(kIsVisible)));
     const LogicBlockDescriptor* descriptor = findDescriptor(kIsVisible);
@@ -1698,6 +1740,57 @@ static void testSceneActions() {
 
     // Compatibility: an older runtime predating the scene features rejects
     // the program up front (same contract testPlaySoundAction locks in).
+}
+
+static void testSceneLogicScope() {
+    ProjectDoc project;
+    project.objectTypes.emplace("Enemy", EntityDef{});
+    SceneDef scene;
+    scene.id = "scene-1";
+    project.scenes.emplace(scene.id, scene);
+    project.globalVariables.push_back(
+        GameVariableDefinition{"score", GameVariableDefinition::Type::Number, 0.0});
+
+    LogicBoardDef board;
+    board.id = "logic:scene:scene-1";
+    LogicRuleDef rule;
+    rule.id = "scene-start";
+    rule.name = "scene-start";
+    rule.trigger = makeDefaultBlock(kOnSceneStart, BlockKind::Trigger);
+    rule.actions.push_back(LogicActionDef{"set-score", LogicExecutionMode::EveryOccurrence,
+        LogicBlockDef{kStateSet, {{"key", LogicVariableReference{"score"}},
+                                  {"value", NumberExpression::literal(7.0)}}}});
+    rule.actions.push_back(LogicActionDef{"spawn", LogicExecutionMode::EveryOccurrence,
+        LogicBlockDef{kSpawnObject, {{"objectTypeId", LogicStringValue{"Enemy"}},
+                                     {"position", LogicVec2Value::literal(12.0, 34.0)}}}});
+    board.rules.push_back(rule);
+
+    const LogicCompileResult compiled = compileSceneBoard("scene-1", board, &project);
+    CHECK(compiled.ok());
+    CHECK(!compiled.programs.empty());
+    if (!compiled.programs.empty()) {
+        CHECK(compiled.programs.front().ownerKind == LogicBoardOwnerKind::Scene);
+        CHECK(compiled.programs.front().sceneId == "scene-1");
+        CHECK(compiled.programs.front().source.find("context:on_scene_start")
+              != std::string::npos);
+    }
+
+    Host host;
+    host.declareNumber("score");
+    LogicRuntime runtime(host, kTestSessionSeed);
+    std::string error;
+    CHECK(runtime.loadPrograms(compiled.programs, &error));
+    CHECK(runtime.installScene("scene-1", &error).has_value());
+    runtime.dispatchSceneStart("scene-1");
+    CHECK(host.state["score"] == 7.0);
+    CHECK(std::find(host.calls.begin(), host.calls.end(), "spawn_scene:Enemy:12,34")
+          != host.calls.end());
+
+    LogicBoardDef invalid = board;
+    invalid.rules.front().actions.front().block = makeDefaultBlock(kDestroySelf, BlockKind::Action);
+    const auto diagnostics = validateSceneBoard("scene-1", invalid, &project);
+    CHECK(std::any_of(diagnostics.begin(), diagnostics.end(),
+        [](const LogicDiagnostic& d) { return d.code == "LB_SCENE_INCOMPATIBLE_BLOCK"; }));
 }
 
 static void testCameraShakeAction() {
@@ -3469,12 +3562,14 @@ int main() {
     testIsFallingMigratesToPlatformerState();
     testPlatformerMotionState();
     testOutsideSceneBounds();
+    testOnDestroyTrigger();
     testIsVisibleAsEvent();
     testSpriteSetFacingAction();
     testPlatformerMoveHorizontalDirection();
     testConditionOperators();
     testPlaySoundAction();
     testSceneActions();
+    testSceneLogicScope();
     testCameraShakeAction();
     testDestroyOtherAction();
     testCombinedGameplaySmoke();

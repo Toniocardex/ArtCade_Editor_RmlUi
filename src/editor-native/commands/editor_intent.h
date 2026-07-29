@@ -64,6 +64,12 @@ struct OpenLogicBoardIntent {
     ObjectTypeId objectTypeId;
 };
 
+// Opens the board owned by a Scene aggregate. This is an explicit authoring
+// target, not a request to select an instance in that scene.
+struct OpenSceneLogicBoardIntent {
+    SceneId sceneId;
+};
+
 struct SetLogicBoardTabIntent {
     LogicBoardTab tab = LogicBoardTab::Rules;
 };

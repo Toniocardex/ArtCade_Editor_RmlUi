@@ -1,4 +1,5 @@
 #include "scene-json.h"
+#include "../modules/logic-core/include/logic-core.h"
 
 #include "json-primitives.h"
 #include "project-defaults.h"
@@ -249,9 +250,10 @@ void read_scene_layer_settings(const nlohmann::json& sceneJson,
     }
 }
 
-void read_scene_def(const nlohmann::json& sceneJson,
+bool read_scene_def(const nlohmann::json& sceneJson,
                     const SceneId& fallbackId,
-                    SceneDef& out) {
+                    SceneDef& out,
+                    std::string* error) {
     out = SceneDef{};
     out.id   = sceneJson.value("id", fallbackId);
     out.name = sceneJson.value("name", fallbackId);
@@ -282,6 +284,16 @@ void read_scene_def(const nlohmann::json& sceneJson,
     read_tilemap_layers(sceneJson, out.tilemapLayers);
     read_scene_layer_settings(sceneJson, out.layerSettings);
     read_scene_layer_stack(sceneJson, out);
+    if (sceneJson.contains("logicBoard")) {
+        LogicBoardDef board;
+        const Logic::LogicJsonResult parsed = Logic::logicBoardFromJson(sceneJson["logicBoard"], board);
+        if (!parsed.ok) {
+            if (error) *error = "Scene logicBoard for '" + out.id + "': " + parsed.error;
+            return false;
+        }
+        out.logicBoard = std::move(board);
+    }
+    return true;
 }
 
 void read_scene_layer_stack(const nlohmann::json& sceneJson, SceneDef& out) {
@@ -293,20 +305,22 @@ void read_scene_layer_stack(const nlohmann::json& sceneJson, SceneDef& out) {
     }
 }
 
-void read_scenes_map(const nlohmann::json& doc,
-                     std::unordered_map<SceneId, SceneDef>& out) {
+bool read_scenes_map(const nlohmann::json& doc,
+                     std::unordered_map<SceneId, SceneDef>& out,
+                     std::string* error) {
     out.clear();
     if (!doc.contains("scenes"))
-        return;
+        return true;
 
     const auto& scenesJson = doc["scenes"];
     if (scenesJson.is_object()) {
         for (auto& [key, val] : scenesJson.items()) {
             SceneDef scene;
-            read_scene_def(val, key, scene);
+            if (!read_scene_def(val, key, scene, error)) return false;
             out[scene.id] = std::move(scene);
         }
     }
+    return true;
 }
 
 } // namespace ArtCade::ProjectJson

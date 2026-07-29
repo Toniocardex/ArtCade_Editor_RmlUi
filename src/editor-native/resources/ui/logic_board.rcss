@@ -29,6 +29,24 @@
    (see editor_ui.cpp), not an in-flow .drop-list, so opening it never
    resizes this header. */
 .logic-type-trigger { flex: 0 1 240dp; min-width: 140dp; max-width: 240dp; }
+/* ADR-0047: the floating header menu chooses a board owner. Section labels
+   make the Scene target visually distinct from instance-shared Object Types
+   without creating a second menu or a second navigation mechanism. */
+.logic-target-menu-heading {
+    margin: 6dp 8dp 2dp 8dp;
+    font-size: 10dp;
+    font-weight: 600;
+    letter-spacing: 0.6dp;
+    text-transform: uppercase;
+}
+.logic-target-menu-heading:first-child { margin-top: 2dp; }
+.logic-target-scope {
+    display: inline-block;
+    margin-right: 4dp;
+    font-size: 10dp;
+    font-weight: 600;
+    letter-spacing: 0.5dp;
+}
 .logic-owner { margin-top: 4dp;  font-size: 11dp; letter-spacing: 0.5dp; }
 .logic-object-variables-reachability {
     display: block;

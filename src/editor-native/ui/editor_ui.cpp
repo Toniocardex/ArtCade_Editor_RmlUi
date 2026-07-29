@@ -2706,7 +2706,7 @@ void EditorUi::toggleLogicTypeMenu() {
     Rml::Element* menu = document_->GetElementById("logic-type-menu");
     if (!trigger || !menu) return;
     hideContextMenus();
-    menu->SetInnerRML(logicBoardEditor_.objectTypeMenuEntries());
+    menu->SetInnerRML(logicBoardEditor_.targetMenuEntries());
     const Rml::Vector2f offset = trigger->GetAbsoluteOffset();
     menu->SetProperty("left", std::to_string(static_cast<int>(offset.x)) + "px");
     menu->SetProperty("top",
@@ -3261,7 +3261,7 @@ void EditorUi::handleAction(const std::string& action, const std::string& arg,
         refreshToolbar();
         return;
     }
-    if (action == "select-logic-object-type") {
+    if (action == "select-logic-object-type" || action == "select-logic-scene") {
         hideContextMenus();   // then fall through to execute the pick
     }
 

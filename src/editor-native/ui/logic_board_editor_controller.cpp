@@ -154,8 +154,8 @@ void LogicBoardEditorController::syncResponsiveClass() {
     panel_.syncResponsiveClass(document_);
 }
 
-std::string LogicBoardEditorController::objectTypeMenuEntries() const {
-    return panel_.objectTypeMenuEntries(coordinator_);
+std::string LogicBoardEditorController::targetMenuEntries() const {
+    return panel_.targetMenuEntries(coordinator_);
 }
 
 void LogicBoardEditorController::commitExpressionField(const std::string& address,
@@ -205,6 +205,206 @@ std::string LogicBoardEditorController::commitExpressionText(const std::string& 
     return {};
 }
 
+bool LogicBoardEditorController::handleSceneLogicAction(
+    const std::string& action, const std::string& arg, const std::string& value) {
+    const auto& view = coordinator_.state().logicBoardEditor;
+    if (!view.sceneId || !coordinator_.document().hasScene(*view.sceneId)) return false;
+    const SceneId sceneId = *view.sceneId;
+    const SceneDef* scene = coordinator_.document().findScene(sceneId);
+    if (!scene) return false;
+    if (coordinator_.isPlaying()) return true;
+    if (action == "create-logic-board") {
+        coordinator_.execute(CreateSceneLogicBoardCommand{sceneId});
+        return true;
+    }
+    if (action == "remove-logic-board") {
+        coordinator_.execute(RemoveSceneLogicBoardCommand{sceneId});
+        return true;
+    }
+    if (!scene->logicBoard) return action.rfind("logic-", 0) == 0;
+
+    LogicBoardDef next = *scene->logicBoard;
+    const auto commit = [&]() { coordinator_.execute(ReplaceSceneLogicBoardCommand{sceneId, next}); };
+    const auto ruleById = [&](const LogicRuleId& id) -> LogicRuleDef* {
+        const auto it = std::find_if(next.rules.begin(), next.rules.end(),
+            [&](const LogicRuleDef& rule) { return rule.id == id; });
+        return it == next.rules.end() ? nullptr : &*it;
+    };
+    const auto actionById = [](LogicRuleDef& rule, const LogicActionId& id) -> LogicActionDef* {
+        const auto it = std::find_if(rule.actions.begin(), rule.actions.end(),
+            [&](const LogicActionDef& candidate) { return candidate.id == id; });
+        return it == rule.actions.end() ? nullptr : &*it;
+    };
+    const auto parseAction = [&](LogicRuleId& ruleId, LogicActionId& actionId) {
+        const auto parts = splitPipe(arg);
+        if (parts.size() != 2 || parts[0].empty() || parts[1].empty()) return false;
+        ruleId = parts[0]; actionId = parts[1]; return true;
+    };
+    const auto parseCondition = [&](LogicRuleId& ruleId, std::size_t& index) {
+        const auto parts = splitPipe(arg);
+        if (parts.size() != 2 || parts[0].empty()) return false;
+        char* end = nullptr;
+        const unsigned long parsed = std::strtoul(parts[1].c_str(), &end, 10);
+        if (!end || *end != '\0') return false;
+        ruleId = parts[0]; index = static_cast<std::size_t>(parsed); return true;
+    };
+    const auto compatible = [&](const std::string& typeId,
+                                const Logic::LogicBlockDescriptor* trigger) {
+        const auto* descriptor = Logic::findDescriptor(typeId);
+        return descriptor && Logic::sceneBlockAvailability(*descriptor, trigger).compatible;
+    };
+
+    if (action == "add-logic-rule") {
+        LogicRuleDef rule = Logic::makeDefaultRule(nextLogicRuleId(next));
+        rule.trigger = Logic::makeDefaultEventBlock(Logic::kOnSceneStart);
+        rule.actions.clear();
+        next.rules.push_back(std::move(rule));
+        commit(); return true;
+    }
+    if (action == "remove-logic-rule") {
+        const auto it = std::find_if(next.rules.begin(), next.rules.end(),
+            [&](const LogicRuleDef& rule) { return rule.id == arg; });
+        if (it != next.rules.end()) { next.rules.erase(it); commit(); }
+        return true;
+    }
+    if (action == "toggle-logic-rule") {
+        if (LogicRuleDef* rule = ruleById(arg)) { rule->enabled = !rule->enabled; commit(); }
+        return true;
+    }
+    if (action == "move-logic-rule-up" || action == "move-logic-rule-down") {
+        const auto it = std::find_if(next.rules.begin(), next.rules.end(),
+            [&](const LogicRuleDef& rule) { return rule.id == arg; });
+        if (it != next.rules.end()) {
+            const std::size_t from = static_cast<std::size_t>(it - next.rules.begin());
+            const std::size_t to = action == "move-logic-rule-up"
+                ? (from == 0 ? 0 : from - 1) : std::min(from + 1, next.rules.size() - 1);
+            if (from != to) { LogicRuleDef moved = std::move(*it); next.rules.erase(it);
+                next.rules.insert(next.rules.begin() + static_cast<std::ptrdiff_t>(to), std::move(moved)); commit(); }
+        }
+        return true;
+    }
+    if (action == "change-logic-trigger") {
+        LogicRuleDef* rule = ruleById(arg);
+        if (rule && compatible(value, nullptr)) {
+            rule->trigger = Logic::makeDefaultEventBlock(value); commit();
+        }
+        return true;
+    }
+    if (action == "add-logic-action-type") {
+        LogicRuleDef* rule = ruleById(arg);
+        if (rule && compatible(value, Logic::findDescriptor(rule->trigger.typeId))) {
+            rule->actions.push_back({nextLogicActionId(*rule), LogicExecutionMode::EveryOccurrence,
+                                     Logic::makeDefaultBlock(value, Logic::BlockKind::Action)});
+            commit();
+        }
+        return true;
+    }
+    if (action == "change-logic-action" || action == "remove-logic-action"
+        || action == "move-logic-action-up" || action == "move-logic-action-down"
+        || action == "set-logic-action-execution-mode") {
+        LogicRuleId ruleId; LogicActionId actionId;
+        if (!parseAction(ruleId, actionId)) return true;
+        LogicRuleDef* rule = ruleById(ruleId);
+        if (!rule) return true;
+        const auto it = std::find_if(rule->actions.begin(), rule->actions.end(),
+            [&](const LogicActionDef& candidate) { return candidate.id == actionId; });
+        if (it == rule->actions.end()) return true;
+        const std::size_t index = static_cast<std::size_t>(it - rule->actions.begin());
+        if (action == "change-logic-action") {
+            if (compatible(value, Logic::findDescriptor(rule->trigger.typeId))) {
+                it->block = Logic::makeDefaultBlock(value, Logic::BlockKind::Action); commit();
+            }
+        } else if (action == "remove-logic-action") { rule->actions.erase(it); commit();
+        } else if (action == "set-logic-action-execution-mode") {
+            if (const auto mode = Logic::logicExecutionModeFromString(value)) { it->executionMode = *mode; commit(); }
+        } else {
+            const std::size_t to = action == "move-logic-action-up" ? (index ? index - 1 : 0)
+                : std::min(index + 1, rule->actions.size() - 1);
+            if (to != index) { LogicActionDef moved = std::move(*it); rule->actions.erase(it);
+                rule->actions.insert(rule->actions.begin() + static_cast<std::ptrdiff_t>(to), std::move(moved)); commit(); }
+        }
+        return true;
+    }
+    if (action == "add-logic-condition-type") {
+        LogicRuleDef* rule = ruleById(arg);
+        if (rule && compatible(value, Logic::findDescriptor(rule->trigger.typeId))) {
+            rule->conditions.push_back({LogicConditionJoin::And, false,
+                Logic::makeDefaultBlock(value, Logic::BlockKind::Condition)}); commit();
+        }
+        return true;
+    }
+    if (action == "change-logic-condition" || action == "remove-logic-condition"
+        || action == "move-logic-condition-up" || action == "move-logic-condition-down"
+        || action == "set-logic-condition-join" || action == "toggle-logic-condition-negated") {
+        LogicRuleId ruleId; std::size_t index = 0;
+        if (!parseCondition(ruleId, index)) return true;
+        LogicRuleDef* rule = ruleById(ruleId);
+        if (!rule || index >= rule->conditions.size()) return true;
+        if (action == "change-logic-condition") {
+            if (compatible(value, Logic::findDescriptor(rule->trigger.typeId))) {
+                rule->conditions[index].block = Logic::makeDefaultBlock(value, Logic::BlockKind::Condition); commit(); }
+        } else if (action == "remove-logic-condition") { rule->conditions.erase(rule->conditions.begin() + static_cast<std::ptrdiff_t>(index)); commit();
+        } else if (action == "set-logic-condition-join") { rule->conditions[index].joinBefore = value == "or" ? LogicConditionJoin::Or : LogicConditionJoin::And; commit();
+        } else if (action == "toggle-logic-condition-negated") { rule->conditions[index].negated = !rule->conditions[index].negated; commit();
+        } else { const std::size_t to = action == "move-logic-condition-up" ? (index ? index - 1 : 0) : std::min(index + 1, rule->conditions.size() - 1);
+            if (to != index) { LogicConditionClause moved = std::move(rule->conditions[index]); rule->conditions.erase(rule->conditions.begin() + static_cast<std::ptrdiff_t>(index)); rule->conditions.insert(rule->conditions.begin() + static_cast<std::ptrdiff_t>(to), std::move(moved)); rule->conditions.front().joinBefore = LogicConditionJoin::And; commit(); }}
+        return true;
+    }
+    if (action == "commit-logic-property" || action == "pick-logic-property"
+        || action == "pick-logic-key-binding" || action == "set-logic-property-bool"
+        || action == "commit-logic-property-component") {
+        const auto address = parsePropertyAddress(arg);
+        if (!address) return true;
+        LogicRuleDef* rule = ruleById(address->ruleId);
+        if (!rule) return true;
+        LogicBlockDef* block = nullptr;
+        if (address->target == LogicPropertyTarget::Trigger) block = &rule->trigger;
+        else if (address->target == LogicPropertyTarget::Condition && address->index < rule->conditions.size()) block = &rule->conditions[address->index].block;
+        else if (address->target == LogicPropertyTarget::Action) { if (LogicActionDef* found = actionById(*rule, address->actionId)) block = &found->block; }
+        if (!block) return true;
+        LogicPropertyDef* property = nullptr;
+        for (LogicPropertyDef& candidate : block->properties) if (candidate.key == address->key) property = &candidate;
+        const auto* descriptor = Logic::findDescriptor(block->typeId);
+        if (!property || !descriptor) return true;
+        const auto propertyDescriptor = std::find_if(
+            descriptor->properties.begin(), descriptor->properties.end(),
+            [&](const Logic::LogicPropertyDescriptor& candidate) {
+                return candidate.key == address->key;
+            });
+        if (propertyDescriptor == descriptor->properties.end()) return true;
+        if (action == "commit-logic-property-component") {
+            if (propertyDescriptor->valueKind != Logic::LogicValueKind::Vec2)
+                return true;
+            LogicVec2Value next = LogicVec2Value::literal(0.0, 0.0);
+            if (const auto* current = std::get_if<LogicVec2Value>(&property->value))
+                next = *current;
+            const auto parsed = parseNumberField(value);
+            if (!parsed) return true;
+            if (address->component == "x")
+                next.x = NumberExpression::literal(*parsed);
+            else if (address->component == "y")
+                next.y = NumberExpression::literal(*parsed);
+            else
+                return true;
+            property->value = next;
+            commit();
+            return true;
+        }
+        switch (propertyDescriptor->valueKind) {
+        case Logic::LogicValueKind::Bool: property->value = value == "true" || value == "1"; break;
+        case Logic::LogicValueKind::Integer: { char* end = nullptr; const long long parsed = std::strtoll(value.c_str(), &end, 10); if (!end || *end) return true; property->value = static_cast<int64_t>(parsed); break; }
+        case Logic::LogicValueKind::Number: { const auto parsed = parseNumberField(value); if (!parsed) return true; property->value = NumberExpression::literal(*parsed); break; }
+        case Logic::LogicValueKind::String: property->value = LogicStringValue{value}; break;
+        case Logic::LogicValueKind::Asset: property->value = LogicAssetReference{value}; break;
+        case Logic::LogicValueKind::Variable: property->value = LogicVariableReference{value}; break;
+        case Logic::LogicValueKind::Key: { const auto key = Logic::logicKeyFromName(value); if (!key) return true; property->value = *key; break; }
+        default: return true;
+        }
+        commit(); return true;
+    }
+    return action.rfind("logic-", 0) == 0;
+}
+
 bool LogicBoardEditorController::handleAction(
     const std::string& action, const std::string& arg, const std::string& value,
     const WorkspaceSwitchPreparation& prepareWorkspaceSwitch) {
@@ -218,11 +418,15 @@ bool LogicBoardEditorController::handleAction(
         const SceneInstanceDef* selected = coordinator_.document().findInstanceInScene(
             coordinator_.state().activeSceneId, coordinator_.selection().primaryEntity);
         if (selected) coordinator_.apply(OpenLogicBoardIntent{selected->objectTypeId});
-        else coordinator_.apply(SwitchCenterWorkspaceIntent{CenterWorkspaceMode::Logic});
+        else coordinator_.apply(OpenSceneLogicBoardIntent{coordinator_.state().activeSceneId});
         return true;
     }
     if (action == "select-logic-object-type") {
         if (!value.empty()) coordinator_.apply(OpenLogicBoardIntent{value});
+        return true;
+    }
+    if (action == "select-logic-scene") {
+        if (!value.empty()) coordinator_.apply(OpenSceneLogicBoardIntent{value});
         return true;
     }
     if (action == "logic-tab-rules" || action == "logic-tab-lua") {
@@ -362,6 +566,8 @@ bool LogicBoardEditorController::handleAction(
     if (action == "pick-logic-key-binding") panel_.clearKeyBindingEditor();
 
     const auto& view = coordinator_.state().logicBoardEditor;
+    if (view.sceneId && coordinator_.document().hasScene(*view.sceneId))
+        return handleSceneLogicAction(action, arg, value);
     if (!view.objectTypeId || !coordinator_.document().hasObjectType(*view.objectTypeId))
         return action.rfind("logic-", 0) == 0 || action == "pick-logic-key-binding";
     const ObjectTypeId objectTypeId = *view.objectTypeId;

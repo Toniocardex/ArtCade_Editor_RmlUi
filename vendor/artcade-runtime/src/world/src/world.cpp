@@ -118,9 +118,15 @@ World::World(Modules::RuntimeEntityGateway& gateway,
     // entity. EnTT recycles ids, so without this a fresh entity can inherit
     // previous gameplay timers and input state.
     entityGateway_.setEntityDestroyHandler([this](EntityId id) {
+        const bool explicitGameplayDestroy = pendingGameplayDestroyIds_.erase(id) != 0;
+        if (explicitGameplayDestroy) {
+            destroyingEntityIds_.insert(id);
+            if (entityWillDestroyHandler_) entityWillDestroyHandler_(id);
+        }
         forgetEntity(id);
         variables_.destroyEntity(id);
         if (entityDestroyedHandler_) entityDestroyedHandler_(id);
+        destroyingEntityIds_.erase(id);
     });
     entityGateway_.setEntityCreatedHandler([this](EntityId id, const EntityDef& def) {
         variables_.createEntity(id, def.localVariables, def.localVariableOverrides);
@@ -142,6 +148,10 @@ void World::setSpriteAnimator(Modules::SpriteAnimator* animator) {
     spriteAnimator_ = animator;
 }
 
+void World::setEntityWillDestroyHandler(std::function<void(EntityId)> handler) {
+    entityWillDestroyHandler_ = std::move(handler);
+}
+
 void World::setEntityDestroyedHandler(std::function<void(EntityId)> handler) {
     entityDestroyedHandler_ = std::move(handler);
 }
@@ -150,6 +160,8 @@ void World::clearGameplayRuntimeState() {
     platformerRt_.clear();
     topDownRt_.clear();
     controlIntents_.clear();
+    pendingGameplayDestroyIds_.clear();
+    destroyingEntityIds_.clear();
     collisionEvents_.clear();
     useAutomaticCameraTarget();
 }
@@ -212,6 +224,7 @@ void World::shutdown() {
     entityGateway_.setEntityDestroyHandler(nullptr);
     entityGateway_.setEntityCreatedHandler(nullptr);
     entityGateway_.setPhysicsTopologyHandler(nullptr);
+    entityWillDestroyHandler_ = {};
     entityDestroyedHandler_ = {};
 
     variables_.clear();
@@ -234,6 +247,8 @@ bool World::isObjectType(EntityId id, const ObjectTypeId& expected) const {
 
 bool World::requestDestroy(EntityId id) {
     if (!isActiveEntity(id)) return false;
+    if (pendingGameplayDestroyIds_.count(id) || destroyingEntityIds_.count(id)) return true;
+    pendingGameplayDestroyIds_.insert(id);
     entityGateway_.queueDestroy(id);
     return true;
 }

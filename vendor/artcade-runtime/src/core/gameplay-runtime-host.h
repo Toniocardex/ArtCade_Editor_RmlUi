@@ -106,6 +106,10 @@ public:
      */
     virtual EntityId spawnObjectType(EntityId owner, const ObjectTypeId& objectTypeId,
                                      float x, float y) = 0;
+    /** Scene-scoped absolute spawn. Scene Logic has no entity owner. */
+    virtual EntityId spawnObjectTypeInActiveScene(const ObjectTypeId&, float, float) {
+        return INVALID_ENTITY;
+    }
     /**
      * Requests a restart of the active scene (authored layout restored, On Start
      * re-dispatched). Deferred: implementations must apply it at a safe point

@@ -209,6 +209,8 @@ public:
     bool isKeyDown(LogicKey key) override;
     EntityId spawnObjectType(EntityId owner, const ObjectTypeId& objectTypeId,
                              float x, float y) override;
+    EntityId spawnObjectTypeInActiveScene(const ObjectTypeId& objectTypeId,
+                                          float x, float y) override;
     bool requestSceneRestart() override;
     bool requestSceneGoTo(const SceneId& sceneId) override;
     bool cameraShake(float intensity, float durationSeconds) override;
@@ -551,7 +553,10 @@ private:
     // host bookkeeping (same rule that already moved
     // activeGameplayCollisionPairs_ here in RU-02c).
     std::unordered_map<EntityId, Logic::ScopeToken> logicScopes_;
+    std::optional<Logic::ScopeToken> sceneLogicScope_;
+    bool sceneStartDispatching_ = false;
     std::unordered_set<ObjectTypeId> logicObjectTypes_;
+    std::unordered_set<SceneId> logicSceneIds_;
     std::unordered_map<AssetId, Scripts::ScriptProgram> scriptPrograms_;
     std::unordered_map<ObjectTypeId, std::vector<ScriptAttachmentDef>> scriptAttachments_;
     // Derived active-scene presentation only. It is rebuilt at scene/world

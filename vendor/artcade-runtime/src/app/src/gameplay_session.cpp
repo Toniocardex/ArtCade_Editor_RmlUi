@@ -197,7 +197,9 @@ bool RuntimeLogicHostAdapter::setAnimationPlaybackSpeed(EntityId owner, float sp
 }
 bool RuntimeLogicHostAdapter::playSound(
     EntityId owner, const AssetId& audioAssetId, float volume) {
-    return world_ && world_->isActiveEntity(owner)
+    // Sound is a scene/global effect. Entity Logic keeps its current call
+    // shape, while Scene Logic deliberately has no entity owner.
+    return world_ && (owner == INVALID_ENTITY || world_->isActiveEntity(owner))
         && audio_.playResolvedAsset(audioAssetId, volume);
 }
 bool RuntimeLogicHostAdapter::setStateNumber(const GameVariableId& id, double value) {
@@ -253,6 +255,21 @@ EntityId RuntimeLogicHostAdapter::spawnObjectType(
     const EntityId spawned = gateway_.spawnFromClass(objectTypeId, x, y);
     if (spawned == INVALID_ENTITY) return INVALID_ENTITY;
     // Installer must succeed when present; otherwise destroy the orphan and fail.
+    if (spawnInstaller_ && !spawnInstaller_(spawned)) {
+        gateway_.destroy(spawned);
+        return INVALID_ENTITY;
+    }
+    return spawned;
+}
+
+EntityId RuntimeLogicHostAdapter::spawnObjectTypeInActiveScene(
+    const ObjectTypeId& objectTypeId, float x, float y) {
+    if (!world_ || objectTypeId.empty() || !std::isfinite(x) || !std::isfinite(y)
+        || !gateway_.activeScene()) {
+        return INVALID_ENTITY;
+    }
+    const EntityId spawned = gateway_.spawnFromClass(objectTypeId, x, y);
+    if (spawned == INVALID_ENTITY) return INVALID_ENTITY;
     if (spawnInstaller_ && !spawnInstaller_(spawned)) {
         gateway_.destroy(spawned);
         return INVALID_ENTITY;
@@ -395,6 +412,9 @@ bool GameplaySession::initialize(PhysicsMode physicsMode,
     // and sheet binding run on the gateway, which keeps its own animator
     // pointer (World's copy is only for playAnimationClip / stop helpers).
     entityGateway_->setSpriteAnimator(spriteAnimator_.get());
+    world_->setEntityWillDestroyHandler([this](EntityId id) {
+        if (logicRuntime_) logicRuntime_->dispatchDestroy(id);
+    });
     world_->setEntityDestroyedHandler([this](EntityId id) {
         const auto it = logicScopes_.find(id);
         if (it != logicScopes_.end()) {
@@ -535,8 +555,12 @@ bool GameplaySession::loadLogicPrograms(
     const std::vector<Logic::LogicProgram>& programs, std::string* error) {
     if (!logicRuntime_ || !logicRuntime_->loadPrograms(programs, error)) return false;
     logicObjectTypes_.clear();
+    logicSceneIds_.clear();
     for (const Logic::LogicProgram& program : programs) {
-        logicObjectTypes_.insert(program.objectTypeId);
+        if (program.ownerKind == Logic::LogicBoardOwnerKind::Scene)
+            logicSceneIds_.insert(program.sceneId);
+        else
+            logicObjectTypes_.insert(program.objectTypeId);
     }
     return true;
 }
@@ -573,7 +597,18 @@ bool GameplaySession::installLogicScopesForActiveScene() {
         logicRuntime_->cancelScope(token);
     }
     logicScopes_.clear();
+    if (sceneLogicScope_) logicRuntime_->cancelScope(*sceneLogicScope_);
+    sceneLogicScope_.reset();
     std::string error;
+    if (const SceneDef* scene = entityGateway_->activeScene(); scene
+        && logicSceneIds_.count(scene->id) != 0) {
+        const auto token = logicRuntime_->installScene(scene->id, &error);
+        if (!token) {
+            std::cerr << "[App] Could not install Scene Logic scope: " << error << "\n";
+            return false;
+        }
+        sceneLogicScope_ = *token;
+    }
     for (EntityId id : entityGateway_->activeSceneIds()) {
         const ObjectTypeId typeId = entityGateway_->className(id);
         if (logicObjectTypes_.find(typeId) == logicObjectTypes_.end()) continue;
@@ -602,8 +637,9 @@ bool GameplaySession::installLogicScopeForEntity(EntityId entityId) {
         return false;
     }
     logicScopes_.emplace(entityId, *token);
-    // Owner-scoped Start only - never re-fire On Start for the whole scene.
-    logicRuntime_->dispatchStartForOwner(entityId);
+    // A Scene Start spawn receives Instance Start only after the enclosing
+    // Scene callback has returned; normal mid-game spawns still start now.
+    if (!sceneStartDispatching_) logicRuntime_->dispatchStartForOwner(entityId);
     return true;
 }
 
@@ -664,6 +700,10 @@ bool GameplaySession::startPreparedActiveSceneGameplay() {
 
     if (logicRuntime_) {
         logicRuntime_->beginFrame();
+        sceneStartDispatching_ = true;
+        if (const SceneDef* scene = entityGateway_->activeScene())
+            logicRuntime_->dispatchSceneStart(scene->id);
+        sceneStartDispatching_ = false;
         logicRuntime_->dispatchStart();
     }
     if (scriptRuntime_) {
@@ -680,8 +720,10 @@ void GameplaySession::clearPreparedGameplayScopes() {
             (void)entityId;
             logicRuntime_->cancelScope(token);
         }
+        if (sceneLogicScope_) logicRuntime_->cancelScope(*sceneLogicScope_);
     }
     logicScopes_.clear();
+    sceneLogicScope_.reset();
     clearScriptRuntime();
 }
 
@@ -775,7 +817,9 @@ void GameplaySession::shutdownLogicModules() {
     // right after Application::shutdownModules()'s shutdownLogicModules() call
     // - same relative position, now internal since the maps moved in too.
     logicScopes_.clear();
+    sceneLogicScope_.reset();
     logicObjectTypes_.clear();
+    logicSceneIds_.clear();
     // ADR-0039 §8: application shutdown is one of the binding reset
     // boundaries for the activation state machine.
     activationState_ = GameplayActivationState::Empty;

@@ -2,6 +2,7 @@
 #include "../../runtime-entity-gateway/include/runtime-entity-gateway.h"
 #include "../../physics/include/physics.h"
 #include "../../asset-system/include/asset-loader.h"
+#include "../../../world/include/world.h"
 
 #include <sol/sol.hpp>
 #include <cmath>
@@ -13,6 +14,7 @@ void GameAPI::bindEntityAPI(sol::state& lua) {
     auto* entities = ctx_.entityGateway;
     auto* physics  = ctx_.physics;
     auto* assets   = ctx_.assetLoader;
+    auto* world    = ctx_.world;
 
     // entity.position(id) → x, y
     lua.set_function("entity_position", [entities](EntityId id) -> std::tuple<float, float> {
@@ -57,8 +59,8 @@ void GameAPI::bindEntityAPI(sol::state& lua) {
 
     // entity.destroy(id)
     // Cleans up the physics body (if any) before removing the entity.
-    lua.set_function("entity_destroy", [entities](EntityId id) {
-        entities->queueDestroy(id);
+    lua.set_function("entity_destroy", [world](EntityId id) {
+        return world && world->requestDestroy(id);
     });
 
     // entity.setRotation(id, radians)
@@ -186,8 +188,8 @@ void GameAPI::bindEntityAPI(sol::state& lua) {
             return entities->spawnFromClass(cls, x, y);
         });
 
-    lua.set_function("object_destroy", [entities](EntityId id) {
-        entities->queueDestroy(id);
+    lua.set_function("object_destroy", [world](EntityId id) {
+        return world && world->requestDestroy(id);
     });
 
     // Object.findByTag(tag) → array of EntityIds

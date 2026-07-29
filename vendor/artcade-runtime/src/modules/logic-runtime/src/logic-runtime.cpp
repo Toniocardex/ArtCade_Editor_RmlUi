@@ -40,6 +40,8 @@ std::string callbackError(const std::string& ruleId, EntityId owner, const std::
 const std::unordered_set<std::string>& supportedFeatures() {
     static const std::unordered_set<std::string> value{
         "event.start",
+        "scene.on_start",
+        "lifecycle.on_destroy",
         "event.on_update",
         "event.every_seconds",
         "input.key_pressed",
@@ -89,6 +91,8 @@ const std::unordered_set<std::string>& supportedFeatures() {
 struct LogicRuntime::Impl {
     enum class EventKind {
         Start,
+        SceneStart,
+        Destroy,
         Update,
         EverySeconds,
         KeyPressed,
@@ -108,7 +112,9 @@ struct LogicRuntime::Impl {
 
     struct Scope {
         ScopeToken token = 0;
+        LogicBoardOwnerKind ownerKind = LogicBoardOwnerKind::ObjectType;
         ObjectTypeId objectTypeId;
+        SceneId sceneId;
         EntityId owner = INVALID_ENTITY;
         bool active = true;
         // Lua closures retain `context`; keep the referenced C++ object at a
@@ -263,8 +269,22 @@ struct LogicRuntime::Impl {
         EntityId owner = INVALID_ENTITY;
         SelfProxy self;
 
+        SelfProxy& selfProxy() {
+            if (owner == INVALID_ENTITY)
+                throw sol::error("Scene Logic has no entity Self");
+            return self;
+        }
+
         void onStart(const std::string& ruleId, sol::protected_function callback) {
             impl->addSubscription(scope, owner, ruleId, EventKind::Start,
+                                  LogicKey::Space, std::move(callback));
+        }
+        void onSceneStart(const std::string& ruleId, sol::protected_function callback) {
+            impl->addSubscription(scope, owner, ruleId, EventKind::SceneStart,
+                                  LogicKey::Space, std::move(callback));
+        }
+        void onDestroy(const std::string& ruleId, sol::protected_function callback) {
+            impl->addSubscription(scope, owner, ruleId, EventKind::Destroy,
                                   LogicKey::Space, std::move(callback));
         }
         void onUpdate(const std::string& ruleId, sol::protected_function callback) {
@@ -320,6 +340,16 @@ struct LogicRuntime::Impl {
             const float remaining = seconds > 0.0 ? static_cast<float>(seconds) : 0.f;
             impl->delayedCallbacks.push_back(DelayedCallback{
                 impl->nextDelayed++, scope, owner, remaining, std::move(callback), true});
+        }
+        void spawnObject(const std::string& objectTypeId, float x, float y) {
+            if (!impl || impl->host.spawnObjectTypeInActiveScene(objectTypeId, x, y)
+                    == INVALID_ENTITY) {
+                throw sol::error("spawn_object failed");
+            }
+        }
+        void playSound(const std::string& audioAssetId, float volume) {
+            if (!impl || !impl->host.playSound(owner, audioAssetId, volume))
+                throw sol::error("play_sound failed");
         }
         void stateSetNumber(const std::string& key, double value) {
             if (!impl || !impl->host.setStateNumber(key, value))
@@ -465,6 +495,7 @@ struct LogicRuntime::Impl {
     LogicRuntimeLimits limits;
     ArtCade::Modules::LuaHost lua;
     std::unordered_map<ObjectTypeId, Factory> factories;
+    std::unordered_map<SceneId, Factory> sceneFactories;
     std::vector<Scope> scopes;
     std::vector<Subscription> subscriptions;
     std::vector<DelayedCallback> delayedCallbacks;
@@ -582,12 +613,13 @@ struct LogicRuntime::Impl {
 
     void dispatch(EventKind kind, LogicKey key, EntityId owner = INVALID_ENTITY,
                   std::optional<EntityId> other = std::nullopt,
-                  bool allowNested = false) {
+                  bool allowNested = false, const SceneId& sceneId = {}) {
         if (!enabled || (!allowNested && dispatchDepth != 0)) return;
         const bool matchOwner = kind == EventKind::CollisionEnter
             || kind == EventKind::CollisionExit
             || kind == EventKind::AnimationStarted
             || kind == EventKind::AnimationFinished
+            || kind == EventKind::Destroy
             || (kind == EventKind::Start && owner != INVALID_ENTITY);
         const bool matchKey = kind == EventKind::KeyPressed
             || kind == EventKind::KeyReleased
@@ -600,6 +632,7 @@ struct LogicRuntime::Impl {
                 [&](const Scope& value) { return value.token == sub.scope; });
             if (it != scopes.end()) scope = &*it;
             if (!sub.active || !scope || !scope->active || sub.kind != kind) continue;
+            if (kind == EventKind::SceneStart && scope->sceneId != sceneId) continue;
             if (matchOwner && sub.owner != owner) continue;
             if (matchKey && sub.key != key) continue;
             snapshot.push_back(sub.token);
@@ -724,8 +757,10 @@ bool LogicRuntime::initialize(std::string* error) {
             "play_sound", &Impl::SelfProxy::playSound);
         lua.new_usertype<Impl::ContextProxy>(
             "LogicContext", sol::no_constructor,
-            "self", &Impl::ContextProxy::self,
+            "self", sol::property(&Impl::ContextProxy::selfProxy),
             "on_start", &Impl::ContextProxy::onStart,
+            "on_scene_start", &Impl::ContextProxy::onSceneStart,
+            "on_destroy", &Impl::ContextProxy::onDestroy,
             "on_update", &Impl::ContextProxy::onUpdate,
             "on_every_seconds", &Impl::ContextProxy::onEverySeconds,
             "on_animation_started", &Impl::ContextProxy::onAnimationStarted,
@@ -736,6 +771,8 @@ bool LogicRuntime::initialize(std::string* error) {
             "on_collision_enter", &Impl::ContextProxy::onCollisionEnter,
             "on_collision_exit", &Impl::ContextProxy::onCollisionExit,
             "wait", &Impl::ContextProxy::wait,
+            "spawn_object", &Impl::ContextProxy::spawnObject,
+            "play_sound", &Impl::ContextProxy::playSound,
             "state_set_number", &Impl::ContextProxy::stateSetNumber,
             "state_add_number", &Impl::ContextProxy::stateAddNumber,
             "state_toggle_boolean", &Impl::ContextProxy::stateToggleBoolean,
@@ -825,6 +862,17 @@ bool LogicRuntime::initialize(std::string* error) {
                         Impl::Factory{boardId, std::move(factory)}).second)
                     throw sol::error("Duplicate Logic Board program for Object Type");
             });
+        logic.set_function("define_scene_board",
+            [impl](const std::string& boardId, const std::string& sceneId,
+                   sol::protected_function factory) {
+                if (!impl->apiVersionAccepted)
+                    throw sol::error("Logic API version was not declared");
+                if (boardId.empty() || sceneId.empty() || !factory.valid())
+                    throw sol::error("Invalid Scene Logic Board program definition");
+                if (!impl->sceneFactories.emplace(sceneId,
+                        Impl::Factory{boardId, std::move(factory)}).second)
+                    throw sol::error("Duplicate Scene Logic Board program");
+            });
     });
     if (!impl_->lua.init()) {
         if (error) *error = "Cannot initialize the Logic Board Lua VM";
@@ -836,7 +884,7 @@ bool LogicRuntime::initialize(std::string* error) {
 
 bool LogicRuntime::loadPrograms(const std::vector<LogicProgram>& programs, std::string* error) {
     if (!initialize(error)) return false;
-    if (!impl_->factories.empty()) {
+    if (!impl_->factories.empty() || !impl_->sceneFactories.empty()) {
         if (error) *error = "Logic programs were already loaded";
         return false;
     }
@@ -856,8 +904,12 @@ bool LogicRuntime::loadPrograms(const std::vector<LogicProgram>& programs, std::
             impl_->enabled = false;
             return false;
         }
-        const auto it = impl_->factories.find(program.objectTypeId);
-        if (it == impl_->factories.end() || it->second.boardId != program.boardId) {
+        const auto& factories = program.ownerKind == LogicBoardOwnerKind::Scene
+            ? impl_->sceneFactories : impl_->factories;
+        const std::string& ownerId = program.ownerKind == LogicBoardOwnerKind::Scene
+            ? program.sceneId : program.objectTypeId;
+        const auto it = factories.find(ownerId);
+        if (it == factories.end() || it->second.boardId != program.boardId) {
             if (error) *error = "Generated Logic program metadata does not match its board";
             impl_->enabled = false;
             return false;
@@ -885,10 +937,46 @@ std::optional<ScopeToken> LogicRuntime::install(const ObjectTypeId& objectTypeId
         ^ static_cast<uint32_t>(token) * 0x85EBCA6Bu
         ^ impl_->sessionSeed;
     if (seed == 0) seed = 1u;
-    impl_->scopes.push_back(Impl::Scope{token, objectTypeId, owner, true, nullptr, {}, seed});
+    impl_->scopes.push_back(Impl::Scope{token, LogicBoardOwnerKind::ObjectType, objectTypeId,
+                                         {}, owner, true, nullptr, {}, seed});
     Impl::Scope* scope = impl_->findScope(token);
     scope->context = std::make_unique<Impl::ContextProxy>(
         Impl::ContextProxy{impl_.get(), token, owner, {impl_.get(), owner}});
+    lua_State* state = factory->second.function.lua_state();
+    g_instructionBudget = impl_->limits.maxInstructionsPerCallback;
+    lua_sethook(state, instructionHook, LUA_MASKCOUNT, 1000);
+    sol::protected_function_result result = factory->second.function(*scope->context);
+    lua_sethook(state, nullptr, 0, 0);
+    if (!result.valid()) {
+        sol::error err = result;
+        cancelScope(token);
+        if (error) *error = err.what();
+        return std::nullopt;
+    }
+    return token;
+}
+
+std::optional<ScopeToken> LogicRuntime::installScene(const SceneId& sceneId,
+                                                      std::string* error) {
+    if (!impl_->enabled || sceneId.empty()) {
+        if (error) *error = "Cannot install an inactive Scene Logic scope";
+        return std::nullopt;
+    }
+    const auto factory = impl_->sceneFactories.find(sceneId);
+    if (factory == impl_->sceneFactories.end()) return std::nullopt;
+    if (impl_->scopes.size() >= impl_->limits.maxScopes) {
+        if (error) *error = "Logic scope limit exceeded";
+        return std::nullopt;
+    }
+    const ScopeToken token = impl_->nextScope++;
+    uint32_t seed = 0xB5297A4Du ^ static_cast<uint32_t>(token) * 0x85EBCA6Bu
+        ^ impl_->sessionSeed;
+    if (seed == 0) seed = 1u;
+    impl_->scopes.push_back(Impl::Scope{token, LogicBoardOwnerKind::Scene, {}, sceneId,
+                                         INVALID_ENTITY, true, nullptr, {}, seed});
+    Impl::Scope* scope = impl_->findScope(token);
+    scope->context = std::make_unique<Impl::ContextProxy>(
+        Impl::ContextProxy{impl_.get(), token, INVALID_ENTITY, {impl_.get(), INVALID_ENTITY}});
     lua_State* state = factory->second.function.lua_state();
     g_instructionBudget = impl_->limits.maxInstructionsPerCallback;
     lua_sethook(state, instructionHook, LUA_MASKCOUNT, 1000);
@@ -921,6 +1009,15 @@ void LogicRuntime::beginFrame() {
 }
 
 void LogicRuntime::dispatchStart() { impl_->dispatch(Impl::EventKind::Start, LogicKey::Space); }
+void LogicRuntime::dispatchSceneStart(const SceneId& sceneId) {
+    if (sceneId.empty()) return;
+    impl_->dispatch(Impl::EventKind::SceneStart, LogicKey::Space, INVALID_ENTITY,
+                    std::nullopt, false, sceneId);
+}
+void LogicRuntime::dispatchDestroy(EntityId owner) {
+    if (owner == INVALID_ENTITY) return;
+    impl_->dispatch(Impl::EventKind::Destroy, LogicKey::Space, owner);
+}
 void LogicRuntime::dispatchStartForOwner(EntityId owner) {
     if (owner == INVALID_ENTITY) return;
     // Nested OK: spawn from a Logic action must still run On Start for the
@@ -964,6 +1061,7 @@ void LogicRuntime::shutdown() noexcept {
     impl_->subscriptions.clear();
     impl_->delayedCallbacks.clear();
     impl_->factories.clear();
+    impl_->sceneFactories.clear();
     impl_->scopes.clear();
     impl_->diagnosticLog.clear();
     impl_->expressionDiagnosticKeys.clear();

@@ -40,12 +40,14 @@ void read_scene_layer_stack(const nlohmann::json& sceneJson, SceneDef& out);
  * Parses a single scene object (array entry or scenes-map value).
  * Identity defaults to @p fallbackId when id/name are omitted.
  */
-void read_scene_def(const nlohmann::json& sceneJson,
+bool read_scene_def(const nlohmann::json& sceneJson,
                     const SceneId& fallbackId,
-                    SceneDef& out);
+                    SceneDef& out,
+                    std::string* error = nullptr);
 
 /** Parses scenes array or id-keyed object map. */
-void read_scenes_map(const nlohmann::json& doc,
-                     std::unordered_map<SceneId, SceneDef>& out);
+bool read_scenes_map(const nlohmann::json& doc,
+                     std::unordered_map<SceneId, SceneDef>& out,
+                     std::string* error = nullptr);
 
 } // namespace ArtCade::ProjectJson

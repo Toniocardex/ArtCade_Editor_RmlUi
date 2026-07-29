@@ -201,6 +201,7 @@ public:
     EditorOperationResult apply(const SelectSceneIntent& intent);
     EditorOperationResult apply(const SwitchCenterWorkspaceIntent& intent);
     EditorOperationResult apply(const OpenLogicBoardIntent& intent);
+    EditorOperationResult apply(const OpenSceneLogicBoardIntent& intent);
     EditorOperationResult apply(const SetLogicBoardTabIntent& intent);
     EditorOperationResult apply(const SetLogicBoardSearchIntent& intent);
     EditorOperationResult apply(const FocusLogicDiagnosticIntent& intent);

@@ -226,7 +226,7 @@ bool AssetLoader::parseProjectJson(const std::string& path, ProjectDoc& out) {
     // inline here only, so the editor would have had to duplicate it.
     if (!ProjectJson::read_object_type_logic_boards(j, out.objectTypes, &out)) return false;
     ProjectJson::read_entities_map(j, out.entities, false);
-    ProjectJson::read_scenes_map(j, out.scenes);
+    if (!ProjectJson::read_scenes_map(j, out.scenes, &validation_error)) return false;
     ProjectJson::read_thumbnails(j, out.thumbnails);
     ProjectJson::read_physics_layers(j, out.physicsLayers);
     ProjectJson::read_collision_profiles(j, out.collisionProfiles);

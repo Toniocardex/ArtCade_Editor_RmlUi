@@ -44,10 +44,15 @@ public:
     bool loadPrograms(const std::vector<LogicProgram>& programs, std::string* error = nullptr);
     std::optional<ScopeToken> install(const ObjectTypeId& objectTypeId, EntityId owner,
                                       std::string* error = nullptr);
+    std::optional<ScopeToken> installScene(const SceneId& sceneId, std::string* error = nullptr);
     bool cancelScope(ScopeToken token);
     /** Resets the aggregate per-frame event budget before input dispatch. */
     void beginFrame();
     void dispatchStart();
+    /** Fires On Scene Start for the installed active-scene scope only. */
+    void dispatchSceneStart(const SceneId& sceneId);
+    /** Fires On Destroy for @p owner before the World tears down that entity. */
+    void dispatchDestroy(EntityId owner);
     /** Fires On Start only for subscriptions owned by @p owner (spawn path). */
     void dispatchStartForOwner(EntityId owner);
     void dispatchKeyPressed(LogicKey key);

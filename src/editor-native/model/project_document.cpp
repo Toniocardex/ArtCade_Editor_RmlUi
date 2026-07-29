@@ -96,6 +96,15 @@ bool ProjectDocument::replaceLogicBoard(const std::string& objectTypeId,
     return true;
 }
 
+bool ProjectDocument::replaceSceneLogicBoard(const SceneId& sceneId,
+                                             std::optional<LogicBoardDef> board) {
+    SceneDef* scene = mutableScene(sceneId);
+    if (!scene) return false;
+    scene->logicBoard = std::move(board);
+    markDirty();
+    return true;
+}
+
 const EntityDef* ProjectDocument::findObjectType(const std::string& id) const {
     const auto it = doc_.objectTypes.find(id);
     return it == doc_.objectTypes.end() ? nullptr : &it->second;

@@ -59,7 +59,7 @@ public:
     // Re-syncs the "compact" responsive class without a full rebuild — cheap
     // enough to call from a per-frame splitter drag callback.
     void syncResponsiveClass();
-    std::string objectTypeMenuEntries() const;
+    std::string targetMenuEntries() const;
     bool handleAction(const std::string& action, const std::string& arg,
                       const std::string& value,
                       const WorkspaceSwitchPreparation& prepareWorkspaceSwitch);
@@ -67,6 +67,8 @@ public:
 private:
     /** ADR-0029: parse @p text and either commit it or show why it failed. */
     void commitExpressionField(const std::string& address, const std::string& text);
+    bool handleSceneLogicAction(const std::string& action, const std::string& arg,
+                                const std::string& value);
 
 public:
     /**

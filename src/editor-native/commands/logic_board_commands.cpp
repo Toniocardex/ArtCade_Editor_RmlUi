@@ -375,6 +375,66 @@ EditorOperationResult AddLogicActionCommand::apply(ProjectDocument& document) {
         std::move(action));
     COMMIT_NEXT_BOARD(next);
 }
+
+CreateSceneLogicBoardCommand::CreateSceneLogicBoardCommand(SceneId id) : sceneId_(std::move(id)) {}
+EditorOperationResult CreateSceneLogicBoardCommand::apply(ProjectDocument& document) {
+    const SceneDef* scene = document.findScene(sceneId_);
+    if (!scene) return EditorOperationResult::failure("Unknown Scene: " + sceneId_);
+    if (scene->logicBoard) return EditorOperationResult::failure("Scene already has a Logic Board");
+    LogicBoardDef board;
+    board.id = "logic:scene:" + sceneId_;
+    LogicRuleDef rule = Logic::makeDefaultRule("rule-1");
+    rule.trigger = Logic::makeDefaultBlock(Logic::kOnSceneStart, Logic::BlockKind::Trigger);
+    // The Object-Type default action targets Self; a Scene board starts with
+    // a valid lifecycle event and no entity-local action.
+    rule.actions.clear();
+    board.rules.push_back(std::move(rule));
+    if (!document.replaceSceneLogicBoard(sceneId_, std::move(board)))
+        return EditorOperationResult::failure("Cannot create Scene Logic Board");
+    return EditorOperationResult::success(EditorInvalidation::LogicBoard);
+}
+EditorOperationResult CreateSceneLogicBoardCommand::undo(ProjectDocument& document) {
+    if (!document.replaceSceneLogicBoard(sceneId_, std::nullopt))
+        return EditorOperationResult::failure("Cannot undo Scene Logic Board creation");
+    return EditorOperationResult::success(EditorInvalidation::LogicBoard);
+}
+
+RemoveSceneLogicBoardCommand::RemoveSceneLogicBoardCommand(SceneId id) : sceneId_(std::move(id)) {}
+EditorOperationResult RemoveSceneLogicBoardCommand::apply(ProjectDocument& document) {
+    const SceneDef* scene = document.findScene(sceneId_);
+    if (!scene || !scene->logicBoard) return EditorOperationResult::failure("Scene has no Logic Board");
+    if (!removed_) removed_ = *scene->logicBoard;
+    if (!document.replaceSceneLogicBoard(sceneId_, std::nullopt))
+        return EditorOperationResult::failure("Cannot remove Scene Logic Board");
+    return EditorOperationResult::success(EditorInvalidation::LogicBoard);
+}
+EditorOperationResult RemoveSceneLogicBoardCommand::undo(ProjectDocument& document) {
+    if (!removed_ || !document.replaceSceneLogicBoard(sceneId_, *removed_))
+        return EditorOperationResult::failure("Cannot undo Scene Logic Board removal");
+    return EditorOperationResult::success(EditorInvalidation::LogicBoard);
+}
+
+ReplaceSceneLogicBoardCommand::ReplaceSceneLogicBoardCommand(SceneId id, LogicBoardDef board)
+    : sceneId_(std::move(id)), board_(std::move(board)) {}
+EditorOperationResult ReplaceSceneLogicBoardCommand::apply(ProjectDocument& document) {
+    const SceneDef* scene = document.findScene(sceneId_);
+    if (!scene || !scene->logicBoard)
+        return EditorOperationResult::failure("Scene has no Logic Board");
+    if (sameBoard(*scene->logicBoard, board_))
+        return EditorOperationResult::success(EditorInvalidation::None);
+    const std::string invalid = Logic::firstLogicErrorMessage(Logic::validateSceneBoard(
+        sceneId_, board_, &document.data(), Logic::LogicValidationPurpose::StructuralCommit));
+    if (!invalid.empty()) return EditorOperationResult::failure(invalid);
+    if (!before_) before_ = *scene->logicBoard;
+    if (!document.replaceSceneLogicBoard(sceneId_, board_))
+        return EditorOperationResult::failure("Cannot update Scene Logic Board");
+    return EditorOperationResult::success(EditorInvalidation::LogicBoard);
+}
+EditorOperationResult ReplaceSceneLogicBoardCommand::undo(ProjectDocument& document) {
+    if (!before_ || !document.replaceSceneLogicBoard(sceneId_, *before_))
+        return EditorOperationResult::failure("Cannot undo Scene Logic Board change");
+    return EditorOperationResult::success(EditorInvalidation::LogicBoard);
+}
 EditorOperationResult AddLogicActionCommand::undo(ProjectDocument& document) { UNDO_BOARD(); }
 
 RemoveLogicActionCommand::RemoveLogicActionCommand(

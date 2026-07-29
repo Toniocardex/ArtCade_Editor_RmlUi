@@ -44,7 +44,7 @@ public:
     // itself is NOT one of these dropdownIds — it lives in the header's
     // always-visible .logic-head, not inside the scrollable rules list, so
     // EditorUi renders it as a floating menu instead (see
-    // objectTypeMenuEntries below) to avoid pushing the board down every
+    // targetMenuEntries below) to avoid pushing the board down every
     // time it opens.
     void toggleDropdown(Rml::ElementDocument* document,
                         const EditorCoordinator& coordinator,
@@ -142,10 +142,10 @@ public:
     void toggleVariablesDrawer(
         Rml::ElementDocument* document, const EditorCoordinator& coordinator);
 
-    // Entries for the floating Object Type menu (one `.drop-entry` per
-    // existing type, the current selection marked), for EditorUi to place
-    // inside its own positioned `.context-menu` element.
-    std::string objectTypeMenuEntries(const EditorCoordinator& coordinator) const;
+    // Entries for the floating Logic Board target menu: the active Scene plus
+    // the stable Object Type list, with the current target marked. EditorUi
+    // places them inside its positioned `.context-menu` element.
+    std::string targetMenuEntries(const EditorCoordinator& coordinator) const;
 
     // Collapse/expand one rule's body (presentation-only, no Command/Undo/
     // dirty effect — mirrors InspectorPanel's toggleSection). Also clears

@@ -1016,7 +1016,7 @@ nlohmann::json sceneToJson(const SceneDef& scene) {
             {"id", layer.id}, {"name", layer.name}, {"locked", layer.locked}});
     }
 
-    return nlohmann::json{
+    nlohmann::json json{
         {"id", scene.id},
         {"name", scene.name},
         {"worldSize", vec2ToJson(scene.worldSize)},
@@ -1027,6 +1027,8 @@ nlohmann::json sceneToJson(const SceneDef& scene) {
         {"defaultLayerId", scene.defaultLayerId},
         {"instances", std::move(instances)},
     };
+    if (scene.logicBoard) json["logicBoard"] = Logic::logicBoardToJson(*scene.logicBoard);
+    return json;
 }
 
 bool empty(const SpriteRendererOverride& delta) {
@@ -1456,7 +1458,9 @@ DeserializeResult deserializeCanonical(const nlohmann::json& root) {
         return DeserializeResult::failure(error);
     }
     ProjectJson::read_entities_map(root, doc.entities, false);
-    ProjectJson::read_scenes_map(root, doc.scenes);
+    if (!ProjectJson::read_scenes_map(root, doc.scenes, &error)) {
+        return DeserializeResult::failure(error);
+    }
     ProjectJson::read_thumbnails(root, doc.thumbnails);
     ProjectJson::read_physics_layers(root, doc.physicsLayers);
     ProjectJson::read_collision_profiles(root, doc.collisionProfiles);
@@ -2316,6 +2320,17 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
                 return DeserializeResult::failure(
                     "Object Type SpriteAnimator playbackSpeed must be positive");
             }
+        }
+    }
+
+    for (const auto& [sceneId, scene] : data.scenes) {
+        if (!scene.logicBoard) continue;
+        const auto diagnostics = Logic::validateSceneBoard(
+            sceneId, *scene.logicBoard, &data,
+            Logic::LogicValidationPurpose::StructuralCommit);
+        if (Logic::hasLogicErrors(diagnostics)) {
+            return DeserializeResult::failure(
+                Logic::firstLogicErrorMessage(diagnostics));
         }
     }
 

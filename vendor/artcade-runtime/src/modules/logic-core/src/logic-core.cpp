@@ -637,7 +637,7 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
             }
             return {};
         }();
-        lua << "      context.self:spawn(\""
+        lua << "      context:spawn_object(\""
             << escapeLua(type ? type->value : std::string{}) << "\", "
             << numberLiteralText(position.x) << ", " << numberLiteralText(position.y) << ")\n";
     } else if (action.typeId == kMoveHorizontal) {
@@ -698,7 +698,7 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
         double volumeValue = 1.0;
         if (literalNumberForCodegen(volume, 1.0, volumeValue, objectTypeId, board, rule, action,
                                     "volume", codegenDiagnostics)) {
-            lua << "      context.self:play_sound(\""
+            lua << "      context:play_sound(\""
                 << escapeLua(assetRef ? assetRef->id : std::string{}) << "\", "
                 << numberLiteralText(volumeValue) << ")\n";
         }
@@ -859,6 +859,15 @@ const std::vector<LogicBlockDescriptor>& registry() {
         {kOnStart, "system", "On Start", "Runs once when Play begins.",
             BlockKind::Trigger, {}, {}, {}, {LogicContextCapability::Self}, "event.start",
             false, 10, {"begin", "startup", "init"}},
+        {kOnSceneStart, "scene", "On Scene Start",
+            "Runs once after the active scene composition and scopes are prepared.",
+            BlockKind::Trigger, {}, {}, {LogicContextCapability::Scene}, {},
+            "scene.on_start", false, 5, {"scene", "level", "begin", "startup"}},
+        {kOnDestroy, "lifecycle", "On Destroy",
+            "Runs once when explicit gameplay destruction of Self is accepted, before teardown.",
+            BlockKind::Trigger, {}, {}, {}, {LogicContextCapability::Self},
+            "lifecycle.on_destroy", false, 10,
+            {"death", "die", "despawn", "removed", "destroyed"}},
         {kEveryFrame, "system", "Every Frame", "Runs once every simulation frame.",
             BlockKind::Trigger, {}, {}, {}, {LogicContextCapability::Self, LogicContextCapability::DeltaTime},
             "event.on_update", true, 20, {"tick", "update", "frame"},
@@ -938,7 +947,7 @@ const std::vector<LogicBlockDescriptor>& registry() {
             BlockKind::Action,
             {{"objectTypeId", LogicValueKind::String, LogicStringValue{}, "Object Type"},
              {"position", LogicValueKind::Vec2, LogicVec2Value{}, "Position"}},
-            {}, {LogicContextCapability::Self}, {}, "entity.spawn", false, 70,
+            {}, {}, {}, "entity.spawn", false, 70,
             {"create", "instantiate"}},
         {kDestroySelf, "entity", "Destroy Self", "Removes Self from the runtime world after event dispatch.",
             BlockKind::Action, {}, {}, {LogicContextCapability::Self}, {}, "entity.destroy", false, 80,
@@ -1043,7 +1052,7 @@ const std::vector<LogicBlockDescriptor>& registry() {
             BlockKind::Action,
             {{"audioAssetId", LogicValueKind::Asset, LogicAssetReference{}, "Sound"},
              {"volume", LogicValueKind::Number, NumberExpression::literal(1.0), "Volume"}},
-            {}, {LogicContextCapability::Self}, {}, "audio.play_sound", false, 10,
+            {}, {}, {}, "audio.play_sound", false, 10,
             {"sfx", "sound", "audio"}},
         {kSceneRestart, "scene", "Restart Scene",
             "Restores the current scene's authored layout and re-runs On Start. "
@@ -1076,7 +1085,7 @@ const std::vector<LogicBlockDescriptor>& registry() {
         {kWait, "flow", "Wait", "Waits, then continues with the following actions.",
             BlockKind::Action,
             {{"seconds", LogicValueKind::Number, NumberExpression::literal(1.0), "Seconds"}},
-            {}, {LogicContextCapability::Self}, {}, "flow.wait", true, 10, {"delay", "pause", "sleep"}},
+            {}, {}, {}, "flow.wait", true, 10, {"delay", "pause", "sleep"}},
         {kStateSet, "state", "Set Number", "Sets a project Number variable.",
             BlockKind::Action,
             {{"key", LogicValueKind::Variable, LogicVariableReference{}, "Variable"},
@@ -1098,7 +1107,7 @@ const std::vector<LogicBlockDescriptor>& registry() {
             {{"key", LogicValueKind::Variable, LogicVariableReference{}, "Variable"},
              {"op", LogicValueKind::String, LogicStringValue{"=="}, "Operator"},
              {"value", LogicValueKind::Number, NumberExpression::literal(0.0), "Value"}},
-            {}, {}, {LogicContextCapability::Self}, "state.compare_number", false, 40,
+            {}, {}, {}, "state.compare_number", false, 40,
             {"variable", "equals", "compare"},
             LogicTriggerActivationKind::Level},
         {kStateCompareBoolean, "state", "Compare Boolean",
@@ -1108,7 +1117,7 @@ const std::vector<LogicBlockDescriptor>& registry() {
             // there is no clause to negate.
             {{"key", LogicValueKind::Variable, LogicVariableReference{}, "Variable"},
              {"expected", LogicValueKind::Bool, true, "Expected"}},
-            {}, {}, {LogicContextCapability::Self}, "state.compare_boolean", false, 42,
+            {}, {}, {}, "state.compare_boolean", false, 42,
             {"variable", "boolean", "equals", "compare"},
             LogicTriggerActivationKind::Level},
         {kStateCompareString, "state", "Compare String",
@@ -1117,7 +1126,7 @@ const std::vector<LogicBlockDescriptor>& registry() {
             {{"key", LogicValueKind::Variable, LogicVariableReference{}, "Variable"},
              {"op", LogicValueKind::String, LogicStringValue{"=="}, "Operator"},
              {"value", LogicValueKind::String, LogicStringValue{}, "Value"}},
-            {}, {}, {LogicContextCapability::Self}, "state.compare_string", false, 44,
+            {}, {}, {}, "state.compare_string", false, 44,
             {"variable", "string", "text", "equals", "compare"},
             LogicTriggerActivationKind::Level},
         {kStateToggle, "state", "Toggle Boolean", "Toggles a project Boolean variable.",
@@ -1306,6 +1315,33 @@ LogicBlockAvailability blockAvailability(const EntityDef& owner,
     return availabilityFor(owner, candidate, trigger);
 }
 
+LogicBlockAvailability sceneBlockAvailability(const LogicBlockDescriptor& candidate,
+                                              const LogicBlockDescriptor* trigger) {
+    if (candidate.typeId == kOnStart || candidate.typeId == kOnDestroy) {
+        return {false, "Requires an entity lifecycle"};
+    }
+    if (!candidate.requiredComponents.empty()) {
+        return {false, "Requires an entity component"};
+    }
+    for (const LogicContextCapability capability : candidate.requiredContext) {
+        if (capability == LogicContextCapability::Self
+            || capability == LogicContextCapability::EventOther
+            || capability == LogicContextCapability::CollisionContact) {
+            return {false, "Requires an entity Self or collision event"};
+        }
+        if (capability == LogicContextCapability::Scene) {
+            if (candidate.typeId != kOnSceneStart || trigger != nullptr)
+                return {false, "Requires a Scene lifecycle event"};
+        } else if (!trigger || !containsCapability(trigger->providedContext, capability)) {
+            return {false, "Requires a trigger that provides the required context"};
+        }
+    }
+    if (candidate.typeId == kOnSceneStart && candidate.kind != BlockKind::Trigger) {
+        return {false, "On Scene Start is available only as a Scene Logic event"};
+    }
+    return {};
+}
+
 LogicBlockDef makeDefaultTrigger() { return makeDefaultBlock(kOnStart, BlockKind::Trigger); }
 
 LogicActionDef makeDefaultAction(LogicActionId id) {
@@ -1463,6 +1499,57 @@ std::vector<LogicDiagnostic> validateBoard(const ObjectTypeId& objectTypeId,
     return out;
 }
 
+std::vector<LogicDiagnostic> validateSceneBoard(const SceneId& sceneId,
+                                                const LogicBoardDef& board,
+                                                const ProjectDoc* project,
+                                                LogicValidationPurpose purpose) {
+    std::vector<LogicDiagnostic> out = validateBoard({}, board, nullptr, project, purpose);
+    const auto reject = [&](const LogicRuleDef& rule, const LogicBlockDef& block,
+                            LogicActionId actionId = {}) {
+        const LogicBlockDescriptor* descriptor = findDescriptor(block.typeId);
+        if (!descriptor || purpose == LogicValidationPurpose::StructuralCommit) return;
+        const bool sceneStart = block.typeId == kOnSceneStart;
+        const bool entityOnly = block.typeId == kOnStart || block.typeId == kOnDestroy
+            || std::find(descriptor->requiredContext.begin(), descriptor->requiredContext.end(),
+                         LogicContextCapability::Self) != descriptor->requiredContext.end()
+            || !descriptor->requiredComponents.empty();
+        if (!sceneStart && entityOnly) {
+            LogicDiagnostic d = makeError({}, board, "LB_SCENE_INCOMPATIBLE_BLOCK",
+                "This block requires an entity Self and cannot be used by Scene Logic",
+                &rule, &block);
+            d.actionId = std::move(actionId);
+            out.push_back(std::move(d));
+        }
+        if (sceneStart && (&block != &rule.trigger || rule.trigger.typeId != kOnSceneStart)) {
+            LogicDiagnostic d = makeError({}, board, "LB_SCENE_START_ONLY_TRIGGER",
+                "On Scene Start is available only as a Scene Logic event", &rule, &block);
+            d.actionId = std::move(actionId);
+            out.push_back(std::move(d));
+        }
+    };
+    for (const LogicRuleDef& rule : board.rules) {
+        reject(rule, rule.trigger);
+        for (const LogicConditionClause& clause : rule.conditions) reject(rule, clause.block);
+        for (const LogicActionDef& action : rule.actions) reject(rule, action.block, action.id);
+        const bool unconditionalRestart = rule.enabled
+            && rule.trigger.typeId == kOnSceneStart && rule.conditions.empty()
+            && std::any_of(rule.actions.begin(), rule.actions.end(),
+                [](const LogicActionDef& action) {
+                    return action.block.typeId == kSceneRestart;
+                });
+        if (unconditionalRestart && purpose != LogicValidationPurpose::StructuralCommit) {
+            LogicDiagnostic diagnostic = makeError(
+                {}, board, "LB_SCENE_RESTART_ON_START_LOOP",
+                "Restart Scene from an unconditional On Scene Start rule repeats forever.",
+                &rule, &rule.trigger);
+            diagnostic.severity = DiagnosticSeverity::Warning;
+            out.push_back(std::move(diagnostic));
+        }
+    }
+    (void)sceneId;
+    return out;
+}
+
 bool hasLogicErrors(const std::vector<LogicDiagnostic>& diagnostics) {
     return std::any_of(diagnostics.begin(), diagnostics.end(),
         [](const LogicDiagnostic& diagnostic) {
@@ -1486,21 +1573,24 @@ bool isLevelConditionTrigger(const LogicBlockTypeId& typeId) {
 }
 } // namespace
 
-LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
-                                const LogicBoardDef& board,
-                                const EntityDef* owner,
-                                const ProjectDoc* project) {
+static LogicCompileResult compileBoardForOwner(const std::string& ownerId,
+                                               const LogicBoardDef& board,
+                                               const EntityDef* owner,
+                                               const ProjectDoc* project,
+                                               LogicBoardOwnerKind ownerKind) {
     LogicCompileResult result;
-    result.diagnostics = validateBoard(
-        objectTypeId, board, owner, project, LogicValidationPurpose::Executable);
+    result.diagnostics = ownerKind == LogicBoardOwnerKind::Scene
+        ? validateSceneBoard(ownerId, board, project, LogicValidationPurpose::Executable)
+        : validateBoard(ownerId, board, owner, project, LogicValidationPurpose::Executable);
     if (!result.ok()) return result;
 
     std::set<std::string> features;
     std::vector<LogicDiagnostic> codegenDiagnostics;
     std::ostringstream lua;
     lua << "logic.require_api_version(" << kLogicApiVersion << ")\n";
-    lua << "logic.define_board(\"" << escapeLua(board.id) << "\", \""
-        << escapeLua(objectTypeId) << "\", function(context)\n";
+    lua << (ownerKind == LogicBoardOwnerKind::Scene ? "logic.define_scene_board(\""
+                                                    : "logic.define_board(\"")
+        << escapeLua(board.id) << "\", \"" << escapeLua(ownerId) << "\", function(context)\n";
     for (const LogicRuleDef& rule : board.rules) {
         if (!rule.enabled) continue;
         const LogicBlockDescriptor* triggerDescriptor = findDescriptor(rule.trigger.typeId);
@@ -1519,13 +1609,17 @@ LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
 
         if (rule.trigger.typeId == kOnStart) {
             lua << "  context:on_start(\"" << escapeLua(rule.id) << "\", function()\n";
+        } else if (rule.trigger.typeId == kOnSceneStart) {
+            lua << "  context:on_scene_start(\"" << escapeLua(rule.id) << "\", function()\n";
+        } else if (rule.trigger.typeId == kOnDestroy) {
+            lua << "  context:on_destroy(\"" << escapeLua(rule.id) << "\", function()\n";
         } else if (rule.trigger.typeId == kEveryFrame || levelGateViaUpdate) {
             lua << "  context:on_update(\"" << escapeLua(rule.id) << "\", function()\n";
             result.requiresTick = true;
         } else if (rule.trigger.typeId == kEverySeconds) {
             const LogicPropertyDef* seconds = findProperty(rule.trigger, "seconds");
             double interval = 1.0;
-            literalNumberForCodegen(seconds, 1.0, interval, objectTypeId, board, rule,
+            literalNumberForCodegen(seconds, 1.0, interval, ownerId, board, rule,
                                     rule.trigger, "seconds", codegenDiagnostics);
             lua << "  context:on_every_seconds(\"" << escapeLua(rule.id) << "\", "
                 << numberLiteralText(interval) << ", function()\n";
@@ -1552,7 +1646,7 @@ LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
             result.requiresTick = true;
         } else {
             result.diagnostics.push_back(makeError(
-                objectTypeId, board, "LB_UNKNOWN_TRIGGER",
+                ownerId, board, "LB_UNKNOWN_TRIGGER",
                 "Unsupported Logic Board trigger: " + rule.trigger.typeId, &rule,
                 &rule.trigger, {}));
             return result;
@@ -1586,7 +1680,7 @@ LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
         if (!sharedConditions.empty())
             sharedEligible = "(" + sharedEligible + ") and (" + sharedConditions + ")";
         lua << "    local _shared_eligible = " << sharedEligible << "\n";
-        emitActions(lua, rule.actions, 0, activationKind, features, objectTypeId,
+        emitActions(lua, rule.actions, 0, activationKind, features, ownerId,
                     board, rule, codegenDiagnostics);
         if (features.count("flow.wait")) result.requiresTick = true;
         lua << "  end)\n";
@@ -1603,13 +1697,28 @@ LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
     }
 
     LogicProgram program;
-    program.objectTypeId = objectTypeId;
+    program.ownerKind = ownerKind;
+    if (ownerKind == LogicBoardOwnerKind::Scene) program.sceneId = ownerId;
+    else program.objectTypeId = ownerId;
     program.boardId = board.id;
     program.source = lua.str();
     program.requiresTick = result.requiresTick;
     program.requiredFeatures.assign(features.begin(), features.end());
     result.programs.push_back(std::move(program));
     return result;
+}
+
+LogicCompileResult compileBoard(const ObjectTypeId& objectTypeId,
+                                const LogicBoardDef& board,
+                                const EntityDef* owner,
+                                const ProjectDoc* project) {
+    return compileBoardForOwner(objectTypeId, board, owner, project,
+                                LogicBoardOwnerKind::ObjectType);
+}
+
+LogicCompileResult compileSceneBoard(const SceneId& sceneId, const LogicBoardDef& board,
+                                     const ProjectDoc* project) {
+    return compileBoardForOwner(sceneId, board, nullptr, project, LogicBoardOwnerKind::Scene);
 }
 
 LogicCompileResult compileProjectLogic(const ProjectDoc& project) {
@@ -1629,6 +1738,23 @@ LogicCompileResult compileProjectLogic(const ProjectDoc& project) {
             blocks += 1 + rule.conditions.size() + rule.actions.size();
         }
         LogicCompileResult one = compileBoard(id, *type.logicBoard, &type, &project);
+        result.programs.insert(result.programs.end(),
+            std::make_move_iterator(one.programs.begin()), std::make_move_iterator(one.programs.end()));
+        result.diagnostics.insert(result.diagnostics.end(),
+            std::make_move_iterator(one.diagnostics.begin()), std::make_move_iterator(one.diagnostics.end()));
+        result.requiresTick = result.requiresTick || one.requiresTick;
+    }
+    std::vector<SceneId> sceneIds;
+    sceneIds.reserve(project.scenes.size());
+    for (const auto& [id, scene] : project.scenes) {
+        if (scene.logicBoard) sceneIds.push_back(id);
+    }
+    std::sort(sceneIds.begin(), sceneIds.end());
+    for (const SceneId& id : sceneIds) {
+        const SceneDef& scene = project.scenes.at(id);
+        for (const LogicRuleDef& rule : scene.logicBoard->rules)
+            blocks += 1 + rule.conditions.size() + rule.actions.size();
+        LogicCompileResult one = compileSceneBoard(id, *scene.logicBoard, &project);
         result.programs.insert(result.programs.end(),
             std::make_move_iterator(one.programs.begin()), std::make_move_iterator(one.programs.end()));
         result.diagnostics.insert(result.diagnostics.end(),

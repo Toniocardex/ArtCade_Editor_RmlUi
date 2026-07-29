@@ -77,6 +77,7 @@ struct Host final : IGameplayRuntimeHost {
     VariableManager& variables;
     std::string actor;                    // "logic" or "script", set by the driver
     std::vector<std::string> callLog;      // "<actor>:<method>:<args>"
+    bool failPlaySound = false;
 
     Host(RuntimeEntityGateway& g, World& w, VariableManager& v)
         : gateway(g), world(w), variables(v) {}
@@ -173,7 +174,7 @@ struct Host final : IGameplayRuntimeHost {
         return world.setAnimationPlaybackSpeed(owner, speed);
     }
     bool playSound(EntityId owner, const AssetId&, float) override {
-        return world.isActiveEntity(owner); // audio device out of scope for this test
+        return !failPlaySound && world.isActiveEntity(owner); // audio device out of scope for this test
     }
     bool setStateNumber(const GameVariableId& id, double value) override {
         return variables.setGlobal(id, value).accepted();
@@ -374,6 +375,94 @@ void testSpawnInstallsScopeAndDestroyCancelsIt() {
     // a second cancellation attempt on the same (now-cancelled) token fails,
     // proving the scope was truly deactivated rather than merely counted once.
     CHECK(!logicRuntime.cancelScope(*scope));
+
+    world.shutdown();
+    variables.shutdown();
+    physics.shutdown();
+    gateway.shutdown();
+    scenes.shutdown();
+}
+
+// VERIFIED: ADR-0044 dispatches On Destroy before cleanup, exactly once for
+// idempotent explicit gameplay requests, and always completes teardown.
+void testOnDestroyRunsBeforeTeardownOnce() {
+    SceneManager scenes;
+    RuntimeEntityGateway gateway(scenes);
+    Physics physics;
+    VariableManager variables;
+    CHECK(scenes.init());
+    CHECK(gateway.init());
+    CHECK(physics.init());
+    CHECK(variables.init());
+
+    EntityDef hero;
+    hero.id = 1;
+    hero.className = "Hero";
+    hero.transform.position = {7.f, 11.f};
+    SceneDef scene;
+    scene.id = "main";
+    scene.entityIds = {hero.id};
+    ProjectDoc project;
+    project.activeSceneId = scene.id;
+    project.entities = {{hero.id, hero}};
+    project.scenes = {{scene.id, scene}};
+
+    World world(gateway, physics, variables);
+    Host host(gateway, world, variables);
+    host.failPlaySound = true;
+    LogicRuntime logicRuntime(host, kTestSessionSeed);
+    LogicProgram program;
+    program.objectTypeId = "Hero";
+    program.boardId = "logic:Hero";
+    program.requiredFeatures = {"lifecycle.on_destroy"};
+    program.source =
+        "logic.require_api_version(2)\n"
+        "logic.define_board('logic:Hero', 'Hero', function(context)\n"
+        "  context:on_destroy('death', function()\n"
+        "    context.self:spawn('Explosion', 12, 34)\n"
+        "    context.self:destroy_self()\n"
+        "    context.self:play_sound('boom', 1)\n"
+        "  end)\n"
+        "end)\n";
+    std::string error;
+    CHECK(logicRuntime.loadPrograms({program}, &error));
+
+    int onDestroy = 0;
+    int tornDown = 0;
+    std::optional<ScopeToken> scope;
+    world.setEntityWillDestroyHandler([&](EntityId id) {
+        if (id != hero.id) return;
+        Transform live{};
+        CHECK(gateway.getTransform(id, live));
+        CHECK(live.position.x == 7.f && live.position.y == 11.f);
+        ++onDestroy;
+        logicRuntime.dispatchDestroy(id);
+    });
+    world.setEntityDestroyedHandler([&](EntityId id) {
+        if (id != hero.id) return;
+        CHECK(scope.has_value());
+        CHECK(logicRuntime.cancelScope(*scope));
+        ++tornDown;
+    });
+
+    world.init(project);
+    scope = logicRuntime.install("Hero", hero.id, &error);
+    CHECK(scope.has_value());
+    CHECK(world.requestDestroy(hero.id));
+    CHECK(world.requestDestroy(hero.id));
+    CHECK(world.requestDestroy(hero.id));
+    world.flushEntityQueues();
+
+    CHECK(onDestroy == 1);
+    CHECK(tornDown == 1);
+    CHECK(!gateway.exists(hero.id));
+    CHECK(!logicRuntime.cancelScope(*scope));
+    CHECK(!logicRuntime.diagnostics().empty());
+    const std::vector<EntityId> explosions = gateway.poolByClass("Explosion");
+    CHECK(explosions.size() == 1);
+    Transform explosion{};
+    CHECK(explosions.size() == 1 && gateway.getTransform(explosions[0], explosion));
+    CHECK(explosion.position.x == 12.f && explosion.position.y == 34.f);
 
     world.shutdown();
     variables.shutdown();
@@ -760,6 +849,7 @@ int main() {
     std::cout << "=== Gameplay Tick Order Characterization (RU-02a) ===\n";
     testLogicRunsBeforeScriptWithinOneStep();
     testSpawnInstallsScopeAndDestroyCancelsIt();
+    testOnDestroyRunsBeforeTeardownOnce();
     testScriptCancelOwnerStopsDispatch();
     testAnimationEventsDrainedOnce();
     testRealGameplaySessionDispatchInputThenTick();

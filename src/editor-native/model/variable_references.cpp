@@ -42,6 +42,17 @@ void forEachBoardBlock(Doc& project,
         (void)unused;
         visitType(type);
     }
+    // Project Variables are also reachable from Scene Logic. Object-scope
+    // callers returned above, because a Scene has no Object Variables.
+    for (auto& [unused, scene] : project.scenes) {
+        (void)unused;
+        if (!scene.logicBoard) continue;
+        for (auto& rule : scene.logicBoard->rules) {
+            fn(rule.trigger);
+            for (auto& clause : rule.conditions) fn(clause.block);
+            for (auto& action : rule.actions) fn(action.block);
+        }
+    }
 }
 
 // Every place a LogicValue can hold an expression: the Number arm and both

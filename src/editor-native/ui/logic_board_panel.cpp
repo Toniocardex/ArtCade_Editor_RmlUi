@@ -119,7 +119,7 @@ std::string categoryLabel(const Logic::LogicCategoryId& categoryId) {
 // appended after, in first-seen registry order — rather than being dropped.
 const std::vector<Logic::LogicCategoryId>& catalogCategoryOrder() {
     static const std::vector<Logic::LogicCategoryId> order{
-        "system", "scene", "camera", "input", "collision", "entity", "platformer",
+        "system", "lifecycle", "scene", "camera", "input", "collision", "entity", "platformer",
         "animation", "audio", "variables", "time", "messages",
     };
     return order;
@@ -129,7 +129,8 @@ std::string catalogEntries(DropdownNavigation& nav,
                            const EntityDef& owner, const Logic::LogicBlockDescriptor* trigger,
                            Logic::BlockKind kind, const std::string& currentTypeId,
                            const std::string& dropdownId, const char* selectAction,
-                           const std::string& selectArg, bool eventCatalog = false) {
+                           const std::string& selectArg, bool eventCatalog = false,
+                           bool sceneMode = false) {
     // Group by category first, then render — Logic::registry() is ordered by
     // declaration, not by category, so a category whose descriptors aren't
     // contiguous there (e.g. "entity" split by "platformer"/"collision"
@@ -162,8 +163,9 @@ std::string catalogEntries(DropdownNavigation& nav,
         for (const Logic::LogicBlockDescriptor* descriptorPtr : byCategory.at(categoryId)) {
             const Logic::LogicBlockDescriptor& descriptor = *descriptorPtr;
             const bool current = descriptor.typeId == currentTypeId;
-            const Logic::LogicBlockAvailability availability =
-                Logic::blockAvailability(owner, descriptor, trigger);
+            const Logic::LogicBlockAvailability availability = sceneMode
+                ? Logic::sceneBlockAvailability(descriptor, trigger)
+                : Logic::blockAvailability(owner, descriptor, trigger);
             // Incompatible entries carry no data-action (same as disabled/
             // locked rows elsewhere), so they are excluded from arrow-key
             // navigation the same way: nothing to commit there.
@@ -390,6 +392,10 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
 
     const LogicBoardEditorState& view = coordinator.state().logicBoardEditor;
     const bool playing = coordinator.isPlaying();
+    const SceneDef* selectedScene = view.sceneId
+        && coordinator.document().hasScene(*view.sceneId)
+        ? coordinator.document().findScene(*view.sceneId) : nullptr;
+    const bool sceneMode = selectedScene != nullptr;
 
     std::vector<ObjectTypeId> typeIds;
     typeIds.reserve(coordinator.document().data().objectTypes.size());
@@ -403,9 +409,10 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     // state leak across two different boards that both happen to have a
     // "rule-1" whenever view.objectTypeId sits at nullopt and the fallback
     // silently resolves to a different type each time.
-    const ObjectTypeId selectedId = view.objectTypeId
+    const ObjectTypeId selectedId = sceneMode ? "scene:" + selectedScene->id
+        : (view.objectTypeId
         && coordinator.document().hasObjectType(*view.objectTypeId)
-        ? *view.objectTypeId : (typeIds.empty() ? ObjectTypeId{} : typeIds.front());
+        ? *view.objectTypeId : (typeIds.empty() ? ObjectTypeId{} : typeIds.front()));
 
     if (renderedObjectTypeId_ == selectedId) {
         // Do not sample a replacement scroll container before its deferred
@@ -446,10 +453,12 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         return count;
     };
 
-    const EntityDef* selectedType = selectedId.empty()
+    const EntityDef* selectedType = sceneMode || selectedId.empty()
         ? nullptr : &coordinator.document().data().objectTypes.at(selectedId);
-    const std::string selectedName = selectedType && !selectedType->name.empty()
-        ? selectedType->name : selectedId;
+    const std::string selectedName = sceneMode
+        ? (selectedScene->name.empty() ? selectedScene->id : selectedScene->name)
+        : (selectedType && !selectedType->name.empty()
+        ? selectedType->name : selectedId);
     const std::size_t sharedCount = selectedId.empty() ? 0 : instanceCountFor(selectedId);
     const SceneDef* activeScene =
         coordinator.document().findScene(coordinator.state().activeSceneId);
@@ -459,13 +468,17 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                            return instance.objectTypeId == selectedId;
                        });
 
-    const bool selectedHasBoard = selectedType && selectedType->logicBoard.has_value();
+    const bool selectedHasBoard = sceneMode ? selectedScene->logicBoard.has_value()
+                                            : selectedType && selectedType->logicBoard.has_value();
     std::string html = "<div class=\"logic-head\"><div class=\"logic-heading\">"
                        "<div class=\"logic-title-row\"><span class=\"logic-title-prefix\">Logic Board"
                        + std::string(selectedName.empty() ? "" : " ·") + "</span>";
-    if (!typeIds.empty()) {
+    // ADR-0047: the picker chooses a board target, not merely an Object Type.
+    // Keep it visible in Scene mode so authors can return to an Object Type
+    // without relying on the unrelated hierarchy selection state.
+    if (activeScene || !typeIds.empty()) {
         // `open` is always false here: EditorUi owns this picker's floating
-        // menu (see objectTypeMenuEntries) and toggles the "open" class on
+        // menu (see targetMenuEntries) and toggles the "open" class on
         // this element directly, since opening/closing it never invalidates
         // the Logic Board (no repaint would exist to reflect it otherwise).
         html += dropdownTriggerMarkup(selectedName, "toggle-logic-dropdown", "object-type",
@@ -493,16 +506,18 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
           + std::string(variablesDrawerOpen_ ? "Hide Project Variables" : "Show Project Variables")
           + "\">Project Variables ("
           + std::to_string(coordinator.document().data().globalVariables.size()) + ")</button>";
-    html += "</div><span class=\"logic-owner\">OBJECT TYPE · ";
-    if (selectedName.empty()) {
+    html += "</div><span class=\"logic-owner\">";
+    if (sceneMode) html += "SCENE · Owns level-wide logic";
+    else html += "OBJECT TYPE · ";
+    if (!sceneMode && selectedName.empty()) {
         html += "No target";
-    } else {
+    } else if (!sceneMode) {
         html += "Shared by " + std::to_string(sharedCount)
              + (sharedCount == 1 ? " instance" : " instances");
     }
     html += "</span></div>"; // .logic-heading
     html += "</div>"; // .logic-head
-    if (selectedType && !hasInstanceInActiveScene) {
+    if (!sceneMode && selectedType && !hasInstanceInActiveScene) {
         // ADR-0031 A2.3: Slice A can author Object Variables only through a
         // selected instance. State that limitation at the Logic Board instead
         // of offering navigation that cannot reach this type in this scene.
@@ -551,25 +566,31 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         syncResponsiveClass(document);
     };
 
-    if (typeIds.empty()) {
+    if (!sceneMode && typeIds.empty()) {
         html += "<div class=\"logic-empty\"><div class=\"logic-empty-title\">No Object Types</div>"
                 "<div class=\"logic-muted\">Create an Object Type before adding gameplay logic.</div></div>";
         render();
         return;
     }
 
-    const EntityDef& objectType = coordinator.document().data().objectTypes.at(selectedId);
-    if (!objectType.logicBoard) {
+    const EntityDef sceneCompatibilityOwner{};
+    const EntityDef& objectType = selectedType ? *selectedType : sceneCompatibilityOwner;
+    const LogicBoardDef* boardPtr = sceneMode ? (selectedScene->logicBoard
+        ? &*selectedScene->logicBoard : nullptr)
+        : (objectType.logicBoard ? &*objectType.logicBoard : nullptr);
+    if (!boardPtr) {
         html += "<div class=\"logic-empty\"><div class=\"logic-empty-title\">No Logic Board</div>"
-                "<div class=\"logic-muted\">This board belongs to the Object Type and applies to every instance.</div>"
-                "<button class=\"logic-btn primary";
+                + std::string(sceneMode
+                    ? "<div class=\"logic-muted\">This board belongs to the Scene and has no entity Self.</div>"
+                    : "<div class=\"logic-muted\">This board belongs to the Object Type and applies to every instance.</div>")
+                + "<button class=\"logic-btn primary";
         if (playing) html += " disabled";
         html += "\" data-action=\"create-logic-board\">Create Logic Board</button></div>";
         render();
         return;
     }
 
-    const LogicBoardDef& board = *objectType.logicBoard;
+    const LogicBoardDef& board = *boardPtr;
     const LogicKeyBindingEditorState keyBinding{
         keyCaptureAddress_, keySearchAddress_, keySearchQuery_};
     const LogicExpressionFieldState expressionField{
@@ -584,8 +605,9 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
     }
 
     if (view.tab == LogicBoardTab::GeneratedLua) {
-        const Logic::LogicCompileResult compiled = Logic::compileBoard(
-            selectedId, board, selectedType, &coordinator.document().data());
+        const Logic::LogicCompileResult compiled = sceneMode
+            ? Logic::compileSceneBoard(selectedScene->id, board, &coordinator.document().data())
+            : Logic::compileBoard(selectedId, board, selectedType, &coordinator.document().data());
         html += "<div id=\"logic-scroll\" class=\"logic-scroll\">";
         for (const Logic::LogicDiagnostic& diagnostic : compiled.diagnostics) {
             if (diagnostic.severity != Logic::DiagnosticSeverity::Error) continue;
@@ -603,9 +625,11 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         return;
     }
 
-    const auto authoringDiagnostics = Logic::validateBoard(
-        selectedId, board, selectedType, &coordinator.document().data(),
-        Logic::LogicValidationPurpose::AuthoringDiagnostics);
+    const auto authoringDiagnostics = sceneMode
+        ? Logic::validateSceneBoard(selectedScene->id, board, &coordinator.document().data(),
+                                    Logic::LogicValidationPurpose::AuthoringDiagnostics)
+        : Logic::validateBoard(selectedId, board, selectedType, &coordinator.document().data(),
+                               Logic::LogicValidationPurpose::AuthoringDiagnostics);
     if (view.focusRuleId) {
         collapsedRuleIds_.erase(*view.focusRuleId);
         pendingRevealRuleId_ = *view.focusRuleId;
@@ -722,7 +746,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
         if (triggerOpen) {
             html += catalogEntries(dropdownNav_, objectType, nullptr, Logic::BlockKind::Trigger,
                                    rule.trigger.typeId, triggerDropdownId,
-                                   "change-logic-trigger", rule.id, /*eventCatalog=*/true);
+                                   "change-logic-trigger", rule.id, /*eventCatalog=*/true, sceneMode);
         }
         html += renderLogicProperties(
             coordinator.document(), selectedType, rule.trigger,
@@ -782,7 +806,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 html += catalogEntries(
                     dropdownNav_, objectType, Logic::findDescriptor(rule.trigger.typeId),
                     Logic::BlockKind::Condition, clause.block.typeId, dropdownId,
-                    "change-logic-condition", arg);
+                    "change-logic-condition", arg, false, sceneMode);
             }
             html += renderLogicProperties(
                 coordinator.document(), selectedType, clause.block,
@@ -804,7 +828,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             html += catalogEntries(
                 dropdownNav_, objectType, Logic::findDescriptor(rule.trigger.typeId),
                 Logic::BlockKind::Condition, {}, addConditionDropdownId,
-                "add-logic-condition-type", rule.id);
+                "add-logic-condition-type", rule.id, false, sceneMode);
         }
         html += "</div>"; // conditions-col
 
@@ -837,7 +861,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
                 html += catalogEntries(dropdownNav_, objectType,
                                        Logic::findDescriptor(rule.trigger.typeId),
                                        Logic::BlockKind::Action, action.typeId, dropdownId,
-                                       "change-logic-action", arg);
+                                       "change-logic-action", arg, false, sceneMode);
             }
             if (action.typeId == Logic::kSetVisible) {
                 bool visible = true;
@@ -1009,7 +1033,7 @@ void LogicBoardPanel::refresh(Rml::ElementDocument* document,
             html += catalogEntries(dropdownNav_, objectType,
                                    Logic::findDescriptor(rule.trigger.typeId),
                                    Logic::BlockKind::Action, {}, addActionDropdownId,
-                                   "add-logic-action-type", rule.id);
+                                   "add-logic-action-type", rule.id, false, sceneMode);
         }
         html += "</div>"; // .logic-col-content
         html += "</div>"; // actions-col
@@ -1322,6 +1346,10 @@ void LogicBoardPanel::toggleVariablesDrawer(
 }
 
 const LogicBoardDef* LogicBoardPanel::currentBoard(const EditorCoordinator& coordinator) const {
+    if (const auto& sceneId = coordinator.state().logicBoardEditor.sceneId) {
+        if (const SceneDef* scene = coordinator.document().findScene(*sceneId))
+            return scene->logicBoard ? &*scene->logicBoard : nullptr;
+    }
     if (renderedObjectTypeId_.empty()
         || !coordinator.document().hasObjectType(renderedObjectTypeId_)) return nullptr;
     const EntityDef& objectType = coordinator.document().data().objectTypes.at(renderedObjectTypeId_);
@@ -1392,7 +1420,7 @@ void LogicBoardPanel::syncResponsiveClass(Rml::ElementDocument* document) const 
     root->SetClass("compact", width > 0.f && width < kCompactWidthThreshold);
 }
 
-std::string LogicBoardPanel::objectTypeMenuEntries(const EditorCoordinator& coordinator) const {
+std::string LogicBoardPanel::targetMenuEntries(const EditorCoordinator& coordinator) const {
     std::vector<ObjectTypeId> typeIds;
     typeIds.reserve(coordinator.document().data().objectTypes.size());
     for (const auto& [id, unused] : coordinator.document().data().objectTypes)
@@ -1403,12 +1431,29 @@ std::string LogicBoardPanel::objectTypeMenuEntries(const EditorCoordinator& coor
     const ObjectTypeId selectedId = view.objectTypeId
         && coordinator.document().hasObjectType(*view.objectTypeId)
         ? *view.objectTypeId : (typeIds.empty() ? ObjectTypeId{} : typeIds.front());
+    const SceneDef* activeScene =
+        coordinator.document().findScene(coordinator.state().activeSceneId);
 
     std::string html;
+    if (activeScene) {
+        const bool isCurrent = view.sceneId && *view.sceneId == activeScene->id;
+        const std::string sceneName = activeScene->name.empty()
+            ? activeScene->id : activeScene->name;
+        html += "<div class=\"logic-target-menu-heading\">Scene</div>";
+        html += "<div class=\"drop-entry logic-target-entry";
+        if (isCurrent) html += " selected";
+        html += "\" data-action=\"select-logic-scene\" data-value=\""
+             + escapeRml(activeScene->id) + "\">";
+        if (isCurrent) html += "<span class=\"drop-mark\">&#x25cf;</span> ";
+        html += "<span class=\"logic-target-scope\">SCENE</span> "
+             + escapeRml(sceneName) + "</div>";
+    }
+    if (!typeIds.empty())
+        html += "<div class=\"logic-target-menu-heading\">Object Types</div>";
     for (const ObjectTypeId& id : typeIds) {
         const EntityDef& type = coordinator.document().data().objectTypes.at(id);
         const std::string label = type.name.empty() ? id : type.name;
-        const bool isCurrent = id == selectedId;
+        const bool isCurrent = !view.sceneId && id == selectedId;
         html += "<div class=\"drop-entry";
         if (isCurrent) html += " selected";
         html += "\" data-action=\"select-logic-object-type\" data-value=\""

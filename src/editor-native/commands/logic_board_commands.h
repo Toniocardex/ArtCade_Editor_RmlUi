@@ -106,6 +106,42 @@ private:
     std::optional<LogicBoardDef> before_;
 };
 
+class CreateSceneLogicBoardCommand final : public EditorCommand {
+public:
+    explicit CreateSceneLogicBoardCommand(SceneId sceneId);
+    EditorOperationResult apply(ProjectDocument&) override;
+    EditorOperationResult undo(ProjectDocument&) override;
+    const char* name() const override { return "CreateSceneLogicBoard"; }
+private:
+    SceneId sceneId_;
+};
+
+class RemoveSceneLogicBoardCommand final : public EditorCommand {
+public:
+    explicit RemoveSceneLogicBoardCommand(SceneId sceneId);
+    EditorOperationResult apply(ProjectDocument&) override;
+    EditorOperationResult undo(ProjectDocument&) override;
+    const char* name() const override { return "RemoveSceneLogicBoard"; }
+private:
+    SceneId sceneId_;
+    std::optional<LogicBoardDef> removed_;
+};
+
+// Generic atomic Scene-board replacement used by the Scene-targeted authoring
+// controller. The controller constructs the candidate from the explicit
+// Scene target; this command owns validation, undo and document mutation.
+class ReplaceSceneLogicBoardCommand final : public EditorCommand {
+public:
+    ReplaceSceneLogicBoardCommand(SceneId sceneId, LogicBoardDef board);
+    EditorOperationResult apply(ProjectDocument&) override;
+    EditorOperationResult undo(ProjectDocument&) override;
+    const char* name() const override { return "ReplaceSceneLogicBoard"; }
+private:
+    SceneId sceneId_;
+    LogicBoardDef board_;
+    std::optional<LogicBoardDef> before_;
+};
+
 class RemoveLogicActionCommand final : public EditorCommand {
 public:
     RemoveLogicActionCommand(ObjectTypeId objectTypeId, LogicBoardId boardId,

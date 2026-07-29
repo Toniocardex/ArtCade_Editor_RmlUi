@@ -98,13 +98,16 @@ EditorOperationResult EditorCoordinator::apply(const SwitchCenterWorkspaceIntent
         // Preserve the explicitly opened board. A deterministic first type is
         // only a bootstrap for entering Logic before any board was ever opened;
         // the current scene selection is deliberately not consulted here.
-        if (!logicState.objectTypeId || !document_.hasObjectType(*logicState.objectTypeId)) {
+        if (logicState.sceneId && document_.hasScene(*logicState.sceneId)) {
+            logicState.objectTypeId.reset();
+        } else if (!logicState.objectTypeId || !document_.hasObjectType(*logicState.objectTypeId)) {
             std::vector<ObjectTypeId> ids;
             ids.reserve(document_.data().objectTypes.size());
             for (const auto& [id, unused] : document_.data().objectTypes) ids.push_back(id);
             std::sort(ids.begin(), ids.end());
             logicState.objectTypeId = ids.empty() ? std::optional<ObjectTypeId>{}
                                                   : std::optional<ObjectTypeId>{ids.front()};
+            logicState.sceneId.reset();
         }
     }
 
@@ -129,6 +132,27 @@ EditorOperationResult EditorCoordinator::apply(const OpenLogicBoardIntent& inten
     const bool enteringLogic = state_.centerWorkspaceMode != CenterWorkspaceMode::Logic;
     cancelPendingTilemapGesture();
     logicState.objectTypeId = intent.objectTypeId;
+    logicState.sceneId.reset();
+    state_.centerWorkspaceMode = CenterWorkspaceMode::Logic;
+    EditorInvalidation inv = EditorInvalidation::LogicBoard | EditorInvalidation::Toolbar;
+    if (enteringLogic) inv |= EditorInvalidation::Viewport | EditorInvalidation::Layout;
+    accumulate(inv);
+    return EditorOperationResult::success(inv);
+}
+
+EditorOperationResult EditorCoordinator::apply(const OpenSceneLogicBoardIntent& intent) {
+    if (!document_.hasScene(intent.sceneId))
+        return finishIntent(EditorOperationResult::failure("Unknown Scene"));
+    if (isPlaying() && playNavigation_ && playNavigation_->returnToOriginArmed)
+        playNavigation_->returnToOriginArmed = false;
+    LogicBoardEditorState& logicState = state_.logicBoardEditor;
+    if (state_.centerWorkspaceMode == CenterWorkspaceMode::Logic
+        && logicState.sceneId == intent.sceneId)
+        return EditorOperationResult::success(EditorInvalidation::None);
+    const bool enteringLogic = state_.centerWorkspaceMode != CenterWorkspaceMode::Logic;
+    cancelPendingTilemapGesture();
+    logicState.sceneId = intent.sceneId;
+    logicState.objectTypeId.reset();
     state_.centerWorkspaceMode = CenterWorkspaceMode::Logic;
     EditorInvalidation inv = EditorInvalidation::LogicBoard | EditorInvalidation::Toolbar;
     if (enteringLogic) inv |= EditorInvalidation::Viewport | EditorInvalidation::Layout;

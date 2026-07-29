@@ -83,6 +83,7 @@ class RenameProjectCommand;
 class ChangeLogicConditionTypeCommand;
 class SetLogicAnimationClipCommand;
 class RepairIncompatibleLogicCommand;
+class ReplaceSceneLogicBoardCommand;
 class AddSpriteRendererToObjectTypeCommand;
 class RemoveSpriteRendererFromObjectTypeCommand;
 class SetObjectTypeSpriteSourceCommand;
@@ -325,6 +326,8 @@ private:
     friend class RenameTilesetCommand;
     friend class ChangeTilesetSlicingCommand;
     friend class CreateLogicBoardCommand;
+    friend class CreateSceneLogicBoardCommand;
+    friend class RemoveSceneLogicBoardCommand;
     friend class AddGlobalVariableCommand;
     friend class RemoveGlobalVariableCommand;
     friend class RenameGlobalVariableCommand;
@@ -354,6 +357,7 @@ private:
     friend class SetLogicAnimationClipCommand;
     friend class SetLogicNumberExpressionCommand;
     friend class RepairIncompatibleLogicCommand;
+    friend class ReplaceSceneLogicBoardCommand;
 
     // ---- Patch (authoring mutations; called by commands) --------------------
     bool setProjectName(std::string name);
@@ -446,6 +450,8 @@ private:
     bool setPlatformerValue(const std::string& objectTypeId, int field, float value);
     bool replaceLogicBoard(const std::string& objectTypeId,
                            std::optional<LogicBoardDef> board);
+    bool replaceSceneLogicBoard(const SceneId& sceneId,
+                                std::optional<LogicBoardDef> board);
     // Image asset catalog. The application copies the file on disk; the document
     // only records AssetId + portable relative sourcePath. Add rejects a
     // duplicate AssetId. Removal does not touch the file on disk.

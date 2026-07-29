@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace ArtCade::Modules {
@@ -81,6 +82,8 @@ public:
 
     void setRenderer(Modules::Renderer* renderer);
     void setSpriteAnimator(Modules::SpriteAnimator* animator);
+    /** Called for an explicit gameplay destroy while the entity is still live. */
+    void setEntityWillDestroyHandler(std::function<void(EntityId)> handler);
     void setEntityDestroyedHandler(std::function<void(EntityId)> handler);
 
     void init(const ProjectDoc& doc);
@@ -290,6 +293,9 @@ private:
 
     Modules::Renderer* renderer_ = nullptr;
     Modules::SpriteAnimator* spriteAnimator_ = nullptr;
+    std::unordered_set<EntityId> pendingGameplayDestroyIds_;
+    std::unordered_set<EntityId> destroyingEntityIds_;
+    std::function<void(EntityId)> entityWillDestroyHandler_;
     std::function<void(EntityId)> entityDestroyedHandler_;
     Modules::SceneLifecycleService* lifecycle_ = nullptr;
 };

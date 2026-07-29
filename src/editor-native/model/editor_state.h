@@ -104,6 +104,10 @@ enum class LogicBoardTab { Rules, GeneratedLua };
 
 struct LogicBoardEditorState {
     std::optional<ObjectTypeId> objectTypeId;
+    // Exactly one persistent owner is selected by the Coordinator. A Scene
+    // target is never inferred from a selected entity or represented by a
+    // synthetic Object Type.
+    std::optional<SceneId> sceneId;
     LogicBoardTab tab = LogicBoardTab::Rules;
     std::string search;
     /** Slice 4 — expanded + highlighted after diagnostic navigation. */

@@ -156,6 +156,90 @@ static void testCommandsAndPersistence() {
           == "unknown.event!");
 }
 
+static void testSceneLogicCommandsAndPersistence() {
+    EditorCoordinator coordinator{makeProjectData()};
+    CHECK(coordinator.apply(OpenSceneLogicBoardIntent{"scene-1"}).ok);
+    CHECK(coordinator.state().logicBoardEditor.sceneId == "scene-1");
+    CHECK(!coordinator.state().logicBoardEditor.objectTypeId.has_value());
+    CHECK(coordinator.execute(CreateSceneLogicBoardCommand{"scene-1"}).ok);
+    const SceneDef& scene = coordinator.document().data().scenes.at("scene-1");
+    CHECK(scene.logicBoard.has_value());
+    CHECK(scene.logicBoard->id == "logic:scene:scene-1");
+    CHECK(scene.logicBoard->rules.size() == 1);
+    CHECK(scene.logicBoard->rules.front().trigger.typeId == Logic::kOnSceneStart);
+
+    LogicBoardDef next = *scene.logicBoard;
+    next.rules.front().actions.clear();
+    next.rules.front().actions.push_back(LogicActionDef{
+        "restart", LogicExecutionMode::EveryOccurrence,
+        Logic::makeDefaultBlock(Logic::kSceneRestart, Logic::BlockKind::Action)});
+    const auto restartDiagnostics = Logic::validateSceneBoard(
+        "scene-1", next, &coordinator.document().data(),
+        Logic::LogicValidationPurpose::AuthoringDiagnostics);
+    CHECK(std::any_of(restartDiagnostics.begin(), restartDiagnostics.end(),
+        [](const Logic::LogicDiagnostic& diagnostic) {
+            return diagnostic.code == "LB_SCENE_RESTART_ON_START_LOOP"
+                && diagnostic.severity == Logic::DiagnosticSeverity::Warning;
+        }));
+    CHECK(coordinator.execute(ReplaceSceneLogicBoardCommand{"scene-1", next}).ok);
+    CHECK(coordinator.document().data().scenes.at("scene-1").logicBoard->rules.front()
+              .actions.front().block.typeId == Logic::kSceneRestart);
+    CHECK(coordinator.undo().ok);
+    CHECK(coordinator.document().data().scenes.at("scene-1").logicBoard->rules.front()
+              .actions.empty());
+
+    LogicBoardDef runtimeBoard = *coordinator.document().data().scenes.at("scene-1").logicBoard;
+    runtimeBoard.rules.front().actions.push_back(LogicActionDef{
+        "spawn", LogicExecutionMode::EveryOccurrence,
+        LogicBlockDef{Logic::kSpawnObject,
+            {{"objectTypeId", LogicStringValue{"Hero"}},
+             {"position", LogicVec2Value::literal(40.0, 50.0)}}}});
+    CHECK(coordinator.execute(ReplaceSceneLogicBoardCommand{"scene-1", runtimeBoard}).ok);
+    CHECK(coordinator.playCurrentScene().ok);
+    CHECK(coordinator.playSession()->renderables().size() == 2);
+    CHECK(coordinator.stopPlaying().ok);
+
+    const auto serialized = ProjectSerializer::serialize(coordinator.document());
+    CHECK(serialized.ok);
+    const auto reloaded = ProjectSerializer::deserialize(serialized.value);
+    CHECK(reloaded.ok);
+    CHECK(reloaded.value.data().scenes.at("scene-1").logicBoard.has_value());
+    CHECK(reloaded.value.data().objectTypes.size() == 1);
+}
+
+static void testLogicBoardTargetPicker() {
+    ProjectDoc project = makeProjectData();
+    EntityDef coin;
+    coin.name = "Coin";
+    coin.className = "Coin";
+    project.objectTypes.emplace("Coin", coin);
+    EditorCoordinator coordinator{std::move(project)};
+    LogicBoardEditorController controller{coordinator, nullptr};
+
+    const std::string menu = controller.targetMenuEntries();
+    CHECK(menu.find("logic-target-menu-heading\">Scene") != std::string::npos);
+    CHECK(menu.find("data-action=\"select-logic-scene\" data-value=\"scene-1\"")
+          != std::string::npos);
+    CHECK(menu.find("logic-target-menu-heading\">Object Types") != std::string::npos);
+    CHECK(menu.find("data-action=\"select-logic-object-type\" data-value=\"Coin\"")
+          != std::string::npos);
+
+    const uint64_t revision = coordinator.document().revision();
+    CHECK(controller.handleAction("select-logic-scene", "", "scene-1", {}));
+    CHECK(coordinator.state().logicBoardEditor.sceneId == "scene-1");
+    CHECK(!coordinator.state().logicBoardEditor.objectTypeId.has_value());
+    CHECK(controller.targetMenuEntries().find("logic-target-entry selected")
+          != std::string::npos);
+    CHECK(coordinator.document().revision() == revision);
+    CHECK(!coordinator.document().isDirty());
+
+    CHECK(controller.handleAction("select-logic-object-type", "", "Coin", {}));
+    CHECK(!coordinator.state().logicBoardEditor.sceneId.has_value());
+    CHECK(coordinator.state().logicBoardEditor.objectTypeId == "Coin");
+    CHECK(coordinator.document().revision() == revision);
+    CHECK(!coordinator.document().isDirty());
+}
+
 static void testDuplicateLogicRule() {
     ProjectDoc project = makeProjectData();
     LogicBoardDef board;
@@ -761,6 +845,70 @@ static ProjectDoc makeAudioLogicProjectData() {
     theme.loadMode = AudioLoadMode::Stream;
     doc.audioAssets.push_back(theme);
     return doc;
+}
+
+static void testSceneLogicThenPropertyEditing() {
+    ProjectDoc project = makeAudioLogicProjectData();
+    project.globalVariables.push_back(
+        {"score", GameVariableDefinition::Type::Number, 0.0, {}});
+    EditorCoordinator coordinator{std::move(project)};
+    CHECK(coordinator.apply(OpenSceneLogicBoardIntent{"scene-1"}).ok);
+    CHECK(coordinator.execute(CreateSceneLogicBoardCommand{"scene-1"}).ok);
+
+    LogicBoardDef board = *coordinator.document().data().scenes.at("scene-1").logicBoard;
+    LogicRuleDef& rule = board.rules.front();
+    rule.actions = {
+        {"spawn", LogicExecutionMode::EveryOccurrence,
+         Logic::makeDefaultBlock(Logic::kSpawnObject, Logic::BlockKind::Action)},
+        {"shake", LogicExecutionMode::EveryOccurrence,
+         Logic::makeDefaultBlock(Logic::kCameraShake, Logic::BlockKind::Action)},
+        {"sound", LogicExecutionMode::EveryOccurrence,
+         Logic::makeDefaultBlock(Logic::kAudioPlaySound, Logic::BlockKind::Action)},
+        {"go", LogicExecutionMode::EveryOccurrence,
+         Logic::makeDefaultBlock(Logic::kSceneGoTo, Logic::BlockKind::Action)},
+        {"set-score", LogicExecutionMode::EveryOccurrence,
+         Logic::makeDefaultBlock(Logic::kStateSet, Logic::BlockKind::Action)},
+    };
+    CHECK(coordinator.execute(ReplaceSceneLogicBoardCommand{"scene-1", board}).ok);
+    LogicBoardEditorController controller{coordinator, nullptr};
+
+    // Spawn Object is the only Scene-compatible THEN with a Vec2. Each axis
+    // must commit into the copied Scene board without resetting its sibling.
+    CHECK(controller.handleAction(
+        "commit-logic-property-component", "rule-1|spawn|a|0|position|x", "123.5", {}));
+    CHECK(controller.handleAction(
+        "commit-logic-property-component", "rule-1|spawn|a|0|position|y", "456.25", {}));
+    const auto& updated = *coordinator.document().data().scenes.at("scene-1").logicBoard;
+    const LogicVec2Value position = std::get<LogicVec2Value>(Logic::findProperty(
+        updated.rules.front().actions[0].block, "position")->value);
+    CHECK(literalNumberValue(position.x).value_or(0.0) == 123.5);
+    CHECK(literalNumberValue(position.y).value_or(0.0) == 456.25);
+
+    // Cover every other value kind currently exposed by Scene-compatible THEN
+    // blocks: Number, Asset, String and Project Variable.
+    CHECK(controller.handleAction(
+        "commit-logic-property", "rule-1|shake|a|1|intensity", "0.75", {}));
+    CHECK(controller.handleAction(
+        "pick-logic-property", "rule-1|sound|a|2|audioAssetId", "jump.wav", {}));
+    CHECK(controller.handleAction(
+        "pick-logic-property", "rule-1|go|a|3|sceneId", "scene-1", {}));
+    CHECK(controller.handleAction(
+        "pick-logic-property", "rule-1|set-score|a|4|key", "score", {}));
+    CHECK(controller.handleAction(
+        "commit-logic-property", "rule-1|set-score|a|4|value", "42", {}));
+
+    const auto& actions = coordinator.document().data().scenes.at("scene-1")
+                              .logicBoard->rules.front().actions;
+    CHECK(literalNumberValue(std::get<NumberExpression>(
+        Logic::findProperty(actions[1].block, "intensity")->value)).value_or(0.0) == 0.75);
+    CHECK(std::get<LogicAssetReference>(
+        Logic::findProperty(actions[2].block, "audioAssetId")->value).id == "jump.wav");
+    CHECK(std::get<LogicStringValue>(
+        Logic::findProperty(actions[3].block, "sceneId")->value).value == "scene-1");
+    CHECK(std::get<LogicVariableReference>(
+        Logic::findProperty(actions[4].block, "key")->value).id == "score");
+    CHECK(literalNumberValue(std::get<NumberExpression>(
+        Logic::findProperty(actions[4].block, "value")->value)).value_or(0.0) == 42.0);
 }
 
 // Floor at y=100 -> top at 84 -> the player settles at y=68 (mirrors the
@@ -2374,7 +2522,24 @@ static void testDestroyOtherCollectsPickup() {
     coin.boxCollider2D = BoxCollider2DComponent{
         {0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Trigger};
     coin.spriteRenderer = SpriteRendererComponent{{}, true};
+    LogicBoardDef coinBoard;
+    coinBoard.id = "logic:Coin";
+    LogicRuleDef deathRule = Logic::makeDefaultRule("coin-on-destroy");
+    deathRule.trigger = Logic::makeDefaultEventBlock(Logic::kOnDestroy);
+    deathRule.actions[0].block = Logic::makeDefaultBlock(
+        Logic::kSpawnObject, Logic::BlockKind::Action);
+    for (LogicPropertyDef& property : deathRule.actions[0].block.properties) {
+        if (property.key == "objectTypeId") property.value = LogicStringValue{"Explosion"};
+        if (property.key == "position") property.value = LogicVec2Value::literal(77., 88.);
+    }
+    coinBoard.rules.push_back(std::move(deathRule));
+    coin.logicBoard = std::move(coinBoard);
     data.objectTypes.emplace("Coin", coin);
+    EntityDef explosion;
+    explosion.name = "Explosion";
+    explosion.className = "Explosion";
+    explosion.spriteRenderer = SpriteRendererComponent{{}, true};
+    data.objectTypes.emplace("Explosion", std::move(explosion));
     SceneInstanceDef coinInstance;
     coinInstance.id = 2;
     coinInstance.objectTypeId = "Coin";
@@ -2409,6 +2574,13 @@ static void testDestroyOtherCollectsPickup() {
     CHECK(!findRenderable(*coordinator.playSession(), 2).has_value());
     CHECK(findRenderable(*coordinator.playSession(), 1).has_value());
     CHECK(findRenderable(*coordinator.playSession(), 1)->visibleInGame);
+    const auto renderables = coordinator.playSession()->renderables();
+    const auto spawned = std::find_if(renderables.begin(), renderables.end(),
+        [](const RenderableEntitySnapshot& entity) {
+            return entity.id != 1 && entity.id != 2
+                && entity.transform.position.x == 77.f && entity.transform.position.y == 88.f;
+        });
+    CHECK(spawned != renderables.end());
     // Authoring untouched: the coin instance still exists in the document.
     CHECK(coordinator.document().findInstanceInScene("scene-1", 2) != nullptr);
     CHECK(coordinator.stopPlaying().ok);
@@ -3104,6 +3276,33 @@ static void testPerActionModesCompileWithStableGateKeys() {
           < reordered.programs[0].source.find("board-1:rule-1:show-every"));
 }
 
+static void testOnDestroyLifecycleCatalogContract() {
+    const Logic::LogicBlockDescriptor* descriptor = Logic::findDescriptor(Logic::kOnDestroy);
+    CHECK(descriptor != nullptr);
+    CHECK(descriptor && descriptor->categoryId == "lifecycle");
+    CHECK(descriptor && descriptor->kind == Logic::BlockKind::Trigger);
+    CHECK(descriptor && descriptor->activationKind == Logic::LogicTriggerActivationKind::Pulse);
+    CHECK(descriptor && !descriptor->requiresTick);
+    CHECK(descriptor && descriptor->requiredFeature == "lifecycle.on_destroy");
+
+    LogicBoardDef board;
+    board.id = "logic:Hero";
+    LogicRuleDef rule = Logic::makeDefaultRule("rule-on-destroy");
+    rule.trigger = Logic::makeDefaultEventBlock(Logic::kOnDestroy);
+    rule.actions[0].block = Logic::makeDefaultBlock(
+        Logic::kDestroySelf, Logic::BlockKind::Action);
+    board.rules.push_back(std::move(rule));
+
+    const Logic::LogicCompileResult compiled = Logic::compileBoard("Hero", board);
+    CHECK(compiled.ok());
+    CHECK(!compiled.requiresTick);
+    CHECK(compiled.programs.size() == 1);
+    CHECK(compiled.programs[0].source.find("context:on_destroy") != std::string::npos);
+    CHECK(std::find(compiled.programs[0].requiredFeatures.begin(),
+                    compiled.programs[0].requiredFeatures.end(),
+                    "lifecycle.on_destroy") != compiled.programs[0].requiredFeatures.end());
+}
+
 static void testPerActionJsonMigrationAndCanonicalSave() {
     LogicBoardDef current;
     current.id = "board-migrate";
@@ -3284,6 +3483,9 @@ static void testActionsRunIndependentModesInPlay() {
 
 int main() {
     testCommandsAndPersistence();
+    testSceneLogicCommandsAndPersistence();
+    testSceneLogicThenPropertyEditing();
+    testLogicBoardTargetPicker();
     testIncompatibleBoardRecovery();
     testDuplicateLogicRule();
     testGlobalVariableCommands();
@@ -3314,6 +3516,7 @@ int main() {
     testKeyBindingEditorRoutes();
     testSceneActionCatalogAndDefaults();
     testSceneActionValidation();
+    testOnDestroyLifecycleCatalogContract();
     testSceneGoToSwitchesSceneAndFiresOnStart();
     testSceneRestartRestoresAuthoredLayoutAndRefiresOnStart();
     testDestroyOtherCollectsPickup();

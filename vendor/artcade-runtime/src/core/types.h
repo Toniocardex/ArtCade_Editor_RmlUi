@@ -759,6 +759,10 @@ struct SceneDef {
     std::unordered_map<std::string, TilemapData> tilemapLayers;
     /** Per-scene visual overrides keyed by layer id (visible/opacity/parallax/bg). */
     std::unordered_map<std::string, SceneLayerSettings> layerSettings;
+    // Scene-owned authoring behaviour. This is deliberately not an Object
+    // Type board: a scene is the aggregate root of its composition and has no
+    // entity Self context (ADR-0045).
+    std::optional<LogicBoardDef> logicBoard;
 };
 
 struct TilePaletteEntry {
