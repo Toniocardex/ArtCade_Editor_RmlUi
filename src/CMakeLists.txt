@@ -94,6 +94,7 @@ add_library(artcade-editor-core STATIC
     editor-native/app/script_asset_workflow.cpp
     editor-native/app/project_load.cpp
     editor-native/app/recent_projects_store.cpp
+    editor-native/app/editor_preferences.cpp
     editor-native/app/new_project_transaction.cpp
     editor-native/app/export/export_types.cpp
     editor-native/app/export/runtime_project_preflight.cpp
@@ -193,6 +194,7 @@ set(ARTCADE_EDITOR_NATIVE_SOURCES
     editor-native/app/project_session_controller.cpp
     editor-native/app/editor_preferences_path.cpp
     editor-native/app/recent_projects_persistence.cpp
+    editor-native/app/editor_preferences_persistence.cpp
     editor-native/app/scene_view_interaction.cpp
     editor-native/app/native_keyboard_adapter.cpp
     editor-native/app/keyboard_consumption_tracker.cpp

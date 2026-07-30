@@ -13,8 +13,8 @@
   "assetKeyId": "artcade-dev-key-v1",
   "files": {
     "game.exe": {
-      "size": 4108800,
-      "sha256": "2d30ecb33087ae26aaba6aa3d464307b9e0b8eeaac0dfe166265ec9c68075f8f"
+      "size": 4115968,
+      "sha256": "fd1516a3d0cf8598ac8409bdaf6a69db9652129f7ee983a5c6eae4ecab013f60"
     }
   }
 }

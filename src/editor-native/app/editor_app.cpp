@@ -23,6 +23,8 @@
 #include "editor-native/app/new_project_transaction.h"
 #include "editor-native/app/project_file.h"
 #include "editor-native/app/project_session_controller.h"
+#include "editor-native/app/editor_preferences.h"
+#include "editor-native/app/editor_preferences_persistence.h"
 #include "editor-native/app/recent_projects_persistence.h"
 #include "editor-native/app/recent_projects_store.h"
 #include "editor-native/app/rml_host.h"
@@ -452,6 +454,21 @@ int EditorApp::run(int argc, char** argv) {
             projectSession.removeRecentProject(path);
         },
         [&recentProjects]() -> const RecentProjectsStore* { return &recentProjects; });
+
+    EditorPreferences editorPreferences;
+    {
+        const EditorPreferencesPersistResult loaded = loadEditorPreferences(editorPreferences);
+        if (!loaded.ok && !loaded.message.empty()) {
+            coordinator.logWarning("Editor preferences: " + loaded.message);
+        }
+    }
+    ui.applyAccentPreset(editorPreferences.accentPreset);
+    ui.setAccentPresetHandler([&editorPreferences, &coordinator](EditorAccentPreset preset) {
+        editorPreferences.accentPreset = preset;
+        const EditorPreferencesPersistResult saved = saveEditorPreferences(editorPreferences);
+        if (!saved.ok) coordinator.logWarning("Editor preferences: " + saved.message);
+    });
+
     projectSession.setExportTemplatesRoot(editorResourceRoot() / "export-templates");
     ui.setExportTemplatesRoot(editorResourceRoot() / "export-templates");
 

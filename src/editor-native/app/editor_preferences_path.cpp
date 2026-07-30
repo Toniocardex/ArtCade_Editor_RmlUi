@@ -47,4 +47,10 @@ std::optional<std::filesystem::path> recentProjectsPreferencesPath() {
     return *dir / "recent-projects.json";
 }
 
+std::optional<std::filesystem::path> editorPreferencesFilePath() {
+    const auto dir = editorPreferencesDirectory();
+    if (!dir) return std::nullopt;
+    return *dir / "editor-preferences.json";
+}
+
 } // namespace ArtCade::EditorNative

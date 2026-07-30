@@ -64,6 +64,17 @@
      expressed with surface-selected / border-focus / text-strong, so the blue
      means exactly one thing in the product.
 
+   ACCENT PRESETS — app-local preference (ADR-0030 shape: no ProjectDocument,
+   dirty, or Undo), applied via a `.accent-<token>` class on the document root
+   (EditorUi::applyAccentPreset). ArtCade Blue is the base theme above and has
+   no preset class. Every pair clears 4.5:1 against on-action (#ffffff); see
+   "Accent color presets" section at the end of this file for the ds-role
+   markers. Closed, built-in set — no new ADR (references ADR-0027/ADR-0030).
+     action-sage             #3a6e56   action-sage-hover        #427960
+     action-steelteal        #2e6b6b   action-steelteal-hover   #347777
+     action-amberochre       #7a5f2a   action-amberochre-hover  #87692f
+     action-neutral          #505050   action-neutral-hover     #606060
+
    SEMANTIC
      danger-text       #e5706b   danger-text-hi  #f0918c (hover)
      danger-surface    #2a1f20   danger-border   #7f3b38
@@ -1742,4 +1753,242 @@ scrollbarhorizontal sliderbar:hover {
 /* ds-role(success-text): color */
 .tileset-slice-feedback.ok {
     color: #4f9b68;
+}
+
+/* =============================================================================
+   Accent color presets — app-local preference (ADR-0030 shape: no
+   ProjectDocument, dirty, or Undo). References ADR-0027 for the role
+   vocabulary; no new ADR for this closed, built-in preset list.
+
+   The active preset's class (`.accent-<token>`) is applied directly to the
+   document root by EditorUi::applyAccentPreset (SetClass) — no reload, no
+   project involvement. ArtCade Blue is the base theme above and needs no
+   override here. `on-action` (#ffffff) is unchanged by every preset and is
+   NOT re-declared — see its marker earlier in this file.
+
+   :not(.disabled) is required, not decorative: `.accent-<name> #btn-play-project`
+   and `#btn-play-project.disabled` (surface-disabled/border-subtle/text-disabled
+   roles above) have identical specificity (1 id, 1 class), and this section is
+   appended after those rules, so a plain override would win the source-order
+   tiebreak and paint accent color straight through the disabled state.
+   ============================================================================= */
+
+/* ds-role(action-sage): background */
+.accent-sage .panel-btn.primary:not(.disabled),
+.accent-sage .sfx-header-actions .primary {
+    background: #3a6e56;
+}
+
+/* ds-role(action-sage): background-color */
+.accent-sage #btn-play-project:not(.disabled),
+.accent-sage .logic-btn.primary,
+.accent-sage .script-restart-button,
+.accent-sage .tool-btn.primary:not(.disabled),
+.accent-sage .viewport-empty-btn {
+    background-color: #3a6e56;
+}
+
+/* ds-role(action-sage): border-color */
+.accent-sage #btn-play-project:not(.disabled),
+.accent-sage .logic-btn.primary,
+.accent-sage .panel-btn.primary:not(.disabled),
+.accent-sage .script-restart-button,
+.accent-sage .sfx-batch-cta,
+.accent-sage .tool-btn.primary:not(.disabled),
+.accent-sage .viewport-empty-btn {
+    border-color: #3a6e56;
+}
+
+/* ds-role(action-sage): border-bottom-color */
+.accent-sage .center-mode-tab.active {
+    border-bottom-color: #3a6e56;
+}
+
+/* ds-role(action-sage): border-left-color */
+.accent-sage .tree-row.selected,
+.accent-sage .layer-row.active {
+    border-left-color: #3a6e56;
+}
+
+/* ds-role(action-sage-hover): background-color */
+.accent-sage #btn-play-project:not(.disabled):hover,
+.accent-sage .logic-btn.primary:hover,
+.accent-sage .panel-btn.primary:not(.disabled):hover,
+.accent-sage .script-restart-button:hover,
+.accent-sage .sfx-header-actions .primary:hover,
+.accent-sage .viewport-empty-btn:hover {
+    background-color: #427960;
+}
+
+/* ds-role(action-sage-hover): border-color */
+.accent-sage #btn-play-project:not(.disabled):hover,
+.accent-sage .logic-btn.primary:hover,
+.accent-sage .panel-btn.primary:not(.disabled):hover,
+.accent-sage .viewport-empty-btn:hover {
+    border-color: #427960;
+}
+
+/* ds-role(action-steelteal): background */
+.accent-steelteal .panel-btn.primary:not(.disabled),
+.accent-steelteal .sfx-header-actions .primary {
+    background: #2e6b6b;
+}
+
+/* ds-role(action-steelteal): background-color */
+.accent-steelteal #btn-play-project:not(.disabled),
+.accent-steelteal .logic-btn.primary,
+.accent-steelteal .script-restart-button,
+.accent-steelteal .tool-btn.primary:not(.disabled),
+.accent-steelteal .viewport-empty-btn {
+    background-color: #2e6b6b;
+}
+
+/* ds-role(action-steelteal): border-color */
+.accent-steelteal #btn-play-project:not(.disabled),
+.accent-steelteal .logic-btn.primary,
+.accent-steelteal .panel-btn.primary:not(.disabled),
+.accent-steelteal .script-restart-button,
+.accent-steelteal .sfx-batch-cta,
+.accent-steelteal .tool-btn.primary:not(.disabled),
+.accent-steelteal .viewport-empty-btn {
+    border-color: #2e6b6b;
+}
+
+/* ds-role(action-steelteal): border-bottom-color */
+.accent-steelteal .center-mode-tab.active {
+    border-bottom-color: #2e6b6b;
+}
+
+/* ds-role(action-steelteal): border-left-color */
+.accent-steelteal .tree-row.selected,
+.accent-steelteal .layer-row.active {
+    border-left-color: #2e6b6b;
+}
+
+/* ds-role(action-steelteal-hover): background-color */
+.accent-steelteal #btn-play-project:not(.disabled):hover,
+.accent-steelteal .logic-btn.primary:hover,
+.accent-steelteal .panel-btn.primary:not(.disabled):hover,
+.accent-steelteal .script-restart-button:hover,
+.accent-steelteal .sfx-header-actions .primary:hover,
+.accent-steelteal .viewport-empty-btn:hover {
+    background-color: #347777;
+}
+
+/* ds-role(action-steelteal-hover): border-color */
+.accent-steelteal #btn-play-project:not(.disabled):hover,
+.accent-steelteal .logic-btn.primary:hover,
+.accent-steelteal .panel-btn.primary:not(.disabled):hover,
+.accent-steelteal .viewport-empty-btn:hover {
+    border-color: #347777;
+}
+
+/* ds-role(action-amberochre): background */
+.accent-amberochre .panel-btn.primary:not(.disabled),
+.accent-amberochre .sfx-header-actions .primary {
+    background: #7a5f2a;
+}
+
+/* ds-role(action-amberochre): background-color */
+.accent-amberochre #btn-play-project:not(.disabled),
+.accent-amberochre .logic-btn.primary,
+.accent-amberochre .script-restart-button,
+.accent-amberochre .tool-btn.primary:not(.disabled),
+.accent-amberochre .viewport-empty-btn {
+    background-color: #7a5f2a;
+}
+
+/* ds-role(action-amberochre): border-color */
+.accent-amberochre #btn-play-project:not(.disabled),
+.accent-amberochre .logic-btn.primary,
+.accent-amberochre .panel-btn.primary:not(.disabled),
+.accent-amberochre .script-restart-button,
+.accent-amberochre .sfx-batch-cta,
+.accent-amberochre .tool-btn.primary:not(.disabled),
+.accent-amberochre .viewport-empty-btn {
+    border-color: #7a5f2a;
+}
+
+/* ds-role(action-amberochre): border-bottom-color */
+.accent-amberochre .center-mode-tab.active {
+    border-bottom-color: #7a5f2a;
+}
+
+/* ds-role(action-amberochre): border-left-color */
+.accent-amberochre .tree-row.selected,
+.accent-amberochre .layer-row.active {
+    border-left-color: #7a5f2a;
+}
+
+/* ds-role(action-amberochre-hover): background-color */
+.accent-amberochre #btn-play-project:not(.disabled):hover,
+.accent-amberochre .logic-btn.primary:hover,
+.accent-amberochre .panel-btn.primary:not(.disabled):hover,
+.accent-amberochre .script-restart-button:hover,
+.accent-amberochre .sfx-header-actions .primary:hover,
+.accent-amberochre .viewport-empty-btn:hover {
+    background-color: #87692f;
+}
+
+/* ds-role(action-amberochre-hover): border-color */
+.accent-amberochre #btn-play-project:not(.disabled):hover,
+.accent-amberochre .logic-btn.primary:hover,
+.accent-amberochre .panel-btn.primary:not(.disabled):hover,
+.accent-amberochre .viewport-empty-btn:hover {
+    border-color: #87692f;
+}
+
+/* ds-role(action-neutral): background */
+.accent-neutral .panel-btn.primary:not(.disabled),
+.accent-neutral .sfx-header-actions .primary {
+    background: #505050;
+}
+
+/* ds-role(action-neutral): background-color */
+.accent-neutral #btn-play-project:not(.disabled),
+.accent-neutral .logic-btn.primary,
+.accent-neutral .script-restart-button,
+.accent-neutral .tool-btn.primary:not(.disabled),
+.accent-neutral .viewport-empty-btn {
+    background-color: #505050;
+}
+
+/* ds-role(action-neutral): border-color */
+.accent-neutral #btn-play-project:not(.disabled),
+.accent-neutral .logic-btn.primary,
+.accent-neutral .panel-btn.primary:not(.disabled),
+.accent-neutral .script-restart-button,
+.accent-neutral .sfx-batch-cta,
+.accent-neutral .tool-btn.primary:not(.disabled),
+.accent-neutral .viewport-empty-btn {
+    border-color: #505050;
+}
+
+/* ds-role(action-neutral): border-bottom-color */
+.accent-neutral .center-mode-tab.active {
+    border-bottom-color: #505050;
+}
+
+/* ds-role(action-neutral): border-left-color */
+.accent-neutral .tree-row.selected,
+.accent-neutral .layer-row.active {
+    border-left-color: #505050;
+}
+
+/* ds-role(action-neutral-hover): background-color */
+.accent-neutral #btn-play-project:not(.disabled):hover,
+.accent-neutral .logic-btn.primary:hover,
+.accent-neutral .panel-btn.primary:not(.disabled):hover,
+.accent-neutral .script-restart-button:hover,
+.accent-neutral .sfx-header-actions .primary:hover,
+.accent-neutral .viewport-empty-btn:hover {
+    background-color: #606060;
+}
+
+/* ds-role(action-neutral-hover): border-color */
+.accent-neutral #btn-play-project:not(.disabled):hover,
+.accent-neutral .logic-btn.primary:hover,
+.accent-neutral .panel-btn.primary:not(.disabled):hover,
+.accent-neutral .viewport-empty-btn:hover {
+    border-color: #606060;
 }

@@ -16,6 +16,7 @@
 #include "editor-native/app/project_file.h"
 #include "editor-native/app/project_load.h"
 #include "editor-native/app/recent_projects_store.h"
+#include "editor-native/app/editor_preferences.h"
 #include "editor-native/app/project_script_file_service.h"
 #include "editor-native/app/script_syntax_validator.h"
 #include "editor-native/app/script_asset_workflow.h"
@@ -6492,6 +6493,64 @@ int main() {
         CHECK(!isolated.remove("x.artcade-project"));
         CHECK(c.document().revision() == rev);
         CHECK(c.document().isDirty() == dirty);
+    }
+
+    // ========================================================================
+    // EditorPreferences (app-local accent preset; no ProjectDocument)
+    // ========================================================================
+    {
+        EditorPreferences prefs;
+        CHECK(prefs.accentPreset == EditorAccentPreset::ArtCadeBlue);
+
+        // Token <-> enum roundtrip for every preset.
+        const EditorAccentPreset all[] = {
+            EditorAccentPreset::ArtCadeBlue, EditorAccentPreset::Sage,
+            EditorAccentPreset::SteelTeal, EditorAccentPreset::AmberOchre,
+            EditorAccentPreset::Neutral,
+        };
+        for (const EditorAccentPreset preset : all) {
+            const std::string token = editorAccentPresetToken(preset);
+            CHECK(!token.empty());
+            CHECK(editorAccentPresetFromToken(token) == preset);
+        }
+        CHECK(editorAccentPresetFromToken("mauve") == EditorAccentPreset::ArtCadeBlue);
+        CHECK(editorAccentPresetFromToken("") == EditorAccentPreset::ArtCadeBlue);
+
+        // toJson / fromJson roundtrip for every preset.
+        for (const EditorAccentPreset preset : all) {
+            EditorPreferences source;
+            source.accentPreset = preset;
+            EditorPreferences roundtrip;
+            CHECK(roundtrip.fromJson(source.toJson()));
+            CHECK(roundtrip.accentPreset == preset);
+        }
+
+        // Unknown preset value inside otherwise-valid JSON falls back to
+        // ArtCadeBlue rather than failing the parse.
+        EditorPreferences fallback;
+        fallback.accentPreset = EditorAccentPreset::Sage;
+        CHECK(fallback.fromJson(R"({"version":1,"accentPreset":"mauve"})"));
+        CHECK(fallback.accentPreset == EditorAccentPreset::ArtCadeBlue);
+
+        // Malformed JSON leaves the struct unchanged (mirrors
+        // RecentProjectsStore::fromJson's contract).
+        EditorPreferences bad;
+        bad.accentPreset = EditorAccentPreset::SteelTeal;
+        CHECK(!bad.fromJson("{not-json"));
+        CHECK(bad.accentPreset == EditorAccentPreset::SteelTeal);
+        CHECK(!bad.fromJson(""));
+        CHECK(bad.accentPreset == EditorAccentPreset::SteelTeal);
+        CHECK(!bad.fromJson("[1,2,3]")); // valid JSON, not an object
+        CHECK(bad.accentPreset == EditorAccentPreset::SteelTeal);
+
+        // Preference mutations never touch ProjectDocument dirty/revision.
+        EditorCoordinator prefCoord{makeDoc()};
+        const auto prefRev = prefCoord.document().revision();
+        const bool prefDirty = prefCoord.document().isDirty();
+        EditorPreferences isolated;
+        isolated.accentPreset = EditorAccentPreset::AmberOchre;
+        CHECK(prefCoord.document().revision() == prefRev);
+        CHECK(prefCoord.document().isDirty() == prefDirty);
     }
 
     return reportAndExit("editor-core-test");

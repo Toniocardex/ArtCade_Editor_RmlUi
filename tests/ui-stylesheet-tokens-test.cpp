@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -136,6 +137,10 @@ const std::set<std::string>& roles() {
         "border-subtle", "border-strong", "border-focus",
         "text-primary", "text-secondary", "text-tertiary", "text-disabled",
         "text-strong", "action", "action-hover", "on-action", "brand",
+        "action-sage", "action-sage-hover",
+        "action-steelteal", "action-steelteal-hover",
+        "action-amberochre", "action-amberochre-hover",
+        "action-neutral", "action-neutral-hover",
         "danger-surface", "danger-border", "danger-text", "danger-text-hover",
         "warning-surface", "warning-border", "warning-text", "success-text",
         "code-text", "code-comment", "code-keyword", "code-string", "code-number",
@@ -409,6 +414,30 @@ void scanPlatformMirrors(const std::filesystem::path& file, const std::string& s
     CHECK(found == 2);
 }
 
+// WCAG 2.1 relative luminance / contrast ratio, for #rrggbb literals only
+// (every resolved role value is exactly that shape by construction of
+// scanThemeRoles above).
+double srgbChannelToLinear(int channel) {
+    const double c = static_cast<double>(channel) / 255.0;
+    return c <= 0.03928 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+}
+
+double relativeLuminance(const std::string& hex) {
+    const int r = std::stoi(hex.substr(1, 2), nullptr, 16);
+    const int g = std::stoi(hex.substr(3, 2), nullptr, 16);
+    const int b = std::stoi(hex.substr(5, 2), nullptr, 16);
+    return 0.2126 * srgbChannelToLinear(r) + 0.7152 * srgbChannelToLinear(g)
+         + 0.0722 * srgbChannelToLinear(b);
+}
+
+double contrastRatio(const std::string& hexA, const std::string& hexB) {
+    const double lA = relativeLuminance(hexA);
+    const double lB = relativeLuminance(hexB);
+    const double lighter = std::max(lA, lB);
+    const double darker = std::min(lA, lB);
+    return (lighter + 0.05) / (darker + 0.05);
+}
+
 } // namespace
 
 int main() {
@@ -452,6 +481,37 @@ int main() {
         scanMetrics(sheet, source);
     }
     CHECK(resolvedRoles.size() == roles().size());
+
+    // CTA fill roles (base + every accent preset) must clear WCAG AA (4.5:1)
+    // against on-action text. Turns the accent-preset contrast claims into a
+    // regression guard instead of a doc comment that can silently drift.
+    {
+        const auto onAction = resolvedRoles.find("on-action");
+        CHECK(onAction != resolvedRoles.end());
+        if (onAction != resolvedRoles.end()) {
+            static const std::vector<std::string> ctaRoles{
+                "action", "action-hover",
+                "action-sage", "action-sage-hover",
+                "action-steelteal", "action-steelteal-hover",
+                "action-amberochre", "action-amberochre-hover",
+                "action-neutral", "action-neutral-hover",
+            };
+            for (const std::string& role : ctaRoles) {
+                const auto fill = resolvedRoles.find(role);
+                if (fill == resolvedRoles.end()) {
+                    fail(uiDir / "theme.rcss", 0, "role " + role + " not resolved for contrast check");
+                    continue;
+                }
+                const double ratio = contrastRatio(fill->second, onAction->second);
+                if (ratio < 4.5)
+                    fail(uiDir / "theme.rcss", 0,
+                         role + " (" + fill->second + ") contrast " + std::to_string(ratio)
+                             + " against on-action is below WCAG AA 4.5:1");
+                else
+                    ++passed;
+            }
+        }
+    }
 
     for (const auto& document : documents) scanRml(document, readFile(document));
 

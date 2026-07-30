@@ -52,7 +52,7 @@
         </div>
         <div class="menu-item has-menu">
             <span class="menu-label">Help</span>
-            <div class="menu-dropdown menu-dropdown-right">
+            <div class="menu-dropdown">
                 <div id="menu-help-keyboard-shortcuts" class="menu-entry with-shortcut"
                      data-editor-action="help.keyboard_shortcuts">
                     <span class="menu-entry-label">Keyboard Shortcuts…</span>
@@ -62,6 +62,16 @@
                 <div class="menu-entry" data-editor-action="help.about">
                     <span class="menu-entry-label">About ArtCade…</span>
                 </div>
+            </div>
+        </div>
+        <div class="menu-item has-menu">
+            <span class="menu-label">Preferences</span>
+            <div class="menu-dropdown menu-dropdown-right">
+                <div id="menu-accent-artcadeblue" class="menu-entry" data-action="set-accent-preset" data-arg="artcadeblue">ArtCade Blue</div>
+                <div id="menu-accent-sage" class="menu-entry" data-action="set-accent-preset" data-arg="sage">Sage</div>
+                <div id="menu-accent-steelteal" class="menu-entry" data-action="set-accent-preset" data-arg="steelteal">Steel Teal</div>
+                <div id="menu-accent-amberochre" class="menu-entry" data-action="set-accent-preset" data-arg="amberochre">Amber Ochre</div>
+                <div id="menu-accent-neutral" class="menu-entry" data-action="set-accent-preset" data-arg="neutral">Neutral</div>
             </div>
         </div>
     </div>

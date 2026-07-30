@@ -3,6 +3,7 @@
 #include "core/types.h"
 #include "editor-native/commands/domain_change.h"
 #include "editor-native/commands/editor_invalidation.h"
+#include "editor-native/app/editor_preferences.h"
 #include "editor-native/app/pending_edit.h"
 #include "editor-native/app/recent_projects_store.h"
 #include "editor-native/app/shortcuts/editor_action.h"
@@ -262,6 +263,13 @@ public:
     void invokeStableEditorAction(const std::string& stableKey);
     void handleHelpTabKey(bool shift);
 
+    // Accent color preset (app-local preference, ADR-0030 shape — no
+    // ProjectDocument, dirty, or Undo). Applies a `.accent-<token>` class to
+    // the document root; ArtCadeBlue has no class (it's the base theme).
+    void applyAccentPreset(EditorAccentPreset preset);
+    using AccentPresetChangeRequest = std::function<void(EditorAccentPreset)>;
+    void setAccentPresetHandler(AccentPresetChangeRequest onChanged);
+
     // Copies the selected Console message (full model text) to the clipboard via
     // raylib's SetClipboardText. The single entry point shared by the Copy button
     // and Ctrl+C. Returns false (no-op) when nothing is selected.
@@ -353,6 +361,7 @@ private:
     // Empty-scene hub: visibility transition only (no MRU markup).
     void refreshEmptySceneHubVisibility(bool visible);
     void rebuildRecentProjectsMarkup();
+    void refreshAccentPresetMenu();
     void refreshStatusBar();
     void refreshCenterWorkspace();
     void updateZoomReadout();   // toolbar zoom %, refreshed on Viewport invalidation
@@ -392,6 +401,8 @@ private:
 
     EditorCoordinator&                  coordinator_;
     Rml::ElementDocument*               document_;
+    EditorAccentPreset                  activeAccentPreset_ = EditorAccentPreset::ArtCadeBlue;
+    AccentPresetChangeRequest           accentPresetChangedHandler_;
     Rml::ElementDocument*               animationDocument_;
     Rml::ElementDocument*               tilesetDocument_;
     SpriteAnimationEditorController     spriteAnimationEditor_;

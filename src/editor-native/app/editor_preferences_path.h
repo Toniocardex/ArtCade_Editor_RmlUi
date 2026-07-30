@@ -12,4 +12,7 @@ std::optional<std::filesystem::path> editorPreferencesDirectory();
 // %LOCALAPPDATA%\ArtCade\recent-projects.json
 std::optional<std::filesystem::path> recentProjectsPreferencesPath();
 
+// %LOCALAPPDATA%\ArtCade\editor-preferences.json
+std::optional<std::filesystem::path> editorPreferencesFilePath();
+
 } // namespace ArtCade::EditorNative

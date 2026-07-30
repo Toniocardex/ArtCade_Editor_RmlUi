@@ -603,6 +603,7 @@
     padding: 0 4dp;
     margin-bottom: 2dp;
     border-radius: 2dp;
+    border-left: 2dp transparent;
 
     transition: background-color 0.1s, color 0.1s;
 }

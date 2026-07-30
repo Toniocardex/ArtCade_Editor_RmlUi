@@ -2484,6 +2484,37 @@ void EditorUi::setExportTemplatesRoot(std::filesystem::path root) {
     exportTemplatesRoot_ = std::move(root);
 }
 
+void EditorUi::applyAccentPreset(EditorAccentPreset preset) {
+    if (!document_) return;
+    if (activeAccentPreset_ != EditorAccentPreset::ArtCadeBlue) {
+        document_->SetClass("accent-" + editorAccentPresetToken(activeAccentPreset_), false);
+    }
+    activeAccentPreset_ = preset;
+    if (preset != EditorAccentPreset::ArtCadeBlue) {
+        document_->SetClass("accent-" + editorAccentPresetToken(preset), true);
+    }
+    refreshAccentPresetMenu();
+}
+
+void EditorUi::setAccentPresetHandler(AccentPresetChangeRequest onChanged) {
+    accentPresetChangedHandler_ = std::move(onChanged);
+}
+
+void EditorUi::refreshAccentPresetMenu() {
+    if (!document_) return;
+    static const EditorAccentPreset kPresets[] = {
+        EditorAccentPreset::ArtCadeBlue, EditorAccentPreset::Sage,
+        EditorAccentPreset::SteelTeal, EditorAccentPreset::AmberOchre,
+        EditorAccentPreset::Neutral,
+    };
+    for (const EditorAccentPreset preset : kPresets) {
+        if (Rml::Element* el =
+                document_->GetElementById("menu-accent-" + editorAccentPresetToken(preset))) {
+            el->SetClass("active", preset == activeAccentPreset_);
+        }
+    }
+}
+
 void EditorUi::syncHelpMenuShortcutLabel() {
     if (!document_) return;
     Rml::Element* label = document_->GetElementById("menu-help-keyboard-shortcuts-label");
@@ -4601,6 +4632,11 @@ bool EditorUi::handleConsoleAction(const std::string& action, const std::string&
         coordinator_.clearConsole();
     } else if (action == "toggle-console") {
         coordinator_.apply(ToggleConsoleIntent{});
+    } else if (action == "set-accent-preset") {
+        // App-local preference (ADR-0030 shape) — no coordinator/ProjectDocument
+        // involvement. Apply instantly; the handler only persists to disk.
+        applyAccentPreset(editorAccentPresetFromToken(arg));
+        if (accentPresetChangedHandler_) accentPresetChangedHandler_(activeAccentPreset_);
     } else if (action == "toggle-tile-palette-dock") {
         coordinator_.apply(ToggleTilePaletteDockIntent{});
     } else if (action == "show-tile-palette-dock") {
