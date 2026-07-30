@@ -192,6 +192,16 @@ EditorOperationResult addEntity(EditorCoordinator& coordinator) {
             scene->worldSize));
 }
 
+EditorOperationResult addObjectType(EditorCoordinator& coordinator) {
+    const std::string objectTypeId = makeUniqueObjectTypeId(coordinator.document());
+    const std::string objectTypeName = makeUniqueObjectTypeName(
+        coordinator.document(), "Object " + objectTypeId.substr(std::string("object-").size()));
+    const EditorOperationResult result = coordinator.execute(
+        CreateObjectTypeCommand{objectTypeId, objectTypeName});
+    if (result.ok) coordinator.apply(SelectObjectTypeIntent{objectTypeId});
+    return result;
+}
+
 EditorOperationResult addTilemapEntity(EditorCoordinator& coordinator) {
     const SceneId& sceneId = coordinator.state().activeSceneId;
     const SceneDef* scene = coordinator.document().findScene(sceneId);

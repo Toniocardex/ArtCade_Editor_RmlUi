@@ -27,7 +27,7 @@ EditorOperationResult EditorCoordinator::apply(const SelectEntityIntent& intent)
         // survive the selection changing out from under it, regardless of
         // whether the new selection (here, none) would itself support one.
         cancelPendingTilemapGesture();
-        state_.selection.primaryEntity = INVALID_ENTITY;
+        state_.selection.clear();
         reconcileTilemapEditingContext();
         accumulate(kSelectionInvalidation);
         return EditorOperationResult::success(kSelectionInvalidation);
@@ -38,7 +38,7 @@ EditorOperationResult EditorCoordinator::apply(const SelectEntityIntent& intent)
         return finishIntent(EditorOperationResult::failure("Unknown entity id in active scene"));
     }
     cancelPendingTilemapGesture();
-    state_.selection.primaryEntity = intent.entityId;
+    state_.selection.selectEntity(intent.entityId);
     // A layer is a real authoring scope: selecting an entity — from Hierarchy
     // or Scene View — always makes its own layer the active one, so
     // Brush/Delete/Inspector never keep targeting a stale layer after the
@@ -61,6 +61,19 @@ EditorOperationResult EditorCoordinator::apply(const SelectEntityIntent& intent)
     }
     accumulate(inv);
     return EditorOperationResult::success(inv);
+}
+
+EditorOperationResult EditorCoordinator::apply(const SelectObjectTypeIntent& intent) {
+    if (intent.objectTypeId.empty() || !document_.hasObjectType(intent.objectTypeId)) {
+        return finishIntent(EditorOperationResult::failure("Unknown Object Type"));
+    }
+    // Tilemap tools operate on an instance. A type selection can never leave a
+    // paint gesture or instance-only tool active behind it.
+    cancelPendingTilemapGesture();
+    state_.selection.selectObjectType(intent.objectTypeId);
+    reconcileTilemapEditingContext();
+    accumulate(kSelectionInvalidation);
+    return EditorOperationResult::success(kSelectionInvalidation);
 }
 
 EditorOperationResult EditorCoordinator::apply(const SelectSceneIntent& intent) {

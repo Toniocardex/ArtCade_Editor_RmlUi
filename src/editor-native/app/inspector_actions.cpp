@@ -26,6 +26,10 @@ bool selectedTarget(const EditorCoordinator& coordinator, SceneId& sceneId, Enti
 }
 
 bool selectedObjectType(const EditorCoordinator& coordinator, std::string& objectTypeId) {
+    if (coordinator.selection().selectedObjectTypeId) {
+        objectTypeId = *coordinator.selection().selectedObjectTypeId;
+        return coordinator.document().hasObjectType(objectTypeId);
+    }
     SceneId sceneId; EntityId id;
     if (!selectedTarget(coordinator, sceneId, id)) return false;
     const SceneInstanceDef* instance = coordinator.document().findInstanceInScene(sceneId, id);

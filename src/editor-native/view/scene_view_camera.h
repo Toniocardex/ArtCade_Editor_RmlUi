@@ -52,6 +52,7 @@ EditorSceneViewState resolvePlayView(const PlayViewportProjectionInput& input);
 
 // screen = (world - target) * zoom + offset  =>  inverse below.
 Vec2 screenToWorld(const SceneViewCamera& camera, Vec2 screen);
+Vec2 worldToScreen(const SceneViewCamera& camera, Vec2 world);
 
 // Bundles the two rectangles a frame's Scene View work needs, plus the camera
 // resolved from them. `visibleRect` is the true, currently visible/clippable

@@ -760,7 +760,8 @@
     flex: 0 0 auto;
     width: 16dp;
     margin-left: 2dp;
-}/* Instance row inside a layer group: indented under its header so the
+}
+/* Instance row inside a layer group: indented under its header so the
    layer -> entities containment reads as a tree,
 not a flat list. */
 .tree-row.in-layer { padding-left: 24dp; }

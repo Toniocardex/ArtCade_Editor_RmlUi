@@ -373,6 +373,15 @@ EditorInvalidation EditorCoordinator::reconcileWorkspace() {
         extra |= EditorInvalidation::Inspector;
     }
 
+    // Object Type selection is workspace-only too, but must never dangle after
+    // a structural command, Undo/Redo or project replacement.
+    if (state_.selection.hasObjectType()
+        && !document_.hasObjectType(*state_.selection.selectedObjectTypeId)) {
+        state_.selection.clear();
+        extra |= EditorInvalidation::Hierarchy | EditorInvalidation::Inspector
+               | EditorInvalidation::Toolbar;
+    }
+
     // 4. Per-scene layer workspace state must reference existing layers: an active
     //    layer that vanished falls back to the scene default; a hidden id that
     //    vanished is dropped. (After a layer remove / project replace / scene undo.)

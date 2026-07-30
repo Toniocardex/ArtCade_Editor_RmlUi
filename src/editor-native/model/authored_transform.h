@@ -49,4 +49,11 @@ bool transformContainsPoint(const SceneFrameTransform2D& transform, Vec2 worldPo
 
 std::string formatAuthoringFloat(float value, int precision = 3);
 
+// Workspace-only per-frame transform override for one instance (gizmo drag
+// preview). Never persisted; never dirties the document.
+struct SceneTransformPreview {
+    EntityId entityId = INVALID_ENTITY;
+    Transform transform{};
+};
+
 } // namespace ArtCade::EditorNative

@@ -168,7 +168,7 @@ constexpr std::string_view kSectionsEnd = "[[inspector-sections-end]]";
 bool knownSection(std::string_view id) {
     static constexpr std::string_view ids[] = {
         "project", "general", "appearance", "world-bounds", "game-view", "layers", "diagnostics",
-        "identity", "transform", "sprite", "sprite-renderer", "sprite-animator",
+        "identity", "object-type-components", "transform", "sprite", "sprite-renderer", "sprite-animator",
         "tilemap", "camera-target", "scripts", "box-collider", "linear-mover", "top-down-controller",
         "platformer-controller", "auto-destroy", "text", "gauge", "object-variables",
     };
@@ -518,6 +518,20 @@ void InspectorPanel::showEntityPositionPreview(Rml::ElementDocument* document,
                                                const EditorCoordinator& coordinator,
                                                EntityId entity,
                                                Vec2 position) {
+    ArtCade::Transform xf;
+    xf.position = position;
+    if (const SceneInstanceDef* inst = coordinator.document().findInstanceInScene(
+            coordinator.state().activeSceneId, entity)) {
+        xf = inst->transform;
+        xf.position = position;
+    }
+    showEntityTransformPreview(document, coordinator, entity, xf);
+}
+
+void InspectorPanel::showEntityTransformPreview(Rml::ElementDocument* document,
+                                                const EditorCoordinator& coordinator,
+                                                EntityId entity,
+                                                const ArtCade::Transform& transform) {
     if (!document || coordinator.selection().primaryEntity != entity) return;
     if (!coordinator.document().findInstanceInScene(coordinator.state().activeSceneId, entity))
         return;
@@ -528,8 +542,10 @@ void InspectorPanel::showEntityPositionPreview(Rml::ElementDocument* document,
             control->SetValue(value);
         }
     };
-    setValue("inspector-pos-x", num(position.x));
-    setValue("inspector-pos-y", num(position.y));
+    setValue("inspector-pos-x", num(transform.position.x));
+    setValue("inspector-pos-y", num(transform.position.y));
+    setValue("inspector-scale-x", num(transform.scale.x));
+    setValue("inspector-scale-y", num(transform.scale.y));
 }
 
 bool InspectorPanel::reconcileSceneLayerRenameUiState(const EditorCoordinator& coordinator) {
@@ -630,11 +646,93 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                                                    selected);
     reconcileObjectVariableDraft(coordinator);
 
+    // A selected catalog definition has an Inspector mode of its own. This is
+    // deliberately not represented by a synthetic instance, so a zero-use
+    // Object Type stays editable and the two selection authorities remain
+    // mutually exclusive.
+    if (coordinator.selection().selectedObjectTypeId) {
+        const ObjectTypeId& typeId = *coordinator.selection().selectedObjectTypeId;
+        const EntityDef* type = coordinator.document().findObjectType(typeId);
+        if (type) {
+            lastEntity_ = INVALID_ENTITY;
+            if (typeId != lastObjectTypeId_) {
+                addMenuOpen_ = false;
+                openDropdownId_.clear();
+                dropdownNav_.resetSession();
+                lastObjectTypeId_ = typeId;
+            }
+            const bool playing = coordinator.isPlaying();
+            std::size_t sceneCount = 0;
+            if (const SceneDef* activeScene = coordinator.document().findScene(
+                    coordinator.state().activeSceneId)) {
+                for (const SceneInstanceDef& candidate : activeScene->instances)
+                    if (candidate.objectTypeId == typeId) ++sceneCount;
+            }
+            std::string html = "<div class=\"inspector-scene-context\" title=\""
+                + escapeRml(typeId) + "\"><span class=\"context-kind\">Object Type</span>"
+                  "<span class=\"context-separator\">&#183;</span><span class=\"context-name\">"
+                + escapeRml(truncateDisplayName(type->name, 28)) + "</span></div>";
+            html += "<div class=\"inspector-breadcrumb\" data-action=\"deselect-entity\" "
+                    "title=\"Back to Scene properties\">Scene</div>";
+            html += header("identity", isSectionCollapsed("identity"),
+                           "" UI_ICON_GENERAL "", "Object Type", "TYPE", "type", "", playing);
+            html += field("Name", "commit-type-name", type->name, playing, "inspector-type-name");
+            html += "<div class=\"prop-row prop-meta\"><span class=\"prop-label\">ID</span>"
+                    "<span class=\"prop-meta-value\">" + escapeRml(typeId) + "</span></div>";
+            html += "<div class=\"prop-row\"><span class=\"prop-label\">Instances here</span>"
+                    "<span class=\"prop-readonly\">" + std::to_string(sceneCount) + "</span></div>";
+            html += header("object-type-components", isSectionCollapsed("object-type-components"),
+                           "" UI_ICON_OBJECT "", "Components", "TYPE", "type", "", playing);
+            const bool hasDriver = type->linearMover || type->topDownController
+                || type->platformerController;
+            struct AddableTypeComponent {
+                const char* label;
+                const char* action;
+                bool available;
+            };
+            const AddableTypeComponent addable[] = {
+                {"Sprite", "add-sprite-renderer",
+                 !type->spritePresentation && !type->spriteRenderer},
+                {"Box Collider 2D", "add-box-collider", !type->boxCollider2D},
+                {"Top Down Controller", "add-top-down", !hasDriver},
+                {"Platformer Controller", "add-platformer", !hasDriver},
+                {"Linear Mover", "add-linear-mover", !hasDriver},
+                {"Auto Destroy", "add-auto-destroy", !type->autoDestroy},
+                {"Text", "add-text", !type->text},
+                {"Gauge", "add-gauge", !type->gauge},
+            };
+            bool hasAddable = false;
+            for (const AddableTypeComponent& candidate : addable)
+                hasAddable = hasAddable || candidate.available;
+            if (hasAddable) {
+                html += "<div class=\"add-component\"><div class=\"add-component-btn";
+                if (playing) html += " disabled";
+                if (addMenuOpen_ && !playing) html += " open";
+                html += "\" data-action=\"toggle-add-component\"><span class=\"icon\">"
+                        UI_ICON_ADD "</span>Add Component</div>";
+                if (addMenuOpen_ && !playing) {
+                    html += "<div class=\"add-list\">";
+                    for (const AddableTypeComponent& candidate : addable) {
+                        if (!candidate.available) continue;
+                        html += "<div class=\"add-entry\" data-action=\""
+                              + std::string(candidate.action) + "\">"
+                              + candidate.label + "</div>";
+                    }
+                    html += "</div>";
+                }
+                html += "</div>";
+            }
+            body->SetInnerRML(finalizeSectionMarkup(html, collapsedSections_));
+            return;
+        }
+    }
+
     // No entity selected: show the Scene Inspector for the active scene (same
     // panel, two modes — the authority is the existing activeSceneId, no new
     // selectedSceneId). With no active scene at all, fall back to the empty hint.
     if (!inst) {
         lastEntity_ = INVALID_ENTITY;
+        lastObjectTypeId_.clear();
         addMenuOpen_ = false;
         reconcileOpenDropdownForScene();
         reconcileSceneLayerRenameUiState(coordinator);
@@ -907,6 +1005,7 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
     }
 
     const bool playing = coordinator.isPlaying();
+    lastObjectTypeId_.clear();
     layerRename_.reset();
     reconcileBackgroundDraft(coordinator, /*sceneMode=*/false);
     // The Add menu and value dropdowns are transient: a new selection or

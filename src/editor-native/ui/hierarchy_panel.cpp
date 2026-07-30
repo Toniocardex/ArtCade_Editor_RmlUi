@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cctype>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -197,6 +198,73 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
         }
     }
 
+    // The catalog is the dock's primary projection. The existing layer view
+    // below remains a secondary, derived recovery surface for placements; it
+    // never stores or synchronizes SceneDef.instances.
+    std::vector<const EntityDef*> objectTypes;
+    objectTypes.reserve(doc.data().objectTypes.size());
+    for (const auto& [unusedId, type] : doc.data().objectTypes) objectTypes.push_back(&type);
+    std::sort(objectTypes.begin(), objectTypes.end(), [](const EntityDef* a, const EntityDef* b) {
+        if (a->name != b->name) return a->name < b->name;
+        return a->className < b->className;
+    });
+    std::unordered_map<ObjectTypeId, std::size_t> instanceCounts;
+    if (scene) {
+        for (const SceneInstanceDef& instance : scene->instances)
+            ++instanceCounts[instance.objectTypeId];
+    }
+    const std::optional<ObjectTypeId>& selectedType = coordinator.selection().selectedObjectTypeId;
+    std::string objectTypeRows = "<div class=\"tree-section\">Object Types</div>";
+    bool anyMatchedObjectType = false;
+    for (const EntityDef* type : objectTypes) {
+        if (!containsInsensitive(type->name, filter)
+            && !containsInsensitive(type->className, filter)) continue;
+        anyMatchedObjectType = true;
+        objectTypeRows += "<div class=\"tree-row object-type-row";
+        if (selectedType && *selectedType == type->className) objectTypeRows += " selected";
+        objectTypeRows += "\" data-action=\"select-object-type\" data-arg=\""
+            + escapeRml(type->className) + "\" title=\"Object Type ID: "
+            + escapeRml(type->className) + "\">";
+        objectTypeRows += "<span class=\"icon row-icon\">" + std::string(typeIcon(type->className))
+            + "</span><span class=\"row-name\">" + escapeRml(type->name) + "</span>";
+        objectTypeRows += "<span class=\"layer-count\">"
+            + std::to_string(instanceCounts[type->className]) + "</span>";
+        objectTypeRows += "<span class=\"row-menu";
+        if (playing || !scene) objectTypeRows += " disabled";
+        objectTypeRows += "\" data-action=\"add-instance-of-type\" data-arg=\""
+            + escapeRml(type->className) + "\" title=\"Place Instance\">"
+            UI_ICON_ADD "</span>";
+        objectTypeRows += "<span class=\"row-menu object-type-delete";
+        if (playing) objectTypeRows += " disabled";
+        objectTypeRows += "\" data-action=\"request-delete-object-type\" data-arg=\""
+            + escapeRml(type->className) + "\" title=\"Delete Object Type\">"
+            UI_ICON_DELETE "</span></div>";
+    }
+    if (objectTypes.empty()) {
+        objectTypeRows += "<div class=\"hierarchy-empty-state\"><span class=\"hierarchy-empty-icon\">"
+            UI_ICON_EMPTY_HIERARCHY "</span><span class=\"hierarchy-empty-title\">No Object Types yet</span>"
+            "<span class=\"hierarchy-empty-copy\">Create an Object Type, then place it in a scene.</span>"
+            "<button class=\"panel-btn";
+        if (playing) objectTypeRows += " disabled";
+        objectTypeRows += "\" data-action=\"add-object-type\">Create Object Type</button></div>";
+    } else if (!anyMatchedObjectType) {
+        objectTypeRows += "<div class=\"tree-empty\">No Object Types match the current filter.</div>";
+    }
+    // The pre-existing layer projection remains a secondary recovery surface
+    // below the catalog. It is read-only presentation of the same instances,
+    // never a duplicate store.
+    if (Rml::Element* entry = document->GetElementById("create-scene-entry"))
+        entry->SetClass("disabled", playing);
+    if (Rml::Element* entry = document->GetElementById("create-object-type-entry"))
+        entry->SetClass("disabled", playing);
+    if (Rml::Element* entry = document->GetElementById("create-entity-entry"))
+        entry->SetClass("disabled", !scene || playing);
+    if (Rml::Element* entry = document->GetElementById("create-tilemap-entity-entry"))
+        entry->SetClass("disabled", !scene || playing);
+    if (Rml::Element* entry = document->GetElementById("create-instance-entry"))
+        entry->SetClass("disabled", !scene || selected == INVALID_ENTITY || playing);
+    setHtml(document, "create-instance-of-type-list", useExistingTypeList(doc, playing || !scene));
+
     std::unordered_map<ObjectTypeId, std::size_t> typeUseCount;
     if (scene) {
         for (const SceneInstanceDef& inst : scene->instances)
@@ -358,7 +426,7 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
 
     if (!scene) {
         rows = "<div class=\"tree-empty\">No scene open.</div>";
-    } else if (scene->instances.empty()) {
+    } else if (scene->instances.empty() && !objectTypes.empty()) {
         rows = "<div class=\"hierarchy-empty-state\">"
                "<span class=\"hierarchy-empty-icon\">" UI_ICON_EMPTY_HIERARCHY "</span>"
                "<span class=\"hierarchy-empty-title\">Your scene is empty</span>"
@@ -373,7 +441,7 @@ void HierarchyPanel::refresh(Rml::ElementDocument* document,
              + std::string(scene->layers.empty() ? "Instances" : "Layers")
              + "</div>" + rows;
     }
-    setHtml(document, "hierarchy-list", rows);
+    setHtml(document, "hierarchy-list", objectTypeRows + rows);
 
     if (pendingRevealId_ != INVALID_ENTITY) {
         const std::string eid = "hierarchy-instance-" + std::to_string(pendingRevealId_);

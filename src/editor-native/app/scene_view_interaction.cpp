@@ -158,21 +158,6 @@ Vec2 applySceneGridSnap(const EditorCoordinator& coordinator, const SceneId& sce
         worldPosition, worldAuthoringGrid(coordinator.sceneView(sceneId)));
 }
 
-std::optional<Vec2> dragPreviewPosition(const EditorCoordinator& coordinator,
-                                        const SceneViewportProjection& projection,
-                                        const ViewportDrag& drag) {
-    if (!drag.active) return std::nullopt;
-    const SceneId active = coordinator.state().activeSceneId;
-    const SceneDef* scene = coordinator.document().findScene(active);
-    if (!scene) return std::nullopt;
-
-    const Vec2 cur = screenToWorld(projection.camera, Vec2{static_cast<float>(GetMouseX()),
-                                             static_cast<float>(GetMouseY())});
-    const Vec2 d{cur.x - drag.startMouseWorld.x, cur.y - drag.startMouseWorld.y};
-    return applySceneGridSnap(
-        coordinator, active, Vec2{drag.startEntityPos.x + d.x, drag.startEntityPos.y + d.y});
-}
-
 // Escape is a keyboard-wide gesture, not scoped to whichever panel/viewport
 // currently has mouse focus, so it is arbitrated once per frame here rather
 // than inside any single input-routing module. Escape only ever cancels the
@@ -185,52 +170,161 @@ std::optional<Vec2> dragPreviewPosition(const EditorCoordinator& coordinator,
 // Deselecting now lives only in the Inspector's own breadcrumb
 // (data-action="deselect-entity", inspector_panel.cpp) - a dedicated,
 // always-visible affordance that never collides with anything else.
-// Exactly one level fires per press: (1) cancel a pending tilemap gesture -
-// tilemap_paint_input.cpp keeps only its own focus-loss trigger for the same
-// shared primitive, never Escape-key polling itself; (2) if nothing was
-// pending and a tilemap tool is active, fall back to Select. Neither level
-// touches ProjectDocument/dirty/undo/selection.
-void routeGlobalEscape(EditorCoordinator& coordinator) {
+// Exactly one level fires per press: (0) cancel an active transform gizmo
+// gesture (preview discarded, selection kept); (1) cancel a pending tilemap
+// gesture; (2) if nothing was pending and a tilemap tool is active, fall back
+// to Select. None of these levels touch ProjectDocument/dirty/undo/selection
+// except the tool Intent in (2).
+void routeGlobalEscape(EditorCoordinator& coordinator,
+                       TransformInteractionState& transform) {
+    if (transform.active) {
+        cancelTransformInteraction(transform);
+        return;
+    }
     if (coordinator.cancelPendingTilemapGesture()) return;
     if (isTilemapTool(coordinator.state().activeTool)) {
         coordinator.apply(SetActiveToolIntent{EditorTool::Select});
     }
 }
 
-// Edit-mode pick + drag: press hit-tests and selects; release commits one move.
-// Motion between press and release is shown as a local preview by the draw path,
-// not as a stream of commands.
-void routeViewportPickDrag(EditorCoordinator& coordinator, const SceneViewportProjection& projection,
-                           const RmlInputResult& rml, ViewportDrag& drag,
-                           bool contextMenuHit) {
-    // A paint tool owns viewport clicks while active - entity pick/drag must
-    // not also claim them.
-    if (coordinator.state().activeTool != EditorTool::Select) return;
+TransformHandle hoverTransformHandle(const EditorCoordinator& coordinator,
+                                     const SceneViewportProjection& projection,
+                                     const SceneFrameSnapshot& frame,
+                                     Vec2 screenMouse) {
+    if (coordinator.isPlaying()) return TransformHandle::None;
+    if (coordinator.state().activeTool != EditorTool::Select) return TransformHandle::None;
+    const EntityId selected = coordinator.selection().primaryEntity;
+    if (selected == INVALID_ENTITY) return TransformHandle::None;
+    if (coordinator.selection().hasObjectType()) return TransformHandle::None;
+
     const SceneId active = coordinator.state().activeSceneId;
-    // Hidden layers are not pickable: the snapshot the picker reads excludes them.
+    const auto geometry =
+        resolveInstanceTransformGeometry(coordinator.document(), frame, active, selected);
+    if (!geometry || !geometry->supportsScale) return TransformHandle::None;
+
+    const SceneInstanceDef* inst =
+        coordinator.document().findInstanceInScene(active, selected);
+    if (!inst || coordinator.document().isInstanceLayerLocked(active, *inst)) {
+        return TransformHandle::None;
+    }
+
+    return hitTestTransformHandle(
+        geometry->transform, geometry->supportsScale, projection.camera, screenMouse);
+}
+
+namespace {
+
+bool gizmoAllowedForInstance(const EditorCoordinator& coordinator,
+                             const SceneId& sceneId,
+                             EntityId entityId) {
+    if (coordinator.isPlaying()) return false;
+    if (coordinator.state().activeTool != EditorTool::Select) return false;
+    if (coordinator.selection().hasObjectType()) return false;
+    const SceneInstanceDef* inst =
+        coordinator.document().findInstanceInScene(sceneId, entityId);
+    if (!inst) return false;
+    if (coordinator.document().isInstanceLayerLocked(sceneId, *inst)) return false;
+    return resolveTransformGizmoCapabilities(coordinator.document(), sceneId, entityId).canMove;
+}
+
+void updateTransformPreview(TransformInteractionState& transform,
+                            const EditorCoordinator& coordinator,
+                            const SceneViewportProjection& projection) {
+    if (!transform.active) return;
+    const Vec2 mouse{static_cast<float>(GetMouseX()), static_cast<float>(GetMouseY())};
+    const Vec2 world = screenToWorld(projection.camera, mouse);
+    const bool shift = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+
+    if (transform.handle == TransformHandle::Body) {
+        Transform moved = moveTransformFromPointer(transform, world);
+        moved.position = applySceneGridSnap(coordinator, transform.sceneId, moved.position);
+        transform.previewTransform = moved;
+    } else {
+        TransformResizeSnap snap;
+        if (coordinator.sceneView(transform.sceneId).gridSnapEnabled) {
+            const SceneGridDefinition grid =
+                worldAuthoringGrid(coordinator.sceneView(transform.sceneId));
+            snap.enabled = true;
+            snap.origin = grid.origin;
+            snap.cellSize = grid.cellSize;
+        }
+        transform.previewTransform =
+            resizeTransformFromHandle(transform, world, shift,
+                                      snap.enabled ? &snap : nullptr);
+    }
+}
+
+} // namespace
+
+// Edit-mode pick + transform gizmo: handle hit-test before entity pick; release
+// commits one SetEntityTransformCommand. Motion is a local preview only.
+void routeViewportPickDrag(EditorCoordinator& coordinator, const SceneViewportProjection& projection,
+                           const RmlInputResult& rml, TransformInteractionState& transform,
+                           bool contextMenuHit) {
+    if (coordinator.state().activeTool != EditorTool::Select) {
+        cancelTransformInteraction(transform);
+        return;
+    }
+    if (transform.active) {
+        if (coordinator.isPlaying()
+            || coordinator.state().activeSceneId != transform.sceneId
+            || coordinator.selection().primaryEntity != transform.entityId
+            || coordinator.selection().hasObjectType()
+            || !IsWindowFocused()) {
+            cancelTransformInteraction(transform);
+        } else if (const SceneInstanceDef* inst = coordinator.document().findInstanceInScene(
+                       transform.sceneId, transform.entityId)) {
+            if (coordinator.document().isInstanceLayerLocked(transform.sceneId, *inst)) {
+                cancelTransformInteraction(transform);
+            }
+        } else {
+            cancelTransformInteraction(transform);
+        }
+    }
+    const SceneId active = coordinator.state().activeSceneId;
     const SceneFrameSnapshot frame = collectSceneFrameSnapshot(
         coordinator.document(), active, coordinator.selection().primaryEntity,
         coordinator.sceneView(active).hiddenLayerIds);
     const SceneViewCamera& cam = projection.camera;
     const Vec2 mouse{static_cast<float>(GetMouseX()), static_cast<float>(GetMouseY())};
 
-    // Space + left-drag is a pan gesture, not a pick (handled by routeViewportInput).
+    if (transform.active && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+        updateTransformPreview(transform, coordinator, projection);
+    }
+
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !IsKeyDown(KEY_SPACE)) {
         const ViewportInputContext ctx{projection.visibleRect.contains(GetMouseX(), GetMouseY()),
                                        /*rmlConsumedEvent*/ contextMenuHit, rml.textFocus,
                                        /*rmlPopupOpen*/ false};
         if (shouldViewportReceiveInput(ctx)) {
             const Vec2 world = screenToWorld(cam, mouse);
+            const EntityId alreadySelected = coordinator.selection().primaryEntity;
+
+            // 1) Scale handles on the already-selected instance win over pick.
+            if (alreadySelected != INVALID_ENTITY
+                && gizmoAllowedForInstance(coordinator, active, alreadySelected)) {
+                if (const auto geometry = resolveInstanceTransformGeometry(
+                        coordinator.document(), frame, active, alreadySelected)) {
+                    const TransformHandle handle = hitTestTransformHandle(
+                        geometry->transform, geometry->supportsScale, cam, mouse);
+                    if (handle != TransformHandle::None) {
+                        if (const SceneInstanceDef* inst =
+                                coordinator.document().findInstanceInScene(
+                                    active, alreadySelected)) {
+                            transform = beginTransformInteraction(
+                                active, alreadySelected, handle, inst->transform,
+                                *geometry, world);
+                            return;
+                        }
+                    }
+                }
+            }
+
             const Vec2 viewport{
                 mouse.x - static_cast<float>(projection.visibleRect.x),
                 mouse.y - static_cast<float>(projection.visibleRect.y),
             };
             EntityId picked = pickEntityAt(frame, ScenePickPoint{world, viewport});
-            // Locked layers stay non-pickable in the Scene View (Hierarchy can
-            // still select them). Other layers are selectable here too: the
-            // SelectEntityIntent below switches activeLayerId to match, same as
-            // a Hierarchy click — rejecting them used to look like "click does
-            // nothing" while Inspector stayed on the Scene.
             if (picked != INVALID_ENTITY) {
                 const SceneInstanceDef* pickedInst =
                     coordinator.document().findInstanceInScene(active, picked);
@@ -239,24 +333,34 @@ void routeViewportPickDrag(EditorCoordinator& coordinator, const SceneViewportPr
                     picked = INVALID_ENTITY;
                 }
             }
-            coordinator.apply(SelectEntityIntent{picked});   // INVALID clears selection
-            if (picked != INVALID_ENTITY) {
-                if (const SceneInstanceDef* inst =
-                        coordinator.document().findInstanceInScene(active, picked)) {
-                    drag = ViewportDrag{true, picked, world, inst->transform.position};
+            coordinator.apply(SelectEntityIntent{picked});
+            if (picked != INVALID_ENTITY
+                && gizmoAllowedForInstance(coordinator, active, picked)) {
+                if (const auto geometry = resolveInstanceTransformGeometry(
+                        coordinator.document(), frame, active, picked)) {
+                    if (const SceneInstanceDef* inst =
+                            coordinator.document().findInstanceInScene(active, picked)) {
+                        // Body move when clicking the transformable bounds, or
+                        // any pick on the entity (existing drag behaviour).
+                        transform = beginTransformInteraction(
+                            active, picked, TransformHandle::Body, inst->transform,
+                            *geometry, world);
+                    }
                 }
+            } else {
+                cancelTransformInteraction(transform);
             }
         }
     }
 
-    if (drag.active && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
-        if (const std::optional<Vec2> preview = dragPreviewPosition(coordinator, projection, drag)) {
-            if (preview->x != drag.startEntityPos.x || preview->y != drag.startEntityPos.y) {
-                coordinator.execute(SetEntityTransformCommand{
-                    active, drag.entity, AuthoredTransformPatch{*preview}});
-            }
+    if (transform.active && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+        updateTransformPreview(transform, coordinator, projection);
+        const AuthoredTransformPatch patch = transformPatchForRelease(transform);
+        if (patch.position || patch.rotationRadians || patch.scale) {
+            coordinator.execute(SetEntityTransformCommand{
+                transform.sceneId, transform.entityId, patch});
         }
-        drag = ViewportDrag{};
+        cancelTransformInteraction(transform);
     }
 }
 

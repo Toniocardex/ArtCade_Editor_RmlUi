@@ -222,7 +222,8 @@ void SceneView::render(const SceneFrameSnapshot& frame,
                        const SceneViewportProjection& projection,
                        const TextureCache& textures,
                        const CanvasFont& canvasFont,
-                       const EditorFontCache& fonts) const {
+                       const EditorFontCache& fonts,
+                       const TransformGizmoOverlay* gizmo) const {
     const ViewportRect& rect = projection.visibleRect;
     if (!rect.valid()) return;
 
@@ -461,7 +462,53 @@ void SceneView::render(const SceneFrameSnapshot& frame,
         }
     }
 
+    if (gizmo && gizmo->visible) {
+        const SceneFrameTransform2D& g = gizmo->geometry;
+        drawOrientedOutline(g, 1.5f / cam.zoom, Color{96, 165, 250, 220});
+
+        if (gizmo->showScaleHandles) {
+            static constexpr TransformHandle kHandles[] = {
+                TransformHandle::CornerTL, TransformHandle::CornerTR,
+                TransformHandle::CornerBR, TransformHandle::CornerBL,
+                TransformHandle::EdgeT, TransformHandle::EdgeR,
+                TransformHandle::EdgeB, TransformHandle::EdgeL,
+            };
+            const float visual = transformHandleWorldExtent(cam.zoom, kTransformHandleVisualPx);
+            for (TransformHandle h : kHandles) {
+                const std::optional<Vec2> pos = transformHandleWorldPosition(g, h);
+                if (!pos) continue;
+                const bool hot = h == gizmo->hovered || h == gizmo->active;
+                const Color fill = hot ? Color{255, 255, 255, 255} : Color{226, 232, 240, 255};
+                const Color border = hot ? Color{37, 99, 235, 255} : Color{59, 130, 246, 255};
+                const Rectangle r{
+                    pos->x - visual * 0.5f,
+                    pos->y - visual * 0.5f,
+                    visual,
+                    visual,
+                };
+                DrawRectangleRec(r, fill);
+                DrawRectangleLinesEx(r, std::max(1.f, 1.f / cam.zoom), border);
+            }
+        }
+    }
+
     EndMode2D();
+    }
+
+    if (gizmo && gizmo->visible && gizmo->showReadout) {
+        const Vec2 size{
+            gizmo->unscaledSize.x * gizmo->previewTransform.scale.x,
+            gizmo->unscaledSize.y * gizmo->previewTransform.scale.y,
+        };
+        const std::string line1 =
+            "Scale " + formatAuthoringFloat(gizmo->previewTransform.scale.x) + " x "
+            + formatAuthoringFloat(gizmo->previewTransform.scale.y);
+        const std::string line2 =
+            "Size " + formatAuthoringFloat(size.x) + " x " + formatAuthoringFloat(size.y) + " wu";
+        const float x = gizmo->readoutScreen.x + 14.f;
+        const float y = gizmo->readoutScreen.y + 14.f;
+        drawCanvasText(canvasFont, line1, x, y, 14.f, Color{226, 232, 240, 255});
+        drawCanvasText(canvasFont, line2, x, y + 16.f, 14.f, Color{148, 163, 184, 255});
     }
 
     // HUD (screenSpace) text/gauge — viewport space, after world pass.

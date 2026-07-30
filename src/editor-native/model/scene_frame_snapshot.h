@@ -132,10 +132,12 @@ struct ScenePickPoint {
 // back-to-front and reverse-iterating picks the topmost. Layers in @p hiddenLayers
 // are skipped entirely (not drawn, not pickable). A scene without layers (legacy)
 // keeps its instance order. The renderer never reads scene.layers itself.
+// @p preview: optional gizmo drag override (see SceneTransformPreview).
 SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
                                              const SceneId& sceneId,
                                              EntityId selectedEntity,
-                                             const std::unordered_set<std::string>& hiddenLayers = {});
+                                             const std::unordered_set<std::string>& hiddenLayers = {},
+                                             const SceneTransformPreview* preview = nullptr);
 SceneFrameSnapshot collectSceneFrameSnapshot(const PlaySession& session);
 
 // Derived editor geometry for selection, recovery, and containment warnings.

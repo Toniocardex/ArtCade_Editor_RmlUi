@@ -430,7 +430,7 @@ int EditorApp::run(int argc, char** argv) {
     // Derived alpha-scan of the palette's tileset (signature-keyed, so a
     // re-slice, image swap or project replacement recomputes on next query).
     TilesetEmptyTileCache tilesetEmptyTiles;
-    ViewportDrag drag;
+    TransformInteractionState transformInteraction;
     ViewportContextClick contextClick;
     std::optional<Vec2> pendingContextSpawn;
 
@@ -698,7 +698,8 @@ int EditorApp::run(int argc, char** argv) {
     EditorActionDispatcher actionDispatcher{coordinator, ui, projectSession};
     KeyboardConsumptionTracker keyboardConsumption;
     KeyboardFocusTracker keyboardFocus;
-    actionDispatcher.setClearViewportDragHandler([&]() { drag = {}; });
+    actionDispatcher.setClearViewportDragHandler(
+        [&]() { cancelTransformInteraction(transformInteraction); });
     actionDispatcher.setFocusSelectionHandler(
         [&]() { return focusSelectionInViewport(); });
     actionDispatcher.setScriptHistoryHandlers(
@@ -1496,7 +1497,7 @@ int EditorApp::run(int argc, char** argv) {
         const bool nonSceneWorkspace = coordinator.state().centerWorkspaceMode
             != CenterWorkspaceMode::Scene;
         if (workspaceChanged) {
-            drag = ViewportDrag{};
+            cancelTransformInteraction(transformInteraction);
             contextClick = ViewportContextClick{};
             pendingContextSpawn.reset();
             ui.hideContextMenus();
@@ -1543,7 +1544,7 @@ int EditorApp::run(int argc, char** argv) {
         escapeCtx.tilemapOperationActive =
             coordinator.state().tilemapEditor.pendingStroke.has_value()
             || coordinator.state().tilemapEditor.pendingRectangle.has_value();
-        escapeCtx.viewportDragActive = drag.active;
+        escapeCtx.viewportDragActive = transformInteraction.active;
         escapeCtx.temporaryToolActive =
             coordinator.state().tilemapEditor.temporaryToolOverride.has_value();
         escapeCtx.overlayEditorOpen = animationEditorOpen || tilesetEditorOpen;
@@ -1697,7 +1698,8 @@ int EditorApp::run(int argc, char** argv) {
                 if (fitActiveScene()) coordinator.markSceneViewInitialized(editScene);
             }
             // Escape is owned by EditorActionDispatcher (EscapeOwner) above.
-            routeViewportPickDrag(coordinator, projection, rml, drag, contextMenuHit);
+            routeViewportPickDrag(coordinator, projection, rml, transformInteraction,
+                                  contextMenuHit);
             routeViewportContextMenu(coordinator, ui, projection, rml, contextClick,
                                      pendingContextSpawn, contextMenuHit);
             routeViewportTilemapPaint(coordinator, projection, rml);
@@ -1930,8 +1932,9 @@ int EditorApp::run(int argc, char** argv) {
         // hang off any single action path. Change-guarded O(1) check per frame.
         projectSession.refreshWindowTitleIfNeeded();
         if (!coordinator.isPlaying() && !animationEditorOpen && !tilesetEditorOpen) {
-            if (const std::optional<Vec2> preview = dragPreviewPosition(coordinator, projection, drag)) {
-                ui.showEntityPositionPreview(drag.entity, *preview);
+            if (transformInteraction.active) {
+                ui.showEntityTransformPreview(transformInteraction.entityId,
+                                              transformInteraction.previewTransform);
             }
         }
         host.update();
@@ -2003,20 +2006,20 @@ int EditorApp::run(int argc, char** argv) {
         if (!nonSceneWorkspace) {
             const SceneId active = playSession ? playSession->sceneId()
                                                : coordinator.state().activeSceneId;
+            SceneTransformPreview transformPreview{};
+            const SceneTransformPreview* previewPtr = nullptr;
+            if (!playSession && transformInteraction.active) {
+                transformPreview.entityId = transformInteraction.entityId;
+                transformPreview.transform = transformInteraction.previewTransform;
+                previewPtr = &transformPreview;
+            }
             SceneFrameSnapshot snapshot = playSession
                 ? collectSceneFrameSnapshot(*playSession)
-                : collectSceneFrameSnapshot(coordinator.document(), active,
-                                            coordinator.selection().primaryEntity,
-                                            coordinator.sceneView(active).hiddenLayerIds);
-            if (!playSession && drag.active) {
-            // Local drag preview: offset the dragged entity by the live delta so
-            // the move is visible before the single command lands on release.
-            const std::optional<Vec2> preview = dragPreviewPosition(coordinator, projection, drag);
-            const Vec2 d = preview
-                ? Vec2{preview->x - drag.startEntityPos.x, preview->y - drag.startEntityPos.y}
-                : Vec2{};
-            applyDragPreviewOffset(snapshot, drag.entity, d);
-            }
+                : collectSceneFrameSnapshot(
+                      coordinator.document(), active,
+                      coordinator.selection().primaryEntity,
+                      coordinator.sceneView(active).hiddenLayerIds,
+                      previewPtr);
             if (!playSession) {
                 applyPendingTilemapStrokePreview(snapshot, coordinator.document(),
                                                  coordinator.state().tilemapEditor);
@@ -2055,8 +2058,82 @@ int EditorApp::run(int argc, char** argv) {
                 textFontCache.prepare(snapshot.texts, assetRoot);
                 const SceneGridDefinition displayGrid = viewportDisplayGrid(
                     coordinator.document(), coordinator.state(), active);
+                TransformGizmoOverlay gizmoOverlay;
+                if (!playSession
+                    && coordinator.state().activeTool == EditorTool::Select
+                    && !coordinator.selection().hasObjectType()
+                    && coordinator.selection().primaryEntity != INVALID_ENTITY) {
+                    const EntityId selected = coordinator.selection().primaryEntity;
+                    if (const auto geometry = resolveInstanceTransformGeometry(
+                            coordinator.document(), snapshot, active, selected)) {
+                        const SceneInstanceDef* inst =
+                            coordinator.document().findInstanceInScene(active, selected);
+                        if (inst && !coordinator.document().isInstanceLayerLocked(active, *inst)) {
+                            SceneFrameTransform2D geom = geometry->transform;
+                            if (transformInteraction.active
+                                && transformInteraction.entityId == selected) {
+                                geom = projectTransform(transformInteraction.previewTransform,
+                                                        transformInteraction.unscaledSize);
+                            }
+                            const Vec2 mouse{static_cast<float>(GetMouseX()),
+                                             static_cast<float>(GetMouseY())};
+                            gizmoOverlay.visible = true;
+                            gizmoOverlay.geometry = geom;
+                            gizmoOverlay.showScaleHandles = geometry->supportsScale;
+                            gizmoOverlay.hovered =
+                                transformInteraction.active
+                                    ? transformInteraction.handle
+                                    : hoverTransformHandle(coordinator, renderProjection,
+                                                           snapshot, mouse);
+                            gizmoOverlay.active = transformInteraction.active
+                                ? transformInteraction.handle
+                                : TransformHandle::None;
+                            gizmoOverlay.showReadout = transformInteraction.active
+                                && transformInteraction.handle != TransformHandle::Body
+                                && transformInteraction.handle != TransformHandle::None;
+                            gizmoOverlay.previewTransform = transformInteraction.active
+                                ? transformInteraction.previewTransform
+                                : inst->transform;
+                            gizmoOverlay.unscaledSize = geometry->unscaledSize;
+                            gizmoOverlay.readoutScreen = mouse;
+
+                            // Cursor feedback for handle hover / active resize.
+                            const TransformHandle cursorHandle = transformInteraction.active
+                                ? transformInteraction.handle
+                                : gizmoOverlay.hovered;
+                            switch (cursorHandle) {
+                            case TransformHandle::CornerTL:
+                            case TransformHandle::CornerBR:
+                                SetMouseCursor(MOUSE_CURSOR_RESIZE_NWSE);
+                                break;
+                            case TransformHandle::CornerTR:
+                            case TransformHandle::CornerBL:
+                                SetMouseCursor(MOUSE_CURSOR_RESIZE_NESW);
+                                break;
+                            case TransformHandle::EdgeL:
+                            case TransformHandle::EdgeR:
+                                SetMouseCursor(MOUSE_CURSOR_RESIZE_EW);
+                                break;
+                            case TransformHandle::EdgeT:
+                            case TransformHandle::EdgeB:
+                                SetMouseCursor(MOUSE_CURSOR_RESIZE_NS);
+                                break;
+                            case TransformHandle::Body:
+                                SetMouseCursor(MOUSE_CURSOR_RESIZE_ALL);
+                                break;
+                            default:
+                                SetMouseCursor(MOUSE_CURSOR_DEFAULT);
+                                break;
+                            }
+                        }
+                    }
+                } else if (!playSession) {
+                    SetMouseCursor(MOUSE_CURSOR_DEFAULT);
+                }
+
                 sceneView.render(snapshot, renderView, displayGrid, renderProjection, textureCache,
-                                 canvasFont, textFontCache);
+                                 canvasFont, textFontCache,
+                                 gizmoOverlay.visible ? &gizmoOverlay : nullptr);
                 if (!playSession) {
                     drawTilemapPaintOverlay(coordinator.document(), coordinator.state().tilemapEditor,
                                             coordinator.effectiveTilemapTool(),

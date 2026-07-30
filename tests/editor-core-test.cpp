@@ -55,6 +55,7 @@
 #include "editor-native/model/box_collider_view.h"
 #include "editor-native/model/box_collider_geometry.h"
 #include "editor-native/model/scene_frame_snapshot.h"
+#include "editor-native/model/transform_gizmo_math.h"
 #include "editor-native/model/sprite_animation_slicing.h"
 #include "editor-native/model/tileset_slicing.h"
 #include "editor-native/model/tilemap_chunk_math.h"
@@ -154,6 +155,31 @@ int main() {
         const auto bad = c.apply(SelectEntityIntent{9999});
         CHECK(!bad.ok);
         CHECK(c.selection().primaryEntity == kHero);           // unchanged on failure
+    }
+
+    // Object Type catalog selection is workspace-only and mutually exclusive
+    // with an instance selection; creating the definition is one undoable
+    // authoring command and deliberately places no instance.
+    {
+        EditorCoordinator c{makeDoc()};
+        const uint64_t revisionBefore = c.document().revision();
+        CHECK(c.apply(SelectObjectTypeIntent{"Hero"}).ok);
+        CHECK(c.selection().hasObjectType());
+        CHECK(*c.selection().selectedObjectTypeId == "Hero");
+        CHECK(c.selection().primaryEntity == INVALID_ENTITY);
+        CHECK(c.document().revision() == revisionBefore);
+
+        CHECK(c.apply(SelectEntityIntent{kHero}).ok);
+        CHECK(!c.selection().hasObjectType());
+        CHECK(c.selection().primaryEntity == kHero);
+
+        CHECK(addObjectType(c).ok);
+        const ObjectTypeId created = *c.selection().selectedObjectTypeId;
+        CHECK(c.document().hasObjectType(created));
+        CHECK(c.selection().primaryEntity == INVALID_ENTITY);
+        CHECK(c.undo().ok);
+        CHECK(!c.document().hasObjectType(created));
+        CHECK(!c.selection().hasObjectType());
     }
 
     // -- â”¬Âº24.6  A scene change does not serialize / Replace the project --------
@@ -1757,6 +1783,33 @@ int main() {
         const auto& instances = c.document().findScene(kSceneA)->instances;
         CHECK(instances.size() == 3);
         CHECK(instances[1].id == 101);
+    }
+
+    // Deleting an Object Type is intentionally destructive: it removes every
+    // placement across scenes in one command and Undo restores exact order.
+    {
+        EditorCoordinator c{makeDoc()};
+        CHECK(c.execute(CreateEntityCommand{kSceneA, 43, "Hero", {}}).ok);
+        CHECK(c.execute(CreateEntityCommand{kSceneB, 7, "Hero", {}}).ok);
+        CHECK(c.apply(SelectObjectTypeIntent{"Hero"}).ok);
+        const auto removed = c.execute(DeleteObjectTypeCommand{"Hero"});
+        CHECK(removed.ok);
+        CHECK(!c.document().hasObjectType("Hero"));
+        CHECK(c.document().findInstanceInScene(kSceneA, kHero) == nullptr);
+        CHECK(c.document().findInstanceInScene(kSceneA, 43) == nullptr);
+        CHECK(c.document().findInstanceInScene(kSceneB, 7) == nullptr);
+        CHECK(c.document().hasObjectType("Enemy"));
+        CHECK(!c.selection().hasObjectType());
+        CHECK(ProjectValidator::validate(c.document()).ok);
+
+        CHECK(c.undo().ok);
+        CHECK(c.document().hasObjectType("Hero"));
+        const auto& a = c.document().findScene(kSceneA)->instances;
+        CHECK(a.size() == 2);
+        CHECK(a[0].id == kHero);
+        CHECK(a[1].id == 43);
+        CHECK(c.document().findInstanceInScene(kSceneB, 7) != nullptr);
+        CHECK(ProjectValidator::validate(c.document()).ok);
     }
 
     // -- DeleteEntityCommand: missing instance fails without side effects ------
@@ -6551,6 +6604,203 @@ int main() {
         isolated.accentPreset = EditorAccentPreset::AmberOchre;
         CHECK(prefCoord.document().revision() == prefRev);
         CHECK(prefCoord.document().isDirty() == prefDirty);
+    }
+
+    // -- Transform gizmo pure math / capabilities (Slice 1) ---------------------
+    {
+        // Placeholder entity: can move + scale
+        EditorCoordinator c{makeDoc()};
+        const auto caps =
+            resolveTransformGizmoCapabilities(c.document(), kSceneA, kHero);
+        CHECK(caps.canMove);
+        CHECK(caps.canScale);
+
+        // Rotation nonzero → scale disabled
+        AuthoredTransformPatch rotPatch;
+        rotPatch.rotationRadians = 0.5f;
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, rotPatch}).ok);
+        CHECK(!resolveTransformGizmoCapabilities(c.document(), kSceneA, kHero).canScale);
+        CHECK(resolveTransformGizmoCapabilities(c.document(), kSceneA, kHero).canMove);
+
+        AuthoredTransformPatch rotZero;
+        rotZero.rotationRadians = 0.f;
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, rotZero}).ok);
+
+        // Tilemap → scale disabled
+        EditorCoordinator sprite{makeSpriteDoc()};
+        sliceTilesOne(sprite);
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        CHECK(sprite.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+        CHECK(resolveTransformGizmoCapabilities(sprite.document(), kSceneA, kHero).canMove);
+        CHECK(!resolveTransformGizmoCapabilities(sprite.document(), kSceneA, kHero).canScale);
+
+        // Sprite present → scale enabled
+        EditorCoordinator withSprite{makeSpriteDoc()};
+        CHECK(resolveTransformGizmoCapabilities(withSprite.document(), kSceneA, kHero).canScale);
+    }
+    {
+        // Corner resize updates position + scale; Shift preserves original ratio
+        ArtCade::Transform authored;
+        authored.position = {100.f, 100.f};
+        authored.scale = {2.f, 1.f};
+        InstanceTransformGeometry geometry;
+        geometry.unscaledSize = {32.f, 32.f};
+        geometry.transform = projectTransform(authored, geometry.unscaledSize);
+        geometry.supportsScale = true;
+
+        TransformInteractionState state = beginTransformInteraction(
+            kSceneA, kHero, TransformHandle::CornerBR, authored, geometry,
+            Vec2{132.f, 116.f});
+        CHECK(state.active);
+        CHECK(nearlyEqualTransform(state.fixedAnchorWorld.x, 100.f - 32.f));
+        CHECK(nearlyEqualTransform(state.fixedAnchorWorld.y, 100.f - 16.f));
+
+        state.previewTransform =
+            resizeTransformFromHandle(state, Vec2{164.f, 148.f}, false);
+        CHECK(state.previewTransform.scale.x > authored.scale.x);
+        CHECK(state.previewTransform.scale.y > authored.scale.y);
+        CHECK(state.previewTransform.position.x > authored.position.x);
+
+        const AuthoredTransformPatch releasePatch = transformPatchForRelease(state);
+        CHECK(releasePatch.position.has_value());
+        CHECK(releasePatch.scale.has_value());
+        CHECK(!releasePatch.rotationRadians.has_value());
+
+        TransformInteractionState shiftState = beginTransformInteraction(
+            kSceneA, kHero, TransformHandle::CornerBR, authored, geometry,
+            Vec2{132.f, 116.f});
+        shiftState.previewTransform =
+            resizeTransformFromHandle(shiftState, Vec2{196.f, 116.f}, true);
+        const float ratio =
+            shiftState.previewTransform.scale.x / shiftState.previewTransform.scale.y;
+        CHECK(std::fabs(ratio - (authored.scale.x / authored.scale.y)) < 0.01f);
+
+        // Grid snap: free-edge extent is an integer multiple of the cell size.
+        TransformResizeSnap snap;
+        snap.enabled = true;
+        snap.cellSize = {32.f, 32.f};
+        TransformInteractionState snapState = beginTransformInteraction(
+            kSceneA, kHero, TransformHandle::EdgeR, authored, geometry,
+            Vec2{132.f, 100.f});
+        // fixed left = 100-32 = 68; drag near 68+50 → snaps width to 32 or 64
+        snapState.previewTransform =
+            resizeTransformFromHandle(snapState, Vec2{68.f + 50.f, 100.f}, false, &snap);
+        const float width =
+            snapState.previewTransform.scale.x * geometry.unscaledSize.x;
+        CHECK(std::fabs(std::fmod(width + 1e-3f, 32.f)) < 0.02f
+              || std::fabs(std::fmod(width + 1e-3f, 32.f) - 32.f) < 0.02f);
+        CHECK(width >= 32.f - 0.01f);
+
+        TransformInteractionState clampState = beginTransformInteraction(
+            kSceneA, kHero, TransformHandle::CornerBR, authored, geometry,
+            Vec2{132.f, 116.f});
+        clampState.previewTransform =
+            resizeTransformFromHandle(clampState, clampState.fixedAnchorWorld, false);
+        CHECK(clampState.previewTransform.scale.x >= kMinAuthoringScale);
+        CHECK(clampState.previewTransform.scale.y >= kMinAuthoringScale);
+
+        TransformInteractionState move = beginTransformInteraction(
+            kSceneA, kHero, TransformHandle::Body, authored, geometry, Vec2{100.f, 100.f});
+        move.previewTransform = moveTransformFromPointer(move, Vec2{120.f, 110.f});
+        const AuthoredTransformPatch movePatch = transformPatchForRelease(move);
+        CHECK(movePatch.position.has_value());
+        CHECK(!movePatch.scale.has_value());
+
+        EditorCoordinator cancelCoord{makeDoc()};
+        const uint64_t rev = cancelCoord.document().revision();
+        cancelTransformInteraction(move);
+        CHECK(!move.active);
+        CHECK(cancelCoord.document().revision() == rev);
+        CHECK(!cancelCoord.document().isDirty());
+    }
+    {
+        CHECK(nearlyEqualTransform(transformHandleWorldExtent(2.f, 8.f), 4.f));
+        CHECK(nearlyEqualTransform(transformHandleWorldExtent(0.5f, 8.f), 16.f));
+
+        SceneViewCamera cam;
+        cam.zoom = 1.f;
+        cam.target = {0.f, 0.f};
+        cam.offset = {0.f, 0.f};
+        SceneFrameTransform2D g;
+        g.center = {50.f, 50.f};
+        g.size = {32.f, 32.f};
+        const TransformHandle hit = hitTestTransformHandle(
+            g, true, cam, worldToScreen(cam, Vec2{66.f, 66.f}));
+        CHECK(hit == TransformHandle::CornerBR);
+        CHECK(hitTestTransformHandle(g, false, cam, worldToScreen(cam, Vec2{66.f, 66.f}))
+              == TransformHandle::None);
+    }
+    {
+        EditorCoordinator c{makeSpriteDoc()};
+        sliceTilesOne(c);
+        TilemapComponent tm;
+        tm.tilesetAssetId = "tiles-1";
+        tm.cellSize = {32.f, 32.f};
+        tm.chunkSize = 2;
+        TilemapChunk chunk;
+        chunk.cells = {TilemapCellValue{"tile-1", TileTransformFlags::None},
+                       std::nullopt, std::nullopt, std::nullopt};
+        tm.chunks.push_back(chunk);
+        CHECK(c.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, {10.f, 20.f}}).ok);
+
+        SceneTransformPreview preview;
+        preview.entityId = kHero;
+        preview.transform.position = {40.f, 50.f};
+        preview.transform.scale = {2.f, 2.f};
+        const uint64_t rev = c.document().revision();
+        const bool dirty = c.document().isDirty();
+        const SceneFrameSnapshot snap = collectSceneFrameSnapshot(
+            c.document(), kSceneA, kHero, {}, &preview);
+        CHECK(c.document().revision() == rev);
+        CHECK(c.document().isDirty() == dirty);
+        const auto entityIt = std::find_if(
+            snap.entities.begin(), snap.entities.end(),
+            [](const SceneFrameEntity& e) { return e.entityId == kHero; });
+        CHECK(entityIt != snap.entities.end());
+        CHECK(nearlyEqualTransform(entityIt->bounds.width, 64.f));
+        CHECK(nearlyEqualTransform(entityIt->bounds.x, 8.f)); // 40 - 32
+        const auto tmIt = std::find_if(
+            snap.tilemaps.begin(), snap.tilemaps.end(),
+            [](const SceneFrameTilemap& t) { return t.entityId == kHero; });
+        CHECK(tmIt != snap.tilemaps.end());
+        CHECK(!tmIt->cells.empty());
+        CHECK(nearlyEqualTransform(tmIt->cells[0].destination.x, 40.f));
+        CHECK(nearlyEqualTransform(tmIt->cells[0].destination.y, 50.f));
+        CHECK(nearlyEqualTransform(tmIt->cells[0].destination.width, 32.f));
+    }
+    {
+        EditorCoordinator c{makeDoc()};
+        const SceneFrameSnapshot frame =
+            collectSceneFrameSnapshot(c.document(), kSceneA, kHero);
+        const auto geometry =
+            resolveInstanceTransformGeometry(c.document(), frame, kSceneA, kHero);
+        CHECK(geometry.has_value());
+        CHECK(geometry->supportsScale);
+
+        const ArtCade::Transform before =
+            c.document().findInstanceInScene(kSceneA, kHero)->transform;
+        TransformInteractionState state = beginTransformInteraction(
+            kSceneA, kHero, TransformHandle::EdgeR, before, *geometry,
+            Vec2{before.position.x + 16.f, before.position.y});
+        state.previewTransform = resizeTransformFromHandle(
+            state, Vec2{before.position.x + 48.f, before.position.y}, false);
+        const AuthoredTransformPatch patch = transformPatchForRelease(state);
+        CHECK(patch.position.has_value());
+        CHECK(patch.scale.has_value());
+        CHECK(c.execute(SetEntityTransformCommand{kSceneA, kHero, patch}).ok);
+        const ArtCade::Transform& after =
+            c.document().findInstanceInScene(kSceneA, kHero)->transform;
+        CHECK(nearlyEqualTransform(after.scale.y, before.scale.y));
+        CHECK(after.scale.x > before.scale.x);
+        CHECK(c.undo().ok);
+        CHECK(nearlyEqualTransform(
+            c.document().findInstanceInScene(kSceneA, kHero)->transform.scale,
+            before.scale));
+        CHECK(nearlyEqualTransform(
+            c.document().findInstanceInScene(kSceneA, kHero)->transform.position,
+            before.position));
     }
 
     return reportAndExit("editor-core-test");

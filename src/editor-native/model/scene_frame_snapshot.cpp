@@ -99,7 +99,8 @@ WorldRect unite(const WorldRect& a, const WorldRect& b) {
 SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
                                              const SceneId& sceneId,
                                              EntityId selectedEntity,
-                                             const std::unordered_set<std::string>& hiddenLayers) {
+                                             const std::unordered_set<std::string>& hiddenLayers,
+                                             const SceneTransformPreview* preview) {
     SceneFrameSnapshot snapshot;
     snapshot.sceneId = sceneId;
 
@@ -113,7 +114,9 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
 
     std::unordered_set<EntityId> emitted;   // for filtering the collider overlay
     const auto emit = [&](const SceneInstanceDef& inst) {
-        const SceneFrameTransform2D xf = instanceVisual(inst.transform);
+        const Transform& effectiveTransform =
+            (preview && preview->entityId == inst.id) ? preview->transform : inst.transform;
+        const SceneFrameTransform2D xf = instanceVisual(effectiveTransform);
         const SceneFrameRect bounds = unrotatedRect(xf);
         const Vec3* fill = fillFor(document, inst.objectTypeId);
         const bool selected = inst.id == selectedEntity;
@@ -151,7 +154,7 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
                     document.findTilesetAsset(inst.tilemap->tilesetAssetId)) {
                 SceneFrameTilemap tilemapEntry{
                     inst.id, tileset->imageAssetId,
-                    tilemapRenderCells(*inst.tilemap, *tileset, inst.transform.position),
+                    tilemapRenderCells(*inst.tilemap, *tileset, effectiveTransform.position),
                     selected};
                 tilemapEntry.visibleInGame = inst.visible;
                 snapshot.tilemaps.push_back(std::move(tilemapEntry));
@@ -167,8 +170,8 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
             entry.entityId = inst.id;
             entry.displayText = resolveTextDisplay(*type->text, bound);
             entry.anchorPosition = Vec2{
-                inst.transform.position.x + type->text->offsetX,
-                inst.transform.position.y + type->text->offsetY,
+                effectiveTransform.position.x + type->text->offsetX,
+                effectiveTransform.position.y + type->text->offsetY,
             };
             entry.align = type->text->align;
             entry.size = type->text->size;
@@ -193,8 +196,8 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
             ratio = std::clamp(ratio, 0.f, 1.f);
             SceneFrameGauge gaugeEntry{
                 inst.id,
-                Vec2{inst.transform.position.x + type->gauge->offsetX,
-                     inst.transform.position.y + type->gauge->offsetY},
+                Vec2{effectiveTransform.position.x + type->gauge->offsetX,
+                     effectiveTransform.position.y + type->gauge->offsetY},
                 type->gauge->width,
                 type->gauge->height,
                 type->gauge->fillColor,
@@ -223,7 +226,7 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
     // Collider overlays follow the same set as their entities (still an
     // editing aid for an "Entity Visible"-off instance, same as its
     // placeholder/sprite staying selectable rather than disappearing).
-    snapshot.colliders = collectBoxColliderBounds(document, sceneId, selectedEntity);
+    snapshot.colliders = collectBoxColliderBounds(document, sceneId, selectedEntity, preview);
     snapshot.colliders.erase(
         std::remove_if(snapshot.colliders.begin(), snapshot.colliders.end(),
                        [&](const SceneFrameCollider& c) { return emitted.count(c.entityId) == 0; }),

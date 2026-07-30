@@ -49,6 +49,12 @@ struct SelectEntityIntent {
     EntityId entityId = INVALID_ENTITY;
 };
 
+// Workspace selection of a shared Object Type. It is mutually exclusive with
+// instance selection and never mutates ProjectDocument.
+struct SelectObjectTypeIntent {
+    ObjectTypeId objectTypeId;
+};
+
 struct SelectSceneIntent {
     SceneId sceneId;
 };

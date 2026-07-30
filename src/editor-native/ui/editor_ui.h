@@ -282,6 +282,7 @@ public:
     // Viewport drag preview for the selected entity transform. Presentation only:
     // the model still changes once, on mouse release, through SetEntityTransformCommand.
     void showEntityPositionPreview(EntityId entity, Vec2 position);
+    void showEntityTransformPreview(EntityId entity, const ArtCade::Transform& transform);
     // Pointer world/cell readout in the status bar (Edit mode, mouse over the
     // scene). Presentation-only per-frame update: change-guarded, no
     // invalidation, never touches authoring state.

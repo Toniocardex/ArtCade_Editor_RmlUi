@@ -229,6 +229,8 @@ private:
     friend class ClearInstanceSpriteOverrideCommand;
     friend class ClearInstanceAnimatorOverrideCommand;
     friend class DuplicateInstanceCommand;
+    friend class CreateObjectTypeCommand;
+    friend class DeleteObjectTypeCommand;
     friend class CreateEntityCommand;
     friend class CreateEntityWithDefaultTypeCommand;
     friend class CreateSceneCommand;

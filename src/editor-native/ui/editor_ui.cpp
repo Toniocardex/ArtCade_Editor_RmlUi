@@ -3107,6 +3107,10 @@ void EditorUi::showEntityPositionPreview(EntityId entity, Vec2 position) {
     inspector_.showEntityPositionPreview(document_, coordinator_, entity, position);
 }
 
+void EditorUi::showEntityTransformPreview(EntityId entity, const ArtCade::Transform& transform) {
+    inspector_.showEntityTransformPreview(document_, coordinator_, entity, transform);
+}
+
 void EditorUi::showViewportPointerReadout(const ViewportPointerReadout& readout) {
     if (!document_) return;
     const std::string text = readout.valid ? formatViewportPointerReadout(readout) : std::string();
@@ -4067,12 +4071,15 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         commitInspectorTransformField(coordinator_, selected,
                                       InspectorTransformField::ScaleY, value);
     } else if (action == "commit-type-name") {
+        const ObjectTypeId selectedType = coordinator_.selection().selectedObjectTypeId
+            ? *coordinator_.selection().selectedObjectTypeId : ObjectTypeId{};
         const SceneInstanceDef* inst = (selected != INVALID_ENTITY)
             ? coordinator_.document().findInstanceInScene(coordinator_.state().activeSceneId, selected)
             : nullptr;
-        if (!inst) coordinator_.logError("No selected instance");
+        if (selectedType.empty() && !inst) coordinator_.logError("No selected Object Type");
         else if (value.empty()) coordinator_.logError("Type name cannot be empty");
-        else coordinator_.execute(RenameObjectTypeCommand{inst->objectTypeId, value});
+        else coordinator_.execute(RenameObjectTypeCommand{
+            selectedType.empty() ? inst->objectTypeId : selectedType, value});
     } else if (action == "commit-scene-name") {
         if (value.empty()) coordinator_.logError("Scene name cannot be empty");
         else coordinator_.execute(RenameSceneCommand{coordinator_.state().activeSceneId, value});
@@ -4370,6 +4377,10 @@ bool EditorUi::handleHierarchyAction(const std::string& action, const std::strin
                 coordinator_.apply(OpenLogicBoardIntent{instance->objectTypeId});
             }
         }
+    } else if (action == "select-object-type") {
+        coordinator_.apply(SelectObjectTypeIntent{arg});
+    } else if (action == "open-object-type-logic") {
+        coordinator_.apply(OpenLogicBoardIntent{arg});
     } else if (action == "select-scene") {
         coordinator_.apply(SelectSceneIntent{arg});
     } else if (action == "add-scene") {
@@ -4378,6 +4389,32 @@ bool EditorUi::handleHierarchyAction(const std::string& action, const std::strin
         // No arg → the active scene; the coordinator reconciles the workspace.
         hideContextMenus();
         deleteScene(coordinator_, arg.empty() ? coordinator_.state().activeSceneId : arg);
+    } else if (action == "add-object-type") {
+        addObjectType(coordinator_);
+    } else if (action == "request-delete-object-type") {
+        const EntityDef* type = coordinator_.document().findObjectType(arg);
+        if (!type) {
+            coordinator_.logError("Unknown Object Type");
+        } else if (coordinator_.isPlaying()) {
+            coordinator_.logWarning("Stop Play before deleting an Object Type");
+        } else {
+            std::size_t instanceCount = 0;
+            for (const auto& [unusedSceneId, scene] : coordinator_.document().data().scenes) {
+                for (const SceneInstanceDef& instance : scene.instances) {
+                    if (instance.objectTypeId == arg) ++instanceCount;
+                }
+            }
+            const std::string countText = std::to_string(instanceCount) + " instance"
+                + (instanceCount == 1 ? "" : "s");
+            promptDangerConfirm(
+                "Delete Object Type?",
+                "\"" + type->name + "\" and " + countText + " will be removed.",
+                "This is destructive across every scene. You can undo it while this editor session remains open.",
+                "Delete Object Type",
+                [this, objectTypeId = arg](bool confirmed) {
+                    if (confirmed) coordinator_.execute(DeleteObjectTypeCommand{objectTypeId});
+                });
+        }
     } else if (action == "add-entity") {
         if (addEntityRequest_) addEntityRequest_();
         else addEntity(coordinator_);

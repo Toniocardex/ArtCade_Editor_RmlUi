@@ -176,7 +176,7 @@
     <div id="workspace">
         <div id="left-col" class="panel" data-keyboard-domain="hierarchy">
             <div id="hierarchy-pane" class="side-pane hierarchy-pane" data-keyboard-domain="hierarchy">
-                <div class="panel-header"><span class="icon">&#xee9e;</span>HIERARCHY</div>
+                <div class="panel-header"><span class="icon">&#xee9e;</span>OBJECT TYPES</div>
                 <div id="hierarchy-search-slot" class="hierarchy-search-slot"></div>
                 <div class="tree-section">Scenes</div>
                 <div id="scene-tabs" class="scene-tabs"></div>
@@ -185,6 +185,7 @@
                         <button id="btn-create" class="panel-btn"><span class="icon">&#xeb0b;</span>Create <span class="icon-caret">&#xeb5d;</span></button>
                         <div class="create-dropdown">
                             <div id="create-scene-entry" class="menu-entry" data-action="add-scene">Create Scene</div>
+                            <div id="create-object-type-entry" class="menu-entry" data-action="add-object-type">Create Object Type</div>
                             <div id="create-entity-entry" class="menu-entry" data-action="add-entity">Add Object</div>
                             <div id="create-tilemap-entity-entry" class="menu-entry" data-action="add-tilemap-entity">Add Tilemap</div>
                             <div id="create-instance-entry" class="menu-entry" data-action="add-instance">Add Copy of Object</div>

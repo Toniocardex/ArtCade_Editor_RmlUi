@@ -1628,12 +1628,22 @@ textarea#script-editor-textarea.script-editor-textarea { color: #00000000; }
     background-color: #2a1f20;
 }
 
+/* ds-role(danger-surface): background-color */
+.object-type-delete:hover {
+    background-color: #2a1f20;
+}
+
 /* ds-role(danger-text): color */
 .anim-asset-remove:hover,
 .anim-remove-clip,
 .anim-remove-clip:hover,
 .anim-frame-remove:hover,
 .tileset-slice-feedback.err {
+    color: #e5706b;
+}
+
+/* ds-role(danger-text): color */
+.object-type-delete:hover {
     color: #e5706b;
 }
 

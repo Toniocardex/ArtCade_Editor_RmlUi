@@ -43,6 +43,94 @@ bool objectTypeNameTaken(const ProjectDocument& document, const std::string& can
 } // namespace
 
 // ----------------------------------------------------------------------------
+// CreateObjectTypeCommand
+// ----------------------------------------------------------------------------
+CreateObjectTypeCommand::CreateObjectTypeCommand(std::string objectTypeId,
+                                                 std::string objectTypeName)
+    : objectTypeId_(std::move(objectTypeId)), objectTypeName_(std::move(objectTypeName)) {}
+
+EditorOperationResult CreateObjectTypeCommand::apply(ProjectDocument& document) {
+    if (objectTypeId_.empty())
+        return EditorOperationResult::failure("Object Type id cannot be empty");
+    if (normalizedObjectTypeName(objectTypeName_).empty())
+        return EditorOperationResult::failure("Object Type name cannot be empty");
+    if (document.hasObjectType(objectTypeId_))
+        return EditorOperationResult::failure("Object Type id is already in use");
+    if (objectTypeNameTaken(document, objectTypeName_))
+        return EditorOperationResult::failure("Object Type name is already in use");
+
+    EntityDef type;
+    type.className = objectTypeId_;
+    type.name = objectTypeName_;
+    type.sprite.fillColor = Vec3{0.42f, 0.45f, 0.52f};
+    if (!document.createObjectType(std::move(type)))
+        return EditorOperationResult::failure("Failed to create Object Type");
+    captured_ = true;
+    return EditorOperationResult::success(kStructureInvalidation);
+}
+
+EditorOperationResult CreateObjectTypeCommand::undo(ProjectDocument& document) {
+    if (!captured_ || !document.removeObjectType(objectTypeId_))
+        return EditorOperationResult::failure("Cannot undo Object Type creation");
+    return EditorOperationResult::success(kStructureInvalidation);
+}
+
+// ----------------------------------------------------------------------------
+// DeleteObjectTypeCommand
+// ----------------------------------------------------------------------------
+DeleteObjectTypeCommand::DeleteObjectTypeCommand(std::string objectTypeId)
+    : objectTypeId_(std::move(objectTypeId)) {}
+
+EditorOperationResult DeleteObjectTypeCommand::apply(ProjectDocument& document) {
+    const EntityDef* type = document.findObjectType(objectTypeId_);
+    if (!type) return EditorOperationResult::failure("Unknown Object Type");
+
+    if (!captured_) {
+        removedType_ = *type;
+        for (const auto& [sceneId, scene] : document.data().scenes) {
+            for (std::size_t index = 0; index < scene.instances.size(); ++index) {
+                if (scene.instances[index].objectTypeId == objectTypeId_)
+                    removedInstances_.push_back(RemovedInstance{sceneId, index, scene.instances[index]});
+            }
+        }
+        captured_ = true;
+    }
+
+    ProjectDoc staged = document.data();
+    if (staged.objectTypes.erase(objectTypeId_) == 0)
+        return EditorOperationResult::failure("Object Type is already removed");
+    for (auto& [unusedSceneId, scene] : staged.scenes) {
+        scene.instances.erase(
+            std::remove_if(scene.instances.begin(), scene.instances.end(),
+                           [&](const SceneInstanceDef& instance) {
+                               return instance.objectTypeId == objectTypeId_;
+                           }),
+            scene.instances.end());
+    }
+    document.commitStagedCommand(std::move(staged));
+    return EditorOperationResult::success(kStructureInvalidation);
+}
+
+EditorOperationResult DeleteObjectTypeCommand::undo(ProjectDocument& document) {
+    if (!captured_) return EditorOperationResult::failure("Cannot undo Object Type deletion");
+    ProjectDoc staged = document.data();
+    if (staged.objectTypes.find(objectTypeId_) != staged.objectTypes.end())
+        return EditorOperationResult::failure("Cannot undo: Object Type already exists");
+    staged.objectTypes.emplace(objectTypeId_, removedType_);
+    for (const RemovedInstance& removed : removedInstances_) {
+        auto sceneIt = staged.scenes.find(removed.sceneId);
+        if (sceneIt == staged.scenes.end())
+            return EditorOperationResult::failure("Cannot undo: scene no longer exists");
+        if (removed.index > sceneIt->second.instances.size())
+            return EditorOperationResult::failure("Cannot undo: instance order changed");
+        sceneIt->second.instances.insert(sceneIt->second.instances.begin() + removed.index,
+                                         removed.instance);
+    }
+    document.commitStagedCommand(std::move(staged));
+    return EditorOperationResult::success(kStructureInvalidation);
+}
+
+// ----------------------------------------------------------------------------
 // CreateEntityCommand
 // ----------------------------------------------------------------------------
 CreateEntityCommand::CreateEntityCommand(SceneId sceneId, EntityId id,

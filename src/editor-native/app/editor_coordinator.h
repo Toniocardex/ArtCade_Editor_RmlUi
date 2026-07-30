@@ -194,6 +194,7 @@ public:
 
     // ---- intent path (workspace/editor state) -------------------------------
     EditorOperationResult apply(const SelectEntityIntent& intent);
+    EditorOperationResult apply(const SelectObjectTypeIntent& intent);
     EditorOperationResult apply(const CreateGeneratedSfxIntent& intent);
     EditorOperationResult apply(const DuplicateGeneratedSfxIntent& intent);
     EditorOperationResult apply(const RenameGeneratedSfxIntent& intent);

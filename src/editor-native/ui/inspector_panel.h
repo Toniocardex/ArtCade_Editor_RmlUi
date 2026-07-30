@@ -83,6 +83,10 @@ public:
                                    const EditorCoordinator& coordinator,
                                    EntityId entity,
                                    Vec2 position);
+    void showEntityTransformPreview(Rml::ElementDocument* document,
+                                    const EditorCoordinator& coordinator,
+                                    EntityId entity,
+                                    const ArtCade::Transform& transform);
 
     // Consumes a one-shot InspectorRevealRequest from the coordinator after
     // refresh() has rebuilt the target fields.
@@ -170,6 +174,7 @@ private:
         "platformer-controller",
     };
     EntityId lastEntity_ = INVALID_ENTITY;   // detect a selection change to reset the menu
+    ObjectTypeId lastObjectTypeId_;          // same transient reset boundary for catalog selection
     std::optional<SceneLayerRenameUiState> layerRename_;
     std::optional<SceneBackgroundOpacityDraft> backgroundDraft_;
     std::optional<ObjectVariableDraft> objectVariableDraft_;

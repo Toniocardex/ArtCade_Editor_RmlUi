@@ -4,9 +4,11 @@
 
 namespace ArtCade::EditorNative {
 
-std::vector<SceneFrameCollider> collectBoxColliderBounds(const ProjectDocument& document,
-                                                         const SceneId& sceneId,
-                                                         EntityId selectedEntity) {
+std::vector<SceneFrameCollider> collectBoxColliderBounds(
+    const ProjectDocument& document,
+    const SceneId& sceneId,
+    EntityId selectedEntity,
+    const SceneTransformPreview* preview) {
     std::vector<SceneFrameCollider> out;
     const SceneDef* scene = document.findScene(sceneId);
     if (!scene) return out;
@@ -17,9 +19,12 @@ std::vector<SceneFrameCollider> collectBoxColliderBounds(const ProjectDocument& 
         if (typeIt == types.end() || !typeIt->second.boxCollider2D) continue;
         const BoxCollider2DComponent& collider = *typeIt->second.boxCollider2D;
         if (!collider.enabled) continue;
+        const Transform& xf =
+            (preview && preview->entityId == instance.id) ? preview->transform
+                                                          : instance.transform;
         out.push_back(SceneFrameCollider{
             instance.id,
-            boxColliderWorldBounds(instance.transform, collider),
+            boxColliderWorldBounds(xf, collider),
             true,
             collider.mode,
             instance.id == selectedEntity,

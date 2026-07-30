@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <string>
+#include <vector>
 
 namespace ArtCade::EditorNative {
 
@@ -14,6 +15,43 @@ namespace ArtCade::EditorNative {
 // =============================================================================
 
 /** Place a new instance of an object type in a scene. Invalidates Hierarchy | Inspector | Viewport. */
+/** Create a reusable Object Type without placing it in any scene. */
+class CreateObjectTypeCommand final : public EditorCommand {
+public:
+    CreateObjectTypeCommand(std::string objectTypeId, std::string objectTypeName);
+
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "CreateObjectType"; }
+
+private:
+    std::string objectTypeId_;
+    std::string objectTypeName_;
+    bool captured_ = false;
+};
+
+/** Remove an Object Type and every placement that references it, atomically. */
+class DeleteObjectTypeCommand final : public EditorCommand {
+public:
+    explicit DeleteObjectTypeCommand(std::string objectTypeId);
+
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "DeleteObjectType"; }
+
+private:
+    struct RemovedInstance {
+        SceneId sceneId;
+        std::size_t index = 0;
+        SceneInstanceDef instance;
+    };
+
+    std::string objectTypeId_;
+    EntityDef removedType_;
+    std::vector<RemovedInstance> removedInstances_;
+    bool captured_ = false;
+};
+
 class CreateEntityCommand final : public EditorCommand {
 public:
     CreateEntityCommand(SceneId sceneId, EntityId id, std::string objectTypeId,

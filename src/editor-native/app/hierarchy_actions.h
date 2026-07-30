@@ -79,6 +79,9 @@ EditorOperationResult setStartScene(EditorCoordinator& coordinator, const SceneI
 EditorOperationResult addEntityAt(EditorCoordinator& coordinator, Vec2 spawnPosition);
 EditorOperationResult addEntity(EditorCoordinator& coordinator);
 
+/** Create a reusable Object Type without placing an instance in a scene. */
+EditorOperationResult addObjectType(EditorCoordinator& coordinator);
+
 /**
  * "Create Tilemap Entity": one gesture, one undo entry — a new object type,
  * its first instance on the ACTIVE layer, and an instance-owned Tilemap

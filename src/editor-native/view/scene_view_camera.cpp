@@ -40,6 +40,14 @@ Vec2 screenToWorld(const SceneViewCamera& camera, Vec2 screen) {
     };
 }
 
+Vec2 worldToScreen(const SceneViewCamera& camera, Vec2 world) {
+    const float zoom = camera.zoom != 0.f ? camera.zoom : 1.f;
+    return Vec2{
+        (world.x - camera.target.x) * zoom + camera.offset.x,
+        (world.y - camera.target.y) * zoom + camera.offset.y,
+    };
+}
+
 SceneViewportProjection resolveSceneViewportProjection(const ViewportRect& visibleRect,
                                                         const ViewportRect& cameraAnchorRect,
                                                         const EditorSceneViewState& view,
