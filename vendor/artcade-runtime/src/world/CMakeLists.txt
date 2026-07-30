@@ -21,3 +21,7 @@ target_link_libraries(artcade-world
         artcade-renderer
         artcade-sprite-animator
 )
+target_compile_definitions(artcade-world
+    PUBLIC
+        ARTCADE_RUNTIME_BUILD_ID="${ARTCADE_RUNTIME_BUILD_ID}"
+)

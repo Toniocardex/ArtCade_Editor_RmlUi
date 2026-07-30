@@ -1,14 +1,17 @@
 #include "editor-native/app/editor_coordinator.h"
 
+#include "editor-native/app/editor_build_info.h"
 #include "editor-native/commands/logic_board_commands.h"
 #include "editor-native/commands/generated_sfx_commands.h"
 #include "editor-native/view/scene_grid.h"
 #include "logic-core.h"
+#include "runtime_identity.h"
 #include "script-core.h"
 
 #include <cassert>
 #include <algorithm>
 #include <optional>
+#include <sstream>
 #include <utility>
 
 namespace ArtCade::EditorNative {
@@ -699,6 +702,54 @@ EditorOperationResult EditorCoordinator::playProject() {
     return playProject({});
 }
 
+EditorOperationResult EditorCoordinator::ensureRuntimeIdentityForPlay() {
+    const std::string linkedBuild = ArtCade::runtimeBuildId();
+    const std::string linkedContract = ArtCade::platformerGroundSupportContract();
+
+    if (exportTemplatesRoot_.empty()) {
+        std::ostringstream log;
+        log << "[Runtime] editorBuild=" << ARTCADE_EDITOR_BUILD_ID
+            << " linkedBuild=" << linkedBuild
+            << " platformer-ground-support=" << linkedContract
+            << " templateBuild=<unset>";
+        appendConsole(ConsoleMessage::Level::Info, log.str());
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+
+    const BundledRuntimeInfo templateInfo = loadBundledRuntimeInfo(exportTemplatesRoot_);
+
+    std::ostringstream log;
+    log << "[Runtime] editorBuild=" << ARTCADE_EDITOR_BUILD_ID
+        << " linkedBuild=" << linkedBuild
+        << " platformer-ground-support=" << linkedContract
+        << " templateBuild="
+        << (templateInfo.available ? templateInfo.runtimeBuildId : std::string("<missing>"));
+    appendConsole(ConsoleMessage::Level::Info, log.str());
+
+    if (!templateInfo.available || templateInfo.runtimeBuildId.empty()) {
+        const std::string message =
+            "Runtime template is stale. Rebuild/refresh required.";
+        appendConsole(ConsoleMessage::Level::Error, message);
+        return EditorOperationResult::failure(message);
+    }
+    if (templateInfo.runtimeBuildId != linkedBuild) {
+        const std::string message =
+            "Runtime template is stale. Rebuild/refresh required.";
+        appendConsole(ConsoleMessage::Level::Error, message);
+        return EditorOperationResult::failure(message);
+    }
+    if (!templateInfo.platformerGroundSupport.empty()
+        && templateInfo.platformerGroundSupport != linkedContract) {
+        const std::string message =
+            "Runtime template is stale. Rebuild/refresh required.";
+        appendConsole(ConsoleMessage::Level::Error, message);
+        return EditorOperationResult::failure(message);
+    }
+    // Older templates without the field still match when build IDs agree; the
+    // linked contract is logged above for diagnostics.
+    return EditorOperationResult::success(EditorInvalidation::None);
+}
+
 EditorOperationResult EditorCoordinator::playProject(
     const std::vector<Scripts::ScriptProgram>& scripts,
     const std::filesystem::path& assetRoot) {
@@ -710,6 +761,9 @@ EditorOperationResult EditorCoordinator::playProject(
         appendConsole(ConsoleMessage::Level::Warning,
                       "Cannot play project: no valid start scene");
         return EditorOperationResult::failure("Cannot play project: no valid start scene");
+    }
+    if (const auto identity = ensureRuntimeIdentityForPlay(); !identity.ok) {
+        return identity;
     }
     // Drop uncommitted paint/rect workspace state — Play materializes the
     // document only; a mid-stroke preview must not outlive Start Play.
@@ -771,6 +825,9 @@ EditorOperationResult EditorCoordinator::playCurrentScene(
         appendConsole(ConsoleMessage::Level::Warning,
                       "Cannot play current scene: no active scene");
         return EditorOperationResult::failure("Cannot play current scene: no active scene");
+    }
+    if (const auto identity = ensureRuntimeIdentityForPlay(); !identity.ok) {
+        return identity;
     }
     cancelPendingTilemapGesture();
     std::string error;

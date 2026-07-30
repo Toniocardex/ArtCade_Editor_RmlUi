@@ -28,6 +28,24 @@ option(ARTCADE_BUILD_NATIVE_PLAYER
 # the runtime is add_subdirectory'd from another project (e.g. artcade-editor).
 set(ARTCADE_RUNTIME_ROOT "${CMAKE_CURRENT_SOURCE_DIR}" CACHE INTERNAL "")
 
+# ADR-0053: identity stamped into linked runtime (Editor Play) and game.exe sidecar.
+set(ARTCADE_RUNTIME_BUILD_ID "local")
+find_package(Git QUIET)
+if(GIT_FOUND)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        OUTPUT_VARIABLE _artcade_git_sha
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+        RESULT_VARIABLE _artcade_git_rc)
+    if(_artcade_git_rc EQUAL 0 AND _artcade_git_sha)
+        set(ARTCADE_RUNTIME_BUILD_ID "${_artcade_git_sha}")
+    endif()
+endif()
+set(ARTCADE_PLATFORMER_GROUND_SUPPORT "ADR-0052")
+message(STATUS "[ArtCade] runtimeBuildId=${ARTCADE_RUNTIME_BUILD_ID} platformerGroundSupport=${ARTCADE_PLATFORMER_GROUND_SUPPORT}")
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

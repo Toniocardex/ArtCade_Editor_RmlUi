@@ -156,6 +156,10 @@ public:
     // ADR-0019: domain-only Export eligibility (no project path / filesystem).
     ExportDomainEligibility evaluateExportDomainEligibility() const;
     bool canPlayCurrentScene()  const;
+    /** ADR-0053: root used to compare linked runtime identity vs template. */
+    void setExportTemplatesRoot(std::filesystem::path root) {
+        exportTemplatesRoot_ = std::move(root);
+    }
     const PlaySession* playSession() const {
         return playSession_ ? &*playSession_ : nullptr;
     }
@@ -369,6 +373,9 @@ private:
     // didn't choose.
     void reconcileStampAgainstTileset();
 
+    /** ADR-0053: fail Play when template identity differs from linked runtime. */
+    EditorOperationResult ensureRuntimeIdentityForPlay();
+
     ProjectDocument                                  document_;
     EditorState                                      state_;
     EditorUiState                                    uiState_;
@@ -378,6 +385,7 @@ private:
     std::optional<PlaySession>                       playSession_;
     std::optional<PlayNavigationState>               playNavigation_;
     std::optional<PlayLaunchState>                   playLaunch_;
+    std::filesystem::path                            exportTemplatesRoot_;
     // Play-scoped comparison data, not saved-source authority: fingerprints of
     // bytes already materialized by the active runtime plus the linked assets
     // whose subsequently saved bytes differ. Cleared on Stop/new launch.

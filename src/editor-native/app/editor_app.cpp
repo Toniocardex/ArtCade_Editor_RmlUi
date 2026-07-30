@@ -471,6 +471,7 @@ int EditorApp::run(int argc, char** argv) {
 
     projectSession.setExportTemplatesRoot(editorResourceRoot() / "export-templates");
     ui.setExportTemplatesRoot(editorResourceRoot() / "export-templates");
+    coordinator.setExportTemplatesRoot(editorResourceRoot() / "export-templates");
 
     artcade::sfx::RaylibPreview sfxPreview;
     // SFX preview (Generated SFX authoring) owns the audio device independent

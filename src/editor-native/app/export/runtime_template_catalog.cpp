@@ -66,6 +66,7 @@ RuntimeTemplateInfo RuntimeTemplateCatalog::resolve(
 
     info.engineVersion = json.value("engineVersion", "");
     info.runtimeBuildId = json.value("runtimeBuildId", "");
+    info.platformerGroundSupport = json.value("platformerGroundSupport", "");
     info.assetKeyId = json.value("assetKeyId", "");
     info.supportsEncryptedArtcade = json.value("supportsEncryptedArtcade", false);
     if (json.contains("projectFormat")) {
@@ -142,6 +143,7 @@ RuntimeTemplateInfo RuntimeTemplateCatalog::peekManifest(ExportTarget target) co
     if (json.value("schemaVersion", 0) != 1) return info;
     info.engineVersion = json.value("engineVersion", "");
     info.runtimeBuildId = json.value("runtimeBuildId", "");
+    info.platformerGroundSupport = json.value("platformerGroundSupport", "");
     if (json.contains("projectFormat")) {
         info.projectFormatMin = json["projectFormat"].value("minimum", 0);
         info.projectFormatMax = json["projectFormat"].value("maximum", 0);

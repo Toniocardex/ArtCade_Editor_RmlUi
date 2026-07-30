@@ -70,6 +70,8 @@ add_custom_command(TARGET game POST_BUILD
     COMMAND ${CMAKE_COMMAND}
         "-DINFO_OUT=$<TARGET_FILE_DIR:game>/runtime-build-info.json"
         "-DASSET_KEY_ID=${_ARTCADE_ASSET_KEY_ID}"
+        "-DRUNTIME_BUILD_ID=${ARTCADE_RUNTIME_BUILD_ID}"
+        "-DPLATFORMER_GROUND_SUPPORT=${ARTCADE_PLATFORMER_GROUND_SUPPORT}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/write-runtime-build-info.cmake"
     COMMENT "Writing runtime-build-info.json beside game.exe"
     VERBATIM

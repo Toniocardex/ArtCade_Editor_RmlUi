@@ -576,8 +576,6 @@ void testAnimationEventsDrainedOnce() {
 // to call for real.
 void testRealGameplaySessionDispatchInputThenTick() {
     Modules::Audio audio; // never init()'d - playSound is not exercised here.
-    Modules::Input input;
-    CHECK(input.init());
 
     // RU-02e-1/2/RU-02f/D-20: GameplaySession now owns the whole utility +
     // simulation + Logic/GameAPI/LuaHost graph itself - build it via
@@ -596,7 +594,7 @@ void testRealGameplaySessionDispatchInputThenTick() {
         [](const Modules::SceneTransitionResult&) {}));
 
     CHECK(session.initializeGameplayModules(
-        ctx, audio, input,
+        ctx, audio,
         [](const char*, bool ok) { return ok; }));
 
     EntityDef hero;
@@ -749,8 +747,6 @@ void testRealGameplaySessionDispatchInputThenTick() {
 // of the existing cache, regardless of cell count or shared tileset use.
 void testLargeTilemapSnapshotReusesResolvedCache() {
     Modules::Audio audio; // never init()'d
-    Modules::Input input;
-    CHECK(input.init());
 
     GameplaySession session;
     CHECK(session.initializeUtilities([](const char*, bool ok) { return ok; }));
@@ -762,7 +758,7 @@ void testLargeTilemapSnapshotReusesResolvedCache() {
         [](const char*, bool ok) { return ok; },
         [](const Modules::SceneTransitionResult&) {}));
     CHECK(session.initializeGameplayModules(
-        ctx, audio, input,
+        ctx, audio,
         [](const char*, bool ok) { return ok; }));
 
     constexpr int kSide = 128;

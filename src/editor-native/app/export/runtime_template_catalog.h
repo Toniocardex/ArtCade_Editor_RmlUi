@@ -17,6 +17,8 @@ struct RuntimeTemplateInfo {
     std::string entryPoint;
     std::string engineVersion;
     std::string runtimeBuildId;
+    /** ADR-0053: expected platformer ground-support contract (e.g. ADR-0052). */
+    std::string platformerGroundSupport;
     std::string assetKeyId;
     int projectFormatMin = 0;
     int projectFormatMax = 0;

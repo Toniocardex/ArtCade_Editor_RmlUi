@@ -281,8 +281,8 @@ public:
     }
 
     bool isGrounded(EntityId id) const {
-        // ADR-0022: thin geometric probe (1 px). Prefer World::findGroundSupport
-        // / collisionGrounded(velocity) for One Way policy.
+        // ADR-0022 / ADR-0052: thin leftover probe. Prefer World::findGroundSupport
+        // / collisionGrounded(velocity) for platformer support policy.
         constexpr float kSkin = 1.0f;
         Filter ground;
         ground.response = "solid";

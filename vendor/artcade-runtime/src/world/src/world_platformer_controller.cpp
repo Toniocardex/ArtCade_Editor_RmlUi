@@ -11,7 +11,26 @@ namespace ArtCade::WorldInternal {
 
 namespace {
 
-constexpr int kStableGroundedFrames = 2;
+constexpr float kHorizontalMotionEpsilon = 0.01f;
+constexpr float kVerticalMotionEpsilon = 0.01f;
+
+PlatformerState resolvePublishedState(
+    bool grounded,
+    bool climbing,
+    const Vec2& velocity,
+    PlatformerState lastAirState)
+{
+    if (climbing || grounded) {
+        return std::abs(velocity.x) > kHorizontalMotionEpsilon
+            ? PlatformerState::Moving
+            : PlatformerState::Stopped;
+    }
+    if (velocity.y < -kVerticalMotionEpsilon)
+        return PlatformerState::Jumping;
+    if (velocity.y > kVerticalMotionEpsilon)
+        return PlatformerState::Falling;
+    return lastAirState;
+}
 
 } // namespace
 
@@ -21,26 +40,9 @@ void stepPlatformerController(World& world,
                               float dt)
 {
     auto& rt = world.platformerRt_[id];
-
-    float vy = rt.velocity.y;
+    const bool wasGrounded = rt.grounded;
 
     world.rebuildCollisionWorld();
-    // ADR-0022: velocity-aware grounded (One Way ascending is not grounded).
-    const bool rawGrounded = world.collisionGrounded(id, rt.velocity.y);
-
-    if (rawGrounded) {
-        rt.groundedFrames = std::min(rt.groundedFrames + 1, kStableGroundedFrames + 4);
-        rt.airborneFrames = 0;
-    } else {
-        rt.airborneFrames = std::min(rt.airborneFrames + 1, 10000);
-        rt.groundedFrames = 0;
-    }
-    const bool stableGrounded = rt.groundedFrames >= kStableGroundedFrames;
-
-    if (stableGrounded)
-        rt.coyoteTimer = pc.coyoteTime;
-    else if (rt.airborneFrames > 0)
-        rt.coyoteTimer = std::max(0.f, rt.coyoteTimer - dt);
 
     auto intentIt = world.controlIntents_.find(id);
     World::ControlIntent* intent = intentIt != world.controlIntents_.end()
@@ -60,82 +62,147 @@ void stepPlatformerController(World& world,
     float vx = 0.f;
     float inputX = 0.f;
     float inputY = 0.f;
-
     if (intent && intent->hasMovement) {
         inputX = std::clamp(intent->movement.x, -1.f, 1.f);
         inputY = std::clamp(intent->movement.y, -1.f, 1.f);
         vx = inputX * pc.maxSpeed;
     }
 
-    // Climb zones are interaction sensor shapes in CollisionWorld.
-    bool  ladderHorizontal = false;
-    float climbSpeed       = pc.climbSpeed;
+    constexpr bool ladderHorizontal = false;
+    const float climbSpeed = pc.climbSpeed;
     CollisionWorld::Filter ladderFilter;
     ladderFilter.role = "interaction";
     ladderFilter.response = "sensor";
     const bool onLadder =
         world.firstCollisionTouching(id, ladderFilter) != INVALID_ENTITY;
 
-    // Engage on input along the ladder's axis (vertical by default); this keeps
-    // a body walking past a vertical ladder from auto-grabbing it.
     const float climbAxis = ladderHorizontal ? inputX : inputY;
     if (!onLadder)
         rt.climbing = false;
     else if (std::abs(climbAxis) > 0.f)
         rt.climbing = true;
 
-    const bool canJump = rawGrounded || rt.coyoteTimer > 0.f;
-    if (rt.jumpBufferTimer > 0.f && (canJump || rt.climbing)) {
+    Transform transform{};
+    if (!world.entityGateway_.getTransform(id, transform))
+        return;
+
+    float vy = rt.velocity.y;
+    rt.velocity.x = vx;
+
+    // X phase
+    const Transform beforeX = transform;
+    transform.position.x += rt.velocity.x * dt;
+    const PlatformerAxisMoveResult xMove =
+        world.movePlatformerX(id, transform, beforeX, vx);
+    if (xMove.blocked)
+        vx = 0.f;
+    rt.velocity.x = vx;
+    transform.velocity = rt.velocity;
+
+    std::optional<GroundSupport> support = world.findGroundSupport(
+        id, transform, beforeX, rt.velocity.y, /*allowFloorSnap=*/false);
+
+    const bool canJump =
+        support.has_value() || rt.coyoteTimer > 0.f || rt.climbing;
+    bool jumpedThisStep = false;
+    if (rt.jumpBufferTimer > 0.f && canJump) {
         vy = -pc.jumpForce;
-        rt.climbing        = false;   // jumping detaches from the ladder
-        rt.coyoteTimer     = 0.f;
+        rt.climbing = false;
+        rt.coyoteTimer = 0.f;
         rt.jumpBufferTimer = 0.f;
-        rt.airborneFrames  = 1;
-        rt.groundedFrames  = 0;
+        support.reset();
+        jumpedThisStep = true;
     } else if (rt.climbing) {
-        // Vertical ladder: drive vy by input. Horizontal rope: suspend gravity
-        // and let the normal vx (above) carry traversal.
         vy = ladderHorizontal ? 0.f : (climbAxis * climbSpeed);
-    } else if (!stableGrounded) {
+    } else if (!support.has_value()) {
         vy += pc.customGravity * dt;
     } else if (vy > 0.f) {
         vy = 0.f;
     }
 
-    rt.velocity = { vx, vy };
-    Transform transform{};
-    if (!world.entityGateway_.getTransform(id, transform)) return;
-    const Transform beforeMove = transform;
+    rt.velocity.y = vy;
     transform.velocity = rt.velocity;
-    transform.position.x += rt.velocity.x * dt;
+
+    // Y phase — beforeY is post-X (never pre-X).
+    const Transform beforeY = transform;
     transform.position.y += rt.velocity.y * dt;
+    const PlatformerYMoveResult yMove =
+        world.movePlatformerY(id, transform, beforeY, vy);
 
-    const KinematicCollisionResult collision =
-        world.resolveKinematicCollisionBody(id, transform, beforeMove, vx, vy);
-
-    if (collision.grounded && !rt.climbing) {
+    if (yMove.hitCeiling && vy < 0.f)
         vy = 0.f;
+    if (yMove.hitGround && vy >= 0.f)
+        vy = 0.f;
+
+    const bool mayFloorSnap =
+        wasGrounded
+        && !jumpedThisStep
+        && !rt.climbing
+        && vy >= 0.f
+        && !yMove.hitGround;
+
+    if (jumpedThisStep || rt.climbing) {
+        if (vy < 0.f)
+            support.reset();
+        else
+            support = world.findGroundSupport(
+                id, transform, beforeY, vy, /*allowFloorSnap=*/false);
+    } else if (vy >= 0.f) {
+        if (yMove.hitGround) {
+            support = world.findGroundSupport(
+                id, transform, beforeY, 0.f, /*allowFloorSnap=*/false);
+        } else if (mayFloorSnap) {
+            support = world.findGroundSupport(
+                id, transform, beforeY, vy, /*allowFloorSnap=*/true);
+            if (support.has_value()) {
+                transform.position.y += support->correctionY;
+                vy = 0.f;
+                support = world.findGroundSupport(
+                    id, transform, beforeY, 0.f, /*allowFloorSnap=*/false);
+            }
+        } else {
+            support = world.findGroundSupport(
+                id, transform, beforeY, vy, /*allowFloorSnap=*/false);
+            if (support.has_value() && std::abs(support->correctionY) > 1e-6f
+                && std::abs(support->correctionY) <= kGroundContactSkin) {
+                transform.position.y += support->correctionY;
+                vy = 0.f;
+            }
+        }
+    } else {
+        support.reset();
     }
 
     rt.velocity = { vx, vy };
     transform.velocity = rt.velocity;
 
-    world.entityGateway_.setTransform(id, transform);
+    rt.grounded = support.has_value() && !rt.climbing;
+    if (!rt.grounded && !rt.climbing) {
+        if (rt.velocity.y < -kVerticalMotionEpsilon)
+            rt.lastAirState = PlatformerState::Jumping;
+        else if (rt.velocity.y > kVerticalMotionEpsilon)
+            rt.lastAirState = PlatformerState::Falling;
+    }
+    rt.state = resolvePublishedState(
+        rt.grounded, rt.climbing, rt.velocity, rt.lastAirState);
 
+    if (rt.grounded)
+        rt.coyoteTimer = pc.coyoteTime;
+    else
+        rt.coyoteTimer = std::max(0.f, rt.coyoteTimer - dt);
+
+    PlatformerStepContacts contacts;
+    contacts.hitGround = yMove.hitGround;
+    contacts.hitCeiling = yMove.hitCeiling;
+    contacts.supportEntityId =
+        support.has_value() ? support->supportEntityId : INVALID_ENTITY;
+    world.platformerStepContacts_[id] = contacts;
+
+    world.entityGateway_.setTransform(id, transform);
     const uint32_t handle = world.entityGateway_.physicsHandle(id);
     if (handle != 0) {
         world.physics_.setPosition(handle, transform.position);
         world.physics_.setLinearVelocity(handle, transform.velocity);
-    }
-
-    // ADR-0016: latch definite airborne Jumping/Falling for apex hysteresis.
-    constexpr float kVerticalMotionEpsilon = 0.01f;
-    if (!world.collisionGrounded(id, rt.velocity.y) && !rt.climbing) {
-        if (rt.velocity.y < -kVerticalMotionEpsilon) {
-            rt.lastAirState = PlatformerState::Jumping;
-        } else if (rt.velocity.y > kVerticalMotionEpsilon) {
-            rt.lastAirState = PlatformerState::Falling;
-        }
     }
 }
 

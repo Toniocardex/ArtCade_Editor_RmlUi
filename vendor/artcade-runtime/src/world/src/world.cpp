@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <tuple>
 
 namespace ArtCade {
@@ -137,6 +138,7 @@ void World::forgetEntity(EntityId id) {
     platformerRt_.erase(id);
     topDownRt_.erase(id);
     controlIntents_.erase(id);
+    platformerStepContacts_.erase(id);
     if (spriteAnimator_) spriteAnimator_->removeEntity(id);
     if (cameraFollowMode_ == CameraFollowMode::Explicit
         && cameraFollowTarget_ == id) {
@@ -160,6 +162,7 @@ void World::clearGameplayRuntimeState() {
     platformerRt_.clear();
     topDownRt_.clear();
     controlIntents_.clear();
+    platformerStepContacts_.clear();
     pendingGameplayDestroyIds_.clear();
     destroyingEntityIds_.clear();
     collisionEvents_.clear();
@@ -618,6 +621,25 @@ CollisionWorld::RaycastResult World::collisionRaycast(
     return collisionWorld_.raycast(from, to, filter);
 }
 
+GroundSupportPolicy groundSupportPolicyFor(float supportWidth, float supportHeight) {
+    GroundSupportPolicy policy;
+    policy.contactSkin = kGroundContactSkin;
+    if (!std::isfinite(supportWidth) || !std::isfinite(supportHeight)
+        || supportWidth <= 0.f || supportHeight <= 0.f) {
+        policy.minHorizontalOverlap = std::numeric_limits<float>::infinity();
+        policy.bodyInsetX = 0.f;
+        policy.maxFloorSnapDistance = 0.f;
+        return policy;
+    }
+    policy.bodyInsetX =
+        std::clamp(supportWidth * 0.05f, 0.25f, 2.0f);
+    policy.minHorizontalOverlap =
+        std::clamp(supportWidth * 0.05f, 0.5f, 2.0f);
+    policy.maxFloorSnapDistance =
+        std::clamp(supportHeight * 0.10f, 0.5f, 4.0f);
+    return policy;
+}
+
 bool World::collisionGrounded(EntityId id) const {
     return collisionGrounded(id, /*verticalVelocity=*/0.f);
 }
@@ -627,7 +649,8 @@ bool World::collisionGrounded(EntityId id, float verticalVelocity) const {
     if (!entityGateway_.getTransform(id, current))
         return false;
     return findGroundSupport(
-        id, current, current, verticalVelocity, kGroundContactSkin).has_value();
+        id, current, current, verticalVelocity, /*allowFloorSnap=*/false)
+        .has_value();
 }
 
 std::optional<GroundSupport> World::findGroundSupport(
@@ -635,24 +658,38 @@ std::optional<GroundSupport> World::findGroundSupport(
     const Transform& current,
     const Transform& previous,
     float requestedVerticalVelocity,
-    float contactSkin) const
+    bool allowFloorSnap) const
 {
-    const bool descendingOrResting = requestedVerticalVelocity >= 0.f;
-    if (!descendingOrResting)
+    if (!(requestedVerticalVelocity >= 0.f))
         return std::nullopt;
 
-    std::optional<GroundSupport> best;
     const auto& shapes = collisionWorld_.shapes();
-    for (size_t selfIndex = 0; selfIndex < shapes.size(); ++selfIndex) {
-        const CollisionWorld::ShapeRef& authoredSelf = shapes[selfIndex];
+    bool hasFeet = false;
+    for (const CollisionWorld::ShapeRef& authoredSelf : shapes) {
         if (authoredSelf.id != id)
             continue;
         if (!authoredSelf.shape.enabled
             || authoredSelf.shape.response != CollisionResponse::Solid)
             continue;
-        if (authoredSelf.shape.role != CollisionShapeRole::Body
-            && authoredSelf.shape.role != CollisionShapeRole::Feet)
+        if (authoredSelf.shape.role == CollisionShapeRole::Feet) {
+            hasFeet = true;
+            break;
+        }
+    }
+
+    std::optional<GroundSupport> best;
+    for (const CollisionWorld::ShapeRef& authoredSelf : shapes) {
+        if (authoredSelf.id != id)
             continue;
+        if (!authoredSelf.shape.enabled
+            || authoredSelf.shape.response != CollisionResponse::Solid)
+            continue;
+        if (hasFeet) {
+            if (authoredSelf.shape.role != CollisionShapeRole::Feet)
+                continue;
+        } else if (authoredSelf.shape.role != CollisionShapeRole::Body) {
+            continue;
+        }
 
         const PhysicsMath::ShapeInstance selfInst =
             CollisionWorld::shapeInstance(current, authoredSelf.shape);
@@ -660,29 +697,58 @@ std::optional<GroundSupport> World::findGroundSupport(
         const PhysicsMath::Aabb previousSelfAabb = PhysicsMath::shapeWorldAabb(
             CollisionWorld::shapeInstance(previous, authoredSelf.shape));
 
+        if (!std::isfinite(selfAabb.minX) || !std::isfinite(selfAabb.maxX)
+            || !std::isfinite(selfAabb.minY) || !std::isfinite(selfAabb.maxY))
+            continue;
+
+        const float supportWidth = selfAabb.maxX - selfAabb.minX;
+        const float supportHeight = selfAabb.maxY - selfAabb.minY;
+        const GroundSupportPolicy policy =
+            groundSupportPolicyFor(supportWidth, supportHeight);
+        if (!std::isfinite(policy.minHorizontalOverlap))
+            continue;
+
+        PhysicsMath::Aabb probeAabb = selfAabb;
+        if (!hasFeet) {
+            if (supportWidth <= 2.f * policy.bodyInsetX)
+                continue;
+            probeAabb.minX += policy.bodyInsetX;
+            probeAabb.maxX -= policy.bodyInsetX;
+        }
+
         CollisionWorld::ShapeRef selfRef = authoredSelf;
         selfRef.instance = selfInst;
         selfRef.aabb = selfAabb;
 
-        for (size_t otherIndex = 0; otherIndex < shapes.size(); ++otherIndex) {
-            const CollisionWorld::ShapeRef& other = shapes[otherIndex];
+        for (const CollisionWorld::ShapeRef& other : shapes) {
             if (other.id == id)
                 continue;
             if (!other.shape.enabled
                 || other.shape.response != CollisionResponse::Solid)
                 continue;
+            if (!std::isfinite(other.aabb.minX) || !std::isfinite(other.aabb.maxX)
+                || !std::isfinite(other.aabb.minY) || !std::isfinite(other.aabb.maxY))
+                continue;
+            if ((other.aabb.maxX - other.aabb.minX) <= 0.f
+                || (other.aabb.maxY - other.aabb.minY) <= 0.f)
+                continue;
             if (!CollisionWorld::canCollide(selfRef, other))
                 continue;
 
             const float horizontalOverlap =
-                std::min(selfAabb.maxX, other.aabb.maxX)
-                - std::max(selfAabb.minX, other.aabb.minX);
-            if (horizontalOverlap <= kGroundHorizontalOverlapEpsilon)
+                std::min(probeAabb.maxX, other.aabb.maxX)
+                - std::max(probeAabb.minX, other.aabb.minX);
+            if (horizontalOverlap < policy.minHorizontalOverlap)
                 continue;
 
-            const float gap = other.aabb.minY - selfAabb.maxY;
-            if (std::fabs(gap) > contactSkin)
+            const float gap = other.aabb.minY - probeAabb.maxY;
+            if (allowFloorSnap) {
+                if (gap < -policy.contactSkin
+                    || gap > policy.maxFloorSnapDistance)
+                    continue;
+            } else if (std::fabs(gap) > policy.contactSkin) {
                 continue;
+            }
 
             if (other.shape.oneWay) {
                 if (previousSelfAabb.maxY
@@ -697,13 +763,18 @@ std::optional<GroundSupport> World::findGroundSupport(
             candidate.supportTopY = other.aabb.minY;
             candidate.correctionY = gap;
             candidate.oneWay = other.shape.oneWay;
+            candidate.horizontalOverlap = horizontalOverlap;
+            candidate.feetBottomY = probeAabb.maxY;
 
             const auto rank = [](const GroundSupport& s) {
                 return std::tuple{
                     std::fabs(s.correctionY),
+                    s.oneWay ? 1 : 0,
+                    -s.horizontalOverlap,
                     s.supportTopY,
                     s.supportEntityId,
                     s.supportShapeIndex,
+                    s.selfShapeIndex,
                 };
             };
             if (!best.has_value() || rank(candidate) < rank(*best))
@@ -838,12 +909,346 @@ KinematicCollisionResult World::resolveKinematicCollisionBody(
     if (descendingOrResting) {
         if (const auto support = findGroundSupport(
                 id, transform, beforeMove, requestedVerticalVelocity,
-                kGroundContactSkin)) {
+                /*allowFloorSnap=*/false)) {
             transform.position.y += support->correctionY;
             verticalVelocity = 0.f;
             result.grounded = true;
             result.groundEntityId = support->supportEntityId;
         }
+    }
+    return result;
+}
+
+namespace {
+
+bool isPlatformerSolidRole(CollisionShapeRole role) {
+    return role == CollisionShapeRole::Body || role == CollisionShapeRole::Feet;
+}
+
+bool oneWayEligibleFromAbove(
+    float requestedVerticalVelocity,
+    float previousFeetBottomY,
+    float supportTopY)
+{
+    return requestedVerticalVelocity >= 0.f
+        && previousFeetBottomY <= supportTopY + kOneWayApproachTolerance;
+}
+
+bool resolveAabbSeparationAxisX(
+    const PhysicsMath::Aabb& movable,
+    const PhysicsMath::Aabb& fixed,
+    float& outCorrectionX)
+{
+    if (!PhysicsMath::aabbOverlap(movable, fixed))
+        return false;
+    const float penLeft = movable.maxX - fixed.minX;
+    const float penRight = fixed.maxX - movable.minX;
+    const float penX = std::min(penLeft, penRight);
+    if (!(penX > 0.f) || !std::isfinite(penX))
+        return false;
+    const float movableCx = (movable.minX + movable.maxX) * 0.5f;
+    const float fixedCx = (fixed.minX + fixed.maxX) * 0.5f;
+    outCorrectionX = (movableCx < fixedCx) ? -penX : penX;
+    return true;
+}
+
+bool resolveAabbSeparationAxisY(
+    const PhysicsMath::Aabb& movable,
+    const PhysicsMath::Aabb& fixed,
+    float& outCorrectionY)
+{
+    if (!PhysicsMath::aabbOverlap(movable, fixed))
+        return false;
+    const float penUp = movable.maxY - fixed.minY;
+    const float penDown = fixed.maxY - movable.minY;
+    const float penY = std::min(penUp, penDown);
+    if (!(penY > 0.f) || !std::isfinite(penY))
+        return false;
+    const float movableCy = (movable.minY + movable.maxY) * 0.5f;
+    const float fixedCy = (fixed.minY + fixed.maxY) * 0.5f;
+    outCorrectionY = (movableCy < fixedCy) ? -penY : penY;
+    return true;
+}
+
+} // namespace
+
+PlatformerAxisMoveResult World::movePlatformerX(
+    EntityId id,
+    Transform& transform,
+    const Transform& beforeMove,
+    float& horizontalVelocity) const
+{
+    PlatformerAxisMoveResult result{};
+    CollisionBodyComponent selfBody{};
+    if (!entityGateway_.getResolvedCollisionBody(id, selfBody) || !selfBody.enabled)
+        return result;
+
+    const float dx = transform.position.x - beforeMove.position.x;
+    if (std::abs(dx) > 1e-6f) {
+        bool hitAny = false;
+        PhysicsMath::SweepHit bestHit;
+        EntityId hitEntity = INVALID_ENTITY;
+        for (const CollisionWorld::ShapeRef& authoredSelf : collisionWorld_.shapes()) {
+            if (authoredSelf.id != id)
+                continue;
+            if (!authoredSelf.shape.enabled
+                || authoredSelf.shape.response != CollisionResponse::Solid)
+                continue;
+            if (!isPlatformerSolidRole(authoredSelf.shape.role))
+                continue;
+
+            CollisionWorld::ShapeRef moving = authoredSelf;
+            moving.instance =
+                CollisionWorld::shapeInstance(beforeMove, moving.shape);
+            moving.aabb = PhysicsMath::shapeWorldAabb(moving.instance);
+
+            const float selfHeight = moving.aabb.maxY - moving.aabb.minY;
+            const float contactSlopY = platformerContactSlop(selfHeight);
+
+            for (const CollisionWorld::ShapeRef& other : collisionWorld_.shapes()) {
+                if (other.id == id)
+                    continue;
+                if (!other.shape.enabled
+                    || other.shape.response != CollisionResponse::Solid)
+                    continue;
+                if (other.shape.oneWay)
+                    continue; // ADR-0052: One Way never blocks X
+                if (!CollisionWorld::canCollide(moving, other))
+                    continue;
+
+                const float overlapY =
+                    std::min(moving.aabb.maxY, other.aabb.maxY)
+                    - std::max(moving.aabb.minY, other.aabb.minY);
+                if (overlapY <= contactSlopY)
+                    continue;
+
+                const PhysicsMath::SweepHit hit = PhysicsMath::sweepAabb(
+                    moving.aabb, Vec2{ dx, 0.f }, other.aabb);
+                if (!hit.hit || hit.fraction >= bestHit.fraction)
+                    continue;
+                bestHit = hit;
+                hitAny = true;
+                hitEntity = other.id;
+            }
+        }
+
+        if (hitAny) {
+            const float t = std::max(0.f, bestHit.fraction - 1e-4f);
+            transform.position.x = beforeMove.position.x + dx * t;
+            horizontalVelocity = 0.f;
+            result.blocked = true;
+            result.otherEntityId = hitEntity;
+            if (dx > 0.f)
+                result.hitPositive = true;
+            else if (dx < 0.f)
+                result.hitNegative = true;
+        }
+    }
+
+    for (int pass = 0; pass < 4; ++pass) {
+        bool resolvedAny = false;
+        for (const CollisionWorld::ShapeRef& authoredSelf : collisionWorld_.shapes()) {
+            if (authoredSelf.id != id)
+                continue;
+            if (!authoredSelf.shape.enabled
+                || authoredSelf.shape.response != CollisionResponse::Solid)
+                continue;
+            if (!isPlatformerSolidRole(authoredSelf.shape.role))
+                continue;
+
+            CollisionWorld::ShapeRef selfRef = authoredSelf;
+            selfRef.instance =
+                CollisionWorld::shapeInstance(transform, selfRef.shape);
+            selfRef.aabb = PhysicsMath::shapeWorldAabb(selfRef.instance);
+
+            const float selfHeight = selfRef.aabb.maxY - selfRef.aabb.minY;
+            const float contactSlopY = platformerContactSlop(selfHeight);
+
+            for (const CollisionWorld::ShapeRef& other : collisionWorld_.shapes()) {
+                if (resolvedAny || other.id == id)
+                    break;
+                if (!other.shape.enabled
+                    || other.shape.response != CollisionResponse::Solid)
+                    continue;
+                if (other.shape.oneWay)
+                    continue;
+                if (!CollisionWorld::canCollide(selfRef, other))
+                    continue;
+                if (!PhysicsMath::aabbOverlap(selfRef.aabb, other.aabb))
+                    continue;
+                if (!PhysicsMath::shapesOverlap(selfRef.instance, other.instance))
+                    continue;
+
+                // ADR-0053: require meaningful orthogonal (Y) overlap for X recovery.
+                const float overlapY =
+                    std::min(selfRef.aabb.maxY, other.aabb.maxY)
+                    - std::max(selfRef.aabb.minY, other.aabb.minY);
+                if (overlapY <= contactSlopY)
+                    continue;
+
+                float correctionX = 0.f;
+                if (!resolveAabbSeparationAxisX(selfRef.aabb, other.aabb, correctionX))
+                    continue;
+                transform.position.x += correctionX;
+                horizontalVelocity = 0.f;
+                result.blocked = true;
+                result.otherEntityId = other.id;
+                if (correctionX < 0.f)
+                    result.hitPositive = true;
+                else if (correctionX > 0.f)
+                    result.hitNegative = true;
+                resolvedAny = true;
+            }
+        }
+        if (!resolvedAny)
+            break;
+    }
+    return result;
+}
+
+PlatformerYMoveResult World::movePlatformerY(
+    EntityId id,
+    Transform& transform,
+    const Transform& beforeY,
+    float& verticalVelocity) const
+{
+    PlatformerYMoveResult result{};
+    CollisionBodyComponent selfBody{};
+    if (!entityGateway_.getResolvedCollisionBody(id, selfBody) || !selfBody.enabled)
+        return result;
+
+    const float dy = transform.position.y - beforeY.position.y;
+    if (!std::isfinite(dy) || std::abs(dy) <= 1e-6f)
+        return result;
+
+    struct Candidate {
+        float travel = 0.f;
+        EntityId otherId = INVALID_ENTITY;
+        std::size_t otherShapeIndex = 0;
+        std::size_t selfShapeIndex = 0;
+        bool floor = false;
+        float surfaceY = 0.f;
+        float selfExtentY = 0.f; // half-height unused; store before maxY/minY for place
+        float selfBeforeEdge = 0.f;
+    };
+    std::optional<Candidate> best;
+
+    for (const CollisionWorld::ShapeRef& authoredSelf : collisionWorld_.shapes()) {
+        if (authoredSelf.id != id)
+            continue;
+        if (!authoredSelf.shape.enabled
+            || authoredSelf.shape.response != CollisionResponse::Solid)
+            continue;
+        if (!isPlatformerSolidRole(authoredSelf.shape.role))
+            continue;
+
+        const PhysicsMath::Aabb selfBefore = PhysicsMath::shapeWorldAabb(
+            CollisionWorld::shapeInstance(beforeY, authoredSelf.shape));
+        Transform movedTransform = beforeY;
+        movedTransform.position.y += dy;
+        const PhysicsMath::Aabb selfMoved = PhysicsMath::shapeWorldAabb(
+            CollisionWorld::shapeInstance(movedTransform, authoredSelf.shape));
+
+        const float selfWidth = selfMoved.maxX - selfMoved.minX;
+        const float contactSlop = platformerContactSlop(selfWidth);
+        if (!std::isfinite(contactSlop))
+            continue;
+
+        CollisionWorld::ShapeRef selfRef = authoredSelf;
+        selfRef.instance = CollisionWorld::shapeInstance(beforeY, authoredSelf.shape);
+        selfRef.aabb = selfBefore;
+
+        for (const CollisionWorld::ShapeRef& other : collisionWorld_.shapes()) {
+            if (other.id == id)
+                continue;
+            if (!other.shape.enabled
+                || other.shape.response != CollisionResponse::Solid)
+                continue;
+            if (!CollisionWorld::canCollide(selfRef, other))
+                continue;
+
+            const float overlapX =
+                std::min(selfMoved.maxX, other.aabb.maxX)
+                - std::max(selfMoved.minX, other.aabb.minX);
+            if (overlapX <= contactSlop)
+                continue; // side edge-touch: ignore for Y
+
+            Candidate candidate;
+            candidate.otherId = other.id;
+            candidate.otherShapeIndex = other.shapeIndex;
+            candidate.selfShapeIndex = authoredSelf.shapeIndex;
+
+            if (dy > 0.f) {
+                const float approach =
+                    other.shape.oneWay ? kOneWayApproachTolerance : kGroundContactSkin;
+                const bool fromAbove =
+                    selfBefore.maxY <= other.aabb.minY + approach;
+                const bool crossedTop =
+                    selfMoved.maxY >= other.aabb.minY - kGroundContactSkin;
+                if (!fromAbove || !crossedTop)
+                    continue;
+                const float travel = other.aabb.minY - selfBefore.maxY;
+                if (travel < -kGroundContactSkin)
+                    continue;
+                candidate.travel = std::max(0.f, travel);
+                candidate.floor = true;
+                candidate.surfaceY = other.aabb.minY;
+                candidate.selfBeforeEdge = selfBefore.maxY;
+            } else {
+                if (other.shape.oneWay)
+                    continue;
+                const bool fromBelow =
+                    selfBefore.minY >= other.aabb.maxY - kGroundContactSkin;
+                const bool crossedBottom =
+                    selfMoved.minY <= other.aabb.maxY + kGroundContactSkin;
+                if (!fromBelow || !crossedBottom)
+                    continue;
+                const float travel = selfBefore.minY - other.aabb.maxY;
+                if (travel < -kGroundContactSkin)
+                    continue;
+                candidate.travel = std::max(0.f, travel);
+                candidate.floor = false;
+                candidate.surfaceY = other.aabb.maxY;
+                candidate.selfBeforeEdge = selfBefore.minY;
+            }
+
+            const float fraction = candidate.travel / std::abs(dy);
+            if (fraction > 1.f + 1e-3f)
+                continue;
+
+            const auto rank = [](const Candidate& c) {
+                return std::tuple{
+                    c.travel,
+                    c.otherId,
+                    c.otherShapeIndex,
+                    c.selfShapeIndex,
+                };
+            };
+            if (!best.has_value() || rank(candidate) < rank(*best))
+                best = candidate;
+        }
+    }
+
+    if (!best.has_value()) {
+        // Keep requested Y displacement (already applied by caller).
+        return result;
+    }
+
+    // Place flush against the first face along the motion; modify Y/vy only.
+    if (best->floor) {
+        const float feetBottomAtBefore = best->selfBeforeEdge;
+        const float deltaToSurface = best->surfaceY - feetBottomAtBefore;
+        transform.position.y = beforeY.position.y + deltaToSurface;
+        verticalVelocity = 0.f;
+        result.hitGround = true;
+        result.contactEntityId = best->otherId;
+    } else {
+        const float headTopAtBefore = best->selfBeforeEdge;
+        const float deltaToSurface = best->surfaceY - headTopAtBefore;
+        transform.position.y = beforeY.position.y + deltaToSurface;
+        verticalVelocity = 0.f;
+        result.hitCeiling = true;
+        result.contactEntityId = best->otherId;
     }
     return result;
 }

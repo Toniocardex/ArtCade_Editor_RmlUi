@@ -331,6 +331,10 @@ artcade_test(world_tilemap_collision_test
         world-oneway-landing-test.cpp
         "artcade-world;artcade-scene-system;artcade-runtime-entity-gateway;artcade-physics;artcade-variable-manager")
 
+    artcade_test(world_platformer_side_contact_test
+        world-platformer-side-contact-test.cpp
+        "artcade-world;artcade-scene-system;artcade-runtime-entity-gateway;artcade-physics;artcade-variable-manager")
+
     artcade_test(runtime_logic_host_parity_test
         runtime-logic-host-parity-test.cpp
         "artcade-world;artcade-scene-system;artcade-runtime-entity-gateway;artcade-physics;artcade-variable-manager;artcade-sprite-animator")

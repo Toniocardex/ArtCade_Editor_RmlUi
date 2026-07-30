@@ -3,7 +3,8 @@
   "templateVersion": 1,
   "target": "windows-x64",
   "engineVersion": "2.0.0",
-  "runtimeBuildId": "local",
+  "runtimeBuildId": "d751c88",
+  "platformerGroundSupport": "ADR-0052",
   "projectFormat": {
     "minimum": 11,
     "maximum": 11
@@ -13,8 +14,8 @@
   "assetKeyId": "artcade-dev-key-v1",
   "files": {
     "game.exe": {
-      "size": 4115968,
-      "sha256": "fd1516a3d0cf8598ac8409bdaf6a69db9652129f7ee983a5c6eae4ecab013f60"
+      "size": 4125696,
+      "sha256": "77f1d3034e25c756b14644dccc3258e8dd6c74b5ef3cb28745702076ef949d41"
     }
   }
 }

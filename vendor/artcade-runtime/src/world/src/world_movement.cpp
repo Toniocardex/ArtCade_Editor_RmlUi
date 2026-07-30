@@ -7,17 +7,19 @@
 
 namespace ArtCade {
 
-namespace {
-constexpr float kHorizontalMotionEpsilon = 0.01f;
-constexpr float kVerticalMotionEpsilon   = 0.01f;
-}
-
 bool World::isPlatformerGrounded(EntityId id) const {
     PlatformerControllerComponent pc{};
     if (!entityGateway_.getPlatformerController(id, pc)) return false;
     const auto it = platformerRt_.find(id);
-    const float vy = it != platformerRt_.end() ? it->second.velocity.y : 0.f;
-    return collisionGrounded(id, vy);
+    if (it == platformerRt_.end()) return false;
+    return it->second.grounded;
+}
+
+PlatformerStepContacts World::lastPlatformerStepContacts(EntityId id) const {
+    const auto it = platformerStepContacts_.find(id);
+    if (it == platformerStepContacts_.end())
+        return {};
+    return it->second;
 }
 
 bool World::isPlatformerFalling(EntityId id) const {
@@ -35,19 +37,8 @@ PlatformerState World::platformerState(EntityId id) const {
     }
     const auto it = platformerRt_.find(id);
     if (it == platformerRt_.end()) return PlatformerState::Stopped;
-    const PlatformerRt& rt = it->second;
-
-    const bool grounded = collisionGrounded(id, rt.velocity.y);
-    if (grounded || rt.climbing) {
-        return std::abs(rt.velocity.x) > kHorizontalMotionEpsilon
-            ? PlatformerState::Moving
-            : PlatformerState::Stopped;
-    }
-
-    if (rt.velocity.y < -kVerticalMotionEpsilon) return PlatformerState::Jumping;
-    if (rt.velocity.y > kVerticalMotionEpsilon) return PlatformerState::Falling;
-    // Apex: keep prior airborne phase (never a false Stopped for one frame).
-    return rt.lastAirState;
+    // ADR-0052: return canonical post-step state (no live collision re-query).
+    return it->second.state;
 }
 
 void World::tickPlatformerControllers(float dt) {

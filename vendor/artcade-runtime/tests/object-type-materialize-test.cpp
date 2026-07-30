@@ -48,7 +48,6 @@ static SceneInstanceDef makeInstance() {
     SceneInstanceDef inst;
     inst.id = 1;
     inst.objectTypeId = "Hero";
-    inst.instanceName = "Hero";
     return inst;
 }
 

@@ -39,6 +39,8 @@ def main() -> int:
             print(f"[FAIL] build info missing {key}", file=sys.stderr)
             return 1
 
+    platformer_ground = info.get("platformerGroundSupport") or "ADR-0052"
+
     size = args.game_exe.stat().st_size
     digest = sha256_file(args.game_exe)
     template = {
@@ -47,6 +49,7 @@ def main() -> int:
         "target": "windows-x64",
         "engineVersion": info["engineVersion"],
         "runtimeBuildId": info["runtimeBuildId"],
+        "platformerGroundSupport": platformer_ground,
         "projectFormat": {
             "minimum": int(info["projectFormatMin"]),
             "maximum": int(info["projectFormatMax"]),

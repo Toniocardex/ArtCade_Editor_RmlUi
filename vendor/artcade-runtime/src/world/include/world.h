@@ -2,7 +2,11 @@
 
 #include "../../core/types.h"
 #include "../../modules/collision/include/collision_world.h"
+#include "runtime_identity.h"
+#include <algorithm>
+#include <cmath>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -28,6 +32,7 @@ struct TopDownControllerComponent;
 inline constexpr float kGroundContactSkin = 1.0f;
 /** ADR-0022: One Way “came from above” eligibility only. */
 inline constexpr float kOneWayApproachTolerance = 2.0f;
+/** Legacy inclusive epsilon; ADR-0052 support uses scaled minHorizontalOverlap. */
 inline constexpr float kGroundHorizontalOverlapEpsilon = 0.01f;
 
 struct GroundSupport {
@@ -37,12 +42,56 @@ struct GroundSupport {
     float supportTopY = 0.f;
     float correctionY = 0.f;
     bool oneWay = false;
+    /** ADR-0052 diagnostics / deterministic ranking. */
+    float horizontalOverlap = 0.f;
+    float feetBottomY = 0.f;
+};
+
+/** ADR-0052: derived thresholds for one findGroundSupport evaluation. */
+struct GroundSupportPolicy {
+    float contactSkin = kGroundContactSkin;
+    float minHorizontalOverlap = 0.f;
+    float bodyInsetX = 0.f;
+    float maxFloorSnapDistance = 0.f;
 };
 
 struct KinematicCollisionResult {
     bool grounded = false;
     EntityId groundEntityId = INVALID_ENTITY;
 };
+
+/** ADR-0052: Platformer-only single-axis move result (X path). */
+struct PlatformerAxisMoveResult {
+    bool blocked = false;
+    bool hitNegative = false;
+    bool hitPositive = false;
+    bool hitGround = false;
+    bool hitCeiling = false;
+    EntityId otherEntityId = INVALID_ENTITY;
+};
+
+/** ADR-0053: transient Y-phase contacts (never compete with PlatformerRt.grounded). */
+struct PlatformerYMoveResult {
+    bool hitGround = false;
+    bool hitCeiling = false;
+    EntityId contactEntityId = INVALID_ENTITY;
+};
+
+/** ADR-0053: last-step diagnostics for tests (not cross-frame authority). */
+struct PlatformerStepContacts {
+    bool hitGround = false;
+    bool hitCeiling = false;
+    EntityId supportEntityId = INVALID_ENTITY;
+};
+
+/** ADR-0053: collisional orthogonal overlap slop (not support threshold). */
+inline float platformerContactSlop(float orthogonalExtent) {
+    if (!std::isfinite(orthogonalExtent) || orthogonalExtent <= 0.f)
+        return std::numeric_limits<float>::infinity(); // fail closed
+    return std::clamp(orthogonalExtent * 0.001f, 0.01f, 0.25f);
+}
+
+GroundSupportPolicy groundSupportPolicyFor(float supportWidth, float supportHeight);
 
 namespace WorldInternal {
 void stepPlatformerController(World& world,
@@ -192,6 +241,9 @@ public:
      */
     PlatformerState platformerState(EntityId id) const;
 
+    /** ADR-0053: last fixed-step contact diagnostics (tests / debug). */
+    PlatformerStepContacts lastPlatformerStepContacts(EntityId id) const;
+
     /** Canonical Logic Runtime operations over materialized world state. */
     bool isActiveEntity(EntityId id) const;
     bool isObjectType(EntityId id, const ObjectTypeId& expected) const;
@@ -230,11 +282,12 @@ private:
         Vec2  velocity        = {};
         /** Previous-frame jump intent; used to arm buffer only on rising edge. */
         bool jumpPendingPrev  = false;
-        /** Consecutive frames raw isGrounded() was true/false (hysteresis). */
-        int groundedFrames    = 0;
-        int airborneFrames    = 0;
         /** True while the body is attached to a ladder (gravity suspended). */
         bool climbing         = false;
+        /** ADR-0052: canonical post-step support; not a live collision re-query. */
+        bool grounded         = false;
+        /** ADR-0052: canonical post-step locomotion state. */
+        PlatformerState state = PlatformerState::Stopped;
         /**
          * Last definite airborne Jumping/Falling (ADR-0016). Used at apex when
          * |vy| ≤ ε so Logic never sees a one-frame Stopped mid-jump.
@@ -242,6 +295,7 @@ private:
         PlatformerState lastAirState = PlatformerState::Jumping;
     };
     std::unordered_map<EntityId, PlatformerRt> platformerRt_;
+    std::unordered_map<EntityId, PlatformerStepContacts> platformerStepContacts_;
 
     struct TopDownRt {
         Vec2 velocity;
@@ -268,13 +322,29 @@ private:
     /** Drop per-entity gameplay caches when the gateway destroys entity id. */
     void forgetEntity(EntityId id);
 
-    /** ADR-0022: single ground-support query (eligibility + correctionY). */
+    /**
+     * ADR-0022 / ADR-0052: single ground-support query (eligibility + correctionY).
+     * When allowFloorSnap is true, also accepts downward gaps up to the scaled
+     * maxFloorSnapDistance (post-Y snap only).
+     */
     std::optional<GroundSupport> findGroundSupport(
         EntityId id,
         const Transform& current,
         const Transform& previous,
         float requestedVerticalVelocity,
-        float contactSkin) const;
+        bool allowFloorSnap = false) const;
+
+    /** ADR-0052: Platformer-only axis resolution (does not alter the other axis). */
+    PlatformerAxisMoveResult movePlatformerX(
+        EntityId id,
+        Transform& transform,
+        const Transform& beforeMove,
+        float& horizontalVelocity) const;
+    PlatformerYMoveResult movePlatformerY(
+        EntityId id,
+        Transform& transform,
+        const Transform& beforeY,
+        float& verticalVelocity) const;
 
     /** ADR-0021: Top Down owns Transform; resolves vs CollisionWorld (push Physics only). */
     void tickTopDownControllers(float dt);

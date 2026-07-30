@@ -28,6 +28,7 @@ BundledRuntimeInfo loadBundledRuntimeInfo(const std::filesystem::path& exportTem
     out.available = true;
     out.engineVersion = peek.engineVersion;
     out.runtimeBuildId = peek.runtimeBuildId;
+    out.platformerGroundSupport = peek.platformerGroundSupport;
     out.projectFormatMinimum = peek.projectFormatMin;
     out.projectFormatMaximum = peek.projectFormatMax;
     return out;

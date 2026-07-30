@@ -295,8 +295,8 @@ struct AnimationState {
 // ============================================================================
 
 /**
- * Mutually exclusive platformer locomotion projection (ADR-0016).
- * Derived each query from PlatformerRt; not an authoring field.
+ * Mutually exclusive platformer locomotion projection (ADR-0016 / ADR-0052).
+ * Canonical post-step value stored on PlatformerRt; not an authoring field.
  */
 enum class PlatformerState {
     Stopped,

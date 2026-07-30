@@ -21,6 +21,7 @@ struct BundledRuntimeInfo {
     bool available = false;
     std::string engineVersion;
     std::string runtimeBuildId;
+    std::string platformerGroundSupport;
     int projectFormatMinimum = 0;
     int projectFormatMaximum = 0;
 };
