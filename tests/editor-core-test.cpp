@@ -4437,6 +4437,29 @@ int main() {
         CHECK(c.document().findObjectType("Hero")->name == "Champion");
     }
 
+    // -- ADR-0050: renamed Object Type display name survives canonical Save/Load
+    // (JSON "name", not "displayName"). Map key / id stays stable. -------------
+    {
+        EditorCoordinator c{makeDoc()};
+        CHECK(c.execute(RenameObjectTypeCommand{"Hero", "Champion"}).ok);
+        CHECK(c.document().findObjectType("Hero")->name == "Champion");
+        CHECK(c.document().instanceDisplayName(kSceneA, kHero).find("Champion") == 0);
+
+        const SerializeResult saved = ProjectSerializer::serialize(c.document());
+        CHECK(saved.ok);
+        const bool wroteSpacedName = saved.value.find("\"name\": \"Champion\"") != std::string::npos;
+        const bool wroteCompactName = saved.value.find("\"name\":\"Champion\"") != std::string::npos;
+        CHECK(wroteSpacedName || wroteCompactName);
+
+        const DeserializeResult loaded = ProjectSerializer::deserialize(saved.value);
+        CHECK(loaded.ok);
+        const EntityDef* type = loaded.value.findObjectType("Hero");
+        CHECK(type != nullptr);
+        CHECK(type->name == "Champion");
+        CHECK(loaded.value.data().objectTypes.count("Hero") == 1);
+        CHECK(loaded.value.instanceDisplayName(kSceneA, kHero).find("Champion") == 0);
+    }
+
     // -- Set scene size: validation, integer normalize, never moves instances -
     {
         EditorCoordinator c{makeDoc()};

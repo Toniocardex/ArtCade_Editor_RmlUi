@@ -301,7 +301,15 @@ void read_object_type(const nlohmann::json& typeJson,
                       EntityDef& out) {
     out.id = 0;
     out.className = typeJson.value("id", mapKey);
-    out.name = typeJson.value("displayName", out.className);
+    // ADR-0050: current-format Object Type display name is JSON "name"
+    // (EntityDef.name). "displayName" is a read-only alias only when "name"
+    // is absent — writers must not emit it for Object Types.
+    if (typeJson.contains("name") && typeJson["name"].is_string()) {
+        out.name = typeJson["name"].get<std::string>();
+    } else {
+        const std::string alias = typeJson.value("displayName", std::string{});
+        out.name = !alias.empty() ? alias : out.className;
+    }
     if (typeJson.contains("tags") && typeJson["tags"].is_array())
         out.tags = typeJson["tags"].get<std::vector<std::string>>();
     read_entity_components(typeJson, out);
