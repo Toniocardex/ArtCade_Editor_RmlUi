@@ -179,6 +179,59 @@ bool RuntimeLogicHostAdapter::requestPlatformerJump(EntityId owner) {
     world_->requestJump(owner);
     return true;
 }
+namespace {
+PlatformerWallSide parseWallSideToken(const std::string& side) {
+    if (side == "Left") return PlatformerWallSide::Left;
+    if (side == "Right") return PlatformerWallSide::Right;
+    return PlatformerWallSide::None;
+}
+} // namespace
+bool RuntimeLogicHostAdapter::isBlockedByWall(EntityId owner, const std::string& side) {
+    if (!world_) return false;
+    const PlatformerContactProjection c = world_->platformerContactProjection(owner);
+    if (side == "Left") return c.blockedLeftThisStep;
+    if (side == "Right") return c.blockedRightThisStep;
+    if (side == "Either") return c.blockedLeftThisStep || c.blockedRightThisStep;
+    return false;
+}
+bool RuntimeLogicHostAdapter::requestPlatformerWallJump(
+    EntityId owner, const std::string& side, float horizontalSpeed, float verticalSpeed) {
+    if (!world_) return false;
+    PlatformerWallSide resolved = parseWallSideToken(side);
+    if (side == "Event") {
+        // Prefer side from last projection edges / blocks (event context sets
+        // Explicit Left/Right from the pulse; Event fallback uses current block).
+        const PlatformerContactProjection c = world_->platformerContactProjection(owner);
+        if (c.blockedLeftThisStep && !c.blockedRightThisStep)
+            resolved = PlatformerWallSide::Left;
+        else if (c.blockedRightThisStep && !c.blockedLeftThisStep)
+            resolved = PlatformerWallSide::Right;
+        else
+            return false; // ambiguous dual-block: reject
+    }
+    return world_->requestWallJump(owner, resolved, horizontalSpeed, verticalSpeed);
+}
+bool RuntimeLogicHostAdapter::requestPlatformerWallSlide(
+    EntityId owner, const std::string& side, float maxFallSpeed) {
+    if (!world_) return false;
+    PlatformerWallSide resolved = parseWallSideToken(side);
+    if (side == "Event" || side == "Either") {
+        const PlatformerContactProjection c = world_->platformerContactProjection(owner);
+        if (c.blockedLeftThisStep && !c.blockedRightThisStep)
+            resolved = PlatformerWallSide::Left;
+        else if (c.blockedRightThisStep && !c.blockedLeftThisStep)
+            resolved = PlatformerWallSide::Right;
+        else if (side == "Either" && (c.blockedLeftThisStep || c.blockedRightThisStep))
+            resolved = c.blockedLeftThisStep ? PlatformerWallSide::Left
+                                             : PlatformerWallSide::Right;
+        else
+            return false;
+    }
+    return world_->requestWallSlide(owner, resolved, maxFallSpeed);
+}
+PlatformerContactProjection RuntimeLogicHostAdapter::platformerContacts(EntityId owner) {
+    return world_ ? world_->platformerContactProjection(owner) : PlatformerContactProjection{};
+}
 bool RuntimeLogicHostAdapter::isObjectType(EntityId entity, const ObjectTypeId& expected) {
     return world_ && world_->isObjectType(entity, expected);
 }
@@ -960,6 +1013,32 @@ void GameplaySession::dispatchGameplayCollisionTransitions() {
     activeGameplayCollisionPairs_ = std::move(current);
 }
 
+void GameplaySession::dispatchPlatformerContactPulses() {
+    if (!logicRuntime_ || !world_ || !entityGateway_) return;
+    entityGateway_->forEachActivePlatformer(
+        [this](EntityId owner, const PlatformerControllerComponent&) {
+            const PlatformerContactProjection c =
+                world_->platformerContactProjection(owner);
+            // Deterministic dual-side order: Left then Right.
+            if (c.blockedLeftEdgeThisStep) {
+                logicRuntime_->dispatchPlatformerWallContact(
+                    owner, c.leftWallEntityId, PlatformerWallSide::Left);
+            }
+            if (c.blockedRightEdgeThisStep) {
+                logicRuntime_->dispatchPlatformerWallContact(
+                    owner, c.rightWallEntityId, PlatformerWallSide::Right);
+            }
+            if (c.landedThisStep) {
+                logicRuntime_->dispatchPlatformerLanded(
+                    owner, c.supportEntityId, c.landingImpactSpeed);
+            }
+            if (c.hitCeilingThisStep) {
+                logicRuntime_->dispatchPlatformerCeilingHit(
+                    owner, c.ceilingEntityId);
+            }
+        });
+}
+
 // Moved verbatim from Application::tickFixedStep (app_loop.cpp), post RU-02b
 // (clearDrawQueue/splash already extracted to the host). mod_->X became
 // X_->X for every member this class now owns directly (RU-02e-1/2/RU-02f);
@@ -1007,7 +1086,8 @@ void GameplaySession::tickFixedStep(float dt) {
             }
             for (const auto& ev : finished)
                 logicRuntime_->dispatchAnimationFinished(ev.entityId);
-            logicRuntime_->dispatchTick(dt);
+            // ADR-0055: PreSimulation before script + platformer integration.
+            logicRuntime_->dispatchPreSimulationTick(dt);
         }
         const auto start = Clock::now();
         const std::uint32_t luaEvents = gameAPI_->dispatchAnimationEvents(finished, events);
@@ -1024,7 +1104,7 @@ void GameplaySession::tickFixedStep(float dt) {
             profilerPort_->setLuaTickEnabled(luaHost_->isScriptTickRequired());
         }
     }
-    // Manual on_update runs after generated input rules and before platformer
+    // Manual on_update runs after generated Pre rules and before platformer
     // integration, so its movement intent can deliberately override the board.
     if (scriptRuntime_) {
         scriptRuntime_->update(dt);
@@ -1073,10 +1153,13 @@ void GameplaySession::tickFixedStep(float dt) {
             profilerPort_->addLuaEvents(events);
         }
     }
+    // ADR-0055: collision transitions → platformer pulses → Post level → flush.
     dispatchGameplayCollisionTransitions();
-    // Collision Destroy Self/Other queue during dispatch (never mid-callback).
-    // Flush here so removal is visible this frame — same post-dispatch contract
-    // as input (dispatchInput) and ADR-0026; no extra fixed-step of lag.
+    dispatchPlatformerContactPulses();
+    if (logicRuntime_)
+        logicRuntime_->dispatchPostSimulationTick(dt);
+    // Destroy Self/Other queued during collision / platformer / Post batch.
+    // Flush after the full post batch so EventOther stays valid for the batch.
     {
         const auto start = Clock::now();
         world_->flushEntityQueues();

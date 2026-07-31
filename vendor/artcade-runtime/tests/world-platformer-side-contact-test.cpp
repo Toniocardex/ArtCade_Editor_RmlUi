@@ -431,7 +431,7 @@ static void test_tall_wall_side_contact_every_tick() {
             CHECK(st != PlatformerState::Moving);
 
             const auto contacts = h.world->lastPlatformerStepContacts(1);
-            CHECK(!contacts.hitGround);
+            CHECK(!contacts.hitFloor);
             CHECK(contacts.supportEntityId != 2);
 
             if (previousVy >= 0.f) {
@@ -441,6 +441,235 @@ static void test_tall_wall_side_contact_every_tick() {
         previousVy = transform.velocity.y;
     }
     CHECK(sawSideContact);
+    h.shutdown();
+}
+
+// ADR-0054: Body-fallback hero width 24 → bodyInset=1.2, minSupport=1.2.
+// Effective edge overlap ≈ rawOverlap - bodyInset; valid floor needs raw ≥ ~2.4.
+static void runTopCornerDrop(
+    float rawOverlapX,
+    bool oneWay,
+    bool expectFloor)
+{
+    constexpr float dt = 1.f / 60.f;
+    constexpr float kPlatformHalfW = 64.f;
+    constexpr float kHeroHalfW = 12.f;
+    constexpr float kPlatformY = 200.f;
+    // Hero straddles the right top corner with the requested raw overlap.
+    const float heroX = 0.f + kPlatformHalfW - rawOverlapX + kHeroHalfW;
+    EntityDef hero = makeHero(1, { heroX, 80.f });
+    EntityDef platform = oneWay
+        ? makeOneWay(2, { 0.f, kPlatformY }, { 128.f, 16.f })
+        : makeSolidBox(2, { 0.f, kPlatformY }, { 128.f, 16.f }, "CornerPad");
+
+    WorldHarness h;
+    CHECK(h.init(makeDoc({ hero, platform })));
+
+    float previousVy = 0.f;
+    bool sawTopApproach = false;
+    bool sawFloorHit = false;
+    for (int tick = 0; tick < 180; ++tick) {
+        tickPlatformer(*h.world, 1, dt);
+
+        Transform transform{};
+        CHECK(h.gateway.getTransform(1, transform));
+        h.world->rebuildCollisionWorld();
+        const auto playerAabb = entityBodyAabb(h.gateway, *h.world, 1);
+        const auto padAabb = entityBodyAabb(h.gateway, *h.world, 2);
+        const float overlapX =
+            std::min(playerAabb.maxX, padAabb.maxX)
+            - std::max(playerAabb.minX, padAabb.minX);
+        const bool nearTop =
+            playerAabb.maxY <= padAabb.minY + 8.f
+            && playerAabb.maxY >= padAabb.minY - 8.f
+            && overlapX > 0.01f
+            && overlapX < rawOverlapX + 1.f;
+
+        const auto contacts = h.world->lastPlatformerStepContacts(1);
+        if (nearTop || contacts.hitFloor || h.world->isPlatformerGrounded(1)) {
+            sawTopApproach = true;
+            if (expectFloor) {
+                if (contacts.hitFloor || h.world->isPlatformerGrounded(1)) {
+                    sawFloorHit = true;
+                    CHECK(contacts.hitFloor || h.world->isPlatformerGrounded(1));
+                    CHECK(h.world->isPlatformerGrounded(1));
+                    CHECK(contacts.supportEntityId == 2);
+                    CHECK_NEAR(transform.velocity.y, 0.f, 0.05f);
+                }
+            } else {
+                CHECK(!contacts.hitFloor);
+                CHECK(!h.world->isPlatformerGrounded(1));
+                CHECK(contacts.supportEntityId != 2);
+                if (previousVy >= 0.f) {
+                    CHECK(transform.velocity.y >= previousVy - 0.001f);
+                }
+            }
+        }
+        previousVy = transform.velocity.y;
+
+        if (expectFloor && sawFloorHit)
+            break;
+        // Past the pad without landing: still assert non-floor while falling by.
+        if (!expectFloor && playerAabb.minY > padAabb.maxY + 4.f)
+            break;
+    }
+    CHECK(sawTopApproach);
+    if (expectFloor)
+        CHECK(sawFloorHit);
+    h.shutdown();
+}
+
+static void test_top_corner_sliver_is_not_floor() {
+    runTopCornerDrop(/*rawOverlapX=*/0.25f, /*oneWay=*/false, /*expectFloor=*/false);
+}
+
+static void test_top_overlap_near_threshold_is_not_floor() {
+    // raw 2.0 → effective ≈ 0.8 < minSupport 1.2
+    runTopCornerDrop(/*rawOverlapX=*/2.0f, /*oneWay=*/false, /*expectFloor=*/false);
+}
+
+static void test_top_overlap_sufficient_is_floor() {
+    // raw 3.5 → effective ≈ 2.3 >= minSupport 1.2
+    runTopCornerDrop(/*rawOverlapX=*/3.5f, /*oneWay=*/false, /*expectFloor=*/true);
+}
+
+static void test_oneway_top_corner_sliver_is_not_floor() {
+    runTopCornerDrop(/*rawOverlapX=*/0.25f, /*oneWay=*/true, /*expectFloor=*/false);
+}
+
+// ADR-0055: contact projection edges + wall intents.
+static void test_contact_projection_landed_and_spawn() {
+    constexpr float dt = 1.f / 60.f;
+    EntityDef hero = makeHero(1, { 0.f, 168.f }); // already on floor
+    EntityDef floor = makeSolidBox(2, { 0.f, 200.f }, { 256.f, 16.f }, "Floor");
+    WorldHarness h;
+    CHECK(h.init(makeDoc({ hero, floor })));
+
+    int landedCount = 0;
+    for (int i = 0; i < 10; ++i) {
+        tickPlatformer(*h.world, 1, dt);
+        if (h.world->platformerContactProjection(1).landedThisStep)
+            ++landedCount;
+    }
+    // Already resting: support without floor-hit → no Landed pulse.
+    CHECK(landedCount == 0);
+    CHECK(h.world->isPlatformerGrounded(1));
+
+    tickPlatformer(*h.world, 1, dt, 0.f, /*jump=*/true);
+    for (int i = 0; i < 90; ++i) {
+        tickPlatformer(*h.world, 1, dt);
+        if (h.world->platformerContactProjection(1).landedThisStep) {
+            ++landedCount;
+            CHECK(h.world->platformerContactProjection(1).landingImpactSpeed >= 0.f);
+        }
+    }
+    CHECK(landedCount == 1);
+    h.shutdown();
+}
+
+static void test_wall_blocked_edge_once_on_hold() {
+    constexpr float dt = 1.f / 60.f;
+    EntityDef hero = makeHero(1, { 0.f, 40.f });
+    EntityDef floor = makeSolidBox(2, { 0.f, 200.f }, { 256.f, 16.f }, "Floor");
+    EntityDef wall = makeSolidBox(3, { 40.f, 120.f }, { 24.f, 96.f }, "Wall");
+    WorldHarness h;
+    CHECK(h.init(makeDoc({ hero, floor, wall })));
+    fallUntilSettled(*h.world, 1);
+
+    int leftEdges = 0;
+    int rightEdges = 0;
+    for (int i = 0; i < 45; ++i) {
+        tickPlatformer(*h.world, 1, dt, 1.f);
+        const auto c = h.world->platformerContactProjection(1);
+        if (c.blockedRightEdgeThisStep) ++rightEdges;
+        if (c.blockedLeftEdgeThisStep) ++leftEdges;
+    }
+    CHECK(rightEdges == 1);
+    CHECK(leftEdges == 0);
+
+    // Release then push again → new rising edge.
+    for (int i = 0; i < 10; ++i)
+        tickPlatformer(*h.world, 1, dt, -1.f);
+    rightEdges = 0;
+    for (int i = 0; i < 45; ++i) {
+        tickPlatformer(*h.world, 1, dt, 1.f);
+        if (h.world->platformerContactProjection(1).blockedRightEdgeThisStep)
+            ++rightEdges;
+    }
+    CHECK(rightEdges == 1);
+    h.shutdown();
+}
+
+static void test_wall_jump_next_step_and_clear_intents() {
+    constexpr float dt = 1.f / 60.f;
+    EntityDef hero = makeHero(1, { 0.f, 40.f });
+    EntityDef floor = makeSolidBox(2, { 0.f, 200.f }, { 256.f, 16.f }, "Floor");
+    EntityDef wall = makeSolidBox(3, { 40.f, 120.f }, { 24.f, 96.f }, "Wall");
+    WorldHarness h;
+    CHECK(h.init(makeDoc({ hero, floor, wall })));
+    fallUntilSettled(*h.world, 1);
+    for (int i = 0; i < 30; ++i)
+        tickPlatformer(*h.world, 1, dt, 1.f);
+
+    CHECK(h.world->requestWallJump(1, PlatformerWallSide::Right, 220.f, 520.f));
+    // Frame movement clear must not drop next-step wall intents.
+    h.world->clearFrameMovementIntents();
+    // Opposing input must not overwrite wall-jump vx this consume step.
+    h.world->setMovementIntent(1, 1.f, 0.f);
+    h.world->tickPlatformerControllers(dt);
+
+    Transform t{};
+    CHECK(h.gateway.getTransform(1, t));
+    CHECK(t.velocity.x < -100.f); // Right wall → kick Left
+    CHECK(t.velocity.y < -100.f);
+    CHECK(!h.world->isPlatformerGrounded(1));
+    h.shutdown();
+}
+
+static void test_wall_slide_clamps_after_gravity() {
+    constexpr float dt = 1.f / 60.f;
+    EntityDef hero = makeHero(1, { 0.f, 40.f });
+    hero.platformerController->customGravity = 2000.f;
+    EntityDef floor = makeSolidBox(2, { 0.f, 200.f }, { 256.f, 16.f }, "Floor");
+    EntityDef wall = makeSolidBox(3, { 40.f, 120.f }, { 24.f, 96.f }, "Wall");
+    WorldHarness h;
+    CHECK(h.init(makeDoc({ hero, floor, wall })));
+    fallUntilSettled(*h.world, 1);
+    tickPlatformer(*h.world, 1, dt, 0.f, /*jump=*/true);
+    for (int i = 0; i < 20; ++i)
+        tickPlatformer(*h.world, 1, dt, 1.f);
+
+    CHECK(h.world->requestWallSlide(1, PlatformerWallSide::Right, 80.f));
+    h.world->clearFrameMovementIntents();
+    h.world->setMovementIntent(1, 1.f, 0.f);
+    h.world->tickPlatformerControllers(dt);
+    Transform t{};
+    CHECK(h.gateway.getTransform(1, t));
+    if (t.velocity.y > 0.f)
+        CHECK(t.velocity.y <= 80.f + 0.01f);
+    h.shutdown();
+}
+
+static void test_multi_fixed_step_wall_intent_no_dup() {
+    constexpr float dt = 1.f / 60.f;
+    EntityDef hero = makeHero(1, { 0.f, 40.f });
+    EntityDef floor = makeSolidBox(2, { 0.f, 200.f }, { 256.f, 16.f }, "Floor");
+    WorldHarness h;
+    CHECK(h.init(makeDoc({ hero, floor })));
+    fallUntilSettled(*h.world, 1);
+
+    CHECK(h.world->requestWallJump(1, PlatformerWallSide::Left, 200.f, 500.f));
+    h.world->tickPlatformerControllers(dt);
+    Transform first{};
+    CHECK(h.gateway.getTransform(1, first));
+    const float firstVy = first.velocity.y;
+
+    // Second fixed step without re-queue: no duplicate wall jump.
+    h.world->tickPlatformerControllers(dt);
+    Transform second{};
+    CHECK(h.gateway.getTransform(1, second));
+    // Gravity should pull vy toward less negative / more positive vs post-jump.
+    CHECK(second.velocity.y > firstVy - 0.001f);
     h.shutdown();
 }
 
@@ -488,6 +717,15 @@ int main() {
     test_oneway_from_above_and_side();
     test_collision_grounded_rejects_side_overlap();
     test_tall_wall_side_contact_every_tick();
+    test_top_corner_sliver_is_not_floor();
+    test_top_overlap_near_threshold_is_not_floor();
+    test_top_overlap_sufficient_is_floor();
+    test_oneway_top_corner_sliver_is_not_floor();
+    test_contact_projection_landed_and_spawn();
+    test_wall_blocked_edge_once_on_hold();
+    test_wall_jump_next_step_and_clear_intents();
+    test_wall_slide_clamps_after_gravity();
+    test_multi_fixed_step_wall_intent_no_dup();
     test_stress_repeated_jumps_into_wall();
 
     if (g_failed == 0) {

@@ -58,6 +58,9 @@ const std::unordered_set<std::string>& supportedFeatures() {
         "platformer.motion_state",
         "platformer.move",
         "platformer.jump",
+        "platformer.contact_projection_v1",
+        "platformer.wall_intents_v1",
+        "logic.post_simulation_v1",
         "topdown.move",
         "collision.enter",
         "collision.exit",
@@ -86,6 +89,15 @@ const std::unordered_set<std::string>& supportedFeatures() {
     return value;
 }
 
+std::string wallSideName(PlatformerWallSide side) {
+    switch (side) {
+    case PlatformerWallSide::Left: return "Left";
+    case PlatformerWallSide::Right: return "Right";
+    case PlatformerWallSide::None:
+    default: return "None";
+    }
+}
+
 } // namespace
 
 struct LogicRuntime::Impl {
@@ -94,12 +106,16 @@ struct LogicRuntime::Impl {
         SceneStart,
         Destroy,
         Update,
+        PostUpdate,
         EverySeconds,
         KeyPressed,
         KeyReleased,
         KeyHeld,
         CollisionEnter,
         CollisionExit,
+        PlatformerLanded,
+        PlatformerWallContact,
+        PlatformerCeilingHit,
         AnimationStarted,
         AnimationFinished,
     };
@@ -241,6 +257,40 @@ struct LogicRuntime::Impl {
             if (!impl || !impl->host.requestPlatformerJump(owner))
                 throw sol::error("platformer_jump failed for owner");
         }
+        bool isBlockedByWall(const std::string& side) {
+            return impl && impl->host.isBlockedByWall(owner, side);
+        }
+        void platformerWallJump(const std::string& side, float horizontalSpeed,
+                                float verticalSpeed) {
+            std::string resolved = side;
+            if (side == "Event") {
+                if (!impl || !impl->eventHasWallSide
+                    || impl->eventWallSide == PlatformerWallSide::None) {
+                    throw sol::error(
+                        "platformer_wall_jump Event side requires Wall Blocked context");
+                }
+                resolved = wallSideName(impl->eventWallSide);
+            }
+            if (!impl || !impl->host.requestPlatformerWallJump(
+                    owner, resolved, horizontalSpeed, verticalSpeed)) {
+                throw sol::error("platformer_wall_jump failed for owner");
+            }
+        }
+        void platformerWallSlide(const std::string& side, float maxFallSpeed) {
+            std::string resolved = side;
+            if (side == "Event") {
+                if (!impl || !impl->eventHasWallSide
+                    || impl->eventWallSide == PlatformerWallSide::None) {
+                    throw sol::error(
+                        "platformer_wall_slide Event side requires Wall Blocked context");
+                }
+                resolved = wallSideName(impl->eventWallSide);
+            }
+            if (!impl || !impl->host.requestPlatformerWallSlide(
+                    owner, resolved, maxFallSpeed)) {
+                throw sol::error("platformer_wall_slide failed for owner");
+            }
+        }
         void destroySelf() {
             if (!impl || !impl->host.requestDestroy(owner))
                 throw sol::error("destroy_self failed for owner");
@@ -289,6 +339,24 @@ struct LogicRuntime::Impl {
         }
         void onUpdate(const std::string& ruleId, sol::protected_function callback) {
             impl->addSubscription(scope, owner, ruleId, EventKind::Update,
+                                  LogicKey::Space, std::move(callback));
+        }
+        void onPostSimulation(const std::string& ruleId, sol::protected_function callback) {
+            impl->addSubscription(scope, owner, ruleId, EventKind::PostUpdate,
+                                  LogicKey::Space, std::move(callback));
+        }
+        void onPlatformerLanded(const std::string& ruleId, sol::protected_function callback) {
+            impl->addSubscription(scope, owner, ruleId, EventKind::PlatformerLanded,
+                                  LogicKey::Space, std::move(callback));
+        }
+        void onPlatformerWallContact(const std::string& ruleId,
+                                     sol::protected_function callback) {
+            impl->addSubscription(scope, owner, ruleId, EventKind::PlatformerWallContact,
+                                  LogicKey::Space, std::move(callback));
+        }
+        void onPlatformerCeilingHit(const std::string& ruleId,
+                                    sol::protected_function callback) {
+            impl->addSubscription(scope, owner, ruleId, EventKind::PlatformerCeilingHit,
                                   LogicKey::Space, std::move(callback));
         }
         void onEverySeconds(const std::string& ruleId, double seconds,
@@ -415,6 +483,19 @@ struct LogicRuntime::Impl {
             if (!impl || other == INVALID_ENTITY || !impl->host.requestDestroy(other))
                 throw sol::error("destroy_other failed");
         }
+        std::string contactSide() {
+            if (!impl || !impl->eventHasWallSide
+                || impl->eventWallSide == PlatformerWallSide::None) {
+                throw sol::error("contact_side outside Wall Blocked event");
+            }
+            return wallSideName(impl->eventWallSide);
+        }
+        float landingImpactSpeed() {
+            if (!impl || !impl->eventHasLandingImpact) {
+                throw sol::error("landing_impact_speed outside On Landed event");
+            }
+            return impl->eventLandingImpact;
+        }
         float sceneWorldWidth() {
             const auto size = impl ? impl->host.getSceneWorldSize() : std::nullopt;
             if (!size) throw sol::error("scene_world_width unavailable");
@@ -512,6 +593,12 @@ struct LogicRuntime::Impl {
     bool enabled = true;
     bool apiVersionAccepted = false;
     bool programsRequireTick = false;
+
+    /** ADR-0055: per-dispatch contact context for pulse helpers. */
+    bool eventHasWallSide = false;
+    PlatformerWallSide eventWallSide = PlatformerWallSide::None;
+    bool eventHasLandingImpact = false;
+    float eventLandingImpact = 0.f;
 
     Scope* findScope(ScopeToken token) {
         const auto it = std::find_if(scopes.begin(), scopes.end(),
@@ -617,6 +704,9 @@ struct LogicRuntime::Impl {
         if (!enabled || (!allowNested && dispatchDepth != 0)) return;
         const bool matchOwner = kind == EventKind::CollisionEnter
             || kind == EventKind::CollisionExit
+            || kind == EventKind::PlatformerLanded
+            || kind == EventKind::PlatformerWallContact
+            || kind == EventKind::PlatformerCeilingHit
             || kind == EventKind::AnimationStarted
             || kind == EventKind::AnimationFinished
             || kind == EventKind::Destroy
@@ -709,7 +799,9 @@ struct LogicRuntime::Impl {
     bool hasActiveTickWork() const {
         for (const Subscription& sub : subscriptions) {
             if (!sub.active) continue;
-            if (sub.kind == EventKind::Update || sub.kind == EventKind::EverySeconds)
+            if (sub.kind == EventKind::Update
+                || sub.kind == EventKind::PostUpdate
+                || sub.kind == EventKind::EverySeconds)
                 return true;
         }
         for (const DelayedCallback& cb : delayedCallbacks) {
@@ -717,6 +809,41 @@ struct LogicRuntime::Impl {
         }
         return false;
     }
+
+    struct EventContextGuard {
+        Impl& impl;
+        bool restoreWall = false;
+        bool restoreImpact = false;
+        bool prevHasWall = false;
+        PlatformerWallSide prevWall = PlatformerWallSide::None;
+        bool prevHasImpact = false;
+        float prevImpact = 0.f;
+
+        EventContextGuard(Impl& runtime, bool hasWall, PlatformerWallSide wall,
+                          bool hasImpact, float impact)
+            : impl(runtime) {
+            prevHasWall = impl.eventHasWallSide;
+            prevWall = impl.eventWallSide;
+            prevHasImpact = impl.eventHasLandingImpact;
+            prevImpact = impl.eventLandingImpact;
+            restoreWall = true;
+            restoreImpact = true;
+            impl.eventHasWallSide = hasWall;
+            impl.eventWallSide = wall;
+            impl.eventHasLandingImpact = hasImpact;
+            impl.eventLandingImpact = impact;
+        }
+        ~EventContextGuard() {
+            if (restoreWall) {
+                impl.eventHasWallSide = prevHasWall;
+                impl.eventWallSide = prevWall;
+            }
+            if (restoreImpact) {
+                impl.eventHasLandingImpact = prevHasImpact;
+                impl.eventLandingImpact = prevImpact;
+            }
+        }
+    };
 };
 
 LogicRuntime::LogicRuntime(ILogicRuntimeHost& host, uint32_t sessionSeed,
@@ -750,6 +877,9 @@ bool LogicRuntime::initialize(std::string* error) {
             "platformer_move", &Impl::SelfProxy::platformerMove,
             "topdown_move", &Impl::SelfProxy::topDownMove,
             "platformer_jump", &Impl::SelfProxy::platformerJump,
+            "is_blocked_by_wall", &Impl::SelfProxy::isBlockedByWall,
+            "platformer_wall_jump", &Impl::SelfProxy::platformerWallJump,
+            "platformer_wall_slide", &Impl::SelfProxy::platformerWallSlide,
             "destroy_self", &Impl::SelfProxy::destroySelf,
             "play_animation_clip", &Impl::SelfProxy::playAnimationClip,
             "stop_animation", &Impl::SelfProxy::stopAnimation,
@@ -762,6 +892,10 @@ bool LogicRuntime::initialize(std::string* error) {
             "on_scene_start", &Impl::ContextProxy::onSceneStart,
             "on_destroy", &Impl::ContextProxy::onDestroy,
             "on_update", &Impl::ContextProxy::onUpdate,
+            "on_post_simulation", &Impl::ContextProxy::onPostSimulation,
+            "on_platformer_landed", &Impl::ContextProxy::onPlatformerLanded,
+            "on_platformer_wall_contact", &Impl::ContextProxy::onPlatformerWallContact,
+            "on_platformer_ceiling_hit", &Impl::ContextProxy::onPlatformerCeilingHit,
             "on_every_seconds", &Impl::ContextProxy::onEverySeconds,
             "on_animation_started", &Impl::ContextProxy::onAnimationStarted,
             "on_animation_finished", &Impl::ContextProxy::onAnimationFinished,
@@ -785,6 +919,8 @@ bool LogicRuntime::initialize(std::string* error) {
             "is_key_down", &Impl::ContextProxy::isKeyDown,
             "other_is_object_type", &Impl::ContextProxy::otherIsObjectType,
             "destroy_other", &Impl::ContextProxy::destroyOther,
+            "contact_side", &Impl::ContextProxy::contactSide,
+            "landing_impact_speed", &Impl::ContextProxy::landingImpactSpeed,
             "scene_world_width", &Impl::ContextProxy::sceneWorldWidth,
             "scene_world_height", &Impl::ContextProxy::sceneWorldHeight,
             "get_global_number", &Impl::ContextProxy::getGlobalNumber,
@@ -1039,12 +1175,38 @@ void LogicRuntime::dispatchCollisionEnter(EntityId owner, EntityId other) {
 void LogicRuntime::dispatchCollisionExit(EntityId owner, EntityId other) {
     impl_->dispatch(Impl::EventKind::CollisionExit, LogicKey::Space, owner, other);
 }
-void LogicRuntime::dispatchTick(float dt) {
+void LogicRuntime::dispatchPreSimulationTick(float dt) {
     if (!impl_ || !impl_->enabled) return;
     if (!(dt > 0.f)) dt = 0.f;
     impl_->dispatch(Impl::EventKind::Update, LogicKey::Space);
     impl_->tickEverySeconds(dt);
     impl_->tickDelayed(dt);
+}
+void LogicRuntime::dispatchTick(float dt) {
+    dispatchPreSimulationTick(dt);
+}
+void LogicRuntime::dispatchPostSimulationTick(float dt) {
+    (void)dt;
+    if (!impl_ || !impl_->enabled) return;
+    impl_->dispatch(Impl::EventKind::PostUpdate, LogicKey::Space);
+}
+void LogicRuntime::dispatchPlatformerLanded(EntityId owner, EntityId other,
+                                            float landingImpactSpeed) {
+    if (owner == INVALID_ENTITY || !impl_) return;
+    Impl::EventContextGuard guard(*impl_, false, PlatformerWallSide::None,
+                                  true, landingImpactSpeed);
+    impl_->dispatch(Impl::EventKind::PlatformerLanded, LogicKey::Space, owner, other);
+}
+void LogicRuntime::dispatchPlatformerWallContact(EntityId owner, EntityId other,
+                                                 PlatformerWallSide side) {
+    if (owner == INVALID_ENTITY || !impl_) return;
+    Impl::EventContextGuard guard(*impl_, true, side, false, 0.f);
+    impl_->dispatch(Impl::EventKind::PlatformerWallContact, LogicKey::Space, owner, other);
+}
+void LogicRuntime::dispatchPlatformerCeilingHit(EntityId owner, EntityId other) {
+    if (owner == INVALID_ENTITY || !impl_) return;
+    Impl::EventContextGuard guard(*impl_, false, PlatformerWallSide::None, false, 0.f);
+    impl_->dispatch(Impl::EventKind::PlatformerCeilingHit, LogicKey::Space, owner, other);
 }
 void LogicRuntime::dispatchAnimationStarted(EntityId owner) {
     if (owner == INVALID_ENTITY) return;

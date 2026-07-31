@@ -190,6 +190,12 @@ public:
     bool requestPlatformerMove(EntityId owner, float axis) override;
     bool requestTopDownMove(EntityId owner, Vec2 direction) override;
     bool requestPlatformerJump(EntityId owner) override;
+    bool isBlockedByWall(EntityId owner, const std::string& side) override;
+    bool requestPlatformerWallJump(EntityId owner, const std::string& side,
+                                   float horizontalSpeed, float verticalSpeed) override;
+    bool requestPlatformerWallSlide(EntityId owner, const std::string& side,
+                                    float maxFallSpeed) override;
+    PlatformerContactProjection platformerContacts(EntityId owner) override;
     bool isObjectType(EntityId entity, const ObjectTypeId& expected) override;
     bool requestDestroy(EntityId owner) override;
     bool playAnimationClip(EntityId owner, const AssetId& animationAssetId,
@@ -511,6 +517,8 @@ private:
     void rebuildActiveSceneTilemapDraws();
     void clearResolvedTilemapDraws();
     void dispatchGameplayCollisionTransitions();
+    /** ADR-0055: Landed / Wall Blocked / Ceiling Hit pulses from projection. */
+    void dispatchPlatformerContactPulses();
 
     // ADR-0039 §9: failure-path teardown for prepareActiveSceneGameplay() -
     // cancels any Logic scopes already installed and discards the Script

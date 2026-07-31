@@ -54,6 +54,16 @@ public:
     /** Adds this input frame's Top Down movement direction for Self. */
     virtual bool requestTopDownMove(EntityId owner, Vec2 direction) = 0;
     virtual bool requestPlatformerJump(EntityId owner) = 0;
+    /** ADR-0055: true when Platformer X was blocked this step (Left/Right/Either). */
+    virtual bool isBlockedByWall(EntityId owner, const std::string& side) = 0;
+    /** ADR-0055: queue wall jump for the next fixed step (side: Left/Right/Event). */
+    virtual bool requestPlatformerWallJump(EntityId owner, const std::string& side,
+                                           float horizontalSpeed, float verticalSpeed) = 0;
+    /** ADR-0055: queue wall-slide clamp for the next fixed step. */
+    virtual bool requestPlatformerWallSlide(EntityId owner, const std::string& side,
+                                            float maxFallSpeed) = 0;
+    /** ADR-0055: last completed contact projection (for pulse dispatch). */
+    virtual PlatformerContactProjection platformerContacts(EntityId owner) = 0;
     virtual bool isObjectType(EntityId entity, const ObjectTypeId& objectTypeId) = 0;
     virtual bool requestDestroy(EntityId owner) = 0;
     virtual bool playAnimationClip(EntityId owner, const AssetId& animationAssetId,

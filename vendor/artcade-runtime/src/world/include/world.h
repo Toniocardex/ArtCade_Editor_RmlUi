@@ -60,28 +60,40 @@ struct KinematicCollisionResult {
     EntityId groundEntityId = INVALID_ENTITY;
 };
 
-/** ADR-0052: Platformer-only single-axis move result (X path). */
-struct PlatformerAxisMoveResult {
+/** ADR-0052 / ADR-0054: Platformer X-phase wall contacts (transient). */
+struct PlatformerXMoveResult {
     bool blocked = false;
-    bool hitNegative = false;
-    bool hitPositive = false;
-    bool hitGround = false;
-    bool hitCeiling = false;
-    EntityId otherEntityId = INVALID_ENTITY;
+    bool hitLeftWall = false;  // dx < 0
+    bool hitRightWall = false; // dx > 0
+    EntityId contactEntityId = INVALID_ENTITY;
 };
 
-/** ADR-0053: transient Y-phase contacts (never compete with PlatformerRt.grounded). */
+/** ADR-0053 / ADR-0054: transient Y-phase contacts (never compete with PlatformerRt.grounded). */
 struct PlatformerYMoveResult {
-    bool hitGround = false;
+    bool hitFloor = false;
     bool hitCeiling = false;
     EntityId contactEntityId = INVALID_ENTITY;
 };
 
-/** ADR-0053: last-step diagnostics for tests (not cross-frame authority). */
+/** ADR-0053 / ADR-0054: last-step diagnostics for tests (not cross-frame authority). */
 struct PlatformerStepContacts {
-    bool hitGround = false;
+    bool hitFloor = false;
     bool hitCeiling = false;
     EntityId supportEntityId = INVALID_ENTITY;
+};
+
+struct WallJumpIntent {
+    bool pending = false;
+    PlatformerWallSide side = PlatformerWallSide::None;
+    float horizontalSpeed = 0.f;
+    float verticalSpeed = 0.f;
+    EntityId wallEntityId = INVALID_ENTITY;
+};
+
+struct WallSlideIntent {
+    bool pending = false;
+    float maxFallSpeed = 0.f;
+    PlatformerWallSide side = PlatformerWallSide::None;
 };
 
 /** ADR-0053: collisional orthogonal overlap slop (not support threshold). */
@@ -244,6 +256,18 @@ public:
     /** ADR-0053: last fixed-step contact diagnostics (tests / debug). */
     PlatformerStepContacts lastPlatformerStepContacts(EntityId id) const;
 
+    /** ADR-0055: last completed Platformer contact projection (Logic / tests). */
+    PlatformerContactProjection platformerContactProjection(EntityId id) const;
+
+    /**
+     * ADR-0055: queue wall jump for the next fixed step (side captured at request).
+     * Survives clearFrameMovementIntents.
+     */
+    bool requestWallJump(EntityId id, PlatformerWallSide side,
+                         float horizontalSpeed, float verticalSpeed);
+    /** ADR-0055: queue wall-slide fall clamp for the next fixed step. */
+    bool requestWallSlide(EntityId id, PlatformerWallSide side, float maxFallSpeed);
+
     /** Canonical Logic Runtime operations over materialized world state. */
     bool isActiveEntity(EntityId id) const;
     bool isObjectType(EntityId id, const ObjectTypeId& expected) const;
@@ -296,6 +320,7 @@ private:
     };
     std::unordered_map<EntityId, PlatformerRt> platformerRt_;
     std::unordered_map<EntityId, PlatformerStepContacts> platformerStepContacts_;
+    std::unordered_map<EntityId, PlatformerContactProjection> platformerContacts_;
 
     struct TopDownRt {
         Vec2 velocity;
@@ -306,6 +331,9 @@ private:
         Vec2 movement;
         bool hasMovement   = false;
         bool jumpRequested = false;
+        /** Queued by PostSimulation; promoted at controller start. */
+        std::optional<WallJumpIntent> nextWallJump;
+        std::optional<WallSlideIntent> nextWallSlide;
     };
     std::unordered_map<EntityId, ControlIntent> controlIntents_;
 
@@ -334,8 +362,8 @@ private:
         float requestedVerticalVelocity,
         bool allowFloorSnap = false) const;
 
-    /** ADR-0052: Platformer-only axis resolution (does not alter the other axis). */
-    PlatformerAxisMoveResult movePlatformerX(
+    /** ADR-0052 / ADR-0054: Platformer-only axis resolution (does not alter the other axis). */
+    PlatformerXMoveResult movePlatformerX(
         EntityId id,
         Transform& transform,
         const Transform& beforeMove,

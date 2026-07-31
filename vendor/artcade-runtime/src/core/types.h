@@ -146,6 +146,17 @@ struct LogicActionDef {
     LogicActionId       id;
     LogicExecutionMode executionMode = LogicExecutionMode::EveryOccurrence;
     LogicBlockDef      block;
+
+    LogicActionDef() = default;
+    LogicActionDef(LogicActionId actionId, LogicExecutionMode mode, LogicBlockDef b)
+        : id(std::move(actionId)), executionMode(mode), block(std::move(b)) {}
+    /** Convenience for tests / simple authoring: wrap a block as action-1. */
+    LogicActionDef(LogicBlockDef b)
+        : LogicActionDef("action-1", LogicExecutionMode::EveryOccurrence, std::move(b)) {}
+    /** Brace form: `{ typeId, { properties… } }`. */
+    LogicActionDef(std::string typeId, std::vector<LogicPropertyDef> properties)
+        : LogicActionDef("action-1", LogicExecutionMode::EveryOccurrence,
+                         LogicBlockDef{std::move(typeId), std::move(properties)}) {}
 };
 
 struct LogicRuleDef {
@@ -160,7 +171,7 @@ struct LogicRuleDef {
 
 struct LogicBoardDef {
     LogicBoardId              id;
-    uint32_t                  schemaVersion = 6;
+    uint32_t                  schemaVersion = 7;
     uint32_t                  apiVersion = 2;
     std::vector<LogicSectionDef> sections;  // display grouping; optional
     std::vector<LogicRuleDef> rules;
@@ -303,6 +314,35 @@ enum class PlatformerState {
     Moving,
     Jumping,
     Falling,
+};
+
+/** ADR-0055: wall side for blocked-X contacts and wall intents. */
+enum class PlatformerWallSide {
+    None,
+    Left,
+    Right,
+};
+
+/**
+ * ADR-0055: projection of the last completed Platformer fixed step.
+ * Logic reads this; not a second collision authority.
+ */
+struct PlatformerContactProjection {
+    bool grounded = false;
+    EntityId supportEntityId = INVALID_ENTITY;
+
+    bool blockedLeftThisStep = false;
+    EntityId leftWallEntityId = INVALID_ENTITY;
+    bool blockedRightThisStep = false;
+    EntityId rightWallEntityId = INVALID_ENTITY;
+    bool blockedLeftEdgeThisStep = false;
+    bool blockedRightEdgeThisStep = false;
+
+    bool landedThisStep = false;
+    bool hitCeilingThisStep = false;
+    EntityId ceilingEntityId = INVALID_ENTITY;
+
+    float landingImpactSpeed = 0.f;
 };
 
 struct PlatformerControllerComponent {

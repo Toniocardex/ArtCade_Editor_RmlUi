@@ -161,6 +161,30 @@ struct Host final : IGameplayRuntimeHost {
         world.requestJump(owner);
         return true;
     }
+    bool isBlockedByWall(EntityId owner, const std::string& side) override {
+        const PlatformerContactProjection c = world.platformerContactProjection(owner);
+        if (side == "Left") return c.blockedLeftThisStep;
+        if (side == "Right") return c.blockedRightThisStep;
+        if (side == "Either") return c.blockedLeftThisStep || c.blockedRightThisStep;
+        return false;
+    }
+    bool requestPlatformerWallJump(EntityId owner, const std::string& side,
+                                   float horizontalSpeed, float verticalSpeed) override {
+        PlatformerWallSide resolved = PlatformerWallSide::None;
+        if (side == "Left") resolved = PlatformerWallSide::Left;
+        else if (side == "Right") resolved = PlatformerWallSide::Right;
+        return world.requestWallJump(owner, resolved, horizontalSpeed, verticalSpeed);
+    }
+    bool requestPlatformerWallSlide(EntityId owner, const std::string& side,
+                                    float maxFallSpeed) override {
+        PlatformerWallSide resolved = PlatformerWallSide::None;
+        if (side == "Left") resolved = PlatformerWallSide::Left;
+        else if (side == "Right") resolved = PlatformerWallSide::Right;
+        return world.requestWallSlide(owner, resolved, maxFallSpeed);
+    }
+    PlatformerContactProjection platformerContacts(EntityId owner) override {
+        return world.platformerContactProjection(owner);
+    }
     bool isObjectType(EntityId entity, const ObjectTypeId& expected) override {
         return world.isObjectType(entity, expected);
     }

@@ -22,6 +22,51 @@ PlatformerStepContacts World::lastPlatformerStepContacts(EntityId id) const {
     return it->second;
 }
 
+PlatformerContactProjection World::platformerContactProjection(EntityId id) const {
+    const auto it = platformerContacts_.find(id);
+    if (it == platformerContacts_.end())
+        return {};
+    return it->second;
+}
+
+bool World::requestWallJump(EntityId id, PlatformerWallSide side,
+                            float horizontalSpeed, float verticalSpeed) {
+    if (id == INVALID_ENTITY
+        || side == PlatformerWallSide::None
+        || !std::isfinite(horizontalSpeed)
+        || !std::isfinite(verticalSpeed)
+        || horizontalSpeed < 0.f
+        || verticalSpeed < 0.f)
+        return false;
+    PlatformerControllerComponent pc{};
+    if (!entityGateway_.getPlatformerController(id, pc))
+        return false;
+    WallJumpIntent jump;
+    jump.pending = true;
+    jump.side = side;
+    jump.horizontalSpeed = horizontalSpeed;
+    jump.verticalSpeed = verticalSpeed;
+    controlIntents_[id].nextWallJump = jump;
+    return true;
+}
+
+bool World::requestWallSlide(EntityId id, PlatformerWallSide side, float maxFallSpeed) {
+    if (id == INVALID_ENTITY
+        || side == PlatformerWallSide::None
+        || !std::isfinite(maxFallSpeed)
+        || maxFallSpeed < 0.f)
+        return false;
+    PlatformerControllerComponent pc{};
+    if (!entityGateway_.getPlatformerController(id, pc))
+        return false;
+    WallSlideIntent slide;
+    slide.pending = true;
+    slide.side = side;
+    slide.maxFallSpeed = maxFallSpeed;
+    controlIntents_[id].nextWallSlide = slide;
+    return true;
+}
+
 bool World::isPlatformerFalling(EntityId id) const {
     return platformerState(id) == PlatformerState::Falling;
 }

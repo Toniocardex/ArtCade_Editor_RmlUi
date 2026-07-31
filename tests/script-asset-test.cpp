@@ -550,6 +550,14 @@ return { on_start = function(ctx) ctx.self:set_position(9, 10) end }
         }
         bool requestTopDownMove(EntityId, Vec2) override { return true; }
         bool requestPlatformerJump(EntityId) override { jumpRequested = true; return true; }
+        bool isBlockedByWall(EntityId, const std::string&) override { return false; }
+        bool requestPlatformerWallJump(EntityId, const std::string&, float, float) override {
+            return true;
+        }
+        bool requestPlatformerWallSlide(EntityId, const std::string&, float) override {
+            return true;
+        }
+        PlatformerContactProjection platformerContacts(EntityId) override { return {}; }
         bool isObjectType(EntityId, const ObjectTypeId&) override { return false; }
         bool requestDestroy(EntityId) override { destroyRequested = true; return true; }
         bool playAnimationClip(EntityId, const AssetId& asset,

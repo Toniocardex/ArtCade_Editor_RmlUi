@@ -22,6 +22,13 @@ std::string conditionExpression(const LogicBlockDef& condition,
             : nullptr;
         const std::string name = state && !state->value.empty() ? state->value : "Moving";
         expression << "context.self:platformer_state() == \"" << escapeLua(name) << "\"";
+    } else if (condition.typeId == kIsBlockedByWall) {
+        const LogicPropertyDef* property = findProperty(condition, "side");
+        const auto* side = property
+            ? std::get_if<LogicStringValue>(&property->value)
+            : nullptr;
+        const std::string name = side && !side->value.empty() ? side->value : "Either";
+        expression << "context.self:is_blocked_by_wall(\"" << escapeLua(name) << "\")";
     } else if (condition.typeId == kIsVisible) {
         const LogicPropertyDef* property = findProperty(condition, "expected");
         const bool expected = property ? std::get<bool>(property->value) : true;

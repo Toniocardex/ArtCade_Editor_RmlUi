@@ -9,7 +9,8 @@
 
 namespace ArtCade::Logic {
 
-inline constexpr uint32_t kLogicBoardSchemaVersion = 6;
+inline constexpr uint32_t kLogicBoardSchemaVersion = 7;
+/** Additive ADR-0055 channels are feature-gated; keep apiVersion compatible. */
 inline constexpr uint32_t kLogicApiVersion = 2;
 inline constexpr std::size_t kMaxRulesPerBoard = 128;
 inline constexpr std::size_t kMaxSectionsPerBoard = 64;
@@ -40,8 +41,14 @@ inline constexpr const char* kSpawnObject = "entity.spawn";
 inline constexpr const char* kIsGrounded = "platformer.is_grounded";
 inline constexpr const char* kIsFalling = "platformer.is_falling";
 inline constexpr const char* kPlatformerMotionState = "platformer.motion_state";
+inline constexpr const char* kIsBlockedByWall = "platformer.is_blocked_by_wall";
+inline constexpr const char* kOnLanded = "platformer.on_landed";
+inline constexpr const char* kOnWallBlocked = "platformer.on_wall_blocked";
+inline constexpr const char* kOnCeilingHit = "platformer.on_ceiling_hit";
 inline constexpr const char* kMoveHorizontal = "platformer.move_horizontal";
 inline constexpr const char* kJump = "platformer.jump";
+inline constexpr const char* kWallJump = "platformer.wall_jump";
+inline constexpr const char* kWallSlide = "platformer.wall_slide";
 inline constexpr const char* kTopDownMove = "topdown.move";
 inline constexpr const char* kCollisionEnter = "collision.enter";
 inline constexpr const char* kCollisionExit = "collision.exit";
@@ -122,6 +129,8 @@ enum class LogicContextCapability {
     DeltaTime,
     CollisionContact,
     MessagePayload,
+    PlatformerWallSide,
+    PlatformerLandingImpact,
 };
 enum class LogicBoardOwnerKind { ObjectType, Scene };
 /**
@@ -129,6 +138,22 @@ enum class LogicBoardOwnerKind { ObjectType, Scene };
  * switches). Pulse = discrete one-shot event; Level = continuous state.
  */
 enum class LogicTriggerActivationKind { Pulse, Level };
+/** ADR-0051 / ADR-0055: when a trigger/condition may be evaluated. */
+enum class LogicPhaseRequirement {
+    PreOnly,
+    PostOnly,
+    Flexible,
+};
+/** ADR-0055: when an action's effect becomes operative. */
+enum class LogicEffectTiming {
+    Immediate,
+    NextSimulationStep,
+};
+/** Resolved rule evaluation channel (compiler output). */
+enum class LogicEvaluationPhase {
+    PreSimulation,
+    PostSimulation,
+};
 
 struct LogicPropertyDescriptor {
     std::string    key;
@@ -167,6 +192,10 @@ struct LogicBlockDescriptor {
     LogicTriggerActivationKind           activationKind = LogicTriggerActivationKind::Pulse;
     /** When true, omit from Logic Board add-Event / add-Condition pickers. */
     bool                                 catalogHidden = false;
+    /** ADR-0055: phase constraint for triggers/conditions (actions ignore). */
+    LogicPhaseRequirement                phaseRequirement = LogicPhaseRequirement::Flexible;
+    /** ADR-0055: when the action effect applies (triggers/conditions ignore). */
+    LogicEffectTiming                    effectTiming = LogicEffectTiming::Immediate;
 };
 
 /**

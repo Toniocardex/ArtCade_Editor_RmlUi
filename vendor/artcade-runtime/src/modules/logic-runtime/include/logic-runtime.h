@@ -60,8 +60,24 @@ public:
     void dispatchKeyHeld(LogicKey key);
     void dispatchCollisionEnter(EntityId owner, EntityId other);
     void dispatchCollisionExit(EntityId owner, EntityId other);
-    /** Advances Every Second / Every Frame / Wait subscriptions. */
+    /**
+     * Pre-simulation channel: Wait / Every Seconds timers + Pre Update rules.
+     * Compatibility alias: dispatchTick → dispatchPreSimulationTick.
+     */
+    void dispatchPreSimulationTick(float dt);
     void dispatchTick(float dt);
+    /**
+     * Post-simulation level observers (Platformer State / Is Grounded / …).
+     * Does not advance Wait / Every Seconds timers.
+     */
+    void dispatchPostSimulationTick(float dt);
+    /** ADR-0055 pulse: On Landed (other = support; impact available in context). */
+    void dispatchPlatformerLanded(EntityId owner, EntityId other, float landingImpactSpeed);
+    /** ADR-0055 pulse: On Wall Blocked (side captured for contact_side / Event). */
+    void dispatchPlatformerWallContact(EntityId owner, EntityId other,
+                                       PlatformerWallSide side);
+    /** ADR-0055 pulse: On Ceiling Hit. */
+    void dispatchPlatformerCeilingHit(EntityId owner, EntityId other);
     void dispatchAnimationStarted(EntityId owner);
     void dispatchAnimationFinished(EntityId owner);
     void shutdown() noexcept;

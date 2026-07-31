@@ -666,6 +666,32 @@ void emitAction(std::ostringstream& lua, const LogicBlockDef& action,
             << numberLiteralText(movement.y) << ")\n";
     } else if (action.typeId == kJump) {
         lua << "      context.self:platformer_jump()\n";
+    } else if (action.typeId == kWallJump) {
+        double horizontal = 220.0;
+        double vertical = 520.0;
+        const LogicPropertyDef* hProp = findProperty(action, "horizontalSpeed");
+        const LogicPropertyDef* vProp = findProperty(action, "verticalSpeed");
+        const LogicPropertyDef* sideProp = findProperty(action, "side");
+        const auto* side = sideProp ? std::get_if<LogicStringValue>(&sideProp->value) : nullptr;
+        const std::string sideName = side && !side->value.empty() ? side->value : "Event";
+        if (literalNumberForCodegen(hProp, 220.0, horizontal, objectTypeId, board, rule, action,
+                                    "horizontalSpeed", codegenDiagnostics)
+            && literalNumberForCodegen(vProp, 520.0, vertical, objectTypeId, board, rule, action,
+                                       "verticalSpeed", codegenDiagnostics)) {
+            lua << "      context.self:platformer_wall_jump(\"" << escapeLua(sideName) << "\", "
+                << numberLiteralText(horizontal) << ", " << numberLiteralText(vertical) << ")\n";
+        }
+    } else if (action.typeId == kWallSlide) {
+        double maxFall = 80.0;
+        const LogicPropertyDef* speedProp = findProperty(action, "maxFallSpeed");
+        const LogicPropertyDef* sideProp = findProperty(action, "side");
+        const auto* side = sideProp ? std::get_if<LogicStringValue>(&sideProp->value) : nullptr;
+        const std::string sideName = side && !side->value.empty() ? side->value : "Event";
+        if (literalNumberForCodegen(speedProp, 80.0, maxFall, objectTypeId, board, rule, action,
+                                    "maxFallSpeed", codegenDiagnostics)) {
+            lua << "      context.self:platformer_wall_slide(\"" << escapeLua(sideName) << "\", "
+                << numberLiteralText(maxFall) << ")\n";
+        }
     } else if (action.typeId == kDestroySelf) {
         lua << "      context.self:destroy_self()\n";
     } else if (action.typeId == kDestroyOther) {
@@ -880,16 +906,18 @@ const std::vector<LogicBlockDescriptor>& registry() {
         {kKeyPressed, "input", "Key Pressed", "Runs when the selected key is pressed.",
             BlockKind::Trigger,
             {{"key", LogicValueKind::Key, LogicKey::Space, "Key"}}, {}, {},
-            {LogicContextCapability::Self}, "input.key_pressed", false, 10, {"keyboard", "input"}},
+            {LogicContextCapability::Self}, "input.key_pressed", false, 10, {"keyboard", "input"},
+            LogicTriggerActivationKind::Pulse, false, LogicPhaseRequirement::PreOnly},
         {kKeyReleased, "input", "Key Released", "Runs when the selected key is released.",
             BlockKind::Trigger,
             {{"key", LogicValueKind::Key, LogicKey::Space, "Key"}}, {}, {},
-            {LogicContextCapability::Self}, "input.key_released", false, 20, {"keyboard", "input"}},
+            {LogicContextCapability::Self}, "input.key_released", false, 20, {"keyboard", "input"},
+            LogicTriggerActivationKind::Pulse, false, LogicPhaseRequirement::PreOnly},
         {kKeyHeld, "input", "While Key Held", "Runs once per tick while the selected key is held.",
             BlockKind::Trigger,
             {{"key", LogicValueKind::Key, LogicKey::Space, "Key"}}, {}, {},
             {LogicContextCapability::Self}, "input.key_held", true, 30, {"keyboard", "input", "hold"},
-            LogicTriggerActivationKind::Level},
+            LogicTriggerActivationKind::Level, false, LogicPhaseRequirement::PreOnly},
         {kKeyDown, "input", "Is Key Down", "True while the selected key is held.",
             BlockKind::Condition,
             {{"key", LogicValueKind::Key, LogicKey::Space, "Key"}}, {},
@@ -964,7 +992,7 @@ const std::vector<LogicBlockDescriptor>& registry() {
             {LogicRequiredComponent::PlatformerController}, {LogicContextCapability::Self},
             {LogicContextCapability::Self},
             "platformer.grounded", false, 10, {"floor", "landing"},
-            LogicTriggerActivationKind::Level},
+            LogicTriggerActivationKind::Level, false, LogicPhaseRequirement::PostOnly},
         {kIsFalling, "platformer", "Is Falling",
             "Deprecated: use Platformer State → Falling (ADR-0016). "
             "Checks whether Self is airborne and moving downward (+Y down).",
@@ -973,7 +1001,7 @@ const std::vector<LogicBlockDescriptor>& registry() {
             {LogicRequiredComponent::PlatformerController}, {LogicContextCapability::Self},
             {LogicContextCapability::Self},
             "platformer.falling", false, 15, {"airborne", "descent", "drop"},
-            LogicTriggerActivationKind::Level, true},
+            LogicTriggerActivationKind::Level, true, LogicPhaseRequirement::PostOnly},
         {kPlatformerMotionState, "platformer", "Platformer State",
             "Mutually exclusive locomotion of Self: Stopped/Moving on ground "
             "(or climbing), Jumping/Falling airborne (ADR-0016).",
@@ -984,7 +1012,48 @@ const std::vector<LogicBlockDescriptor>& registry() {
             "platformer.motion_state", false, 18,
             {"moving", "stopped", "idle", "walking", "running", "jumping", "falling",
              "velocity", "motion", "state"},
-            LogicTriggerActivationKind::Level},
+            LogicTriggerActivationKind::Level, false, LogicPhaseRequirement::PostOnly},
+        {kIsBlockedByWall, "platformer", "Is Blocked By Wall",
+            "True when Platformer X resolution was blocked this fixed step "
+            "(not a persistent wall probe).",
+            BlockKind::Condition,
+            {{"side", LogicValueKind::String, LogicStringValue{"Either"}, "Side",
+              "", LogicPropertySemantic::Generic, LogicNumberConstraint::None, false,
+              {"Left", "Right", "Either"}}},
+            {LogicRequiredComponent::PlatformerController}, {LogicContextCapability::Self},
+            {LogicContextCapability::Self},
+            "platformer.contact_projection_v1", false, 19,
+            {"wall", "blocked", "side"},
+            LogicTriggerActivationKind::Level, false, LogicPhaseRequirement::PostOnly},
+        {kOnLanded, "platformer", "On Landed",
+            "Fires once when Self lands on valid support (validated floor + grounded).",
+            BlockKind::Trigger, {},
+            {LogicRequiredComponent::PlatformerController}, {},
+            {LogicContextCapability::Self, LogicContextCapability::EventOther,
+             LogicContextCapability::PlatformerLandingImpact},
+            "platformer.contact_projection_v1", false, 40,
+            {"land", "landing", "floor", "impact"},
+            LogicTriggerActivationKind::Pulse, false, LogicPhaseRequirement::PostOnly},
+        {kOnWallBlocked, "platformer", "On Wall Blocked",
+            "Fires once when Platformer X is first blocked on a side while pushing.",
+            BlockKind::Trigger,
+            {{"side", LogicValueKind::String, LogicStringValue{"Either"}, "Side",
+              "", LogicPropertySemantic::Generic, LogicNumberConstraint::None, false,
+              {"Left", "Right", "Either"}}},
+            {LogicRequiredComponent::PlatformerController}, {},
+            {LogicContextCapability::Self, LogicContextCapability::EventOther,
+             LogicContextCapability::PlatformerWallSide},
+            "platformer.contact_projection_v1", false, 50,
+            {"wall", "blocked", "contact"},
+            LogicTriggerActivationKind::Pulse, false, LogicPhaseRequirement::PostOnly},
+        {kOnCeilingHit, "platformer", "On Ceiling Hit",
+            "Fires when Self hits a solid ceiling this fixed step.",
+            BlockKind::Trigger, {},
+            {LogicRequiredComponent::PlatformerController}, {},
+            {LogicContextCapability::Self, LogicContextCapability::EventOther},
+            "platformer.contact_projection_v1", false, 60,
+            {"ceiling", "head", "bump"},
+            LogicTriggerActivationKind::Pulse, false, LogicPhaseRequirement::PostOnly},
         {kMoveHorizontal, "platformer", "Platformer Move",
             "Requests horizontal platformer movement for Self for this input frame "
             "(Left or Right). Pair with While Key Held so movement stops on release.",
@@ -992,10 +1061,44 @@ const std::vector<LogicBlockDescriptor>& registry() {
             {{"direction", LogicValueKind::String, LogicStringValue{"Right"}, "Direction"}},
             {LogicRequiredComponent::PlatformerController}, {LogicContextCapability::Self}, {},
             "platformer.move", false, 20,
-            {"walk", "run", "strafe", "left", "right", "move horizontal"}},
+            {"walk", "run", "strafe", "left", "right", "move horizontal"},
+            LogicTriggerActivationKind::Pulse, false, LogicPhaseRequirement::Flexible,
+            LogicEffectTiming::NextSimulationStep},
         {kJump, "platformer", "Jump", "Requests a platformer jump.",
             BlockKind::Action, {}, {LogicRequiredComponent::PlatformerController},
-            {LogicContextCapability::Self}, {}, "platformer.jump", false, 30, {"leap", "hop"}},
+            {LogicContextCapability::Self}, {}, "platformer.jump", false, 30, {"leap", "hop"},
+            LogicTriggerActivationKind::Pulse, false, LogicPhaseRequirement::Flexible,
+            LogicEffectTiming::NextSimulationStep},
+        {kWallJump, "platformer", "Wall Jump",
+            "Queues a wall jump for the next fixed step. Side is taken from the "
+            "Wall Blocked event context (or Side property when used elsewhere).",
+            BlockKind::Action,
+            {{"horizontalSpeed", LogicValueKind::Number, NumberExpression::literal(220.0),
+              "Horizontal Speed"},
+             {"verticalSpeed", LogicValueKind::Number, NumberExpression::literal(520.0),
+              "Vertical Speed"},
+             {"side", LogicValueKind::String, LogicStringValue{"Event"}, "Side",
+              "", LogicPropertySemantic::Generic, LogicNumberConstraint::None, false,
+              {"Event", "Left", "Right"}}},
+            {LogicRequiredComponent::PlatformerController}, {LogicContextCapability::Self}, {},
+            "platformer.wall_intents_v1", false, 35,
+            {"wall jump", "kick"},
+            LogicTriggerActivationKind::Pulse, false, LogicPhaseRequirement::Flexible,
+            LogicEffectTiming::NextSimulationStep},
+        {kWallSlide, "platformer", "Wall Slide",
+            "Queues a per-step fall-speed clamp while blocked against a wall "
+            "(re-emit each Post tick to sustain).",
+            BlockKind::Action,
+            {{"maxFallSpeed", LogicValueKind::Number, NumberExpression::literal(80.0),
+              "Max Fall Speed"},
+             {"side", LogicValueKind::String, LogicStringValue{"Event"}, "Side",
+              "", LogicPropertySemantic::Generic, LogicNumberConstraint::None, false,
+              {"Event", "Left", "Right", "Either"}}},
+            {LogicRequiredComponent::PlatformerController}, {LogicContextCapability::Self}, {},
+            "platformer.wall_intents_v1", false, 36,
+            {"wall slide", "cling"},
+            LogicTriggerActivationKind::Pulse, false, LogicPhaseRequirement::Flexible,
+            LogicEffectTiming::NextSimulationStep},
         {kTopDownMove, "topdown", "Top Down Movement",
             "Contributes a movement direction for Self during this input frame.",
             BlockKind::Action,
@@ -1073,7 +1176,7 @@ const std::vector<LogicBlockDescriptor>& registry() {
             {}, {LogicContextCapability::Self}, {LogicContextCapability::Self},
             "scene.outside_bounds", true, 30,
             {"offscreen", "out of bounds", "boundary", "despawn"},
-            LogicTriggerActivationKind::Level},
+            LogicTriggerActivationKind::Level, false, LogicPhaseRequirement::PostOnly},
         {kCameraShake, "camera", "Camera Shake",
             "Adds camera trauma. Repeated calls stack intensity up to 1; "
             "the latest duration controls the current trauma decay.",
@@ -1326,7 +1429,9 @@ LogicBlockAvailability sceneBlockAvailability(const LogicBlockDescriptor& candid
     for (const LogicContextCapability capability : candidate.requiredContext) {
         if (capability == LogicContextCapability::Self
             || capability == LogicContextCapability::EventOther
-            || capability == LogicContextCapability::CollisionContact) {
+            || capability == LogicContextCapability::CollisionContact
+            || capability == LogicContextCapability::PlatformerWallSide
+            || capability == LogicContextCapability::PlatformerLandingImpact) {
             return {false, "Requires an entity Self or collision event"};
         }
         if (capability == LogicContextCapability::Scene) {
@@ -1454,6 +1559,11 @@ std::vector<LogicDiagnostic> validateBoard(const ObjectTypeId& objectTypeId,
         if (rule.actions.size() > kMaxActionsPerRule)
             out.push_back(makeError(objectTypeId, board, "LB_ACTION_LIMIT",
                                     "Rule exceeds the action limit", &rule));
+        if (rule.actions.empty() && purpose == LogicValidationPurpose::Executable
+            && rule.enabled) {
+            out.push_back(makeError(objectTypeId, board, "LB_NO_ACTIONS",
+                                    "Enabled rule has no actions", &rule));
+        }
         std::unordered_set<std::string> actionIds;
         const LogicBlockDescriptor* trigger = findDescriptor(rule.trigger.typeId);
         validateBlock(objectTypeId, board, rule, rule.trigger, BlockKind::Trigger, owner,
@@ -1571,6 +1681,51 @@ bool isLevelConditionTrigger(const LogicBlockTypeId& typeId) {
     return descriptor && descriptor->kind == BlockKind::Condition
         && descriptor->activationKind == LogicTriggerActivationKind::Level;
 }
+
+LogicPhaseRequirement phaseRequirementOf(const LogicBlockTypeId& typeId) {
+    const LogicBlockDescriptor* descriptor = findDescriptor(typeId);
+    return descriptor ? descriptor->phaseRequirement : LogicPhaseRequirement::Flexible;
+}
+
+bool resolveRuleEvaluationPhase(const LogicRuleDef& rule,
+                                LogicEvaluationPhase& outPhase,
+                                std::string& conflictMessage) {
+    LogicPhaseRequirement triggerReq = phaseRequirementOf(rule.trigger.typeId);
+    // Every Frame is Flexible: PostOnly conditions pull the rule to Post.
+    if (rule.trigger.typeId == kEveryFrame)
+        triggerReq = LogicPhaseRequirement::Flexible;
+
+    const LogicBlockDescriptor* triggerDesc = findDescriptor(rule.trigger.typeId);
+    // Pulse + PreOnly (Key Pressed/Released) fires at input time and may read
+    // the last completed projection. PostOnly conditions must not relocate it
+    // (unlike Level PreOnly Key Held, which cannot mix with PostOnly).
+    const bool pulsePreTrigger = triggerReq == LogicPhaseRequirement::PreOnly
+        && triggerDesc
+        && triggerDesc->activationKind == LogicTriggerActivationKind::Pulse;
+
+    bool wantsPost = triggerReq == LogicPhaseRequirement::PostOnly;
+    bool wantsPre = triggerReq == LogicPhaseRequirement::PreOnly;
+    for (const LogicConditionClause& clause : rule.conditions) {
+        const LogicPhaseRequirement req = phaseRequirementOf(clause.block.typeId);
+        if (req == LogicPhaseRequirement::PostOnly) {
+            if (!pulsePreTrigger) wantsPost = true;
+        }
+        if (req == LogicPhaseRequirement::PreOnly) wantsPre = true;
+    }
+    // Level-condition-as-event (Platformer State / Is Grounded as trigger).
+    if (isLevelConditionTrigger(rule.trigger.typeId)
+        && phaseRequirementOf(rule.trigger.typeId) == LogicPhaseRequirement::PostOnly) {
+        wantsPost = true;
+    }
+    if (wantsPre && wantsPost) {
+        conflictMessage =
+            "Rule mixes PreOnly and PostOnly evaluation requirements";
+        return false;
+    }
+    outPhase = wantsPost ? LogicEvaluationPhase::PostSimulation
+                         : LogicEvaluationPhase::PreSimulation;
+    return true;
+}
 } // namespace
 
 static LogicCompileResult compileBoardForOwner(const std::string& ownerId,
@@ -1607,14 +1762,41 @@ static LogicCompileResult compileBoardForOwner(const std::string& ownerId,
             && activationKind == LogicTriggerActivationKind::Level
             && rule.trigger.typeId == kKeyHeld;
 
+        LogicEvaluationPhase evaluationPhase = LogicEvaluationPhase::PreSimulation;
+        std::string phaseConflict;
+        if (!resolveRuleEvaluationPhase(rule, evaluationPhase, phaseConflict)) {
+            result.diagnostics.push_back(makeError(
+                ownerId, board, "LB_INCOMPATIBLE_EVALUATION_PHASE",
+                phaseConflict, &rule, &rule.trigger, {}));
+            return result;
+        }
+        if (evaluationPhase == LogicEvaluationPhase::PostSimulation)
+            features.insert("logic.post_simulation_v1");
+
         if (rule.trigger.typeId == kOnStart) {
             lua << "  context:on_start(\"" << escapeLua(rule.id) << "\", function()\n";
         } else if (rule.trigger.typeId == kOnSceneStart) {
             lua << "  context:on_scene_start(\"" << escapeLua(rule.id) << "\", function()\n";
         } else if (rule.trigger.typeId == kOnDestroy) {
             lua << "  context:on_destroy(\"" << escapeLua(rule.id) << "\", function()\n";
+        } else if (rule.trigger.typeId == kOnLanded) {
+            lua << "  context:on_platformer_landed(\"" << escapeLua(rule.id)
+                << "\", function(other)\n";
+            features.insert("platformer.contact_projection_v1");
+        } else if (rule.trigger.typeId == kOnWallBlocked) {
+            lua << "  context:on_platformer_wall_contact(\"" << escapeLua(rule.id)
+                << "\", function(other)\n";
+            features.insert("platformer.contact_projection_v1");
+        } else if (rule.trigger.typeId == kOnCeilingHit) {
+            lua << "  context:on_platformer_ceiling_hit(\"" << escapeLua(rule.id)
+                << "\", function(other)\n";
+            features.insert("platformer.contact_projection_v1");
         } else if (rule.trigger.typeId == kEveryFrame || levelGateViaUpdate) {
-            lua << "  context:on_update(\"" << escapeLua(rule.id) << "\", function()\n";
+            if (evaluationPhase == LogicEvaluationPhase::PostSimulation)
+                lua << "  context:on_post_simulation(\"" << escapeLua(rule.id)
+                    << "\", function()\n";
+            else
+                lua << "  context:on_update(\"" << escapeLua(rule.id) << "\", function()\n";
             result.requiresTick = true;
         } else if (rule.trigger.typeId == kEverySeconds) {
             const LogicPropertyDef* seconds = findProperty(rule.trigger, "seconds");
@@ -1642,7 +1824,11 @@ static LogicCompileResult compileBoardForOwner(const std::string& ownerId,
             lua << "  context:" << registerMethod << "(\"" << escapeLua(rule.id) << "\", \""
                 << logicKeyName(std::get<LogicKey>(key->value)) << "\", function()\n";
         } else if (isLevelConditionTrigger(rule.trigger.typeId)) {
-            lua << "  context:on_update(\"" << escapeLua(rule.id) << "\", function()\n";
+            if (evaluationPhase == LogicEvaluationPhase::PostSimulation)
+                lua << "  context:on_post_simulation(\"" << escapeLua(rule.id)
+                    << "\", function()\n";
+            else
+                lua << "  context:on_update(\"" << escapeLua(rule.id) << "\", function()\n";
             result.requiresTick = true;
         } else {
             result.diagnostics.push_back(makeError(
@@ -1672,6 +1858,13 @@ static LogicCompileResult compileBoardForOwner(const std::string& ownerId,
                 sharedEligible = "context:other_is_object_type(other, \""
                     + escapeLua(type->value) + "\")";
                 features.insert("collision.other_type");
+            }
+        } else if (rule.trigger.typeId == kOnWallBlocked) {
+            const LogicPropertyDef* sideProp = findProperty(rule.trigger, "side");
+            const auto* side = sideProp ? std::get_if<LogicStringValue>(&sideProp->value) : nullptr;
+            const std::string sideName = side && !side->value.empty() ? side->value : "Either";
+            if (sideName == "Left" || sideName == "Right") {
+                sharedEligible = "(context:contact_side() == \"" + escapeLua(sideName) + "\")";
             }
         } else if (isLevelConditionTrigger(rule.trigger.typeId)) {
             sharedEligible = emitConditionExpression(rule.trigger, features);

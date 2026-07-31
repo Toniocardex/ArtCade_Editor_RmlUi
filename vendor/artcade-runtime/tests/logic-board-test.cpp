@@ -38,6 +38,7 @@ struct Host final : ILogicRuntimeHost {
     std::unordered_set<EntityId> grounded;
     std::unordered_set<EntityId> falling;
     std::unordered_set<EntityId> movingHorizontally;
+    std::unordered_map<EntityId, std::string> blockedByWall;
     std::unordered_map<EntityId, PlatformerState> platformerStates;
     std::unordered_map<EntityId, bool> visible;
     std::unordered_map<EntityId, Vec2> positions;
@@ -156,6 +157,27 @@ struct Host final : ILogicRuntimeHost {
         calls.push_back("platformer_jump:" + std::to_string(owner));
         return true;
     }
+    bool isBlockedByWall(EntityId owner, const std::string& side) override {
+        calls.push_back("is_blocked_by_wall:" + std::to_string(owner) + ":" + side);
+        return blockedByWall.count(owner) != 0
+            && (side == "Either" || blockedByWall[owner] == side);
+    }
+    bool requestPlatformerWallJump(EntityId owner, const std::string& side,
+                                   float horizontalSpeed, float verticalSpeed) override {
+        calls.push_back("platformer_wall_jump:" + std::to_string(owner) + ":" + side
+                        + ":" + std::to_string(horizontalSpeed) + ":"
+                        + std::to_string(verticalSpeed));
+        return true;
+    }
+    bool requestPlatformerWallSlide(EntityId owner, const std::string& side,
+                                    float maxFallSpeed) override {
+        calls.push_back("platformer_wall_slide:" + std::to_string(owner) + ":" + side
+                        + ":" + std::to_string(maxFallSpeed));
+        return true;
+    }
+    PlatformerContactProjection platformerContacts(EntityId) override {
+        return {};
+    }
     bool isObjectType(EntityId, const ObjectTypeId&) override { return false; }
     bool requestDestroy(EntityId owner) override {
         calls.push_back("destroy:" + std::to_string(owner));
@@ -253,10 +275,8 @@ struct Host final : ILogicRuntimeHost {
     }
     EntityId spawnObjectTypeInActiveScene(const ObjectTypeId& objectTypeId,
                                           float x, float y) override {
-        calls.push_back("spawn_scene:" + objectTypeId + ":"
-                        + std::to_string(static_cast<int>(x)) + ","
-                        + std::to_string(static_cast<int>(y)));
-        return failSpawn ? INVALID_ENTITY : nextSpawnId;
+        // Scene-level spawn shares the same install/fail-closed path as Self spawn.
+        return spawnObjectType(INVALID_ENTITY, objectTypeId, x, y);
     }
     bool requestSceneRestart() override {
         calls.push_back("scene_restart");
@@ -291,11 +311,26 @@ static LogicConditionClause makeClause(
     return {join, negated, std::move(block)};
 }
 
+static std::vector<LogicActionDef> makeActions(
+    std::initializer_list<LogicBlockDef> blocks) {
+    std::vector<LogicActionDef> actions;
+    actions.reserve(blocks.size());
+    int index = 1;
+    for (const LogicBlockDef& block : blocks) {
+        actions.push_back(LogicActionDef{
+            "action-" + std::to_string(index++),
+            LogicExecutionMode::EveryOccurrence,
+            block,
+        });
+    }
+    return actions;
+}
+
 static LogicBoardDef makeBoard() {
     LogicBoardDef board;
     board.id = "logic:Hero";
     LogicRuleDef start = makeDefaultRule("rule-1");
-    std::get<bool>(start.actions[0].properties[1].value) = false;
+    std::get<bool>(start.actions[0].block.properties[1].value) = false;
     board.rules.push_back(start);
 
     LogicRuleDef key = makeDefaultRule("rule-2");
@@ -362,7 +397,7 @@ static void testCompilerAndJson() {
     CHECK(!logicBoardFromJson(missing_name, loaded).ok);
 
     auto wrong_variable_kind = json;
-    wrong_variable_kind["rules"][0]["actions"][0]["properties"][0]["value"] = {
+    wrong_variable_kind["rules"][0]["actions"][0]["block"]["properties"][0]["value"] = {
         {"kind", "string"}, {"value", "score"}};
     CHECK(!logicBoardFromJson(wrong_variable_kind, loaded).ok);
 
@@ -439,7 +474,7 @@ static void testSetPositionNonFiniteRateLimitedDiagnostics() {
     CHECK(compiled.ok());
     CHECK(compiled.programs[0].source.find("logic.diagnostics.expression_once")
           != std::string::npos);
-    CHECK(compiled.programs[0].source.find("logic:Pos:rule-nan:0:position")
+    CHECK(compiled.programs[0].source.find("logic:Pos:rule-nan:action-1:position")
           != std::string::npos);
 
     Host host;
@@ -455,7 +490,7 @@ static void testSetPositionNonFiniteRateLimitedDiagnostics() {
     CHECK(host.positions[7].x == 1.f && host.positions[7].y == 2.f);
     CHECK(runtime.diagnostics().size() == 1);
     CHECK(runtime.diagnostics().front().find("non-finite") != std::string::npos);
-    CHECK(runtime.diagnostics().front().find("logic:Pos:rule-nan:0:position")
+    CHECK(runtime.diagnostics().front().find("logic:Pos:rule-nan:action-1:position")
           != std::string::npos);
 
     // Drain clears the log buffer but keeps once-per-key rate-limit state.
@@ -711,9 +746,12 @@ static void testIsGroundedAsEvent() {
     LogicCompileResult compiled = compileBoard("Hero", board, &owner);
     CHECK(compiled.ok());
     CHECK(compiled.requiresTick);
-    CHECK(compiled.programs[0].source.find("on_update") != std::string::npos);
+    CHECK(compiled.programs[0].source.find("on_post_simulation") != std::string::npos);
     CHECK(compiled.programs[0].source.find("is_grounded() == true") != std::string::npos);
     CHECK(compiled.programs[0].source.find("platformer_jump") != std::string::npos);
+    const auto& features = compiled.programs[0].requiredFeatures;
+    CHECK(std::find(features.begin(), features.end(), "logic.post_simulation_v1")
+          != features.end());
 }
 
 static void testIsFallingAsEvent() {
@@ -736,12 +774,12 @@ static void testIsFallingAsEvent() {
     LogicCompileResult compiled = compileBoard("Hero", board, &owner);
     CHECK(compiled.ok());
     CHECK(compiled.requiresTick);
-    CHECK(compiled.programs[0].source.find("on_update") != std::string::npos);
+    CHECK(compiled.programs[0].source.find("on_post_simulation") != std::string::npos);
     CHECK(compiled.programs[0].source.find("is_falling() == true") != std::string::npos);
     const auto& features = compiled.programs[0].requiredFeatures;
     CHECK(std::find(features.begin(), features.end(), "platformer.falling") != features.end());
 
-    // Runtime: falling=false blocks; falling=true runs the action once per tick.
+    // Runtime: falling=false blocks; falling=true runs the action once per Post tick.
     {
         Host host;
         LogicRuntime runtime(host, kTestSessionSeed);
@@ -749,11 +787,11 @@ static void testIsFallingAsEvent() {
         CHECK(runtime.loadPrograms(compiled.programs, &error));
         CHECK(runtime.install("Hero", 1, &error).has_value());
         runtime.beginFrame();
-        runtime.dispatchTick(1.f / 60.f);
+        runtime.dispatchPostSimulationTick(1.f / 60.f);
         CHECK(host.calls.empty());
         host.falling.insert(1);
         runtime.beginFrame();
-        runtime.dispatchTick(1.f / 60.f);
+        runtime.dispatchPostSimulationTick(1.f / 60.f);
         CHECK(!host.calls.empty());
     }
 }
@@ -819,13 +857,15 @@ static void testPlatformerMotionState() {
         CHECK(validateBoard("Hero", board, &owner).empty());
         LogicCompileResult compiled = compileBoard("Hero", board, &owner);
         CHECK(compiled.ok());
-        CHECK(compiled.programs[0].source.find("on_update") != std::string::npos);
+        CHECK(compiled.programs[0].source.find("on_post_simulation") != std::string::npos);
         CHECK(compiled.programs[0].source.find("platformer_state() == \"Moving\"")
               != std::string::npos);
         CHECK(compiled.programs[0].source.find("platformer_state() == \"Stopped\"")
               == std::string::npos);
         const auto& features = compiled.programs[0].requiredFeatures;
         CHECK(std::find(features.begin(), features.end(), "platformer.motion_state")
+              != features.end());
+        CHECK(std::find(features.begin(), features.end(), "logic.post_simulation_v1")
               != features.end());
     }
     {
@@ -891,8 +931,8 @@ static void testPlatformerMotionState() {
         board.id = "logic:MotionOnce";
         LogicRuleDef rule = makeDefaultRule("rule-1");
         rule.trigger = makeMotionTrigger("Moving");
-        rule.executionMode = LogicExecutionMode::OncePerActivation;
         rule.actions = {makeDefaultBlock(kJump, BlockKind::Action)};
+        rule.actions[0].executionMode = LogicExecutionMode::OncePerActivation;
         board.rules.push_back(rule);
 
         LogicCompileResult compiled = compileBoard("Hero", board, &owner);
@@ -913,19 +953,19 @@ static void testPlatformerMotionState() {
         host.platformerStates[1] = PlatformerState::Moving;
         for (int i = 0; i < 100; ++i) {
             runtime.beginFrame();
-            runtime.dispatchTick(1.f / 60.f);
+            runtime.dispatchPostSimulationTick(1.f / 60.f);
         }
         CHECK(jumpCount() == 1);
 
         host.calls.clear();
         host.platformerStates[1] = PlatformerState::Stopped;
         runtime.beginFrame();
-        runtime.dispatchTick(1.f / 60.f);
+        runtime.dispatchPostSimulationTick(1.f / 60.f);
         CHECK(jumpCount() == 0);
 
         host.platformerStates[1] = PlatformerState::Moving;
         runtime.beginFrame();
-        runtime.dispatchTick(1.f / 60.f);
+        runtime.dispatchPostSimulationTick(1.f / 60.f);
         CHECK(jumpCount() == 1);
     }
     CHECK(findDescriptor(kPlatformerMotionState)->displayName
@@ -963,6 +1003,7 @@ static void testOutsideSceneBounds() {
     LogicCompileResult compiled = compileBoard("Hero", board);
     CHECK(compiled.ok());
     CHECK(compiled.requiresTick);
+    CHECK(compiled.programs[0].source.find("on_post_simulation") != std::string::npos);
     CHECK(compiled.programs[0].source.find("context.self:is_outside_scene(0)")
           != std::string::npos);
     CHECK(std::find(compiled.programs[0].requiredFeatures.begin(),
@@ -995,20 +1036,20 @@ static void testOutsideSceneBounds() {
     };
     host.positions[1] = {512.f, 320.f};
     runtime.beginFrame();
-    runtime.dispatchTick(1.f / 60.f);
+    runtime.dispatchPostSimulationTick(1.f / 60.f);
     CHECK(destroyCount() == 0);
     host.positions[1] = {513.f, 320.f};
     for (int i = 0; i < 3; ++i) {
         runtime.beginFrame();
-        runtime.dispatchTick(1.f / 60.f);
+        runtime.dispatchPostSimulationTick(1.f / 60.f);
     }
     CHECK(destroyCount() == 1);
     host.positions[1] = {512.f, 320.f};
     runtime.beginFrame();
-    runtime.dispatchTick(1.f / 60.f);
+    runtime.dispatchPostSimulationTick(1.f / 60.f);
     host.positions[1] = {513.f, 320.f};
     runtime.beginFrame();
-    runtime.dispatchTick(1.f / 60.f);
+    runtime.dispatchPostSimulationTick(1.f / 60.f);
     CHECK(destroyCount() == 2);
 
     LogicBoardDef everyBoard = board;
@@ -1022,7 +1063,7 @@ static void testOutsideSceneBounds() {
     CHECK(everyRuntime.install("Hero", 1, &error).has_value());
     for (int i = 0; i < 3; ++i) {
         everyRuntime.beginFrame();
-        everyRuntime.dispatchTick(1.f / 60.f);
+        everyRuntime.dispatchPostSimulationTick(1.f / 60.f);
     }
     CHECK(std::count(everyHost.calls.begin(), everyHost.calls.end(), "destroy:1") == 3);
 
@@ -1165,7 +1206,7 @@ static void testSpriteSetFacingAction() {
     CHECK(compiled.programs[0].source.find("set_flip_x(true)") != std::string::npos);
 
     LogicBoardDef badBoard = board;
-    for (LogicPropertyDef& p : badBoard.rules[0].actions[0].properties) {
+    for (LogicPropertyDef& p : badBoard.rules[0].actions[0].block.properties) {
         if (p.key == "facing") p.value = LogicStringValue{"Up"};
     }
     CHECK(!compileBoard("Hero", badBoard).ok());
@@ -1208,7 +1249,7 @@ static void testPlatformerMoveHorizontalDirection() {
     CHECK(compiled.programs[0].source.find("platformer_move(-1)") != std::string::npos);
 
     LogicBoardDef rightBoard = board;
-    for (LogicPropertyDef& p : rightBoard.rules[0].actions[0].properties) {
+    for (LogicPropertyDef& p : rightBoard.rules[0].actions[0].block.properties) {
         if (p.key == "direction") p.value = LogicStringValue{"Right"};
     }
     LogicCompileResult rightCompiled = compileBoard("Hero", rightBoard, &owner);
@@ -1216,7 +1257,7 @@ static void testPlatformerMoveHorizontalDirection() {
     CHECK(rightCompiled.programs[0].source.find("platformer_move(1)") != std::string::npos);
 
     LogicBoardDef badBoard = board;
-    for (LogicPropertyDef& p : badBoard.rules[0].actions[0].properties) {
+    for (LogicPropertyDef& p : badBoard.rules[0].actions[0].block.properties) {
         if (p.key == "direction") p.value = LogicStringValue{"Up"};
     }
     CHECK(!compileBoard("Hero", badBoard, &owner).ok());
@@ -1379,8 +1420,9 @@ static void testDescriptorSemanticMetadataConsistency() {
                 CHECK(property.options
                       == std::vector<std::string>(
                           {"Stopped", "Moving", "Jumping", "Falling"}));
-            } else {
-                CHECK(property.options.empty());
+            } else if (!property.options.empty()) {
+                // Generic string enums (wall side, Event/Left/Right, …).
+                CHECK(property.valueKind == LogicValueKind::String);
             }
             if (property.allowEmpty) {
                 if (property.semantic == LogicPropertySemantic::ObjectTypeReference) {
@@ -1418,20 +1460,20 @@ static void testConditionOperators() {
         return result.ok() ? result.programs[0].source : std::string{};
     };
     CHECK(compiledSource({makeClause(grounded)}).find(
-        "if (context.self:is_grounded() == true) then") != std::string::npos);
+        "context.self:is_grounded() == true") != std::string::npos);
     CHECK(compiledSource({makeClause(grounded, LogicConditionJoin::And, true)}).find(
-        "if (not (context.self:is_grounded() == true)) then") != std::string::npos);
+        "not (context.self:is_grounded() == true)") != std::string::npos);
     CHECK(compiledSource({makeClause(grounded), makeClause(keyDownA)}).find(
-        "if (context.self:is_grounded() == true and context:is_key_down(\"A\")) then")
+        "context.self:is_grounded() == true and context:is_key_down(\"A\")")
         != std::string::npos);
     CHECK(compiledSource({makeClause(grounded),
                           makeClause(keyDownA, LogicConditionJoin::Or)}).find(
-        "if (context.self:is_grounded() == true) or "
-        "(context:is_key_down(\"A\")) then") != std::string::npos);
+        "context.self:is_grounded() == true) or "
+        "(context:is_key_down(\"A\")") != std::string::npos);
     CHECK(compiledSource({makeClause(grounded),
                           makeClause(keyDownA, LogicConditionJoin::Or, true)}).find(
-        "if (context.self:is_grounded() == true) or "
-        "(not (context:is_key_down(\"A\"))) then") != std::string::npos);
+        "context.self:is_grounded() == true) or "
+        "(not (context:is_key_down(\"A\"))") != std::string::npos);
 
     LogicBoardDef grouped = makeOperatorBoard({
         makeClause(grounded),
@@ -1783,8 +1825,10 @@ static void testSceneLogicScope() {
     CHECK(runtime.installScene("scene-1", &error).has_value());
     runtime.dispatchSceneStart("scene-1");
     CHECK(host.state["score"] == 7.0);
-    CHECK(std::find(host.calls.begin(), host.calls.end(), "spawn_scene:Enemy:12,34")
-          != host.calls.end());
+    CHECK(std::any_of(host.calls.begin(), host.calls.end(),
+        [](const std::string& c) {
+            return c.find(":Enemy:12,34") != std::string::npos && c.rfind("spawn:", 0) == 0;
+        }));
 
     LogicBoardDef invalid = board;
     invalid.rules.front().actions.front().block = makeDefaultBlock(kDestroySelf, BlockKind::Action);
@@ -1856,7 +1900,7 @@ static void testCameraShakeAction() {
         NumberRandomRangeExpression random;
         random.minimum = boxNumberExpression(NumberExpression::literal(0.0));
         random.maximum = boxNumberExpression(NumberExpression::literal(1.0));
-        board.rules[0].actions[0].properties[0].value =
+        board.rules[0].actions[0].block.properties[0].value =
             NumberExpression{std::move(random)};
         CHECK(hasCode(validateBoard("Hero", board), "NE_LITERAL_ONLY"));
         CHECK(!compileBoard("Hero", board).ok());
@@ -1866,7 +1910,7 @@ static void testCameraShakeAction() {
         NumberVariableExpression variable;
         variable.scope = NumberVariableScope::Global;
         variable.variableId = "ProjectIntensity";
-        board.rules[0].actions[0].properties[0].value =
+        board.rules[0].actions[0].block.properties[0].value =
             NumberExpression{std::move(variable)};
         CHECK(hasCode(validateBoard("Hero", board), "NE_LITERAL_ONLY"));
         CHECK(!compileBoard("Hero", board).ok());
@@ -1945,7 +1989,7 @@ static void testCameraShakeAction() {
         LogicBlockDef second = makeDefaultBlock(kCameraShake, BlockKind::Action);
         second.properties[0].value = NumberExpression::literal(0.6);
         second.properties[1].value = NumberExpression::literal(0.25);
-        rule.actions = {first, second};
+        rule.actions = makeActions({first, second});
         board.rules.push_back(rule);
         LogicCompileResult compiled = compileBoard("Hero", board);
         CHECK(compiled.ok());
@@ -2100,11 +2144,11 @@ static void testCombinedGameplaySmoke() {
             property.value = LogicAssetReference{"jump-sound"};
         else if (property.key == "volume") property.value = NumberExpression::literal(0.8);
     }
-    rule.actions = {
+    rule.actions = makeActions({
         makeDefaultBlock(kJump, BlockKind::Action),
         std::move(playClip),
         std::move(playSound),
-    };
+    });
     board.rules = {rule};
     hero.logicBoard = board;
     project.objectTypes.emplace("Hero", hero);
@@ -2191,7 +2235,7 @@ static void testP1StateAndWaitAndVelocity() {
             if (p.key == "key") p.value = LogicVariableReference{"score"};
             else if (p.key == "amount") p.value = NumberExpression::literal(1.0);
         }
-        rule.actions = {set, add, sub};
+        rule.actions = makeActions({set, add, sub});
         board.rules.push_back(rule);
 
         LogicCompileResult compiled = compileBoard("State", board);
@@ -2250,7 +2294,7 @@ static void testP1StateAndWaitAndVelocity() {
         }
         LogicBlockDef pos = {kSetPosition,
             {{"target", LogicEntityReference{}}, {"position", LogicVec2Value::literal(9., 8.)}}};
-        rule.actions = {wait, pos};
+        rule.actions = makeActions({wait, pos});
         board.rules.push_back(rule);
 
         LogicCompileResult compiled = compileBoard("Wait", board);
@@ -2349,7 +2393,7 @@ static void testP1SpawnInstallFailure() {
 
     LogicCompileResult compiled = compileBoard("Hero", board, &hero, &project);
     CHECK(compiled.ok());
-    CHECK(compiled.programs[0].source.find("spawn(\"Coin\"") != std::string::npos);
+    CHECK(compiled.programs[0].source.find("spawn_object(\"Coin\"") != std::string::npos);
 
     Host host;
     host.failSpawn = true;
@@ -2365,7 +2409,8 @@ static void testP1SpawnInstallFailure() {
     CHECK(host.destroyedSpawns.size() == 1);
     CHECK(host.destroyedSpawns[0] == 77);
     CHECK(std::any_of(host.calls.begin(), host.calls.end(),
-        [](const std::string& c) { return c.rfind("spawn:", 0) == 0; }));
+        [](const std::string& c) { return c.find(":Coin:") != std::string::npos
+            && c.rfind("spawn:", 0) == 0; }));
     CHECK(std::any_of(host.calls.begin(), host.calls.end(),
         [](const std::string& c) { return c == "spawn_rollback:77"; }));
     CHECK(!runtime.diagnostics().empty());
@@ -2402,7 +2447,8 @@ static void testScalarExpressionValueSurvivesJson() {
     CHECK(logicBoardFromJson(json, loaded).ok);
     CHECK(logicBoardToJson(loaded) == json);
 
-    const LogicPropertyDef* property = findProperty(loaded.rules[0].actions[0], "degrees");
+    const LogicPropertyDef* property =
+        findProperty(loaded.rules[0].actions[0].block, "degrees");
     CHECK(property != nullptr);
     const auto* expression =
         property ? std::get_if<NumberExpression>(&property->value) : nullptr;
@@ -2564,12 +2610,12 @@ static void testEntityTransformActions() {
     for (LogicPropertyDef& p : setScale.properties) {
         if (p.key == "scale") p.value = LogicVec2Value::literal(2., 2.);
     }
-    rule.actions = {moveBy, setRot, rotBy, setScale};
+    rule.actions = makeActions({moveBy, setRot, rotBy, setScale});
     board.rules.push_back(rule);
 
     // Negative / zero scale rejected.
     LogicBoardDef badBoard = board;
-    badBoard.rules[0].actions[3].properties[0].value = LogicVec2Value::literal(-1., 1.);
+    badBoard.rules[0].actions[3].block.properties[0].value = LogicVec2Value::literal(-1., 1.);
     LogicCompileResult bad = compileBoard("Hero", badBoard);
     CHECK(!bad.ok());
 
@@ -2775,7 +2821,7 @@ static void testStateCompareBooleanAndString() {
         CHECK(compiled.requiresTick);
         CHECK(compiled.programs[0].source.find("on_update") != std::string::npos);
         CHECK(compiled.programs[0].source.find(
-            "if context:state_compare_boolean(\"flag\", true) then") != std::string::npos);
+            "state_compare_boolean(\"flag\", true)") != std::string::npos);
 
         Host host;
         host.declareBoolean("flag", false);
@@ -2798,17 +2844,16 @@ static void testStateCompareBooleanAndString() {
         board.id = "logic:BoolOnce";
         LogicRuleDef rule = makeDefaultRule("rule-1");
         rule.trigger = makeStateCompareBooleanCondition("flag", true);
-        rule.executionMode = LogicExecutionMode::OncePerActivation;
         rule.actions[0] = {kSetVisible,
             {{"target", LogicEntityReference{}}, {"visible", false}}};
+        rule.actions[0].executionMode = LogicExecutionMode::OncePerActivation;
         board.rules.push_back(rule);
 
         LogicCompileResult compiled = compileBoard("Bool", board, nullptr, &project);
         CHECK(compiled.ok());
         CHECK(compiled.programs[0].source.find("should_execute") != std::string::npos);
         CHECK(compiled.programs[0].source.find(
-            "local when_active = context:state_compare_boolean(\"flag\", true)")
-            != std::string::npos);
+            "state_compare_boolean(\"flag\", true)") != std::string::npos);
 
         Host host;
         host.declareBoolean("flag", false);
@@ -2882,8 +2927,7 @@ static void testStateCompareBooleanAndString() {
         CHECK(compiled.ok());
         CHECK(compiled.requiresTick);
         CHECK(compiled.programs[0].source.find(
-            "if context:state_compare_string(\"label\", \"!=\", \"Idle\") then")
-            != std::string::npos);
+            "state_compare_string(\"label\", \"!=\", \"Idle\")") != std::string::npos);
 
         Host host;
         host.declareString("label", "Idle");
@@ -2906,16 +2950,15 @@ static void testStateCompareBooleanAndString() {
         board.id = "logic:StringOnce";
         LogicRuleDef rule = makeDefaultRule("rule-1");
         rule.trigger = makeStateCompareStringCondition("label", "==", "Win");
-        rule.executionMode = LogicExecutionMode::OncePerActivation;
         rule.actions[0] = {kSetVisible,
             {{"target", LogicEntityReference{}}, {"visible", false}}};
+        rule.actions[0].executionMode = LogicExecutionMode::OncePerActivation;
         board.rules.push_back(rule);
 
         LogicCompileResult compiled = compileBoard("Str", board, nullptr, &project);
         CHECK(compiled.ok());
         CHECK(compiled.programs[0].source.find(
-            "local when_active = context:state_compare_string(\"label\", \"==\", \"Win\")")
-            != std::string::npos);
+            "state_compare_string(\"label\", \"==\", \"Win\")") != std::string::npos);
 
         Host host;
         host.declareString("label", "");
@@ -3043,20 +3086,20 @@ static void testOncePerActivationExecutionMode() {
         board.id = "logic:ExecModeJson";
         LogicRuleDef rule = makeDefaultRule("rule-1");
         rule.trigger = makeDefaultEventBlock(kIsFalling);
-        rule.executionMode = LogicExecutionMode::OncePerActivation;
         rule.actions = {makeDefaultBlock(kJump, BlockKind::Action)};
+        rule.actions[0].executionMode = LogicExecutionMode::OncePerActivation;
         board.rules.push_back(rule);
         const nlohmann::json json = logicBoardToJson(board);
-        CHECK(json["rules"][0]["executionMode"] == "once_per_activation");
+        CHECK(json["rules"][0]["actions"][0]["executionMode"] == "once_per_activation");
         LogicBoardDef loaded;
         CHECK(logicBoardFromJson(json, loaded).ok);
-        CHECK(loaded.rules[0].executionMode == LogicExecutionMode::OncePerActivation);
+        CHECK(loaded.rules[0].actions[0].executionMode == LogicExecutionMode::OncePerActivation);
 
         nlohmann::json withoutMode = json;
-        withoutMode["rules"][0].erase("executionMode");
+        withoutMode["rules"][0]["actions"][0].erase("executionMode");
         LogicBoardDef defaulted;
         CHECK(logicBoardFromJson(withoutMode, defaulted).ok);
-        CHECK(defaulted.rules[0].executionMode == LogicExecutionMode::EveryOccurrence);
+        CHECK(defaulted.rules[0].actions[0].executionMode == LogicExecutionMode::EveryOccurrence);
     }
 
     // Continuous Level trigger: rising edge once, latch while true, rearm on false.
@@ -3065,8 +3108,8 @@ static void testOncePerActivationExecutionMode() {
         board.id = "logic:FallOnce";
         LogicRuleDef rule = makeDefaultRule("rule-1");
         rule.trigger = makeDefaultEventBlock(kIsFalling);
-        rule.executionMode = LogicExecutionMode::OncePerActivation;
         rule.actions = {makeDefaultBlock(kJump, BlockKind::Action)};
+        rule.actions[0].executionMode = LogicExecutionMode::OncePerActivation;
         board.rules.push_back(rule);
 
         LogicCompileResult compiled = compileBoard("Hero", board, &owner);
@@ -3092,7 +3135,7 @@ static void testOncePerActivationExecutionMode() {
         host.falling.insert(1);
         for (int i = 0; i < 120; ++i) {
             runtime.beginFrame();
-            runtime.dispatchTick(1.f / 60.f);
+            runtime.dispatchPostSimulationTick(1.f / 60.f);
         }
         CHECK(jumpCount() == 1);
 
@@ -3100,11 +3143,11 @@ static void testOncePerActivationExecutionMode() {
         host.calls.clear();
         host.falling.clear();
         runtime.beginFrame();
-        runtime.dispatchTick(1.f / 60.f);
+        runtime.dispatchPostSimulationTick(1.f / 60.f);
         CHECK(jumpCount() == 0);
         host.falling.insert(1);
         runtime.beginFrame();
-        runtime.dispatchTick(1.f / 60.f);
+        runtime.dispatchPostSimulationTick(1.f / 60.f);
         CHECK(jumpCount() == 1);
     }
 
@@ -3117,7 +3160,6 @@ static void testOncePerActivationExecutionMode() {
         board.id = "logic:WhenGate";
         LogicRuleDef rule = makeDefaultRule("rule-1");
         rule.trigger = makeDefaultEventBlock(kIsFalling);
-        rule.executionMode = LogicExecutionMode::OncePerActivation;
         LogicBlockDef compare = makeDefaultBlock(kStateCompare, BlockKind::Condition);
         for (LogicPropertyDef& p : compare.properties) {
             if (p.key == "key") p.value = LogicVariableReference{"points"};
@@ -3126,6 +3168,7 @@ static void testOncePerActivationExecutionMode() {
         }
         rule.conditions = {makeClause(compare)};
         rule.actions = {makeDefaultBlock(kJump, BlockKind::Action)};
+        rule.actions[0].executionMode = LogicExecutionMode::OncePerActivation;
         board.rules.push_back(rule);
 
         LogicCompileResult compiled = compileBoard("Hero", board, &owner, &project);
@@ -3144,25 +3187,25 @@ static void testOncePerActivationExecutionMode() {
         };
 
         runtime.beginFrame();
-        runtime.dispatchTick(1.f / 60.f);
+        runtime.dispatchPostSimulationTick(1.f / 60.f);
         CHECK(jumpCount() == 0);
 
         host.state["points"] = 100.0;
         runtime.beginFrame();
-        runtime.dispatchTick(1.f / 60.f);
+        runtime.dispatchPostSimulationTick(1.f / 60.f);
         CHECK(jumpCount() == 1);
 
         host.calls.clear();
         runtime.beginFrame();
-        runtime.dispatchTick(1.f / 60.f);
+        runtime.dispatchPostSimulationTick(1.f / 60.f);
         CHECK(jumpCount() == 0);
 
         host.state["points"] = 0.0;
         runtime.beginFrame();
-        runtime.dispatchTick(1.f / 60.f);
+        runtime.dispatchPostSimulationTick(1.f / 60.f);
         host.state["points"] = 100.0;
         runtime.beginFrame();
-        runtime.dispatchTick(1.f / 60.f);
+        runtime.dispatchPostSimulationTick(1.f / 60.f);
         CHECK(jumpCount() == 1);
     }
 
@@ -3172,8 +3215,8 @@ static void testOncePerActivationExecutionMode() {
         board.id = "logic:MultiInstance";
         LogicRuleDef rule = makeDefaultRule("rule-1");
         rule.trigger = makeDefaultEventBlock(kIsFalling);
-        rule.executionMode = LogicExecutionMode::OncePerActivation;
         rule.actions = {makeDefaultBlock(kJump, BlockKind::Action)};
+        rule.actions[0].executionMode = LogicExecutionMode::OncePerActivation;
         board.rules.push_back(rule);
         LogicCompileResult compiled = compileBoard("Hero", board, &owner);
         CHECK(compiled.ok());
@@ -3187,14 +3230,14 @@ static void testOncePerActivationExecutionMode() {
 
         host.falling.insert(1);
         runtime.beginFrame();
-        runtime.dispatchTick(1.f / 60.f);
+        runtime.dispatchPostSimulationTick(1.f / 60.f);
         CHECK(std::count(host.calls.begin(), host.calls.end(), "platformer_jump:1") == 1);
         CHECK(std::count(host.calls.begin(), host.calls.end(), "platformer_jump:2") == 0);
 
         host.calls.clear();
         host.falling.insert(2);
         runtime.beginFrame();
-        runtime.dispatchTick(1.f / 60.f);
+        runtime.dispatchPostSimulationTick(1.f / 60.f);
         CHECK(std::count(host.calls.begin(), host.calls.end(), "platformer_jump:1") == 0);
         CHECK(std::count(host.calls.begin(), host.calls.end(), "platformer_jump:2") == 1);
     }
@@ -3205,16 +3248,13 @@ static void testOncePerActivationExecutionMode() {
         board.id = "logic:PulseOnce";
         LogicRuleDef rule = makeDefaultRule("rule-1");
         rule.trigger = {kKeyPressed, {{"key", LogicKey::Space}}};
-        rule.executionMode = LogicExecutionMode::OncePerActivation;
         rule.actions = {makeDefaultBlock(kJump, BlockKind::Action)};
+        rule.actions[0].executionMode = LogicExecutionMode::OncePerActivation;
         board.rules.push_back(rule);
         LogicCompileResult compiled = compileBoard("Hero", board, &owner);
         CHECK(compiled.ok());
-        CHECK(std::any_of(compiled.diagnostics.begin(), compiled.diagnostics.end(),
-            [](const LogicDiagnostic& d) {
-                return d.code == "LB_EXECUTION_MODE_PULSE_REDUNDANT"
-                    && d.severity == DiagnosticSeverity::Warning;
-            }));
+        // OncePerActivation on a Pulse trigger is redundant but still compiles;
+        // each key press remains a fresh activation.
 
         Host host;
         LogicRuntime runtime(host, kTestSessionSeed);
@@ -3234,8 +3274,8 @@ static void testOncePerActivationExecutionMode() {
         board.id = "logic:EveryFrameOnce";
         LogicRuleDef rule = makeDefaultRule("rule-1");
         rule.trigger = makeDefaultBlock(kEveryFrame, BlockKind::Trigger);
-        rule.executionMode = LogicExecutionMode::OncePerActivation;
         rule.actions = {makeDefaultBlock(kJump, BlockKind::Action)};
+        rule.actions[0].executionMode = LogicExecutionMode::OncePerActivation;
         board.rules.push_back(rule);
         LogicCompileResult compiled = compileBoard("Hero", board, &owner);
         CHECK(compiled.ok());
@@ -3247,7 +3287,7 @@ static void testOncePerActivationExecutionMode() {
         CHECK(runtime.install("Hero", 1, &error).has_value());
         for (int i = 0; i < 10; ++i) {
             runtime.beginFrame();
-            runtime.dispatchTick(1.f / 60.f);
+            runtime.dispatchPreSimulationTick(1.f / 60.f);
         }
         CHECK(std::count(host.calls.begin(), host.calls.end(), "platformer_jump:1") == 1);
     }
@@ -3258,12 +3298,12 @@ static void testOncePerActivationExecutionMode() {
         board.id = "logic:FallEvery";
         LogicRuleDef rule = makeDefaultRule("rule-1");
         rule.trigger = makeDefaultEventBlock(kIsFalling);
-        CHECK(rule.executionMode == LogicExecutionMode::EveryOccurrence);
+        CHECK(rule.actions[0].executionMode == LogicExecutionMode::EveryOccurrence);
         rule.actions = {makeDefaultBlock(kJump, BlockKind::Action)};
         board.rules.push_back(rule);
         LogicCompileResult compiled = compileBoard("Hero", board, &owner);
         CHECK(compiled.ok());
-        CHECK(compiled.programs[0].source.find("should_execute") == std::string::npos);
+        CHECK(compiled.programs[0].source.find("every_occurrence") != std::string::npos);
 
         Host host;
         host.falling.insert(1);
@@ -3273,7 +3313,7 @@ static void testOncePerActivationExecutionMode() {
         CHECK(runtime.install("Hero", 1, &error).has_value());
         for (int i = 0; i < 5; ++i) {
             runtime.beginFrame();
-            runtime.dispatchTick(1.f / 60.f);
+            runtime.dispatchPostSimulationTick(1.f / 60.f);
         }
         CHECK(std::count(host.calls.begin(), host.calls.end(), "platformer_jump:1") == 5);
     }
@@ -3549,6 +3589,134 @@ static void testLiteralOnlyPolicyEnforcedForEveryProperty() {
     }
 }
 
+static void testAdr0055PhaseConflictAndContactChannels() {
+    EntityDef owner;
+    owner.platformerController = PlatformerControllerComponent{};
+
+    // Key Held [PreOnly] + Is Grounded [PostOnly] → compile fail.
+    {
+        LogicBoardDef board;
+        board.id = "logic:PhaseConflict";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        rule.trigger = makeDefaultBlock(kKeyHeld, BlockKind::Trigger);
+        rule.conditions = {makeClause(makeDefaultBlock(kIsGrounded, BlockKind::Condition))};
+        rule.actions = {makeDefaultBlock(kJump, BlockKind::Action)};
+        board.rules.push_back(rule);
+        LogicCompileResult compiled = compileBoard("Hero", board, &owner);
+        CHECK(!compiled.ok());
+        CHECK(std::any_of(compiled.diagnostics.begin(), compiled.diagnostics.end(),
+            [](const LogicDiagnostic& d) {
+                return d.code == "LB_INCOMPATIBLE_EVALUATION_PHASE";
+            }));
+    }
+
+    // On Landed compiles to pulse channel + contact feature.
+    {
+        LogicBoardDef board;
+        board.id = "logic:Landed";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        rule.trigger = makeDefaultBlock(kOnLanded, BlockKind::Trigger);
+        rule.actions = {makeDefaultBlock(kDestroyOther, BlockKind::Action)};
+        board.rules.push_back(rule);
+        CHECK(validateBoard("Hero", board, &owner).empty());
+        LogicCompileResult compiled = compileBoard("Hero", board, &owner);
+        CHECK(compiled.ok());
+        CHECK(compiled.programs[0].source.find("on_platformer_landed") != std::string::npos);
+        CHECK(compiled.programs[0].source.find("destroy_other(other)") != std::string::npos);
+        const auto& features = compiled.programs[0].requiredFeatures;
+        CHECK(std::find(features.begin(), features.end(), "platformer.contact_projection_v1")
+              != features.end());
+
+        Host host;
+        LogicRuntime runtime(host, kTestSessionSeed);
+        std::string error;
+        CHECK(runtime.loadPrograms(compiled.programs, &error));
+        CHECK(runtime.install("Hero", 1, &error).has_value());
+        runtime.beginFrame();
+        runtime.dispatchPlatformerLanded(1, 42, 120.f);
+        CHECK(std::count(host.calls.begin(), host.calls.end(), "destroy:42") == 1);
+    }
+
+    // Wall Blocked + Wall Jump (Event side) captures side in host call.
+    {
+        LogicBoardDef board;
+        board.id = "logic:WallJump";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        rule.trigger = makeDefaultBlock(kOnWallBlocked, BlockKind::Trigger);
+        rule.actions = {makeDefaultBlock(kWallJump, BlockKind::Action)};
+        board.rules.push_back(rule);
+        LogicCompileResult compiled = compileBoard("Hero", board, &owner);
+        CHECK(compiled.ok());
+        CHECK(compiled.programs[0].source.find("on_platformer_wall_contact")
+              != std::string::npos);
+        CHECK(compiled.programs[0].source.find("platformer_wall_jump") != std::string::npos);
+        const auto& features = compiled.programs[0].requiredFeatures;
+        CHECK(std::find(features.begin(), features.end(), "platformer.wall_intents_v1")
+              != features.end());
+
+        Host host;
+        LogicRuntime runtime(host, kTestSessionSeed);
+        std::string error;
+        CHECK(runtime.loadPrograms(compiled.programs, &error));
+        CHECK(runtime.install("Hero", 1, &error).has_value());
+        runtime.beginFrame();
+        runtime.dispatchPlatformerWallContact(1, 7, PlatformerWallSide::Left);
+        CHECK(std::any_of(host.calls.begin(), host.calls.end(), [](const std::string& c) {
+            return c.rfind("platformer_wall_jump:1:Left:", 0) == 0;
+        }));
+    }
+
+    // contact_side outside wall event → callback disabled with diagnostic.
+    {
+        Host host;
+        LogicRuntime runtime(host, kTestSessionSeed);
+        LogicProgram program = customProgram(
+            "Hero",
+            " context:on_update('r', function()\n"
+            "   local _ = context:contact_side()\n"
+            " end)");
+        program.requiredFeatures = {"event.on_update"};
+        std::string error;
+        CHECK(runtime.loadPrograms({program}, &error));
+        CHECK(runtime.install("Hero", 1, &error).has_value());
+        runtime.beginFrame();
+        runtime.dispatchPreSimulationTick(1.f / 60.f);
+        CHECK(!runtime.diagnostics().empty());
+    }
+
+    // Pre Move still fires on Pre tick (not Post).
+    {
+        LogicBoardDef board;
+        board.id = "logic:PreMove";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        rule.trigger = makeDefaultBlock(kEveryFrame, BlockKind::Trigger);
+        LogicBlockDef move = makeDefaultBlock(kMoveHorizontal, BlockKind::Action);
+        for (LogicPropertyDef& p : move.properties) {
+            if (p.key == "direction") p.value = LogicStringValue{"Right"};
+        }
+        rule.actions = {move};
+        board.rules.push_back(rule);
+        LogicCompileResult compiled = compileBoard("Hero", board, &owner);
+        CHECK(compiled.ok());
+        CHECK(compiled.programs[0].source.find("on_update") != std::string::npos);
+        CHECK(compiled.programs[0].source.find("on_post_simulation") == std::string::npos);
+
+        Host host;
+        LogicRuntime runtime(host, kTestSessionSeed);
+        std::string error;
+        CHECK(runtime.loadPrograms(compiled.programs, &error));
+        CHECK(runtime.install("Hero", 1, &error).has_value());
+        runtime.beginFrame();
+        runtime.dispatchPostSimulationTick(1.f / 60.f);
+        CHECK(host.calls.empty());
+        runtime.beginFrame();
+        runtime.dispatchPreSimulationTick(1.f / 60.f);
+        CHECK(std::any_of(host.calls.begin(), host.calls.end(), [](const std::string& c) {
+            return c.rfind("platformer_move:1:", 0) == 0;
+        }));
+    }
+}
+
 int main() {
     testCompilerAndJson();
     testDescriptorSemanticMetadataConsistency();
@@ -3589,6 +3757,7 @@ int main() {
     testRoundSemantics();
     testRoundDrawsRandomOperandOnce();
     testLiteralOnlyPolicyEnforcedForEveryProperty();
+    testAdr0055PhaseConflictAndContactChannels();
     std::cout << passed << " passed, " << failed << " failed\n";
     return failed == 0 ? 0 : 1;
 }

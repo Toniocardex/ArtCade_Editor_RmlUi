@@ -10,6 +10,7 @@
 #include <cmath>
 #include <limits>
 #include <tuple>
+#include <vector>
 
 namespace ArtCade {
 
@@ -139,6 +140,7 @@ void World::forgetEntity(EntityId id) {
     topDownRt_.erase(id);
     controlIntents_.erase(id);
     platformerStepContacts_.erase(id);
+    platformerContacts_.erase(id);
     if (spriteAnimator_) spriteAnimator_->removeEntity(id);
     if (cameraFollowMode_ == CameraFollowMode::Explicit
         && cameraFollowTarget_ == id) {
@@ -163,6 +165,7 @@ void World::clearGameplayRuntimeState() {
     topDownRt_.clear();
     controlIntents_.clear();
     platformerStepContacts_.clear();
+    platformerContacts_.clear();
     pendingGameplayDestroyIds_.clear();
     destroyingEntityIds_.clear();
     collisionEvents_.clear();
@@ -972,13 +975,13 @@ bool resolveAabbSeparationAxisY(
 
 } // namespace
 
-PlatformerAxisMoveResult World::movePlatformerX(
+PlatformerXMoveResult World::movePlatformerX(
     EntityId id,
     Transform& transform,
     const Transform& beforeMove,
     float& horizontalVelocity) const
 {
-    PlatformerAxisMoveResult result{};
+    PlatformerXMoveResult result{};
     CollisionBodyComponent selfBody{};
     if (!entityGateway_.getResolvedCollisionBody(id, selfBody) || !selfBody.enabled)
         return result;
@@ -1037,11 +1040,11 @@ PlatformerAxisMoveResult World::movePlatformerX(
             transform.position.x = beforeMove.position.x + dx * t;
             horizontalVelocity = 0.f;
             result.blocked = true;
-            result.otherEntityId = hitEntity;
+            result.contactEntityId = hitEntity;
             if (dx > 0.f)
-                result.hitPositive = true;
+                result.hitRightWall = true;
             else if (dx < 0.f)
-                result.hitNegative = true;
+                result.hitLeftWall = true;
         }
     }
 
@@ -1092,17 +1095,19 @@ PlatformerAxisMoveResult World::movePlatformerX(
                 transform.position.x += correctionX;
                 horizontalVelocity = 0.f;
                 result.blocked = true;
-                result.otherEntityId = other.id;
+                result.contactEntityId = other.id;
                 if (correctionX < 0.f)
-                    result.hitPositive = true;
+                    result.hitRightWall = true;
                 else if (correctionX > 0.f)
-                    result.hitNegative = true;
+                    result.hitLeftWall = true;
                 resolvedAny = true;
             }
         }
         if (!resolvedAny)
             break;
     }
+    // Invariant: blocked == (hitLeftWall || hitRightWall).
+    result.blocked = result.hitLeftWall || result.hitRightWall;
     return result;
 }
 
@@ -1121,17 +1126,16 @@ PlatformerYMoveResult World::movePlatformerY(
     if (!std::isfinite(dy) || std::abs(dy) <= 1e-6f)
         return result;
 
+    // ADR-0054: collect geometric crossings, sort, then validate Floor via support.
     struct Candidate {
-        float travel = 0.f;
+        float travelRank = 0.f;
+        float placementDeltaY = 0.f;
         EntityId otherId = INVALID_ENTITY;
         std::size_t otherShapeIndex = 0;
         std::size_t selfShapeIndex = 0;
         bool floor = false;
-        float surfaceY = 0.f;
-        float selfExtentY = 0.f; // half-height unused; store before maxY/minY for place
-        float selfBeforeEdge = 0.f;
     };
-    std::optional<Candidate> best;
+    std::vector<Candidate> candidates;
 
     for (const CollisionWorld::ShapeRef& authoredSelf : collisionWorld_.shapes()) {
         if (authoredSelf.id != id)
@@ -1187,13 +1191,12 @@ PlatformerYMoveResult World::movePlatformerY(
                     selfMoved.maxY >= other.aabb.minY - kGroundContactSkin;
                 if (!fromAbove || !crossedTop)
                     continue;
-                const float travel = other.aabb.minY - selfBefore.maxY;
-                if (travel < -kGroundContactSkin)
+                const float signedDeltaY = other.aabb.minY - selfBefore.maxY;
+                if (signedDeltaY < -kGroundContactSkin)
                     continue;
-                candidate.travel = std::max(0.f, travel);
+                candidate.placementDeltaY = signedDeltaY;
+                candidate.travelRank = std::max(0.f, signedDeltaY);
                 candidate.floor = true;
-                candidate.surfaceY = other.aabb.minY;
-                candidate.selfBeforeEdge = selfBefore.maxY;
             } else {
                 if (other.shape.oneWay)
                     continue;
@@ -1203,53 +1206,69 @@ PlatformerYMoveResult World::movePlatformerY(
                     selfMoved.minY <= other.aabb.maxY + kGroundContactSkin;
                 if (!fromBelow || !crossedBottom)
                     continue;
-                const float travel = selfBefore.minY - other.aabb.maxY;
-                if (travel < -kGroundContactSkin)
+                const float signedDeltaY = other.aabb.maxY - selfBefore.minY;
+                // Rising toward ceiling: travel distance along -Y is -signedDeltaY.
+                if (-signedDeltaY < -kGroundContactSkin)
                     continue;
-                candidate.travel = std::max(0.f, travel);
+                candidate.placementDeltaY = signedDeltaY;
+                candidate.travelRank = std::max(0.f, -signedDeltaY);
                 candidate.floor = false;
-                candidate.surfaceY = other.aabb.maxY;
-                candidate.selfBeforeEdge = selfBefore.minY;
             }
 
-            const float fraction = candidate.travel / std::abs(dy);
+            const float fraction = candidate.travelRank / std::abs(dy);
             if (fraction > 1.f + 1e-3f)
                 continue;
 
-            const auto rank = [](const Candidate& c) {
-                return std::tuple{
-                    c.travel,
-                    c.otherId,
-                    c.otherShapeIndex,
-                    c.selfShapeIndex,
-                };
-            };
-            if (!best.has_value() || rank(candidate) < rank(*best))
-                best = candidate;
+            candidates.push_back(candidate);
         }
     }
 
-    if (!best.has_value()) {
-        // Keep requested Y displacement (already applied by caller).
+    std::sort(candidates.begin(), candidates.end(),
+        [](const Candidate& a, const Candidate& b) {
+            return std::tuple{
+                       a.travelRank,
+                       a.otherId,
+                       a.otherShapeIndex,
+                       a.selfShapeIndex,
+                   }
+                < std::tuple{
+                       b.travelRank,
+                       b.otherId,
+                       b.otherShapeIndex,
+                       b.selfShapeIndex,
+                   };
+        });
+
+    for (const Candidate& candidate : candidates) {
+        if (!candidate.floor) {
+            transform.position.y = beforeY.position.y + candidate.placementDeltaY;
+            verticalVelocity = 0.f;
+            result.hitCeiling = true;
+            result.contactEntityId = candidate.otherId;
+            return result;
+        }
+
+        Transform landing = beforeY;
+        landing.position.y += candidate.placementDeltaY;
+
+        const auto support = findGroundSupport(
+            id, landing, beforeY, 0.f, /*allowFloorSnap=*/false);
+        const bool validatesCandidate =
+            support.has_value()
+            && support->supportEntityId == candidate.otherId
+            && support->supportShapeIndex == candidate.otherShapeIndex
+            && support->selfShapeIndex == candidate.selfShapeIndex;
+        if (!validatesCandidate)
+            continue;
+
+        transform.position.y = landing.position.y;
+        verticalVelocity = 0.f;
+        result.hitFloor = true;
+        result.contactEntityId = candidate.otherId;
         return result;
     }
 
-    // Place flush against the first face along the motion; modify Y/vy only.
-    if (best->floor) {
-        const float feetBottomAtBefore = best->selfBeforeEdge;
-        const float deltaToSurface = best->surfaceY - feetBottomAtBefore;
-        transform.position.y = beforeY.position.y + deltaToSurface;
-        verticalVelocity = 0.f;
-        result.hitGround = true;
-        result.contactEntityId = best->otherId;
-    } else {
-        const float headTopAtBefore = best->selfBeforeEdge;
-        const float deltaToSurface = best->surfaceY - headTopAtBefore;
-        transform.position.y = beforeY.position.y + deltaToSurface;
-        verticalVelocity = 0.f;
-        result.hitCeiling = true;
-        result.contactEntityId = best->otherId;
-    }
+    // No semantically valid Floor/Ceiling: keep requested Y displacement.
     return result;
 }
 

@@ -2685,6 +2685,14 @@ static void testSetPositionNonFiniteRateLimitedDiagnostics() {
         bool requestPlatformerMove(EntityId, float) override { return true; }
         bool requestTopDownMove(EntityId, Vec2) override { return true; }
         bool requestPlatformerJump(EntityId) override { return true; }
+        bool isBlockedByWall(EntityId, const std::string&) override { return false; }
+        bool requestPlatformerWallJump(EntityId, const std::string&, float, float) override {
+            return true;
+        }
+        bool requestPlatformerWallSlide(EntityId, const std::string&, float) override {
+            return true;
+        }
+        PlatformerContactProjection platformerContacts(EntityId) override { return {}; }
         bool isObjectType(EntityId, const ObjectTypeId&) override { return false; }
         bool requestDestroy(EntityId) override { return true; }
         bool playAnimationClip(EntityId, const AssetId&, const std::string&) override {

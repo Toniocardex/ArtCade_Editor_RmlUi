@@ -262,6 +262,7 @@ LogicJsonResult logicBoardFromJson(const nlohmann::json& json, LogicBoardDef& ou
         const bool allowStructuredExpressions = parsed.schemaVersion >= 4u;
         if (parsed.schemaVersion != 3u && parsed.schemaVersion != 4u
             && parsed.schemaVersion != 5u
+            && parsed.schemaVersion != 6u
             && parsed.schemaVersion != kLogicBoardSchemaVersion) {
             return {false, "Unsupported Logic Board schemaVersion"};
         }
@@ -429,14 +430,16 @@ LogicJsonResult logicBoardFromJson(const nlohmann::json& json, LogicBoardDef& ou
                         return {false, "Logic action id is missing"};
                     if (!actionIds.insert(action.id).second)
                         return {false, "Duplicate Logic action id"};
-                    if (!raw.contains("executionMode")
-                        || !raw["executionMode"].is_string()) {
-                        return {false, "Logic action executionMode is invalid"};
+                    if (!raw.contains("executionMode")) {
+                        action.executionMode = LogicExecutionMode::EveryOccurrence;
+                    } else {
+                        if (!raw["executionMode"].is_string())
+                            return {false, "Logic action executionMode is invalid"};
+                        const auto mode = logicExecutionModeFromString(
+                            raw["executionMode"].get<std::string>());
+                        if (!mode) return {false, "Unknown Logic action executionMode"};
+                        action.executionMode = *mode;
                     }
-                    const auto mode = logicExecutionModeFromString(
-                        raw["executionMode"].get<std::string>());
-                    if (!mode) return {false, "Unknown Logic action executionMode"};
-                    action.executionMode = *mode;
                     if (!raw.contains("block")
                         || !blockFromJson(raw["block"], action.block, error,
                                           allowStructuredExpressions)) {
