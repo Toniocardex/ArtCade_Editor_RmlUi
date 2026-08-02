@@ -47,6 +47,8 @@ bool isNumericCommit(const std::string& action) {
         "commit-logic-animation-speed",
         "commit-logic-audio-volume",
         "commit-sfx-field", "commit-sfx-macro",
+        // ADR-0056 Layer Manager parallax factors.
+        "commit-layer-parallax-x", "commit-layer-parallax-y",
     };
     return std::find(std::begin(actions), std::end(actions), action) != std::end(actions);
 }

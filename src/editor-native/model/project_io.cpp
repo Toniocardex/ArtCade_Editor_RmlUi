@@ -574,6 +574,30 @@ bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
     return true;
 }
 
+void readSceneLayerSettings(const nlohmann::json& value, SceneDef& scene) {
+    if (!value.contains("layerSettings") || !value["layerSettings"].is_object())
+        return;
+    for (const auto& [layerId, item] : value["layerSettings"].items()) {
+        if (!item.is_object()) continue;
+        SceneLayerSettings settings;
+        settings.visible = item.value("visible", true);
+        settings.opacity = item.value("opacity", 1.f);
+        if (item.contains("parallax") && item["parallax"].is_object()) {
+            settings.parallax.x = item["parallax"].value("x", 1.f);
+            settings.parallax.y = item["parallax"].value("y", 1.f);
+        }
+        if (item.contains("background") && item["background"].is_object()) {
+            const auto& background = item["background"];
+            settings.background.imageId = background.value("imageId", std::string{});
+            settings.background.tileX = background.value("tileX", true);
+            settings.background.tileY = background.value("tileY", true);
+            settings.background.scrollX = background.value("scrollX", 0.f);
+            settings.background.scrollY = background.value("scrollY", 0.f);
+        }
+        scene.layerSettings.emplace(layerId, std::move(settings));
+    }
+}
+
 SceneDef readScene(const nlohmann::json& value, const SceneId& fallbackId) {
     SceneDef scene;
     requireObject(value, "scenes[]");
@@ -609,6 +633,7 @@ SceneDef readScene(const nlohmann::json& value, const SceneId& fallbackId) {
         }
     }
     scene.defaultLayerId = readString(value, "defaultLayerId", "default_layer_id");
+    readSceneLayerSettings(value, scene);
 
     // Legacy canonical default layer is now the first authored layer. Only the
     // untouched old "Default" layer migrates; user-renamed default layers keep
@@ -630,6 +655,12 @@ SceneDef readScene(const nlohmann::json& value, const SceneId& fallbackId) {
                 }
                 for (SceneInstanceDef& inst : scene.instances) {
                     if (inst.layerId == "default") inst.layerId = "layer-1";
+                }
+                if (auto settingsIt = scene.layerSettings.find("default");
+                    settingsIt != scene.layerSettings.end()) {
+                    SceneLayerSettings migrated = std::move(settingsIt->second);
+                    scene.layerSettings.erase(settingsIt);
+                    scene.layerSettings.emplace("layer-1", std::move(migrated));
                 }
                 break;
             }
@@ -1010,6 +1041,20 @@ nlohmann::json objectTypeToJson(const std::string& id, const EntityDef& def) {
     return json;
 }
 
+nlohmann::json sceneLayerSettingsToJson(const SceneLayerSettings& settings) {
+    return nlohmann::json{
+        {"visible", settings.visible},
+        {"opacity", settings.opacity},
+        {"parallax", {{"x", settings.parallax.x}, {"y", settings.parallax.y}}},
+        {"background",
+         {{"imageId", settings.background.imageId},
+          {"tileX", settings.background.tileX},
+          {"tileY", settings.background.tileY},
+          {"scrollX", settings.background.scrollX},
+          {"scrollY", settings.background.scrollY}}},
+    };
+}
+
 nlohmann::json sceneToJson(const SceneDef& scene) {
     nlohmann::json instances = nlohmann::json::array();
     for (const SceneInstanceDef& instance : scene.instances) {
@@ -1033,8 +1078,129 @@ nlohmann::json sceneToJson(const SceneDef& scene) {
         {"defaultLayerId", scene.defaultLayerId},
         {"instances", std::move(instances)},
     };
+    // ADR-0056: preserve the complete SceneLayerSettings entry (not only
+    // parallax) so externally authored opacity/background survive save.
+    if (!scene.layerSettings.empty()) {
+        nlohmann::json settingsJson = nlohmann::json::object();
+        for (const auto& [layerId, settings] : scene.layerSettings)
+            settingsJson[layerId] = sceneLayerSettingsToJson(settings);
+        json["layerSettings"] = std::move(settingsJson);
+    }
     if (scene.logicBoard) json["logicBoard"] = Logic::logicBoardToJson(*scene.logicBoard);
     return json;
+}
+
+/** ADR-0056: validate layerSettings on raw JSON before the canonical reader
+ *  clamps opacity into [0,1] (which would hide out-of-range values). */
+bool validateSceneLayerSettingsJson(const nlohmann::json& root, std::string& error) {
+    const auto scenesIt = root.find("scenes");
+    if (scenesIt == root.end()) return true;
+
+    auto checkFiniteNumber = [&](const nlohmann::json& value, const char* path) {
+        if (!value.is_number()) {
+            error = std::string(path) + " must be a number";
+            return false;
+        }
+        const double number = value.get<double>();
+        if (!std::isfinite(number)) {
+            error = std::string(path) + " must be finite";
+            return false;
+        }
+        return true;
+    };
+
+    auto validateSettingsObject = [&](const nlohmann::json& settings,
+                                      const std::string& pathPrefix) {
+        if (!settings.is_object()) {
+            error = pathPrefix + " must be an object";
+            return false;
+        }
+        if (settings.contains("visible") && !settings["visible"].is_boolean()) {
+            error = pathPrefix + ".visible must be a boolean";
+            return false;
+        }
+        if (settings.contains("opacity")) {
+            if (!checkFiniteNumber(settings["opacity"], (pathPrefix + ".opacity").c_str()))
+                return false;
+            const double opacity = settings["opacity"].get<double>();
+            if (opacity < 0.0 || opacity > 1.0) {
+                error = pathPrefix + ".opacity must be in [0, 1]";
+                return false;
+            }
+        }
+        if (settings.contains("parallax")) {
+            const auto& parallax = settings["parallax"];
+            if (!parallax.is_object()) {
+                error = pathPrefix + ".parallax must be an object";
+                return false;
+            }
+            if (parallax.contains("x")
+                && !checkFiniteNumber(parallax["x"], (pathPrefix + ".parallax.x").c_str()))
+                return false;
+            if (parallax.contains("y")
+                && !checkFiniteNumber(parallax["y"], (pathPrefix + ".parallax.y").c_str()))
+                return false;
+        }
+        if (settings.contains("background")) {
+            const auto& background = settings["background"];
+            if (!background.is_object()) {
+                error = pathPrefix + ".background must be an object";
+                return false;
+            }
+            if (background.contains("imageId") && !background["imageId"].is_string()) {
+                error = pathPrefix + ".background.imageId must be a string";
+                return false;
+            }
+            if (background.contains("tileX") && !background["tileX"].is_boolean()) {
+                error = pathPrefix + ".background.tileX must be a boolean";
+                return false;
+            }
+            if (background.contains("tileY") && !background["tileY"].is_boolean()) {
+                error = pathPrefix + ".background.tileY must be a boolean";
+                return false;
+            }
+            if (background.contains("scrollX")
+                && !checkFiniteNumber(background["scrollX"],
+                                      (pathPrefix + ".background.scrollX").c_str()))
+                return false;
+            if (background.contains("scrollY")
+                && !checkFiniteNumber(background["scrollY"],
+                                      (pathPrefix + ".background.scrollY").c_str()))
+                return false;
+        }
+        return true;
+    };
+
+    if (scenesIt->is_array()) {
+        for (std::size_t i = 0; i < scenesIt->size(); ++i) {
+            const auto& scene = (*scenesIt)[i];
+            if (!scene.is_object() || !scene.contains("layerSettings")) continue;
+            if (!scene["layerSettings"].is_object()) {
+                error = "scenes[" + std::to_string(i) + "].layerSettings must be an object";
+                return false;
+            }
+            for (const auto& [layerId, settings] : scene["layerSettings"].items()) {
+                if (!validateSettingsObject(
+                        settings,
+                        "scenes[" + std::to_string(i) + "].layerSettings." + layerId))
+                    return false;
+            }
+        }
+    } else if (scenesIt->is_object()) {
+        for (const auto& [sceneKey, scene] : scenesIt->items()) {
+            if (!scene.is_object() || !scene.contains("layerSettings")) continue;
+            if (!scene["layerSettings"].is_object()) {
+                error = "scenes." + sceneKey + ".layerSettings must be an object";
+                return false;
+            }
+            for (const auto& [layerId, settings] : scene["layerSettings"].items()) {
+                if (!validateSettingsObject(
+                        settings, "scenes." + sceneKey + ".layerSettings." + layerId))
+                    return false;
+            }
+        }
+    }
+    return true;
 }
 
 bool empty(const SpriteRendererOverride& delta) {
@@ -1450,6 +1616,10 @@ DeserializeResult deserializeCanonical(const nlohmann::json& root) {
     if (!ProjectJson::validate_object_type_presentation_json(root, error)) {
         return DeserializeResult::failure(error);
     }
+    // ADR-0056: reject malformed layerSettings before the reader clamps opacity.
+    if (!validateSceneLayerSettingsJson(root, error)) {
+        return DeserializeResult::failure(error);
+    }
 
     ProjectDoc doc;
     ProjectJson::read_project_header(root, doc);
@@ -1550,6 +1720,14 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
     // fields into memory.
     if (doc.formatVersion != kCurrentSchemaVersion) {
         return DeserializeResult::failure("Unsupported project schema version");
+    }
+    // ADR-0056: raw layerSettings validation must run before either reader path
+    // so opacity clamping cannot hide invalid authoring data, and so a failed
+    // canonical deserialize cannot fall through to the legacy reader.
+    {
+        std::string layerSettingsError;
+        if (!validateSceneLayerSettingsJson(root, layerSettingsError))
+            return DeserializeResult::failure(layerSettingsError);
     }
     DeserializeResult canonical = deserializeCanonical(root);
     if (canonical.ok) return canonical;
@@ -2570,6 +2748,32 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
             if (scene.defaultLayerId.empty() || layerIds.count(scene.defaultLayerId) == 0) {
                 return DeserializeResult::failure(
                     "Scene defaultLayerId must reference an existing layer");
+            }
+            for (const auto& [settingsLayerId, settings] : scene.layerSettings) {
+                if (layerIds.count(settingsLayerId) == 0) {
+                    return DeserializeResult::failure(
+                        "Scene layerSettings key does not reference a layer");
+                }
+                if (!std::isfinite(settings.opacity)
+                    || settings.opacity < 0.f || settings.opacity > 1.f) {
+                    return DeserializeResult::failure(
+                        "Scene layerSettings opacity must be finite in [0, 1]");
+                }
+                if (!std::isfinite(settings.parallax.x)
+                    || !std::isfinite(settings.parallax.y)) {
+                    return DeserializeResult::failure(
+                        "Scene layerSettings parallax must be finite");
+                }
+                if (!std::isfinite(settings.background.scrollX)
+                    || !std::isfinite(settings.background.scrollY)) {
+                    return DeserializeResult::failure(
+                        "Scene layerSettings background scroll must be finite");
+                }
+                if (!settings.background.imageId.empty()
+                    && !document.hasImageAsset(settings.background.imageId)) {
+                    return DeserializeResult::failure(
+                        "Scene layerSettings background.imageId is unresolved");
+                }
             }
         }
 

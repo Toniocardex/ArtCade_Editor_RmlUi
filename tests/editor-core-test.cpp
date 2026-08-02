@@ -80,6 +80,7 @@
 #include "artcade/sfx/presets.hpp"
 #include "artcade/sfx/synthesizer.hpp"
 
+#include <cctype>
 #include <iostream>
 #include <iterator>
 #include <limits>
@@ -5487,6 +5488,281 @@ int main() {
         CHECK(lockFg.apply(doc).ok);
         CHECK(removeFg.apply(doc).ok);   // "redo": must still succeed despite the current lock
         CHECK(!doc.hasLayer("s", "fg"));
+    }
+
+    // == ADR-0056 Scene layer parallax ========================================
+    {
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        CHECK(c.execute(AddSceneLayerCommand{"s", "bg", "Background", 0}).ok);
+
+        // Sparse default: no map entry, effective {1,1}.
+        CHECK(c.document().findScene("s")->layerSettings.count("bg") == 0);
+        const SceneLayerSettings def =
+            c.document().effectiveLayerSettings("s", "bg");
+        CHECK(def.parallax.x == 1.f);
+        CHECK(def.parallax.y == 1.f);
+
+        const uint64_t before = c.document().revision();
+        CHECK(c.execute(SetSceneLayerParallaxCommand{
+                  "s", "bg", LayerParallax{0.35f, 0.6f}}).ok);
+        CHECK(c.document().revision() == before + 1);
+        CHECK(c.document().findScene("s")->layerSettings.count("bg") == 1);
+        CHECK(c.document().effectiveLayerSettings("s", "bg").parallax.x == 0.35f);
+        CHECK(c.document().effectiveLayerSettings("s", "bg").parallax.y == 0.6f);
+
+        // Changing X preserves Y.
+        CHECK(c.execute(SetSceneLayerParallaxCommand{
+                  "s", "bg", LayerParallax{0.5f, 0.6f}}).ok);
+        CHECK(c.document().effectiveLayerSettings("s", "bg").parallax.x == 0.5f);
+        CHECK(c.document().effectiveLayerSettings("s", "bg").parallax.y == 0.6f);
+
+        // No-op when unchanged.
+        const uint64_t beforeNoop = c.document().revision();
+        const std::size_t undoBefore = c.undoSize();
+        CHECK(c.execute(SetSceneLayerParallaxCommand{
+                  "s", "bg", LayerParallax{0.5f, 0.6f}}).ok);
+        CHECK(c.document().revision() == beforeNoop);
+        CHECK(c.undoSize() == undoBefore);
+
+        // Non-finite rejected.
+        CHECK(!c.execute(SetSceneLayerParallaxCommand{
+                  "s", "bg",
+                  LayerParallax{std::numeric_limits<float>::quiet_NaN(), 1.f}}).ok);
+        CHECK(!c.execute(SetSceneLayerParallaxCommand{"s", "missing",
+                                                      LayerParallax{0.2f, 0.2f}}).ok);
+
+        // Locked layer still allows parallax authoring.
+        CHECK(c.execute(SetLayerLockedCommand{"s", "bg", true}).ok);
+        CHECK(c.execute(SetSceneLayerParallaxCommand{
+                  "s", "bg", LayerParallax{0.25f, 0.75f}}).ok);
+
+        // Undo/redo pair.
+        CHECK(c.undo().ok);
+        CHECK(c.document().effectiveLayerSettings("s", "bg").parallax.x == 0.5f);
+        CHECK(c.redo().ok);
+        CHECK(c.document().effectiveLayerSettings("s", "bg").parallax.x == 0.25f);
+
+        // Reset to {1,1} erases a fully-default entry.
+        CHECK(c.execute(SetSceneLayerParallaxCommand{
+                  "s", "bg", LayerParallax{1.f, 1.f}}).ok);
+        CHECK(c.document().findScene("s")->layerSettings.count("bg") == 0);
+    }
+    {
+        // Preserve opacity when resetting parallax to defaults.
+        ProjectDoc data;
+        data.formatVersion = 12;
+        data.projectName = "ParallaxOpacity";
+        SceneDef scene;
+        scene.id = "s";
+        scene.name = "S";
+        scene.layers.push_back(SceneLayerDef{"layer-1", "Layer 1", false});
+        scene.layers.push_back(SceneLayerDef{"bg", "Background", false});
+        scene.defaultLayerId = "layer-1";
+        SceneLayerSettings custom;
+        custom.opacity = 0.5f;
+        custom.parallax = {0.3f, 0.3f};
+        scene.layerSettings.emplace("bg", custom);
+        data.scenes.emplace("s", std::move(scene));
+        data.activeSceneId = "s";
+        ProjectDocument doc{std::move(data)};
+        SetSceneLayerParallaxCommand resetBg{"s", "bg", LayerParallax{1.f, 1.f}};
+        CHECK(resetBg.apply(doc).ok);
+        CHECK(doc.data().scenes.at("s").layerSettings.count("bg") == 1);
+        CHECK(doc.effectiveLayerSettings("s", "bg").opacity == 0.5f);
+        CHECK(doc.effectiveLayerSettings("s", "bg").parallax.x == 1.f);
+    }
+    {
+        // Remove without map entry: undo must not create a default entry.
+        ProjectDocument doc{ProjectDoc{}};
+        CreateSceneCommand createScene{"s", "S"};
+        CHECK(createScene.apply(doc).ok);
+        AddSceneLayerCommand addFg{"s", "fg", "Foreground", 1};
+        CHECK(addFg.apply(doc).ok);
+        CHECK(doc.data().scenes.at("s").layerSettings.count("fg") == 0);
+        RemoveSceneLayerCommand remove{"s", "fg"};
+        CHECK(remove.apply(doc).ok);
+        CHECK(remove.undo(doc).ok);
+        CHECK(doc.hasLayer("s", "fg"));
+        CHECK(doc.data().scenes.at("s").layerSettings.count("fg") == 0);
+    }
+    {
+        // Remove with explicit default entry: undo restores the entry.
+        ProjectDoc data;
+        data.formatVersion = 12;
+        data.projectName = "ParallaxSparse";
+        SceneDef scene;
+        scene.id = "s";
+        scene.name = "S";
+        scene.layers.push_back(SceneLayerDef{"layer-1", "Layer 1", false});
+        scene.layers.push_back(SceneLayerDef{"fg", "Foreground", false});
+        scene.defaultLayerId = "layer-1";
+        scene.layerSettings.emplace("fg", SceneLayerSettings{});
+        data.scenes.emplace("s", std::move(scene));
+        data.activeSceneId = "s";
+        ProjectDocument doc{std::move(data)};
+        CHECK(doc.data().scenes.at("s").layerSettings.count("fg") == 1);
+        RemoveSceneLayerCommand remove{"s", "fg"};
+        CHECK(remove.apply(doc).ok);
+        CHECK(doc.data().scenes.at("s").layerSettings.count("fg") == 0);
+        CHECK(remove.undo(doc).ok);
+        CHECK(doc.data().scenes.at("s").layerSettings.count("fg") == 1);
+    }
+    {
+        // Persistence round-trip + raw opacity rejection.
+        EditorCoordinator c{ProjectDoc{}};
+        CHECK(c.execute(CreateSceneCommand{"s", "S"}).ok);
+        CHECK(c.execute(AddSceneLayerCommand{"s", "bg", "Background", 0}).ok);
+        CHECK(c.execute(SetSceneLayerParallaxCommand{
+                  "s", "bg", LayerParallax{0.35f, 0.6f}}).ok);
+        const SerializeResult written = ProjectSerializer::serialize(c.document());
+        CHECK(written.ok);
+        CHECK(written.value.find("\"layerSettings\"") != std::string::npos);
+        CHECK(written.value.find("\"parallax\"") != std::string::npos);
+        // 0.35f is not decimal-exact; assert via round-trip, not substring match.
+        const DeserializeResult loaded = ProjectSerializer::deserialize(written.value);
+        CHECK(loaded.ok);
+        CHECK(std::abs(loaded.value.effectiveLayerSettings("s", "bg").parallax.x - 0.35f)
+              < 1e-6f);
+        CHECK(std::abs(loaded.value.effectiveLayerSettings("s", "bg").parallax.y - 0.6f)
+              < 1e-6f);
+
+        // Opacity out of range must fail before the reader clamps it.
+        std::string bad = written.value;
+        const std::size_t opacityPos = bad.find("\"opacity\"");
+        CHECK(opacityPos != std::string::npos);
+        // Replace "opacity":1 (or 1.0) with an invalid 4.0 nearby in the bg entry.
+        const std::size_t colon = bad.find(':', opacityPos);
+        CHECK(colon != std::string::npos);
+        std::size_t end = colon + 1;
+        while (end < bad.size() && (bad[end] == ' ' || bad[end] == '\t')) ++end;
+        std::size_t numEnd = end;
+        while (numEnd < bad.size()
+               && (std::isdigit(static_cast<unsigned char>(bad[numEnd]))
+                   || bad[numEnd] == '.' || bad[numEnd] == '-' || bad[numEnd] == '+'))
+            ++numEnd;
+        bad.replace(end, numEnd - end, "4.0");
+        const DeserializeResult rejected = ProjectSerializer::deserialize(bad);
+        CHECK(!rejected.ok);
+        CHECK(rejected.error.find("opacity") != std::string::npos);
+    }
+    {
+        // Orphan layerSettings key rejected by validate().
+        ProjectDoc data;
+        data.formatVersion = 12;
+        data.projectName = "Orphan";
+        SceneDef scene;
+        scene.id = "s";
+        scene.name = "S";
+        scene.layers.push_back(SceneLayerDef{"layer-1", "Layer 1", false});
+        scene.defaultLayerId = "layer-1";
+        scene.layerSettings.emplace("ghost", SceneLayerSettings{});
+        data.scenes.emplace("s", scene);
+        data.activeSceneId = "s";
+        const DeserializeResult validated =
+            ProjectValidator::validate(ProjectDocument{std::move(data)});
+        CHECK(!validated.ok);
+    }
+    {
+        // Writer preserves every SceneLayerSettings field; multi-layer factors;
+        // empty sparse map is omitted; raw NaN parallax is rejected pre-read.
+        ProjectDoc data;
+        data.formatVersion = 12;
+        data.projectName = "ParallaxFull";
+        SceneDef scene;
+        scene.id = "s";
+        scene.name = "S";
+        scene.layers.push_back(SceneLayerDef{"layer-1", "Layer 1", false});
+        scene.layers.push_back(SceneLayerDef{"bg", "Background", false});
+        scene.layers.push_back(SceneLayerDef{"fg", "Foreground", false});
+        scene.defaultLayerId = "layer-1";
+        SceneLayerSettings bg;
+        bg.visible = false;
+        bg.opacity = 0.42f;
+        bg.parallax = {0.2f, 0.8f};
+        bg.background.imageId = "";
+        bg.background.tileX = false;
+        bg.background.tileY = true;
+        bg.background.scrollX = 12.f;
+        bg.background.scrollY = -3.f;
+        scene.layerSettings.emplace("bg", bg);
+        SceneLayerSettings fg;
+        fg.parallax = {1.5f, 1.25f};
+        scene.layerSettings.emplace("fg", fg);
+        data.scenes.emplace("s", std::move(scene));
+        data.activeSceneId = "s";
+        ProjectDocument doc{std::move(data)};
+        const SerializeResult written = ProjectSerializer::serialize(doc);
+        CHECK(written.ok);
+        CHECK(written.value.find("\"layerSettings\"") != std::string::npos);
+        CHECK(written.value.find("\"scrollX\"") != std::string::npos);
+        const DeserializeResult loaded = ProjectSerializer::deserialize(written.value);
+        CHECK(loaded.ok);
+        const SceneLayerSettings& loadedBg =
+            loaded.value.data().scenes.at("s").layerSettings.at("bg");
+        CHECK(loadedBg.visible == false);
+        CHECK(std::abs(loadedBg.opacity - 0.42f) < 1e-6f);
+        CHECK(std::abs(loadedBg.parallax.x - 0.2f) < 1e-6f);
+        CHECK(std::abs(loadedBg.parallax.y - 0.8f) < 1e-6f);
+        CHECK(loadedBg.background.tileX == false);
+        CHECK(loadedBg.background.tileY == true);
+        CHECK(std::abs(loadedBg.background.scrollX - 12.f) < 1e-6f);
+        CHECK(std::abs(loadedBg.background.scrollY - (-3.f)) < 1e-6f);
+        CHECK(std::abs(loaded.value.effectiveLayerSettings("s", "fg").parallax.x - 1.5f)
+              < 1e-6f);
+        CHECK(std::abs(loaded.value.effectiveLayerSettings("s", "fg").parallax.y - 1.25f)
+              < 1e-6f);
+        // Default layer has no map entry after round-trip.
+        CHECK(loaded.value.data().scenes.at("s").layerSettings.count("layer-1") == 0);
+
+        EditorCoordinator empty{ProjectDoc{}};
+        CHECK(empty.execute(CreateSceneCommand{"s", "S"}).ok);
+        const SerializeResult sparse = ProjectSerializer::serialize(empty.document());
+        CHECK(sparse.ok);
+        CHECK(sparse.value.find("\"layerSettings\"") == std::string::npos);
+
+        std::string nanJson = written.value;
+        const std::size_t px = nanJson.find("\"parallax\"");
+        CHECK(px != std::string::npos);
+        const std::size_t xKey = nanJson.find("\"x\"", px);
+        CHECK(xKey != std::string::npos);
+        const std::size_t colon = nanJson.find(':', xKey);
+        CHECK(colon != std::string::npos);
+        std::size_t end = colon + 1;
+        while (end < nanJson.size() && (nanJson[end] == ' ' || nanJson[end] == '\t')) ++end;
+        std::size_t numEnd = end;
+        while (numEnd < nanJson.size()
+               && (std::isdigit(static_cast<unsigned char>(nanJson[numEnd]))
+                   || nanJson[numEnd] == '.' || nanJson[numEnd] == '-'
+                   || nanJson[numEnd] == '+'))
+            ++numEnd;
+        nanJson.replace(end, numEnd - end, "NaN");
+        const DeserializeResult nanRejected = ProjectSerializer::deserialize(nanJson);
+        CHECK(!nanRejected.ok);
+    }
+    {
+        // Play blocks authoring parallax commands at the coordinator.
+        EditorCoordinator c{makeDoc()};
+        CHECK(c.execute(SetSceneLayerParallaxCommand{
+                  kSceneA, "layer-1", LayerParallax{0.4f, 0.4f}}).ok);
+        CHECK(c.playProject().ok);
+        const uint64_t rev = c.document().revision();
+        CHECK(!c.execute(SetSceneLayerParallaxCommand{
+                  kSceneA, "layer-1", LayerParallax{0.1f, 0.1f}}).ok);
+        CHECK(c.document().revision() == rev);
+        CHECK(c.document().effectiveLayerSettings(kSceneA, "layer-1").parallax.x == 0.4f);
+        CHECK(c.stopPlaying().ok);
+    }
+    {
+        // Pending-edit gate treats parallax commits as numeric fields.
+        CHECK(classifyPendingEdit("commit-layer-parallax-x", "0.35").resolved());
+        CHECK(classifyPendingEdit("commit-layer-parallax-y", "1").resolved());
+        CHECK(classifyPendingEdit("commit-layer-parallax-x", "NaN").status
+              == PendingEditStatus::Invalid);
+        CHECK(classifyPendingEdit("commit-layer-parallax-y", "").status
+              == PendingEditStatus::Incomplete);
+        CHECK(classifyPendingEdit("commit-layer-parallax-x", "-").status
+              == PendingEditStatus::Incomplete);
     }
 
     // -- Locked layer blocks every instance-owned mutation ----------------------

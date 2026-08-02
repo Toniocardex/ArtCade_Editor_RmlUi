@@ -9,12 +9,25 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <unordered_set>
 #include <utility>
 
 namespace ArtCade::EditorNative {
 
 namespace {
+
+bool isDefaultSceneLayerSettings(const SceneLayerSettings& value) {
+    return value.visible
+        && value.opacity == 1.f
+        && value.parallax.x == 1.f
+        && value.parallax.y == 1.f
+        && value.background.imageId.empty()
+        && value.background.tileX
+        && value.background.tileY
+        && value.background.scrollX == 0.f
+        && value.background.scrollY == 0.f;
+}
 
 std::string normalizedScriptPath(const std::string& sourcePath) {
     std::string normalized = std::filesystem::u8path(sourcePath)
@@ -289,6 +302,16 @@ std::string ProjectDocument::effectiveLayerId(const SceneId& sceneId,
     return scene->defaultLayerId;
 }
 
+SceneLayerSettings ProjectDocument::effectiveLayerSettings(
+    const SceneId& sceneId, const std::string& layerId) const
+{
+    const SceneDef* scene = findScene(sceneId);
+    if (!scene) return {};
+    const auto it = scene->layerSettings.find(layerId);
+    if (it == scene->layerSettings.end()) return {};
+    return it->second;
+}
+
 std::vector<const SceneInstanceDef*> ProjectDocument::instancesInRenderOrder(
     const SceneId& sceneId) const {
     std::vector<const SceneInstanceDef*> result;
@@ -312,7 +335,8 @@ std::vector<const SceneInstanceDef*> ProjectDocument::instancesInRenderOrder(
 }
 
 bool ProjectDocument::addSceneLayer(const SceneId& sceneId, const std::string& layerId,
-                                    const std::string& name, std::size_t index) {
+                                    const std::string& name, std::size_t index,
+                                    std::optional<SceneLayerSettings> settings) {
     SceneDef* scene = mutableScene(sceneId);
     if (!scene || layerId.empty() || name.empty()) return false;
     for (const SceneLayerDef& layer : scene->layers) {
@@ -321,6 +345,10 @@ bool ProjectDocument::addSceneLayer(const SceneId& sceneId, const std::string& l
     if (index > scene->layers.size()) index = scene->layers.size();
     scene->layers.insert(scene->layers.begin() + static_cast<std::ptrdiff_t>(index),
                          SceneLayerDef{layerId, name, false});
+    // nullopt = sparse (no map entry). A valued optional restores exactly,
+    // including an explicit default-constructed entry from an external file.
+    if (settings.has_value())
+        scene->layerSettings[layerId] = *settings;
     markDirty();
     return true;
 }
@@ -369,11 +397,29 @@ bool ProjectDocument::removeSceneLayer(const SceneId& sceneId, const std::string
     for (std::size_t i = 0; i < scene->layers.size(); ++i) {
         if (scene->layers[i].id == layerId) {
             scene->layers.erase(scene->layers.begin() + static_cast<std::ptrdiff_t>(i));
+            scene->layerSettings.erase(layerId);
             markDirty();
             return true;
         }
     }
     return false;
+}
+
+bool ProjectDocument::setSceneLayerParallax(const SceneId& sceneId,
+                                            const std::string& layerId,
+                                            LayerParallax parallax) {
+    if (!std::isfinite(parallax.x) || !std::isfinite(parallax.y)) return false;
+    SceneDef* scene = mutableScene(sceneId);
+    if (!scene || !hasLayer(sceneId, layerId)) return false;
+
+    SceneLayerSettings settings = effectiveLayerSettings(sceneId, layerId);
+    settings.parallax = parallax;
+    if (isDefaultSceneLayerSettings(settings))
+        scene->layerSettings.erase(layerId);
+    else
+        scene->layerSettings[layerId] = settings;
+    markDirty();
+    return true;
 }
 
 bool ProjectDocument::setInstanceLayer(const SceneId& sceneId, EntityId id,

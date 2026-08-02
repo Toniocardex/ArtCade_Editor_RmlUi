@@ -40,8 +40,10 @@ VIEWS = {
     # ADR-0029: the completion list is the whole discovery surface now that the
     # node palette is gone, and it only exists while a field has focus — which
     # no static capture would otherwise reach.
+    # Address form: ruleId|actionId|target|blockIndex|property|component
+    # (per-action ids from ADR action modes; first Place action is action-1).
     "expression": ["--shot-project", str(FIXTURE), "--shot-entity", "0", "--shot-logic",
-                   "--shot-expression", "rule-place|a|0|position|x",
+                   "--shot-expression", "rule-place|action-1|a|0|position|x",
                    "--shot-expression-text", "ra"],
 }
 

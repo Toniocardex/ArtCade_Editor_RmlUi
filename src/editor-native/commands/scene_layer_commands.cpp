@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <utility>
 
 namespace ArtCade::EditorNative {
@@ -161,6 +162,13 @@ EditorOperationResult RemoveSceneLayerCommand::apply(ProjectDocument& document) 
         }
         removedName_ = scene->layers[index].name;
         index_ = index;
+        // Sparse-exact: map find, never effectiveLayerSettings (which synthesizes
+        // a default and would create a spurious entry on undo).
+        const auto settingsIt = scene->layerSettings.find(layerId_);
+        if (settingsIt != scene->layerSettings.end())
+            removedSettings_ = settingsIt->second;
+        else
+            removedSettings_.reset();
         captured_ = true;
     }
     if (!document.removeSceneLayer(sceneId_, layerId_))
@@ -169,9 +177,51 @@ EditorOperationResult RemoveSceneLayerCommand::apply(ProjectDocument& document) 
 }
 
 EditorOperationResult RemoveSceneLayerCommand::undo(ProjectDocument& document) {
-    if (!captured_ || !document.addSceneLayer(sceneId_, layerId_, removedName_, index_))
+    if (!captured_
+        || !document.addSceneLayer(sceneId_, layerId_, removedName_, index_,
+                                   removedSettings_))
         return EditorOperationResult::failure("Cannot undo remove layer");
     return EditorOperationResult::success(kLayerStruct, DomainChange::sceneChanged(sceneId_));
+}
+
+// ----------------------------------------------------------------------------
+SetSceneLayerParallaxCommand::SetSceneLayerParallaxCommand(
+    SceneId sceneId, std::string layerId, LayerParallax parallax)
+    : sceneId_(std::move(sceneId))
+    , layerId_(std::move(layerId))
+    , next_(parallax)
+{}
+
+EditorOperationResult SetSceneLayerParallaxCommand::apply(ProjectDocument& document) {
+    const SceneDef* scene = document.findScene(sceneId_);
+    if (!scene) return EditorOperationResult::failure("No target scene");
+    if (!document.hasLayer(sceneId_, layerId_))
+        return EditorOperationResult::failure("No such layer");
+    if (!std::isfinite(next_.x) || !std::isfinite(next_.y))
+        return EditorOperationResult::failure("Parallax factor is not a finite number");
+
+    const SceneLayerSettings current =
+        document.effectiveLayerSettings(sceneId_, layerId_);
+    if (current.parallax.x == next_.x && current.parallax.y == next_.y)
+        return EditorOperationResult::success(EditorInvalidation::None);
+
+    if (!captured_) {
+        previous_ = current.parallax;
+        captured_ = true;
+    }
+    if (!document.setSceneLayerParallax(sceneId_, layerId_, next_))
+        return EditorOperationResult::failure("Failed to set layer parallax");
+    return EditorOperationResult::success(
+        EditorInvalidation::Inspector | EditorInvalidation::Viewport,
+        DomainChange::sceneChanged(sceneId_));
+}
+
+EditorOperationResult SetSceneLayerParallaxCommand::undo(ProjectDocument& document) {
+    if (!captured_ || !document.setSceneLayerParallax(sceneId_, layerId_, previous_))
+        return EditorOperationResult::failure("Cannot undo set layer parallax");
+    return EditorOperationResult::success(
+        EditorInvalidation::Inspector | EditorInvalidation::Viewport,
+        DomainChange::sceneChanged(sceneId_));
 }
 
 // ----------------------------------------------------------------------------

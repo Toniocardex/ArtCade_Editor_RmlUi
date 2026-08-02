@@ -4,6 +4,7 @@
 #include "editor-native/commands/editor_command.h"
 
 #include <cstddef>
+#include <optional>
 #include <string>
 
 namespace ArtCade::EditorNative {
@@ -86,7 +87,9 @@ private:
 /**
  * Remove a layer. Policy: the default layer cannot be removed, and a layer that
  * still has instances is rejected (no implicit move). Undo restores it at its
- * original index. Invalidates Hierarchy | Inspector | Viewport.
+ * original index and restores the optional layerSettings entry exactly
+ * (nullopt = no map key; valued = exact entry, including explicit defaults).
+ * Invalidates Hierarchy | Inspector | Viewport.
  */
 class RemoveSceneLayerCommand final : public EditorCommand {
 public:
@@ -101,7 +104,30 @@ private:
     std::string layerId_;
     std::string removedName_;
     std::size_t index_ = 0;
+    std::optional<SceneLayerSettings> removedSettings_;
     bool        captured_ = false;
+};
+
+/**
+ * ADR-0056: set per-layer parallax X/Y as an atomic pair. No-op if unchanged.
+ * Editable on locked layers (layer definition, not instance content).
+ * Invalidates Inspector | Viewport.
+ */
+class SetSceneLayerParallaxCommand final : public EditorCommand {
+public:
+    SetSceneLayerParallaxCommand(SceneId sceneId, std::string layerId,
+                                 LayerParallax parallax);
+
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "SetSceneLayerParallax"; }
+
+private:
+    SceneId       sceneId_;
+    std::string   layerId_;
+    LayerParallax next_{};
+    LayerParallax previous_{};
+    bool          captured_ = false;
 };
 
 /** Move one instance to another layer of the same scene. Undoable. */

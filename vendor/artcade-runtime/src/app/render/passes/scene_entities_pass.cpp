@@ -1,5 +1,6 @@
 #include "scene_entities_pass.h"
 
+#include "../parallax-renderer.h"
 #include "../scene_frame_snapshot.h"
 
 #include "../../../core/text-anchor-math.h"
@@ -49,10 +50,8 @@ void execute_scene_entities_pass(SceneFrameContext& ctx) {
             if (inEditMode || layerId.empty()) return worldPos;
             const auto it = parallaxById.find(layerId);
             if (it == parallaxById.end()) return worldPos;
-            return {
-                worldPos.x + cameraTopLeft.x * (1.f - it->second.x),
-                worldPos.y + cameraTopLeft.y * (1.f - it->second.y),
-            };
+            return ParallaxRenderer::parallaxWorldPosition(
+                worldPos, cameraTopLeft, LayerParallax{it->second.x, it->second.y});
         };
 
     for (const RenderableEntitySnapshot& item : frame.renderables) {
@@ -125,12 +124,15 @@ void execute_scene_entities_pass(SceneFrameContext& ctx) {
             // own path (real fontPath asset here vs. the editor's fixed
             // CanvasFont) — see the TRACKED DEBT note in
             // core/text-anchor-math.h before touching either side.
+            // ADR-0056: HUD (screenSpace) must ignore layer parallax.
+            const Vec2 textBase = ParallaxRenderer::parallaxAwareUiBasePosition(
+                transform.position, pos, text.screenSpace);
             int hAlign = 0, vAlign = 0;
             ArtCade::TextAnchorMath::anchorCodes(text.align, hAlign, vAlign);
             renderer->drawText(
                 text.text,
-                pos.x + text.offsetX,
-                pos.y + text.offsetY,
+                textBase.x + text.offsetX,
+                textBase.y + text.offsetY,
                 text.size, color, text.fontPath, hAlign, text.screenSpace,
                 vAlign);
         }(item, transform, sprite);
@@ -161,9 +163,13 @@ void execute_scene_entities_pass(SceneFrameContext& ctx) {
                 bg.a *= 0.45f;
                 fill.a *= 0.45f;
             }
-            const Vec2 gpos = layerDrawPos(sprite.layerId, transform.position);
-            const float gx = gpos.x + gauge.offsetX;
-            const float gy = gpos.y + gauge.offsetY;
+            // ADR-0056: HUD (screenSpace) must ignore layer parallax.
+            const Vec2 worldDrawPos =
+                layerDrawPos(sprite.layerId, transform.position);
+            const Vec2 gaugeBase = ParallaxRenderer::parallaxAwareUiBasePosition(
+                transform.position, worldDrawPos, gauge.screenSpace);
+            const float gx = gaugeBase.x + gauge.offsetX;
+            const float gy = gaugeBase.y + gauge.offsetY;
             renderer->drawRect(gx, gy, gauge.width, gauge.height, bg, gauge.screenSpace);
             if (gauge.direction == "vertical") {
                 const float fh = gauge.height * ratio;

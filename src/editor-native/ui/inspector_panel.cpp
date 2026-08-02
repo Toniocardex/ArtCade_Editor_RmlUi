@@ -963,6 +963,42 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                       + escapeRml(layerRename_->validationError) + "</div>";
             }
         }
+
+        // ADR-0056: active-layer parallax settings (presentation-only; Play preview).
+        const bool activeLayerValid =
+            !activeLayer.empty()
+            && coordinator.document().hasLayer(activeScene, activeLayer);
+        if (activeLayerValid) {
+            const SceneLayerSettings settings =
+                coordinator.document().effectiveLayerSettings(activeScene, activeLayer);
+            std::string activeName = activeLayer;
+            for (const SceneLayerDef& layer : scene->layers) {
+                if (layer.id == activeLayer) {
+                    activeName = layer.name;
+                    break;
+                }
+            }
+            const bool parallaxDisabled = playing;
+            html += "<div class=\"layer-settings\">";
+            html += "<div class=\"prop-subheading\">Layer Settings</div>";
+            html += "<div class=\"prop-readonly\">" + escapeRml(activeName) + "</div>";
+            html += "<div class=\"prop-subheading\" title=\"Controls how quickly this layer "
+                    "moves relative to the camera. 1.00 is normal world movement, values "
+                    "below 1.00 appear farther away, 0.00 stays fixed to the camera, and "
+                    "values above 1.00 move faster.\">Parallax</div>";
+            html += field("X Factor", "commit-layer-parallax-x",
+                          num(settings.parallax.x), parallaxDisabled);
+            html += field("Y Factor", "commit-layer-parallax-y",
+                          num(settings.parallax.y), parallaxDisabled);
+            if (!parallaxDisabled) {
+                html += "<button class=\"" + btn + "\" data-action=\"reset-layer-parallax\">"
+                        "Reset to 1.00</button>";
+            }
+            html += "<div class=\"prop-hint\">Parallax is shown in Play. Edit mode keeps "
+                    "authored world coordinates.</div>";
+            html += "</div>";
+        }
+
         if (!playing)
             html += "<button class=\"" + btn + " layer-add-btn\" data-action=\"add-layer\">"
                     "<span class=\"icon\">" UI_ICON_ADD "</span>Add Layer</button>";

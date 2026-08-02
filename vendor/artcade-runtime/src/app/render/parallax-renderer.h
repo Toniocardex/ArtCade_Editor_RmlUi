@@ -29,6 +29,21 @@ namespace Modules { class Renderer; }
 
 namespace ParallaxRenderer {
 
+/** Pure projection: authored world → draw position for a layer factor. */
+inline Vec2 parallaxWorldPosition(Vec2 world, Vec2 cameraTopLeft, LayerParallax parallax) {
+    return {
+        world.x + cameraTopLeft.x * (1.f - parallax.x),
+        world.y + cameraTopLeft.y * (1.f - parallax.y),
+    };
+}
+
+/** ADR-0056: HUD (screenSpace) keeps the authored position; world-space UI
+ *  uses the layer-projected draw position. Shared by text and gauge passes. */
+inline Vec2 parallaxAwareUiBasePosition(Vec2 authoredWorld, Vec2 projectedWorld,
+                                        bool screenSpace) {
+    return screenSpace ? authoredWorld : projectedWorld;
+}
+
 /**
  * Paint every layer's repeating background image into the active world pass.
  *

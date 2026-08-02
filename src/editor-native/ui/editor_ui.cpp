@@ -4484,6 +4484,37 @@ bool EditorUi::handleHierarchyAction(const std::string& action, const std::strin
         }
     } else if (action == "remove-layer") {
         coordinator_.execute(RemoveSceneLayerCommand{coordinator_.state().activeSceneId, arg});
+    } else if (action == "commit-layer-parallax-x"
+               || action == "commit-layer-parallax-y") {
+        const SceneId sceneId = coordinator_.state().activeSceneId;
+        const SceneDef* scene = coordinator_.document().findScene(sceneId);
+        const std::string layerId = coordinator_.activeLayerId(sceneId);
+        const std::optional<float> parsed = parseNumberField(value);
+        if (!scene) {
+            coordinator_.logError("No selected scene");
+        } else if (layerId.empty()
+                   || !coordinator_.document().hasLayer(sceneId, layerId)) {
+            coordinator_.logError("No active scene layer");
+        } else if (!parsed) {
+            coordinator_.logError("Parallax factor is not a finite number");
+        } else {
+            LayerParallax next =
+                coordinator_.document().effectiveLayerSettings(sceneId, layerId).parallax;
+            if (action == "commit-layer-parallax-x")
+                next.x = *parsed;
+            else
+                next.y = *parsed;
+            coordinator_.execute(SetSceneLayerParallaxCommand{sceneId, layerId, next});
+        }
+    } else if (action == "reset-layer-parallax") {
+        const SceneId sceneId = coordinator_.state().activeSceneId;
+        const std::string layerId = coordinator_.activeLayerId(sceneId);
+        if (layerId.empty() || !coordinator_.document().hasLayer(sceneId, layerId)) {
+            coordinator_.logError("No active scene layer");
+        } else {
+            coordinator_.execute(SetSceneLayerParallaxCommand{
+                sceneId, layerId, LayerParallax{1.f, 1.f}});
+        }
     } else if (action == "set-entity-layer") {
         hideContextMenus();
         if (selected != INVALID_ENTITY)

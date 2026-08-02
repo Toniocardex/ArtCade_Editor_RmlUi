@@ -42,23 +42,27 @@
           {
             "actions": [
               {
-                "properties": [
-                  {
-                    "key": "target",
-                    "value": {
-                      "kind": "entity",
-                      "target": "self"
+                "block": {
+                  "properties": [
+                    {
+                      "key": "target",
+                      "value": {
+                        "kind": "entity",
+                        "target": "self"
+                      }
+                    },
+                    {
+                      "key": "visible",
+                      "value": {
+                        "kind": "bool",
+                        "value": false
+                      }
                     }
-                  },
-                  {
-                    "key": "visible",
-                    "value": {
-                      "kind": "bool",
-                      "value": false
-                    }
-                  }
-                ],
-                "typeId": "entity.set_visible"
+                  ],
+                  "typeId": "entity.set_visible"
+                },
+                "executionMode": "every_occurrence",
+                "id": "action-1"
               }
             ],
             "conditions": [
@@ -80,7 +84,6 @@
               }
             ],
             "enabled": true,
-            "executionMode": "every_occurrence",
             "id": "rule-hide",
             "name": "Hide on Space",
             "trigger": {
@@ -99,62 +102,73 @@
           {
             "actions": [
               {
-                "properties": [
-                  {
-                    "key": "target",
-                    "value": {
-                      "kind": "entity",
-                      "target": "self"
-                    }
-                  },
-                  {
-                    "key": "position",
-                    "value": {
-                      "kind": "vec2",
-                      "x": {
-                        "kind": "randomRange",
-                        "maximum": {
-                          "kind": "property",
-                          "property": "scene.worldWidth"
+                "block": {
+                  "properties": [
+                    {
+                      "key": "target",
+                      "value": {
+                        "kind": "entity",
+                        "target": "self"
+                      }
+                    },
+                    {
+                      "key": "position",
+                      "value": {
+                        "kind": "vec2",
+                        "x": {
+                          "kind": "randomRange",
+                          "maximum": {
+                            "kind": "property",
+                            "property": "scene.worldWidth"
+                          },
+                          "minimum": 0.0
                         },
-                        "minimum": 0.0
-                      },
-                      "y": 160.0
+                        "y": 160.0
+                      }
                     }
-                  }
-                ],
-                "typeId": "entity.set_position"
+                  ],
+                  "typeId": "entity.set_position"
+                },
+                "executionMode": "every_occurrence",
+                "id": "action-1"
               },
               {
-                "properties": [
-                  {
-                    "key": "offset",
-                    "value": {
-                      "kind": "vec2",
-                      "x": 4.0,
-                      "y": 0.0
+                "block": {
+                  "properties": [
+                    {
+                      "key": "offset",
+                      "value": {
+                        "kind": "vec2",
+                        "x": 4.0,
+                        "y": 0.0
+                      }
                     }
-                  }
-                ],
-                "typeId": "entity.translate_by"
+                  ],
+                  "typeId": "entity.translate_by"
+                },
+                "executionMode": "every_occurrence",
+                "id": "action-2"
               },
               {
-                "properties": [
-                  {
-                    "key": "velocity",
-                    "value": {
-                      "kind": "vec2",
-                      "x": 0.0,
-                      "y": -120.0
+                "block": {
+                  "properties": [
+                    {
+                      "key": "velocity",
+                      "value": {
+                        "kind": "vec2",
+                        "x": 0.0,
+                        "y": -120.0
+                      }
                     }
-                  }
-                ],
-                "typeId": "physics.set_velocity"
+                  ],
+                  "typeId": "physics.set_velocity"
+                },
+                "executionMode": "every_occurrence",
+                "id": "action-3"
               }
             ],
             "conditions": [],
             "enabled": true,
-            "executionMode": "every_occurrence",
             "id": "rule-place",
             "name": "Place randomly",
             "trigger": {
@@ -165,32 +179,39 @@
           {
             "actions": [
               {
-                "properties": [],
-                "typeId": "collision.destroy_other"
+                "block": {
+                  "properties": [],
+                  "typeId": "collision.destroy_other"
+                },
+                "executionMode": "every_occurrence",
+                "id": "action-1"
               },
               {
-                "properties": [
-                  {
-                    "key": "key",
-                    "value": {
-                      "id": "score",
-                      "kind": "variable"
+                "block": {
+                  "properties": [
+                    {
+                      "key": "key",
+                      "value": {
+                        "id": "score",
+                        "kind": "variable"
+                      }
+                    },
+                    {
+                      "key": "amount",
+                      "value": {
+                        "kind": "number",
+                        "value": 1.0
+                      }
                     }
-                  },
-                  {
-                    "key": "amount",
-                    "value": {
-                      "kind": "number",
-                      "value": 1.0
-                    }
-                  }
-                ],
-                "typeId": "state.add"
+                  ],
+                  "typeId": "state.add"
+                },
+                "executionMode": "every_occurrence",
+                "id": "action-2"
               }
             ],
             "conditions": [],
             "enabled": true,
-            "executionMode": "every_occurrence",
             "id": "rule-collect",
             "name": "Collect coin",
             "trigger": {
@@ -207,7 +228,7 @@
             }
           }
         ],
-        "schemaVersion": 4
+        "schemaVersion": 7
       },
       "name": "Player",
       "spritePresentation": {
@@ -654,6 +675,23 @@
           "visible": true
         }
       ],
+      "layerSettings": {
+        "layer-bg": {
+          "background": {
+            "imageId": "",
+            "scrollX": 0.0,
+            "scrollY": 0.0,
+            "tileX": true,
+            "tileY": true
+          },
+          "opacity": 1.0,
+          "parallax": {
+            "x": 0.3499999940395355,
+            "y": 0.6000000238418579
+          },
+          "visible": true
+        }
+      },
       "layers": [
         {
           "id": "layer-bg",
@@ -708,7 +746,7 @@
       }
     }
   },
-  "schemaVersion": 11,
+  "schemaVersion": 12,
   "scriptAssets": [],
   "spriteAnimationAssets": [
     {

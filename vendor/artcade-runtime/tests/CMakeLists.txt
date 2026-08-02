@@ -138,6 +138,13 @@ target_include_directories(render_pipeline_test PRIVATE
 target_link_libraries(render_pipeline_test PRIVATE artcade-renderer)
 add_test(NAME render_pipeline_test COMMAND render_pipeline_test)
 
+add_executable(parallax_projection_test parallax-projection-test.cpp)
+target_include_directories(parallax_projection_test PRIVATE
+    ${ARTCADE_RUNTIME_ROOT}/src
+    ${ARTCADE_RUNTIME_ROOT}/src/app/render
+)
+add_test(NAME parallax_projection_test COMMAND parallax_projection_test)
+
 add_executable(presentation_golden_test
     presentation-golden-test.cpp
 )

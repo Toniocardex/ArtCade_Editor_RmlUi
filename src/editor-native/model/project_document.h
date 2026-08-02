@@ -34,6 +34,7 @@ class MoveSceneLayerCommand;
 class RemoveSceneLayerCommand;
 class SetEntityLayerCommand;
 class SetLayerLockedCommand;
+class SetSceneLayerParallaxCommand;
 class AddPlatformerControllerCommand;
 class RemovePlatformerControllerCommand;
 class SetPlatformerValueCommand;
@@ -193,6 +194,12 @@ public:
      *  @p sceneId, otherwise the scene's defaultLayerId ("" / legacy /
      *  dangling -> default). Empty string if the scene doesn't exist. */
     std::string effectiveLayerId(const SceneId& sceneId, const SceneInstanceDef& instance) const;
+    /** ADR-0056: resolved SceneLayerSettings for @p layerId (sparse defaults).
+     *  Missing scene, missing layer, or missing map entry → default-constructed
+     *  settings. Does not prove the layer exists — callers that mutate must
+     *  check hasLayer first. */
+    SceneLayerSettings effectiveLayerSettings(const SceneId& sceneId,
+                                              const std::string& layerId) const;
     /** Every instance of @p sceneId in back-to-front RENDER order: layers[0]
      *  (background) first, the last layer (foreground) last; a legacy scene
      *  with no layers keeps SceneDef::instances' own order. This is a
@@ -277,6 +284,7 @@ private:
     friend class RemoveSceneLayerCommand;
     friend class SetEntityLayerCommand;
     friend class SetLayerLockedCommand;
+    friend class SetSceneLayerParallaxCommand;
     friend class AddPlatformerControllerCommand;
     friend class RemovePlatformerControllerCommand;
     friend class SetPlatformerValueCommand;
@@ -400,13 +408,18 @@ private:
     // policy); setInstanceLayer reassigns one instance. The default layer is
     // created by createScene and is never removed by these verbs.
     bool addSceneLayer(const SceneId& sceneId, const std::string& layerId,
-                       const std::string& name, std::size_t index);
+                       const std::string& name, std::size_t index,
+                       std::optional<SceneLayerSettings> settings = std::nullopt);
     bool renameSceneLayer(const SceneId& sceneId, const std::string& layerId,
                           const std::string& name);
     bool moveSceneLayer(const SceneId& sceneId, const std::string& layerId, std::size_t index);
     bool removeSceneLayer(const SceneId& sceneId, const std::string& layerId);
     bool setInstanceLayer(const SceneId& sceneId, EntityId id, const std::string& layerId);
     bool setLayerLocked(const SceneId& sceneId, const std::string& layerId, bool locked);
+    /** ADR-0056: set layer parallax; erase sparse entry when settings return to
+     *  canonical defaults. Rejects missing scene/layer and non-finite factors. */
+    bool setSceneLayerParallax(const SceneId& sceneId, const std::string& layerId,
+                               LayerParallax parallax);
     bool createInstance(const SceneId& sceneId, SceneInstanceDef instance);
     bool insertInstance(const SceneId& sceneId, std::size_t index, SceneInstanceDef instance);
     bool deleteInstance(const SceneId& sceneId, EntityId id);

@@ -127,6 +127,16 @@ if(MSVC)
     target_link_options(inspector_layer_dropdown_keyboard_test PRIVATE /STACK:16777216)
 endif()
 
+# ADR-0056: Layer Manager parallax fields + hierarchy-action routing.
+artcade_test(inspector_layer_parallax_routing_test
+    inspector-layer-parallax-routing-test.cpp
+    artcade-editor-ui)
+target_compile_definitions(inspector_layer_parallax_routing_test PRIVATE
+    ARTCADE_UI_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/src/editor-native/resources/ui")
+if(MSVC)
+    target_link_options(inspector_layer_parallax_routing_test PRIVATE /STACK:16777216)
+endif()
+
 # ADR-0035: Logic Board WHEN trigger-type catalog arrow-key highlight,
 # Enter-commit, Escape-close, and its hasOpenContextMenu() gap fix — same
 # real-element/listener discipline as inspector_layer_dropdown_keyboard_test.
@@ -155,6 +165,17 @@ endif()
 artcade_test(sfx_synthesizer_test
     ${CMAKE_SOURCE_DIR}/vendor/artcade-runtime/src/modules/sfx/tests/sfx_tests.cpp
     ArtCade::Sfx)
+
+# ADR-0056: pure parallaxWorldPosition math (header-only helper).
+add_executable(parallax_projection_test
+    ${CMAKE_SOURCE_DIR}/vendor/artcade-runtime/tests/parallax-projection-test.cpp)
+target_include_directories(parallax_projection_test PRIVATE
+    ${ARTCADE_RUNTIME_DIR}/src
+    ${ARTCADE_RUNTIME_DIR}/src/app/render)
+target_link_libraries(parallax_projection_test PRIVATE artcade-core)
+add_test(NAME parallax_projection_test COMMAND parallax_projection_test)
+set_tests_properties(parallax_projection_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # ADR-0033: recursive design-system gates for semantic colour roles, metrics,
 # static/generated markup, platform mirrors, and Tabler icon authority.
@@ -199,8 +220,10 @@ add_custom_target(artcade-editor-tests
         logic_expression_focus_routing_test
         inspector_object_variables_routing_test
         inspector_layer_dropdown_keyboard_test
+        inspector_layer_parallax_routing_test
         logic_board_dropdown_keyboard_test
         inspector_text_font_picker_test
         sfx_synthesizer_test
+        parallax_projection_test
         ui_stylesheet_tokens_test
         ui_markup_flex_text_test)

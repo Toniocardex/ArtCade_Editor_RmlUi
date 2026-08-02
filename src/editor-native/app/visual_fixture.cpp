@@ -216,6 +216,13 @@ ProjectDoc makeVisualFixtureProject() {
     // states (lock, count, active) that a single-layer scene never shows.
     scene.layers.push_back(SceneLayerDef{"layer-bg", "Background", true});
     scene.layers.push_back(SceneLayerDef{"layer-main", "Main", false});
+    // ADR-0056: non-default parallax so the Layer Manager settings subsection
+    // is visible in the Scene Inspector visual harness.
+    {
+        SceneLayerSettings bgSettings;
+        bgSettings.parallax = LayerParallax{0.35f, 0.6f};
+        scene.layerSettings.emplace("layer-bg", std::move(bgSettings));
+    }
     scene.instances.push_back(
         makeInstance(1, "Player", "layer-main", {96.f, 160.f}));
     scene.instances.push_back(
