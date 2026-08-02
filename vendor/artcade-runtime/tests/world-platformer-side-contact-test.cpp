@@ -139,14 +139,31 @@ static PhysicsMath::Aabb entityBodyAabb(
 }
 
 static void tickPlatformer(World& world, EntityId id, float dt,
-                           float moveX = 0.f, bool jump = false)
+                           float moveX = 0.f, bool jump = false,
+                           float moveY = 0.f)
 {
     world.clearFrameMovementIntents();
-    if (moveX != 0.f)
-        world.setMovementIntent(id, moveX, 0.f);
+    if (moveX != 0.f || moveY != 0.f)
+        world.setMovementIntent(id, moveX, moveY);
     if (jump)
         world.requestJump(id);
     world.tickPlatformerControllers(dt);
+}
+
+static void installLadderSensor(
+    RuntimeEntityGateway& gateway, EntityId ladderId, Vec2 size = { 24.f, 96.f })
+{
+    CollisionBodyComponent body;
+    body.enabled = true;
+    body.bodyType = BodyType::Static;
+    CollisionShape shape;
+    shape.type = CollisionShapeType::Rectangle;
+    shape.response = CollisionResponse::Sensor;
+    shape.role = CollisionShapeRole::Interaction;
+    shape.size = size;
+    shape.enabled = true;
+    body.shapes = { shape };
+    CHECK(gateway.setCollisionBody(ladderId, body));
 }
 
 static void fallUntilSettled(World& world, EntityId id, int maxFrames = 180) {
@@ -673,6 +690,252 @@ static void test_multi_fixed_step_wall_intent_no_dup() {
     h.shutdown();
 }
 
+static void test_climbing_state_and_sticky() {
+    constexpr float dt = 1.f / 60.f;
+    EntityDef hero = makeHero(1, { 0.f, 80.f });
+    EntityDef ladder = makeEntity(2, "Ladder", { 0.f, 80.f });
+    ladder.boxCollider2D = BoxCollider2DComponent{
+        { 0.f, 0.f }, { 24.f, 96.f }, true, BoxColliderMode::Trigger };
+    WorldHarness h;
+    CHECK(h.init(makeDoc({ hero, ladder })));
+    installLadderSensor(h.gateway, 2);
+
+    tickPlatformer(*h.world, 1, dt, 0.f, false, /*moveY=*/-1.f);
+    CHECK(h.world->platformerState(1) == PlatformerState::Climbing);
+    CHECK(!h.world->isPlatformerMovingHorizontally(1));
+    CHECK(!h.world->isPlatformerFalling(1));
+    Transform climbing{};
+    CHECK(h.gateway.getTransform(1, climbing));
+    CHECK_NEAR(climbing.velocity.y, -hero.platformerController->climbSpeed, 0.01f);
+
+    // Sticky: zero climb input while still overlapping keeps Climbing.
+    tickPlatformer(*h.world, 1, dt, 0.f, false, /*moveY=*/0.f);
+    CHECK(h.world->platformerState(1) == PlatformerState::Climbing);
+    CHECK(!h.world->isPlatformerMovingHorizontally(1));
+    CHECK(!h.world->isPlatformerFalling(1));
+    h.shutdown();
+}
+
+static void test_grounded_moving_state() {
+    constexpr float dt = 1.f / 60.f;
+    EntityDef hero = makeHero(1, { 0.f, 40.f });
+    EntityDef floor = makeSolidBox(2, { 0.f, 200.f }, { 256.f, 16.f }, "Floor");
+    WorldHarness h;
+    CHECK(h.init(makeDoc({ hero, floor })));
+    fallUntilSettled(*h.world, 1);
+    tickPlatformer(*h.world, 1, dt, 1.f);
+    CHECK(h.world->platformerState(1) == PlatformerState::Moving);
+    CHECK(h.world->isPlatformerMovingHorizontally(1));
+    CHECK(!h.world->isPlatformerFalling(1));
+    h.shutdown();
+}
+
+static void test_wall_block_without_slide_is_falling() {
+    constexpr float dt = 1.f / 60.f;
+    EntityDef hero = makeHero(1, { 0.f, 80.f });
+    EntityDef wall = makeSolidBox(2, { 28.f, 100.f }, { 24.f, 160.f }, "Wall");
+    WorldHarness h;
+    CHECK(h.init(makeDoc({ hero, wall })));
+    for (int i = 0; i < 45; ++i)
+        tickPlatformer(*h.world, 1, dt, 1.f);
+    CHECK(!h.world->isPlatformerGrounded(1));
+    CHECK(h.world->platformerState(1) == PlatformerState::Falling);
+    CHECK(h.world->platformerState(1) != PlatformerState::WallSliding);
+    h.shutdown();
+}
+
+static void test_wall_sliding_state_clamp_and_under_limit() {
+    constexpr float dt = 1.f / 60.f;
+    // Tall wall so the body stays in contact while fall speed builds.
+    EntityDef hero = makeHero(1, { 0.f, 40.f });
+    hero.platformerController->customGravity = 2500.f;
+    EntityDef wall = makeSolidBox(2, { 28.f, 400.f }, { 24.f, 800.f }, "Wall");
+    WorldHarness h;
+    CHECK(h.init(makeDoc({ hero, wall })));
+
+    bool slid = false;
+    for (int i = 0; i < 90; ++i) {
+        tickPlatformer(*h.world, 1, dt, 1.f);
+        Transform t{};
+        CHECK(h.gateway.getTransform(1, t));
+        if (!h.world->platformerContactProjection(1).blockedRightThisStep)
+            continue;
+        if (t.velocity.y <= 60.f)
+            continue;
+
+        CHECK(h.world->requestWallSlide(1, PlatformerWallSide::Right, 60.f));
+        h.world->clearFrameMovementIntents();
+        h.world->setMovementIntent(1, 1.f, 0.f);
+        h.world->tickPlatformerControllers(dt);
+        Transform clamped{};
+        CHECK(h.gateway.getTransform(1, clamped));
+        CHECK(h.world->platformerContactProjection(1).blockedRightThisStep);
+        CHECK(h.world->platformerState(1) == PlatformerState::WallSliding);
+        CHECK(!h.world->isPlatformerMovingHorizontally(1));
+        CHECK(!h.world->isPlatformerFalling(1));
+        CHECK_NEAR(clamped.velocity.y, 60.f, 0.01f);
+
+        // Under max: mode still active; clamp does not reduce vy further.
+        CHECK(h.world->requestWallSlide(1, PlatformerWallSide::Right, 500.f));
+        h.world->clearFrameMovementIntents();
+        h.world->setMovementIntent(1, 1.f, 0.f);
+        Transform before{};
+        CHECK(h.gateway.getTransform(1, before));
+        const float beforeVy = before.velocity.y;
+        h.world->tickPlatformerControllers(dt);
+        Transform under{};
+        CHECK(h.gateway.getTransform(1, under));
+        CHECK(h.world->platformerState(1) == PlatformerState::WallSliding);
+        CHECK(under.velocity.y <= 500.f + 0.01f);
+        CHECK(under.velocity.y + 0.01f >= beforeVy);
+        slid = true;
+        break;
+    }
+    CHECK(slid);
+    h.shutdown();
+}
+
+static void test_wall_slide_landing_prefers_grounded() {
+    constexpr float dt = 1.f / 60.f;
+    EntityDef hero = makeHero(1, { 0.f, 150.f });
+    hero.platformerController->customGravity = 3000.f;
+    EntityDef floor = makeSolidBox(2, { 0.f, 200.f }, { 256.f, 16.f }, "Floor");
+    EntityDef wall = makeSolidBox(3, { 28.f, 160.f }, { 24.f, 80.f }, "Wall");
+    WorldHarness h;
+    CHECK(h.init(makeDoc({ hero, floor, wall })));
+
+    // Drop beside wall until near floor, then wall-slide into landing.
+    for (int i = 0; i < 40; ++i)
+        tickPlatformer(*h.world, 1, dt, 1.f);
+
+    bool sawGroundedAfterSlide = false;
+    for (int i = 0; i < 60; ++i) {
+        CHECK(h.world->requestWallSlide(1, PlatformerWallSide::Right, 400.f));
+        h.world->clearFrameMovementIntents();
+        h.world->setMovementIntent(1, 1.f, 0.f);
+        h.world->tickPlatformerControllers(dt);
+        const PlatformerState st = h.world->platformerState(1);
+        if (h.world->isPlatformerGrounded(1)) {
+            CHECK(st == PlatformerState::Stopped || st == PlatformerState::Moving);
+            CHECK(st != PlatformerState::WallSliding);
+            sawGroundedAfterSlide = true;
+            break;
+        }
+    }
+    CHECK(sawGroundedAfterSlide);
+    h.shutdown();
+}
+
+static void test_wall_jump_publishes_jumping() {
+    constexpr float dt = 1.f / 60.f;
+    EntityDef hero = makeHero(1, { 0.f, 40.f });
+    EntityDef floor = makeSolidBox(2, { 0.f, 200.f }, { 256.f, 16.f }, "Floor");
+    EntityDef wall = makeSolidBox(3, { 40.f, 120.f }, { 24.f, 96.f }, "Wall");
+    WorldHarness h;
+    CHECK(h.init(makeDoc({ hero, floor, wall })));
+    fallUntilSettled(*h.world, 1);
+    for (int i = 0; i < 30; ++i)
+        tickPlatformer(*h.world, 1, dt, 1.f);
+
+    CHECK(h.world->requestWallJump(1, PlatformerWallSide::Right, 220.f, 520.f));
+    h.world->clearFrameMovementIntents();
+    h.world->setMovementIntent(1, 1.f, 0.f);
+    h.world->tickPlatformerControllers(dt);
+    CHECK(h.world->platformerState(1) == PlatformerState::Jumping);
+    CHECK(h.world->platformerState(1) != PlatformerState::WallSliding);
+    h.shutdown();
+}
+
+static void test_climbing_dominates_wall_slide_intent() {
+    constexpr float dt = 1.f / 60.f;
+    EntityDef hero = makeHero(1, { 0.f, 80.f });
+    EntityDef ladder = makeEntity(2, "Ladder", { 0.f, 80.f });
+    ladder.boxCollider2D = BoxCollider2DComponent{
+        { 0.f, 0.f }, { 24.f, 96.f }, true, BoxColliderMode::Trigger };
+    EntityDef wall = makeSolidBox(3, { 28.f, 80.f }, { 24.f, 96.f }, "Wall");
+    WorldHarness h;
+    CHECK(h.init(makeDoc({ hero, ladder, wall })));
+    installLadderSensor(h.gateway, 2);
+
+    tickPlatformer(*h.world, 1, dt, 0.f, false, -1.f);
+    CHECK(h.world->platformerState(1) == PlatformerState::Climbing);
+
+    CHECK(h.world->requestWallSlide(1, PlatformerWallSide::Right, 80.f));
+    h.world->clearFrameMovementIntents();
+    h.world->setMovementIntent(1, 1.f, -1.f);
+    h.world->tickPlatformerControllers(dt);
+    CHECK(h.world->platformerState(1) == PlatformerState::Climbing);
+    CHECK(h.world->platformerState(1) != PlatformerState::WallSliding);
+    h.shutdown();
+}
+
+static void test_wall_slide_rejects_without_current_x_block() {
+    constexpr float dt = 1.f / 60.f;
+    EntityDef hero = makeHero(1, { 0.f, 40.f });
+    hero.platformerController->customGravity = 2500.f;
+    EntityDef floor = makeSolidBox(2, { 0.f, 260.f }, { 256.f, 16.f }, "Floor");
+    WorldHarness h;
+    CHECK(h.init(makeDoc({ hero, floor })));
+    fallUntilSettled(*h.world, 1);
+    tickPlatformer(*h.world, 1, dt, 0.f, /*jump=*/true);
+    for (int i = 0; i < 15; ++i)
+        tickPlatformer(*h.world, 1, dt);
+
+    Transform before{};
+    CHECK(h.gateway.getTransform(1, before));
+    CHECK(before.velocity.y > 0.f);
+
+    CHECK(h.world->requestWallSlide(1, PlatformerWallSide::Right, 40.f));
+    h.world->clearFrameMovementIntents();
+    // No horizontal press into a wall → no xMove block.
+    h.world->setMovementIntent(1, 0.f, 0.f);
+    h.world->tickPlatformerControllers(dt);
+    Transform after{};
+    CHECK(h.gateway.getTransform(1, after));
+    CHECK(h.world->platformerState(1) == PlatformerState::Falling);
+    CHECK(h.world->platformerState(1) != PlatformerState::WallSliding);
+    // No clamp to 40.
+    CHECK(after.velocity.y > 40.f + 0.01f);
+    h.shutdown();
+}
+
+static void test_wall_slide_rejects_side_mismatch() {
+    constexpr float dt = 1.f / 60.f;
+    EntityDef hero = makeHero(1, { 0.f, 40.f });
+    hero.platformerController->customGravity = 2500.f;
+    EntityDef wall = makeSolidBox(2, { -28.f, 400.f }, { 24.f, 800.f }, "Wall");
+    WorldHarness h;
+    CHECK(h.init(makeDoc({ hero, wall })));
+
+    bool rejected = false;
+    for (int i = 0; i < 90; ++i) {
+        tickPlatformer(*h.world, 1, dt, -1.f);
+        Transform t{};
+        CHECK(h.gateway.getTransform(1, t));
+        if (!h.world->platformerContactProjection(1).blockedLeftThisStep)
+            continue;
+        if (t.velocity.y <= 50.f)
+            continue;
+
+        // Intent asks for Right while X is blocked on Left.
+        CHECK(h.world->requestWallSlide(1, PlatformerWallSide::Right, 50.f));
+        h.world->clearFrameMovementIntents();
+        h.world->setMovementIntent(1, -1.f, 0.f);
+        h.world->tickPlatformerControllers(dt);
+        Transform after{};
+        CHECK(h.gateway.getTransform(1, after));
+        CHECK(h.world->platformerContactProjection(1).blockedLeftThisStep);
+        CHECK(!h.world->platformerContactProjection(1).blockedRightThisStep);
+        CHECK(h.world->platformerState(1) != PlatformerState::WallSliding);
+        CHECK(h.world->platformerState(1) == PlatformerState::Falling);
+        CHECK(after.velocity.y > 50.f + 0.01f);
+        rejected = true;
+        break;
+    }
+    CHECK(rejected);
+    h.shutdown();
+}
+
 static void test_stress_repeated_jumps_into_wall() {
     constexpr float dt = 1.f / 60.f;
     EntityDef hero = makeHero(1, { 0.f, 40.f });
@@ -726,6 +989,15 @@ int main() {
     test_wall_jump_next_step_and_clear_intents();
     test_wall_slide_clamps_after_gravity();
     test_multi_fixed_step_wall_intent_no_dup();
+    test_climbing_state_and_sticky();
+    test_grounded_moving_state();
+    test_wall_block_without_slide_is_falling();
+    test_wall_sliding_state_clamp_and_under_limit();
+    test_wall_slide_landing_prefers_grounded();
+    test_wall_jump_publishes_jumping();
+    test_climbing_dominates_wall_slide_intent();
+    test_wall_slide_rejects_without_current_x_block();
+    test_wall_slide_rejects_side_mismatch();
     test_stress_repeated_jumps_into_wall();
 
     if (g_failed == 0) {

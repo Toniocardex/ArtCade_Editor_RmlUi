@@ -648,11 +648,13 @@ Authoritative order:
 Existing climbing behavior is preserved:
 
 - ladder contact is discovered through interaction/sensor shapes;
-- climbing engages only with input on the ladder axis;
+- climbing engages with input on the ladder axis, then stays sticky while
+  overlapping the Interaction sensor until leave / jump / wall-jump / detach;
 - gravity is suspended while climbing;
 - vertical climb input sets climb velocity;
 - jump detaches from the ladder;
-- `PlatformerState::Climbing` remains dominant over grounded/airborne states.
+- `PlatformerState::Climbing` remains dominant over grounded / WallSliding /
+  airborne states (ADR-0016).
 
 This ADR does not redesign ladders.
 
@@ -724,7 +726,7 @@ struct PlatformerRt {
 
 ### 14.1 State publication
 
-At the end of the Platformer step:
+At the end of the Platformer step (after Y / floor snap / final support):
 
 ```text
 climbing
@@ -736,6 +738,10 @@ grounded + |vx| > horizontal epsilon
 grounded
 → Stopped
 
+wall-slide publish (intent + current X block on requested side
+  + valid maxFallSpeed + still airborne / not climbing)
+→ WallSliding
+
 airborne + vy < -vertical epsilon
 → Jumping
 
@@ -745,6 +751,11 @@ airborne + vy > vertical epsilon
 airborne near apex
 → ADR-0016 lastAirState
 ```
+
+Climbing is sticky while overlapping the ladder Interaction sensor until
+leave / jump / wall-jump / explicit detach (see ADR-0016). `lastAirState`
+stores only Jumping/Falling — never Climbing or WallSliding.
+WallSliding is locomotion mode from ADR-0055 intents, not a contact value.
 
 ### 14.2 Read APIs
 

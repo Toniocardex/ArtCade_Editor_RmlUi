@@ -1,28 +1,28 @@
-# ADR-0016 — Platformer State (Stopped / Moving / Jumping / Falling)
+# ADR-0016 — Platformer State (locomotion projection)
 
 **Status:** Accepted  
 **Date:** 2026-07-23  
+**Updated:** 2026-07-31 — Climbing / WallSliding  
 **Scope:** Logic Board `platformer.motion_state`, `World::platformerState`,
 `IGameplayRuntimeHost`, Logic codegen / Script SelfProxy, deprecation of
 `platformer.is_falling` as a separate catalog condition  
 **Supersedes:** [ADR-0015](ADR-0015-platformer-motion-state.md) (Motion =
 Moving/Stopped only; typeId retained)  
 **Related:** [`LOGIC_BOARD_RULES_ROADMAP.md`](LOGIC_BOARD_RULES_ROADMAP.md) §2B.1,
-[ADR-0012](ADR-0012-platformer-move-direction.md), Constitution (single
+[ADR-0012](ADR-0012-platformer-move-direction.md),
+[ADR-0052](ADR-0052-platformer-ground-support-side-contact.md),
+[ADR-0055](ADR-0055-platformer-contact-logic-board.md), Constitution (single
 authority; no runtime→authoring sync)
 
 ## Context
 
 ADR-0015 shipped a Level condition for horizontal motion so Walk/Idle could
-follow `|vx|` instead of key release. Authors still need **Jump** and **Fall**
-clips driven by the same physical controller, without:
+follow `|vx|` instead of key release. Authors need **Jump** / **Fall** /
+**Climb** / **Wall Slide** clips driven by the same physical controller,
+without parallel booleans or composing contact queries for every anim rule.
 
-- four parallel booleans (`isMoving` / `isStopped` / `isJumping` / `isFalling`);
-- composing `Is Grounded` + `Platformer Motion` for every anim rule;
-- a one-frame **Stopped** flash at jump apex when `|vy| ≈ 0`.
-
-`Is Falling` already exists as a separate Level condition. Keeping it beside a
-unified state block duplicates authority and confuses the catalog.
+Contact edges (Landed, wall sides, ceiling) belong to
+`PlatformerContactProjection` (ADR-0055), not this enum.
 
 ## Decision
 
@@ -34,60 +34,85 @@ enum class PlatformerState {
     Moving,
     Jumping,
     Falling,
+    Climbing,
+    WallSliding,
 };
 ```
 
 Single authoritative projection:
 
 ```text
-PlatformerRt (velocity, grounded, lastAirState)
+PlatformerRt (velocity, grounded, climbing, lastAirState)
++ wall-slide publish flag (intent + current X block)
         ↓
 World::platformerState(id)
         ↓
 IGameplayRuntimeHost::platformerState(owner)
         ↓
-context.self:platformer_state()   // string: "Stopped"|"Moving"|"Jumping"|"Falling"
+context.self:platformer_state()
+// "Stopped"|"Moving"|"Jumping"|"Falling"|"Climbing"|"WallSliding"
 ```
 
 No authoring fields on `PlatformerControllerComponent`. No parallel Logic
-Board state machine.
+Board state machine. Persistent Logic strings are PascalCase (reject
+`wall_sliding`, `Wall Sliding`).
 
 ### Resolution (+Y down)
 
-Priority:
+Priority (final post-Y / post-support state):
 
-1. Grounded (or climbing) + `|vx| > ε_h` → **Moving**
-2. Grounded (or climbing) + `|vx| ≤ ε_h` → **Stopped**
-3. Airborne + `vy < -ε_v` → **Jumping** (update `lastAirState`)
-4. Airborne + `vy > +ε_v` → **Falling** (update `lastAirState`)
-5. Airborne + `|vy| ≤ ε_v` (apex) → **`lastAirState`** (never a false Stopped)
+1. Climbing → **Climbing**
+2. Grounded + `|vx| > ε_h` → **Moving**
+3. Grounded → **Stopped**
+4. WallSliding publish flag → **WallSliding**
+5. Airborne + `vy < -ε_v` → **Jumping** (update `lastAirState`)
+6. Airborne + `vy > +ε_v` → **Falling** (update `lastAirState`)
+7. Airborne + `|vy| ≤ ε_v` (apex) → **`lastAirState`** (never a false Stopped)
 
-`ε_h` / `ε_v` are module policy constants (not authoring properties). Update
-`lastAirState` only during the platformer fixed step when Jumping/Falling is
-detected — not from Logic.
+`lastAirState` stores only Jumping/Falling. Never Climbing or WallSliding.
+While WallSliding with `vy > ε_v`, `lastAirState` may become Falling so the
+airborne baseline restores when the mode ends.
+
+### Climbing sticky
+
+Once engaged (`onLadder` + `|climbAxis| > 0`), Self remains Climbing until it
+leaves the Interaction sensor, jumps, wall-jumps, or another explicit detach.
+Zero climb input with continued overlap does **not** clear climbing.
+
+### WallSliding
+
+Published only when all hold for the fixed step:
+
+- next-step Wall Slide intent pending with finite `maxFallSpeed >= 0`;
+- current `xMove` blocked on the **same** side as the intent;
+- not climbing, no ground support at clamp time, `vy >= 0`;
+- final publish: still airborne and not climbing after Y/support.
+
+Not equivalent to Is Touching Wall. Side mismatch or lost X block rejects the
+intent for that step (no clamp, no WallSliding). Clamp uses `std::min`; the
+mode is active even when `vy` was already below `maxFallSpeed`.
+
+If wall slide was active pre-Y but Y lands, grounded wins → Stopped/Moving.
 
 ### Logic Board block (compatibility)
 
 | Item | Value |
 |---|---|
 | Stable typeId | **`platformer.motion_state`** (unchanged) |
-| Display name | **Platformer State** (was Platformer Motion) |
-| Property | `state`: **Stopped \| Moving \| Jumping \| Falling** (default Moving) |
+| Display name | **Platformer State** |
+| Property | `state`: Stopped \| Moving \| Jumping \| Falling \| Climbing \| WallSliding |
 | Kind | Condition, Level (WHEN-eligible), OncePerActivation rising-edge |
 | Requires | `PlatformerController` + Self |
 | Feature | `platformer.motion_state` |
 
-Existing boards with `Moving` / `Stopped` need **no migration**.
+No ProjectDocument / Logic apiVersion bump — options only. Existing boards
+with Moving/Stopped/Jumping/Falling need no migration.
 
 Codegen:
 
 ```lua
 context.self:platformer_state() == "Jumping"
 ```
-
-Do not emit raw `velocity` or epsilon comparisons in board Lua.
-
-Rule summary incorporates the state value, e.g. `Platformer Jumping → Play Clip`.
 
 ### Canonical authoring recipe
 
@@ -98,29 +123,25 @@ Platformer State Moving  · once → Play Walk
 Platformer State Stopped · once → Play Idle
 Platformer State Jumping · once → Play Jump
 Platformer State Falling · once → Play Fall
+Platformer State Climbing · once → Play Climb
+Platformer State WallSliding · once → Play Wall Slide
 Key Pressed W → Jump          -- request only; anim from Jumping state
 ```
 
 Do **not** use Every occurrence for Play Clip while the state remains true.
-Do **not** put Play Jump on the key rule — input requests jump; state selects
-the clip (also works for Script/platform launch).
+Do **not** add Is Climbing / Is Wall Sliding conditions (duplicates of State).
 
-`Moving` / `Stopped` imply grounded (or climbing); no extra `Is Grounded` IF
-is required for the Walk/Idle recipe.
+`Moving` / `Stopped` imply grounded; Climbing is separate.
 
 ### Deprecation of `platformer.is_falling`
 
-- **Catalog:** hide `Is Falling` from add-Event / add-Condition pickers
-  (`catalogHidden`).
-- **Load:** rewrite existing blocks `platformer.is_falling` + `expected`
-  into `platformer.motion_state` with `state = Falling` (or Stopped when
-  expected was false — rare; prefer Falling when expected true, and when
-  expected false rewrite to a Level WHEN that is the negation via a different
-  state is ambiguous — only migrate `expected == true` / default; leave
-  `expected == false` with a deprecation diagnostic until manual repair).
-- **Host:** keep `isFalling()` as `platformerState() == Falling` for Script /
-  legacy codegen until boards are migrated.
-- **`Is Grounded`:** remains — contact query for non-anim logic.
+- **Catalog:** hide `Is Falling` (`catalogHidden`).
+- **Load:** rewrite `platformer.is_falling` + expected true → State Falling.
+- **Host:** `isFalling()` = `platformerState() == Falling` only
+  (WallSliding is not Falling).
+- **`isPlatformerMoving`:** `platformerState() == Moving` only
+  (Climbing is not Moving).
+- **`Is Grounded`:** remains — contact for non-anim logic.
 
 ### Host / Script
 
@@ -128,26 +149,21 @@ is required for the Walk/Idle recipe.
 virtual PlatformerState platformerState(EntityId owner) = 0;
 ```
 
-`isPlatformerMoving(owner)` becomes `platformerState(owner) == Moving` (thin
-wrapper for Script `ctx.platformer.is_moving` parity). Prefer documenting
-`platformer_state()` as the primary query.
+Prefer `platformer_state()` as the primary query.
 
 ## Consequences
 
-- One mutually exclusive state for anim selection; Walk/Idle/Jump/Fall share
-  one OncePerActivation edge model.
-- ADR-0015 semantics for Moving/Stopped on ground are preserved; Jumping/Falling
-  extend the same typeId.
+- One mutually exclusive locomotion state for anim selection.
+- Contact edges stay in `PlatformerContactProjection` (ADR-0055).
 - Apex hysteresis via `lastAirState` avoids Idle flicker mid-jump.
-- Catalog complexity drops once Is Falling is hidden; old projects migrate on
-  load for the common case.
+- Legacy predicates stay strict aliases of State values.
 
 ## Verification
 
 - D hold/release: Stopped↔Moving, Walk/Idle once each.
 - Jump: → Jumping once; apex: no Stopped frame; → Falling once; land Stopped
   or Moving depending on held direction.
-- Right↔Left without stop: stays Moving, Walk does not restart.
+- Ladder engage / sticky / jump detach → Climbing then Jumping/Falling.
+- Wall Slide intent + matching X block → WallSliding; lost/mismatched side →
+  Falling; land same tick → Stopped/Moving.
 - Editor Play = `game.exe` = WASM host parity.
-- Boards with only Moving/Stopped unchanged; `Is Falling` (expected true)
-  migrates to State Falling.

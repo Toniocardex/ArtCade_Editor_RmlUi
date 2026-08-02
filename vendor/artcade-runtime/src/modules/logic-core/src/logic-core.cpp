@@ -485,11 +485,13 @@ void validateBlock(const ObjectTypeId& objectTypeId, const LogicBoardDef& board,
         if (block.typeId == kPlatformerMotionState && property.key == "state") {
             const auto* state = std::get_if<LogicStringValue>(&property.value);
             const bool ok = state
-                && (state->value == "Moving" || state->value == "Stopped"
-                    || state->value == "Jumping" || state->value == "Falling");
+                && (state->value == "Stopped" || state->value == "Moving"
+                    || state->value == "Jumping" || state->value == "Falling"
+                    || state->value == "Climbing" || state->value == "WallSliding");
             if (!ok) {
                 pushSemantic(makeError(objectTypeId, board, "LB_PLATFORMER_MOTION_STATE",
-                                       "Platformer State must be Stopped, Moving, Jumping, or Falling",
+                                       "Platformer State must be Stopped, Moving, Jumping, "
+                                       "Falling, Climbing, or WallSliding",
                                        &rule, &block, property.key));
             }
         }
@@ -1003,15 +1005,16 @@ const std::vector<LogicBlockDescriptor>& registry() {
             "platformer.falling", false, 15, {"airborne", "descent", "drop"},
             LogicTriggerActivationKind::Level, true, LogicPhaseRequirement::PostOnly},
         {kPlatformerMotionState, "platformer", "Platformer State",
-            "Mutually exclusive locomotion of Self: Stopped/Moving on ground "
-            "(or climbing), Jumping/Falling airborne (ADR-0016).",
+            "Mutually exclusive locomotion of Self: Stopped/Moving grounded, "
+            "Jumping/Falling airborne, Climbing on ladders, WallSliding while "
+            "the wall-slide intent is active (ADR-0016 / ADR-0052).",
             BlockKind::Condition,
             {{"state", LogicValueKind::String, LogicStringValue{"Moving"}, "State"}},
             {LogicRequiredComponent::PlatformerController}, {LogicContextCapability::Self},
             {LogicContextCapability::Self},
             "platformer.motion_state", false, 18,
             {"moving", "stopped", "idle", "walking", "running", "jumping", "falling",
-             "velocity", "motion", "state"},
+             "climbing", "wall sliding", "velocity", "motion", "state"},
             LogicTriggerActivationKind::Level, false, LogicPhaseRequirement::PostOnly},
         {kIsBlockedByWall, "platformer", "Is Blocked By Wall",
             "True when Platformer X resolution was blocked this fixed step "
@@ -1276,7 +1279,8 @@ const std::vector<LogicBlockDescriptor>& registry() {
                     property.options = {"Left", "Right"};
                 } else if (block.typeId == kPlatformerMotionState && property.key == "state") {
                     property.semantic = LogicPropertySemantic::PlatformerMotionState;
-                    property.options = {"Stopped", "Moving", "Jumping", "Falling"};
+                    property.options = {"Stopped", "Moving", "Jumping", "Falling",
+                                        "Climbing", "WallSliding"};
                 }
                 if (block.typeId == kStateCompareString && property.key == "value") {
                     property.allowEmpty = true;

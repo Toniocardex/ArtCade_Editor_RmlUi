@@ -243,13 +243,15 @@ public:
      */
     bool isPlatformerFalling(EntityId id) const;
     /**
-     * True when |PlatformerRt.velocity.x| exceeds the horizontal motion epsilon
-     * while grounded/climbing (ADR-0015). Prefer platformerState() for new code.
+     * True when platformerState is Moving only (Climbing is not Moving).
+     * Prefer platformerState() for new code.
      */
     bool isPlatformerMovingHorizontally(EntityId id) const;
     /**
-     * Mutually exclusive locomotion state (ADR-0016): Stopped/Moving on ground
-     * (or climbing), Jumping/Falling airborne, with apex hysteresis via lastAirState.
+     * Mutually exclusive locomotion (ADR-0016 / ADR-0052): Stopped/Moving
+     * grounded, Climbing on ladders, WallSliding while wall-slide intent is
+     * active with a matching current X block, Jumping/Falling airborne
+     * (apex via lastAirState).
      */
     PlatformerState platformerState(EntityId id) const;
 

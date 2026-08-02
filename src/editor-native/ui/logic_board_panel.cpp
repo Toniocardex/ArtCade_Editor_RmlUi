@@ -239,6 +239,8 @@ std::string logicRuleSummary(const LogicRuleDef& rule) {
                 else if (state->value == "Stopped") head = "Platformer Stopped";
                 else if (state->value == "Jumping") head = "Platformer Jumping";
                 else if (state->value == "Falling") head = "Platformer Falling";
+                else if (state->value == "Climbing") head = "Platformer Climbing";
+                else if (state->value == "WallSliding") head = "Platformer Wall Sliding";
             }
         }
     } else {

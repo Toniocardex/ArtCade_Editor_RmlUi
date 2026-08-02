@@ -17,14 +17,19 @@ constexpr float kVerticalMotionEpsilon = 0.01f;
 PlatformerState resolvePublishedState(
     bool grounded,
     bool climbing,
+    bool wallSliding,
     const Vec2& velocity,
     PlatformerState lastAirState)
 {
-    if (climbing || grounded) {
+    if (climbing)
+        return PlatformerState::Climbing;
+    if (grounded) {
         return std::abs(velocity.x) > kHorizontalMotionEpsilon
             ? PlatformerState::Moving
             : PlatformerState::Stopped;
     }
+    if (wallSliding)
+        return PlatformerState::WallSliding;
     if (velocity.y < -kVerticalMotionEpsilon)
         return PlatformerState::Jumping;
     if (velocity.y > kVerticalMotionEpsilon)
@@ -155,16 +160,31 @@ void stepPlatformerController(World& world,
         vy = 0.f;
     }
 
-    // Wall slide: after gravity, before Y; airborne + valid side only.
-    if (!wallJumpedThisStep
+    // Wall slide: after gravity, before Y. Intent + current X block on the
+    // requested side (not a persistent wall probe). Active even when vy is
+    // already below maxFallSpeed so WallSliding can publish without a clamp.
+    const bool blockedOnRequestedSide =
+        wallSlide.has_value()
+        && (
+            (wallSlide->side == PlatformerWallSide::Left && xMove.hitLeftWall)
+            || (wallSlide->side == PlatformerWallSide::Right
+                && xMove.hitRightWall)
+        );
+    const bool validMaxFallSpeed =
+        wallSlide.has_value()
+        && std::isfinite(wallSlide->maxFallSpeed)
+        && wallSlide->maxFallSpeed >= 0.f;
+    const bool wallSlideActive =
+        !wallJumpedThisStep
         && wallSlide.has_value()
         && wallSlide->pending
-        && wallSlide->side != PlatformerWallSide::None
+        && validMaxFallSpeed
+        && blockedOnRequestedSide
         && !rt.climbing
         && !support.has_value()
-        && vy > wallSlide->maxFallSpeed) {
-        vy = wallSlide->maxFallSpeed;
-    }
+        && vy >= 0.f;
+    if (wallSlideActive)
+        vy = std::min(vy, wallSlide->maxFallSpeed);
 
     rt.velocity.y = vy;
     transform.velocity = rt.velocity;
@@ -231,8 +251,11 @@ void stepPlatformerController(World& world,
         else if (rt.velocity.y > kVerticalMotionEpsilon)
             rt.lastAirState = PlatformerState::Falling;
     }
+    const bool publishWallSliding =
+        wallSlideActive && !rt.grounded && !rt.climbing;
     rt.state = resolvePublishedState(
-        rt.grounded, rt.climbing, rt.velocity, rt.lastAirState);
+        rt.grounded, rt.climbing, publishWallSliding, rt.velocity,
+        rt.lastAirState);
 
     if (rt.grounded)
         rt.coyoteTimer = pc.coyoteTime;

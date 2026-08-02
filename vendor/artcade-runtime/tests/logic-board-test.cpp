@@ -906,6 +906,33 @@ static void testPlatformerMotionState() {
     }
     {
         LogicBoardDef board;
+        board.id = "logic:MotionClimbing";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        rule.trigger = makeMotionTrigger("Climbing");
+        rule.actions = {makeDefaultBlock(kJump, BlockKind::Action)};
+        board.rules.push_back(rule);
+        CHECK(validateBoard("Hero", board, &owner).empty());
+        LogicCompileResult compiled = compileBoard("Hero", board, &owner);
+        CHECK(compiled.ok());
+        CHECK(compiled.programs[0].source.find("platformer_state() == \"Climbing\"")
+              != std::string::npos);
+    }
+    {
+        LogicBoardDef board;
+        board.id = "logic:MotionWallSliding";
+        LogicRuleDef rule = makeDefaultRule("rule-1");
+        rule.trigger = makeMotionTrigger("WallSliding");
+        rule.actions = {makeDefaultBlock(kJump, BlockKind::Action)};
+        board.rules.push_back(rule);
+        CHECK(validateBoard("Hero", board, &owner).empty());
+        LogicCompileResult compiled = compileBoard("Hero", board, &owner);
+        CHECK(compiled.ok());
+        CHECK(compiled.programs[0].source.find(
+                  "platformer_state() == \"WallSliding\"")
+              != std::string::npos);
+    }
+    {
+        LogicBoardDef board;
         board.id = "logic:MotionBad";
         LogicRuleDef rule = makeDefaultRule("rule-1");
         rule.trigger = makeMotionTrigger("Jogging");
@@ -915,6 +942,20 @@ static void testPlatformerMotionState() {
         CHECK(std::any_of(diags.begin(), diags.end(), [](const LogicDiagnostic& d) {
             return d.code == "LB_PLATFORMER_MOTION_STATE";
         }));
+    }
+    {
+        for (const char* bad : {"wall_sliding", "Wall Sliding"}) {
+            LogicBoardDef board;
+            board.id = std::string("logic:MotionBad_") + bad;
+            LogicRuleDef rule = makeDefaultRule("rule-1");
+            rule.trigger = makeMotionTrigger(bad);
+            rule.actions = {makeDefaultBlock(kJump, BlockKind::Action)};
+            board.rules.push_back(rule);
+            const auto diags = validateBoard("Hero", board, &owner);
+            CHECK(std::any_of(diags.begin(), diags.end(), [](const LogicDiagnostic& d) {
+                return d.code == "LB_PLATFORMER_MOTION_STATE";
+            }));
+        }
     }
     {
         LogicBoardDef board;
@@ -1419,7 +1460,8 @@ static void testDescriptorSemanticMetadataConsistency() {
                 CHECK(property.key == "state");
                 CHECK(property.options
                       == std::vector<std::string>(
-                          {"Stopped", "Moving", "Jumping", "Falling"}));
+                          {"Stopped", "Moving", "Jumping", "Falling",
+                           "Climbing", "WallSliding"}));
             } else if (!property.options.empty()) {
                 // Generic string enums (wall side, Event/Left/Right, …).
                 CHECK(property.valueKind == LogicValueKind::String);

@@ -1002,11 +1002,8 @@ static void testIsFallingEventTrueWhileDescendingFalseWhenGroundedOrRising() {
     CHECK(findRenderable(*coordinator.playSession(), 1)->visibleInGame);
 
     RuntimeInputSnapshot none;
-    // Frame 1: tick still sees vy=0 â†’ not falling; physics then applies gravity.
-    coordinator.tickRuntime(none, 1.f / 60.f);
-    CHECK(findRenderable(*coordinator.playSession(), 1)->visibleInGame);
-
-    // Frame 2: tick sees descending â†’ Is Falling fires â†’ hide.
+    // ADR-0055: Is Falling is PostOnly — Pre still sees vy=0, platformer then
+    // applies gravity, Post evaluates Falling and hides within the same tick.
     coordinator.tickRuntime(none, 1.f / 60.f);
     CHECK(!findRenderable(*coordinator.playSession(), 1)->visibleInGame);
 

@@ -284,9 +284,11 @@ int manualPlatformerState(lua_State* state) {
     if (!host) return luaL_error(state, "ctx.platformer:state failed");
     const char* name = "Stopped";
     switch (host->platformerState(manualOwner(state))) {
-    case PlatformerState::Moving:  name = "Moving"; break;
-    case PlatformerState::Jumping: name = "Jumping"; break;
-    case PlatformerState::Falling: name = "Falling"; break;
+    case PlatformerState::Moving:      name = "Moving"; break;
+    case PlatformerState::Jumping:     name = "Jumping"; break;
+    case PlatformerState::Falling:     name = "Falling"; break;
+    case PlatformerState::Climbing:    name = "Climbing"; break;
+    case PlatformerState::WallSliding: name = "WallSliding"; break;
     case PlatformerState::Stopped:
     default: break;
     }

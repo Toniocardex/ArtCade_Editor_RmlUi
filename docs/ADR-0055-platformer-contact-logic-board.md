@@ -16,7 +16,17 @@ Script post-simulation parity, Floor/Wall as `PlatformerState` values.
 ### Model
 
 Collider response, **Contact**, and **Locomotion** stay separate. Do not add
-Floor/Wall to `PlatformerState`.
+Floor/Wall/Landed/Ceiling to `PlatformerState`.
+
+Locomotion modes that *are* `PlatformerState` (ADR-0016 / ADR-0052):
+
+- **Climbing** — ladder modality (sticky while overlapping Interaction sensor)
+- **WallSliding** — Wall Slide intent accepted for the step **and** current
+  `xMove` blocked on the same side, with finite `maxFallSpeed >= 0`. Not a
+  persistent wall probe. If Y lands in the same step, grounded Stopped/Moving
+  wins over WallSliding.
+
+Wall Jump remains an intent/impulse; resulting locomotion is **Jumping**.
 
 ### Projection
 

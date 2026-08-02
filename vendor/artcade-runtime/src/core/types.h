@@ -314,6 +314,8 @@ enum class PlatformerState {
     Moving,
     Jumping,
     Falling,
+    Climbing,
+    WallSliding,
 };
 
 /** ADR-0055: wall side for blocked-X contacts and wall intents. */

@@ -235,9 +235,11 @@ struct LogicRuntime::Impl {
         std::string platformerState() {
             if (!impl) return "Stopped";
             switch (impl->host.platformerState(owner)) {
-            case PlatformerState::Moving:  return "Moving";
-            case PlatformerState::Jumping: return "Jumping";
-            case PlatformerState::Falling: return "Falling";
+            case PlatformerState::Moving:      return "Moving";
+            case PlatformerState::Jumping:     return "Jumping";
+            case PlatformerState::Falling:     return "Falling";
+            case PlatformerState::Climbing:    return "Climbing";
+            case PlatformerState::WallSliding: return "WallSliding";
             case PlatformerState::Stopped:
             default: return "Stopped";
             }
