@@ -965,6 +965,8 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
         }
 
         // ADR-0056: active-layer parallax settings (presentation-only; Play preview).
+        // Presets lead with the visual result; exact per-axis factors remain available
+        // as a secondary fine-tune path for asymmetric and advanced effects.
         const bool activeLayerValid =
             !activeLayer.empty()
             && coordinator.document().hasLayer(activeScene, activeLayer);
@@ -979,23 +981,50 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                 }
             }
             const bool parallaxDisabled = playing;
+            const auto isUniformParallax = [&](float factor) {
+                return settings.parallax.x == factor && settings.parallax.y == factor;
+            };
             html += "<div class=\"layer-settings\">";
-            html += "<div class=\"prop-subheading\">Layer Settings</div>";
-            html += "<div class=\"prop-readonly\">" + escapeRml(activeName) + "</div>";
-            html += "<div class=\"prop-subheading\" title=\"Controls how quickly this layer "
-                    "moves relative to the camera. 1.00 is normal world movement, values "
-                    "below 1.00 appear farther away, 0.00 stays fixed to the camera, and "
-                    "values above 1.00 move faster.\">Parallax</div>";
-            html += field("X Factor", "commit-layer-parallax-x",
+            html += "<div class=\"layer-settings-head\">"
+                    "<span class=\"layer-settings-title\">Parallax</span>"
+                    "<span class=\"layer-settings-layer\">"
+                  + escapeRml(activeName) + " layer</span></div>";
+            html += "<div class=\"layer-settings-copy\">Choose how this layer moves "
+                    "with the camera.</div>";
+            html += "<div class=\"mode-block layer-parallax-presets\">"
+                    "<span class=\"mode-label\">Camera movement</span>"
+                    "<div class=\"mode-options\">";
+            const auto preset = [&](const char* label, const char* title,
+                                    const char* action, const char* arg, bool active) {
+                html += "<button type=\"button\" class=\"panel-btn mode-option";
+                if (active) html += " active";
+                if (parallaxDisabled) html += " disabled";
+                html += "\" data-action=\"" + std::string(action) + "\"";
+                if (arg && *arg) html += " data-arg=\"" + std::string(arg) + "\"";
+                html += " title=\"" + std::string(title) + "\" aria-pressed=\"";
+                html += active ? "true" : "false";
+                html += "\"";
+                if (parallaxDisabled) html += " disabled=\"disabled\"";
+                html += ">" + std::string(label) + "</button>";
+            };
+            preset("Fixed", "Stays fixed to the game view", "apply-layer-parallax-preset",
+                   "0", isUniformParallax(0.f));
+            preset("Far", "Moves slowly like a distant background", "apply-layer-parallax-preset",
+                   "0.5", isUniformParallax(0.5f));
+            preset("Normal", "Moves normally with the world", "reset-layer-parallax",
+                   "", isUniformParallax(1.f));
+            preset("Near", "Moves faster like a foreground", "apply-layer-parallax-preset",
+                   "1.5", isUniformParallax(1.5f));
+            html += "</div></div>";
+            html += "<div class=\"prop-subheading layer-fine-tune-title\" "
+                    "title=\"Use different horizontal and vertical movement for advanced effects.\">"
+                    "Fine tune</div>";
+            html += field("Horizontal", "commit-layer-parallax-x",
                           num(settings.parallax.x), parallaxDisabled);
-            html += field("Y Factor", "commit-layer-parallax-y",
+            html += field("Vertical", "commit-layer-parallax-y",
                           num(settings.parallax.y), parallaxDisabled);
-            if (!parallaxDisabled) {
-                html += "<button class=\"" + btn + "\" data-action=\"reset-layer-parallax\">"
-                        "Reset to 1.00</button>";
-            }
-            html += "<div class=\"prop-hint\">Parallax is shown in Play. Edit mode keeps "
-                    "authored world coordinates.</div>";
+            html += "<div class=\"prop-hint layer-play-hint\"><span class=\"icon\">"
+                    UI_ICON_PLAY "</span>Preview the effect in Play mode.</div>";
             html += "</div>";
         }
 

@@ -2,8 +2,8 @@
 // ADR-0056 — Layer Manager parallax fields: render + hierarchy-action routing.
 //
 // Starts at real RmlUi Inspector elements (same discipline as
-// inspector-layer-dropdown-keyboard-test): fields and Reset are found by
-// data-action, commits go through EditorUi::handleAction, and Play must
+// inspector-layer-dropdown-keyboard-test): presets, fields, and Normal are
+// found by data-action, commits go through EditorUi::handleAction, and Play must
 // disable the affordance without mutating ProjectDocument.
 // ============================================================================
 
@@ -165,15 +165,43 @@ int main() {
     Rml::Element* xField = findAction(document, "commit-layer-parallax-x");
     Rml::Element* yField = findAction(document, "commit-layer-parallax-y");
     Rml::Element* reset = findAction(document, "reset-layer-parallax");
+    Rml::Element* fixedPreset = findAction(document, "apply-layer-parallax-preset", "0");
+    Rml::Element* farPreset = findAction(document, "apply-layer-parallax-preset", "0.5");
+    Rml::Element* nearPreset = findAction(document, "apply-layer-parallax-preset", "1.5");
     CHECK(xField != nullptr);
     CHECK(yField != nullptr);
     CHECK(reset != nullptr);
+    CHECK(fixedPreset != nullptr);
+    CHECK(farPreset != nullptr);
+    CHECK(nearPreset != nullptr);
     CHECK(!isDisabled(xField));
     CHECK(!isDisabled(yField));
     // Locked Background layer remains authorable for parallax.
     CHECK(coordinator.document().isLayerLocked("scene-1", "layer-bg"));
     CHECK(fieldValue(xField).find("0.35") != std::string::npos
           || fieldValue(xField).find("0.3") != std::string::npos);
+
+    // A semantic preset is one atomic pair command; Undo restores both custom axes.
+    const std::size_t undoBeforePreset = coordinator.undoSize();
+    ui.handleAction("apply-layer-parallax-preset", "0.5", "");
+    frame(*context, ui);
+    CHECK(coordinator.undoSize() == undoBeforePreset + 1);
+    CHECK(coordinator.document().effectiveLayerSettings("scene-1", "layer-bg").parallax.x
+          == 0.5f);
+    CHECK(coordinator.document().effectiveLayerSettings("scene-1", "layer-bg").parallax.y
+          == 0.5f);
+    CHECK(attributeOf(findAction(document, "apply-layer-parallax-preset", "0.5"), "class")
+              .find("active") != std::string::npos);
+    CHECK(coordinator.undo().ok);
+    frame(*context, ui);
+    CHECK(std::abs(coordinator.document().effectiveLayerSettings("scene-1", "layer-bg")
+                       .parallax.x
+                   - 0.35f)
+          < 1e-5f);
+    CHECK(std::abs(coordinator.document().effectiveLayerSettings("scene-1", "layer-bg")
+                       .parallax.y
+                   - 0.6f)
+          < 1e-5f);
 
     // Invalid input: no command / no revision change.
     const uint64_t revBeforeInvalid = coordinator.document().revision();
@@ -228,11 +256,14 @@ int main() {
     xField = findAction(document, "commit-layer-parallax-x");
     yField = findAction(document, "commit-layer-parallax-y");
     reset = findAction(document, "reset-layer-parallax");
+    farPreset = findAction(document, "apply-layer-parallax-preset", "0.5");
     CHECK(isDisabled(xField));
     CHECK(isDisabled(yField));
-    CHECK(reset == nullptr); // Reset button omitted while playing.
+    CHECK(isDisabled(reset));
+    CHECK(isDisabled(farPreset));
     const uint64_t revPlay = coordinator.document().revision();
     ui.handleAction("commit-layer-parallax-x", "", "0.11");
+    ui.handleAction("apply-layer-parallax-preset", "0.5", "");
     frame(*context, ui);
     CHECK(coordinator.document().revision() == revPlay);
     CHECK(coordinator.stopPlaying().ok);

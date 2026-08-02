@@ -730,6 +730,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .logic-value-input,
 .logic-value-input:disabled,
 .logic-variables-empty,
+.layer-settings,
 .panel-btn.disabled,
 .panel-btn.primary.disabled,
 .prop-copy:hover,
@@ -858,6 +859,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .hierarchy-search-field,
 .inspector-scene-context,
 .inspector-scene-context .context-name,
+.layer-settings-title,
 .layer-btn:hover,
 .layer-group-header.active,
 .layer-group-header:hover,
@@ -953,6 +955,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .layer-group-header,
 .layer-lock,
 .layer-row,
+.layer-settings-layer,
 .log,
 .log-info,
 .logic-add-rule-footer,
@@ -1216,6 +1219,8 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .tree-row.layer-hidden .row-shared-type,
 .tree-section,
 .tx-tertiary,
+.layer-settings-copy,
+.prop-hint,
 .type-owned-note {
     color: #71717a;
 }
@@ -1424,6 +1429,7 @@ textarea#script-editor-textarea scrollbarvertical sliderbar {
 .layer-lock.locked,
 .log-warning,
 .outside-warning,
+.prop-hint.warn,
 .prop-readonly.warn,
 .prop-start-badge .icon,
 .script-api-detail-status,

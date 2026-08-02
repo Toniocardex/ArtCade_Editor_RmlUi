@@ -606,7 +606,8 @@ The active layer is already the authoring scope used by the Layer Manager.
 
 ### 10.2 Layout
 
-Render the layer rows as they are today, followed by the active layer settings:
+Render the layer rows as they are today, followed by the active layer settings.
+The visual result is the primary choice; numeric factors are a secondary fine-tune path:
 
 ```text
 LAYER MANAGER
@@ -614,14 +615,17 @@ LAYER MANAGER
 [eye] [lock] Hero
 [eye] [lock] Background
 
-LAYER SETTINGS
-Background
+PARALLAX                         Background layer
+Choose how this layer moves with the camera.
 
-PARALLAX
-X Factor     [ 0.350 ]
-Y Factor     [ 0.600 ]
+Camera movement
+[ Fixed ] [ Far ] [ Normal ] [ Near ]
 
-[ Reset to 1.00 ]
+FINE TUNE
+Horizontal   [ 0.350 ]
+Vertical     [ 0.600 ]
+
+Preview the effect in Play mode.
 
 [ + Add Layer ]
 ```
@@ -635,6 +639,7 @@ Add the following actions:
 ```text
 commit-layer-parallax-x
 commit-layer-parallax-y
+apply-layer-parallax-preset
 reset-layer-parallax
 ```
 
@@ -649,7 +654,16 @@ Field behavior:
 - issue one command per accepted commit;
 - never mutate on every keypress.
 
-Reset issues:
+The semantic presets issue the same atomic pair command used by the fields:
+
+| Preset | X | Y | Meaning |
+|---|---:|---:|---|
+| Fixed | `0.0` | `0.0` | Fixed to the game view |
+| Far | `0.5` | `0.5` | Slower, distant background movement |
+| Normal | `1.0` | `1.0` | Normal world movement |
+| Near | `1.5` | `1.5` | Faster, foreground movement |
+
+`Normal` retains the existing reset action and issues:
 
 ```cpp
 SetSceneLayerParallaxCommand{
@@ -659,15 +673,20 @@ SetSceneLayerParallaxCommand{
 };
 ```
 
+Presets are conveniences, not a restricted domain range. Any finite factor remains
+authorable through **Fine tune**, including asymmetric, negative, and values above
+the provided presets. A preset is selected only when both stored axes exactly match it.
+
 ### 10.4 Help text
 
-Suggested tooltip:
+Preset tooltips describe their visual result without requiring factor terminology.
+Fine tune retains the advanced explanation:
 
-> Controls how quickly this layer moves relative to the camera. 1.00 is normal world movement, values below 1.00 appear farther away, 0.00 stays fixed to the camera, and values above 1.00 move faster.
+> Use different horizontal and vertical movement for advanced effects.
 
 Add a small note:
 
-> Parallax is shown in Play. Edit mode keeps authored world coordinates.
+> Preview the effect in Play mode.
 
 ### 10.5 Disabled states
 

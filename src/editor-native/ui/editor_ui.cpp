@@ -4506,6 +4506,18 @@ bool EditorUi::handleHierarchyAction(const std::string& action, const std::strin
                 next.y = *parsed;
             coordinator_.execute(SetSceneLayerParallaxCommand{sceneId, layerId, next});
         }
+    } else if (action == "apply-layer-parallax-preset") {
+        const SceneId sceneId = coordinator_.state().activeSceneId;
+        const std::string layerId = coordinator_.activeLayerId(sceneId);
+        const std::optional<float> factor = parseNumberField(arg);
+        if (layerId.empty() || !coordinator_.document().hasLayer(sceneId, layerId)) {
+            coordinator_.logError("No active scene layer");
+        } else if (!factor) {
+            coordinator_.logError("Unknown parallax preset");
+        } else {
+            coordinator_.execute(SetSceneLayerParallaxCommand{
+                sceneId, layerId, LayerParallax{*factor, *factor}});
+        }
     } else if (action == "reset-layer-parallax") {
         const SceneId sceneId = coordinator_.state().activeSceneId;
         const std::string layerId = coordinator_.activeLayerId(sceneId);

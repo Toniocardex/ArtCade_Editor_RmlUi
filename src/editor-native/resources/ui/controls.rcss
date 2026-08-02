@@ -885,6 +885,12 @@ not a flat list. */
     letter-spacing: 0.04em;
     text-transform: uppercase;
 }
+.prop-hint {
+    display: block;
+    margin: 2dp 0 6dp 0;
+    font-size: 10dp;
+    line-height: 14dp;
+}
 .prop-row.prop-meta { height: 22dp; margin-bottom: 2dp; }
 .prop-meta-value {
     flex: 1;
@@ -1041,3 +1047,56 @@ not a flat list. */
     font-family: "JetBrains Mono";
     font-size: 11dp;
 }
+
+/* Layer Manager parallax: semantic presets use the established mode-option
+   contract; exact factors remain a secondary fine-tune path. */
+.layer-settings {
+    display: block;
+    margin-top: 10dp;
+    padding-top: 10dp;
+    border-top-width: 1px;
+}
+.layer-settings-head {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 2dp;
+}
+.layer-settings-title {
+    flex: 1;
+    font-size: 11dp;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.layer-settings-layer {
+    min-width: 0;
+    font-size: 11dp;
+    font-weight: 500;
+    text-align: right;
+}
+.layer-settings-copy {
+    display: block;
+    margin-bottom: 8dp;
+    font-size: 11dp;
+    line-height: 14dp;
+}
+.layer-parallax-presets { margin: 0 0 8dp 0; }
+.layer-parallax-presets .mode-options {
+    display: flex;
+    flex-direction: row;
+}
+.layer-parallax-presets .mode-option {
+    flex: 1;
+    min-width: 0;
+    margin: 0 4dp 0 0;
+    padding: 0 4dp;
+}
+.layer-parallax-presets .mode-option:last-child { margin-right: 0; }
+.layer-fine-tune-title {
+    display: block;
+    margin-top: 0;
+    margin-bottom: 4dp;
+}
+.layer-play-hint { margin-top: 0; }
+.layer-play-hint .icon { margin-right: 4dp; }
