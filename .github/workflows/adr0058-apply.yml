@@ -36,16 +36,44 @@ jobs:
           encoded = Path('tools/apply_adr0058.py.gz.b64').read_text().strip()
           patch = gzip.decompress(base64.b64decode(encoded)).decode('utf-8')
 
-          # Keep patch anchors aligned with the current branch formatting.
+          # Keep the forward-declaration anchor distinct from the friend entry.
           patch = patch.replace(
               'rep("src/editor-native/model/project_document.h",\n"class SetBoxColliderModeCommand;\\n",',
               'rep("src/editor-native/model/project_document.h",\n"\\nclass SetBoxColliderModeCommand;\\n",')
           patch = patch.replace(
               '"class SetBoxColliderModeCommand;\\nclass SetInstanceBoxColliderOffsetOverrideCommand;\\nclass SetInstanceOriginFromColliderAnchorCommand;\\n")',
               '"\\nclass SetBoxColliderModeCommand;\\nclass SetInstanceBoxColliderOffsetOverrideCommand;\\nclass SetInstanceOriginFromColliderAnchorCommand;\\n")')
-          patch = patch.replace(
-              'bool ProjectDocument::addBoxCollider(const std::string& objectTypeId,\\n                                       BoxCollider2DComponent component) {',
-              'bool ProjectDocument::addBoxCollider(const std::string& objectTypeId,\\n                                     BoxCollider2DComponent component) {')
+
+          # Exact replacement remains the first choice. When the only drift is
+          # indentation or line wrapping, accept one unique whitespace-flexible
+          # match. Semantic or ambiguous drift still fails closed.
+          old_rep = '''def rep(rel, old, new):
+              text = read(rel)
+              n = text.count(old)
+              if n != 1:
+                  raise RuntimeError(f"{rel}: expected one occurrence, got {n}: {old[:100]!r}")
+              write(rel, text.replace(old, new, 1))
+          '''
+          new_rep = '''def rep(rel, old, new):
+              text = read(rel)
+              n = text.count(old)
+              if n == 1:
+                  write(rel, text.replace(old, new, 1))
+                  return
+              pieces = re.split(r"(\\s+)", old)
+              pattern = "".join(r"\\s+" if piece.isspace() else re.escape(piece)
+                                for piece in pieces if piece)
+              matches = list(re.finditer(pattern, text, flags=re.S))
+              if len(matches) != 1:
+                  raise RuntimeError(
+                      f"{rel}: expected one occurrence, got exact={n}, fuzzy={len(matches)}: "
+                      f"{old[:100]!r}")
+              match = matches[0]
+              write(rel, text[:match.start()] + new + text[match.end():])
+          '''
+          if old_rep not in patch:
+              raise RuntimeError('ADR-0058 patch helper shape changed unexpectedly')
+          patch = patch.replace(old_rep, new_rep, 1)
 
           Path('tools/apply_adr0058.py').write_text(patch, encoding='utf-8')
           PY
