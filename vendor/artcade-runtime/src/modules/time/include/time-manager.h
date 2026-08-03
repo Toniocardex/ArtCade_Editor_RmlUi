@@ -11,13 +11,12 @@
 namespace ArtCade::Modules {
 
 /**
- * TimeManager — delta time, time scale, pause stack, layer temporali, timer.
+ * TimeManager — delta time, time scale, pause stack, temporal layers, timers.
  *
- * Layer predefiniti: "gameplay", "ui", "audio", "physics", "realtime".
- * Ogni layer ha uno scale indipendente e può essere escluso dalla pausa.
- *
- * Pausa: stack-based (ogni sorgente richiede la propria pausa; la ripresa
- * avviene solo quando TUTTE le sorgenti rilasciano).
+ * The implementation in time-manager.cpp is authoritative for the public API
+ * and storage layout. This header deliberately declares every member used by
+ * that implementation instead of relying on transitive includes or stale
+ * compatibility fields.
  */
 class TimeManager final : public IModule {
 public:
@@ -26,70 +25,67 @@ public:
     bool init() override;
     void shutdown() override;
 
-    // Chiamato una volta per frame dal loop principale
     void tick(float realDeltaSeconds);
 
-    // ------------------------------------------------------------------ Time
-    float now()     const;  // tempo di gioco scalato (secondi)
-    float realNow() const;  // tempo reale non scalato
-
-    // delta corrente per layer (0 se pausa attiva e layer affectedByPause)
+    float now() const;
+    float realNow() const;
     float delta(const std::string& layer = "gameplay") const;
 
-    // scala globale (0 = pausa implicita, 1 = normale, 2 = doppia velocità)
-    void  setTimeScale(float scale);
-    float timeScale() const { return globalScale_; }
+    void setTimeScale(float scale,
+                      const std::string& layer = "gameplay",
+                      float duration = 0.f);
+    float timeScale(const std::string& layer = "gameplay") const;
 
-    // ----------------------------------------------------------------- Pausa
-    // Ogni chiamante conserva il token e lo passa a resume().
     uint32_t pause(const std::string& source, int priority = 0);
-    void     resume(uint32_t token);
-    bool     isPaused() const { return !pauseStack_.empty(); }
+    void resume(uint32_t token);
+    void resumeSource(const std::string& source);
+    bool isPaused() const;
+    bool isPauseSourceActive(const std::string& source) const;
 
-    // --------------------------------------------------------- Layer temporali
-    void  createLayer(const std::string& name, float scale = 1.f,
-                      bool affectedByPause = true);
-    void  setLayerScale(const std::string& name, float scale);
-    float layerScale(const std::string& name) const;
-
-    // ------------------------------------------------------------------ Timer
     using TimerCallback = std::function<void()>;
 
-    uint32_t delay(float seconds, TimerCallback cb,
+    uint32_t delay(float seconds,
+                   TimerCallback callback,
                    const std::string& layer = "gameplay");
-
-    // Ripete ogni interval secondi. Restituisce id cancellabile.
-    uint32_t every(float interval, TimerCallback cb,
+    uint32_t every(float interval,
+                   TimerCallback callback,
                    const std::string& layer = "gameplay");
-
     void cancelTimer(uint32_t timerId);
 
 private:
     struct TimeLayer {
         float scale = 1.f;
-        bool  affectedByPause = true;
-        float currentDelta = 0.f;
+        float targetScale = 1.f;
+        float transitionDur = 0.f;
+        float transitionElapsed = 0.f;
+        float startScale = 1.f;
+        bool affectedByPause = true;
+        float elapsed = 0.f;
     };
 
     struct PauseRequest {
-        uint32_t    token;
+        uint32_t token = 0;
         std::string source;
-        int         priority;
+        int priority = 0;
     };
 
     struct Timer {
-        uint32_t      id;
-        float         remaining;
-        float         interval;
-        bool          repeating;
-        std::string   layer;
-        TimerCallback callback;
-        bool          cancelled = false;
+        uint32_t id = 0;
+        float remaining = 0.f;
+        float interval = 0.f;
+        bool repeat = false;
+        TimerCallback cb;
+        std::string layer;
+        bool cancelled = false;
     };
 
-    float realNow_ = 0.f;
-    float gameNow_ = 0.f;
-    float globalScale_ = 1.f;
+    void initDefaultLayers();
+    void updateLayer(TimeLayer& layer, float realDelta);
+    void updateTimers(float realDelta);
+
+    float realElapsed_ = 0.f;
+    float gameElapsed_ = 0.f;
+    float realDelta_ = 0.f;
 
     std::unordered_map<std::string, TimeLayer> layers_;
     std::vector<PauseRequest> pauseStack_;
@@ -97,9 +93,6 @@ private:
 
     uint32_t nextToken_ = 1;
     uint32_t nextTimerId_ = 1;
-
-    bool pausedByStack() const { return !pauseStack_.empty(); }
-    void updateTimers();
 };
 
 } // namespace ArtCade::Modules
