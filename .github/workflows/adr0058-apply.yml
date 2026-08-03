@@ -1,0 +1,123 @@
+name: ADR-0058 Apply and Verify
+
+on:
+  push:
+    branches:
+      - feat/adr-0058-entity-origin
+    paths:
+      - tools/apply_adr0058.py.gz.b64
+      - .github/workflows/adr0058-apply.yml
+      - tests/entity-origin-adr0058-test.cpp
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/adr-0058-entity-origin
+          fetch-depth: 0
+
+      - name: Decode and apply ADR-0058 patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64
+          import gzip
+          from pathlib import Path
+
+          encoded = Path('tools/apply_adr0058.py.gz.b64').read_text().strip()
+          patch = gzip.decompress(base64.b64decode(encoded)).decode('utf-8')
+
+          patch = patch.replace(
+              'rep("src/editor-native/model/project_document.h",\n"class SetBoxColliderModeCommand;\\n",',
+              'rep("src/editor-native/model/project_document.h",\n"\\nclass SetBoxColliderModeCommand;\\n",')
+          patch = patch.replace(
+              '"class SetBoxColliderModeCommand;\\nclass SetInstanceBoxColliderOffsetOverrideCommand;\\nclass SetInstanceOriginFromColliderAnchorCommand;\\n")',
+              '"\\nclass SetBoxColliderModeCommand;\\nclass SetInstanceBoxColliderOffsetOverrideCommand;\\nclass SetInstanceOriginFromColliderAnchorCommand;\\n")')
+
+          current_format_start = patch.index(
+              'rep("vendor/artcade-runtime/src/core/project-current-format.cpp",\n'
+              '"""        for (const SceneInstanceDef &instance : scene.instances) {')
+          current_format_end = patch.index('\n\n# Snapshot/picking', current_format_start)
+          current_format_patch = base64.b64decode(
+              'cmVwKCJ2ZW5kb3IvYXJ0Y2FkZS1ydW50aW1lL3NyYy9jb3JlL3Byb2plY3QtY3VycmVudC1mb3JtYXQuY3BwIiwKIiIiICAgICAgICAgICAgaWYgKGluc3RhbmNlLnNwcml0ZVByZXNlbnRhdGlvbk92ZXJyaWRlCiAgICAgICAgICAgICAgICAmJiBpbnN0YW5jZS5zcHJpdGVQcmVzZW50YXRpb25PdmVycmlkZS0+cGl2b3QpIHsKICAgICAgICAgICAgICAgIGlmICghdHlwZUl0LT5zZWNvbmQuc3ByaXRlUHJlc2VudGF0aW9uKSB7CiAgICAgICAgICAgICAgICAgICAgZXJyb3JfbWVzc2FnZSA9ICJTY2VuZSBcXCIiICsgc2NlbmVfaWQKICAgICAgICAgICAgICAgICAgICAgICAgKyAiXFwiIGluc3RhbmNlIGhhcyBhIHNwcml0ZSBwaXZvdCBvdmVycmlkZSB3aXRob3V0IE9iamVjdCBUeXBlICIKICAgICAgICAgICAgICAgICAgICAgICAgICAiU3ByaXRlIFByZXNlbnRhdGlvbi4iOwogICAgICAgICAgICAgICAgICAgIHJldHVybiBmYWxzZTsKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgIGlmICghaXNWYWxpZE5vcm1hbGl6ZWRQaXZvdCgqaW5zdGFuY2Uuc3ByaXRlUHJlc2VudGF0aW9uT3ZlcnJpZGUtPnBpdm90KSkgewogICAgICAgICAgICAgICAgICAgIGVycm9yX21lc3NhZ2UgPSAiU2NlbmUgXFwiIiArIHNjZW5lX2lkCiAgICAgICAgICAgICAgICAgICAgICAgICsgIlxcIiBpbnN0YW5jZSBzcHJpdGVQcmVzZW50YXRpb25PdmVycmlkZS5waXZvdCBtdXN0IGJlIGZpbml0ZSAiCiAgICAgICAgICAgICAgICAgICAgICAgICAgImluIFswLCAxXS4iOwogICAgICAgICAgICAgICAgICAgIHJldHVybiBmYWxzZTsKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgfQogICAgICAgIH0KIiIiLAoiIiIgICAgICAgICAgICBpZiAoaW5zdGFuY2Uuc3ByaXRlUHJlc2VudGF0aW9uT3ZlcnJpZGUKICAgICAgICAgICAgICAgICYmIGluc3RhbmNlLnNwcml0ZVByZXNlbnRhdGlvbk92ZXJyaWRlLT5waXZvdCkgewogICAgICAgICAgICAgICAgaWYgKCF0eXBlSXQtPnNlY29uZC5zcHJpdGVQcmVzZW50YXRpb24pIHsKICAgICAgICAgICAgICAgICAgICBlcnJvcl9tZXNzYWdlID0gIlNjZW5lIFxcIiIgKyBzY2VuZV9pZAogICAgICAgICAgICAgICAgICAgICAgICArICJcXCIgaW5zdGFuY2UgaGFzIGEgc3ByaXRlIHBpdm90IG92ZXJyaWRlIHdpdGhvdXQgT2JqZWN0IFR5cGUgIgogICAgICAgICAgICAgICAgICAgICAgICAgICJTcHJpdGUgUHJlc2VudGF0aW9uLiI7CiAgICAgICAgICAgICAgICAgICAgcmV0dXJuIGZhbHNlOwogICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgaWYgKCFpc1ZhbGlkTm9ybWFsaXplZFBpdm90KCppbnN0YW5jZS5zcHJpdGVQcmVzZW50YXRpb25PdmVycmlkZS0+cGl2b3QpKSB7CiAgICAgICAgICAgICAgICAgICAgZXJyb3JfbWVzc2FnZSA9ICJTY2VuZSBcXCIiICsgc2NlbmVfaWQKICAgICAgICAgICAgICAgICAgICAgICAgKyAiXFwiIGluc3RhbmNlIHNwcml0ZVByZXNlbnRhdGlvbk92ZXJyaWRlLnBpdm90IG11c3QgYmUgZmluaXRlICIKICAgICAgICAgICAgICAgICAgICAgICAgICAiaW4gWzAsIDFdLiI7CiAgICAgICAgICAgICAgICAgICAgcmV0dXJuIGZhbHNlOwogICAgICAgICAgICAgICAgfQogICAgICAgICAgICB9CiAgICAgICAgICAgIGlmIChpbnN0YW5jZS5ib3hDb2xsaWRlcjJET3ZlcnJpZGUpIHsKICAgICAgICAgICAgICAgIGlmIChib3hDb2xsaWRlcjJET3ZlcnJpZGVFbXB0eSgqaW5zdGFuY2UuYm94Q29sbGlkZXIyRE92ZXJyaWRlKQogICAgICAgICAgICAgICAgICAgIHx8ICF0eXBlSXQtPnNlY29uZC5ib3hDb2xsaWRlcjJECiAgICAgICAgICAgICAgICAgICAgfHwgIWluc3RhbmNlLmJveENvbGxpZGVyMkRPdmVycmlkZS0+b2Zmc2V0CiAgICAgICAgICAgICAgICAgICAgfHwgIXN0ZDo6aXNmaW5pdGUoaW5zdGFuY2UuYm94Q29sbGlkZXIyRE92ZXJyaWRlLT5vZmZzZXQtPngpCiAgICAgICAgICAgICAgICAgICAgfHwgIXN0ZDo6aXNmaW5pdGUoaW5zdGFuY2UuYm94Q29sbGlkZXIyRE92ZXJyaWRlLT5vZmZzZXQtPnkpKSB7CiAgICAgICAgICAgICAgICAgICAgZXJyb3JfbWVzc2FnZSA9CiAgICAgICAgICAgICAgICAgICAgICAgICJTY2VuZSBpbnN0YW5jZSBCb3hDb2xsaWRlcjJEIG92ZXJyaWRlIGlzIGludmFsaWQuIjsKICAgICAgICAgICAgICAgICAgICByZXR1cm4gZmFsc2U7CiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgIH0KICAgICAgICB9CiIiIik=').decode('utf-8')
+          patch = patch[:current_format_start] + current_format_patch + patch[current_format_end:]
+
+          old_rep = '''def rep(rel, old, new):
+              text = read(rel)
+              n = text.count(old)
+              if n != 1:
+                  raise RuntimeError(f"{rel}: expected one occurrence, got {n}: {old[:100]!r}")
+              write(rel, text.replace(old, new, 1))
+          '''
+          new_rep = '''def rep(rel, old, new):
+              text = read(rel)
+              n = text.count(old)
+              if n == 1:
+                  write(rel, text.replace(old, new, 1))
+                  return
+              pieces = re.split(r"(\\s+)", old)
+              pattern = "".join(r"\\s+" if piece.isspace() else re.escape(piece)
+                                for piece in pieces if piece)
+              matches = list(re.finditer(pattern, text, flags=re.S))
+              if len(matches) != 1:
+                  raise RuntimeError(
+                      f"{rel}: expected one occurrence, got exact={n}, fuzzy={len(matches)}: "
+                      f"{old[:100]!r}")
+              match = matches[0]
+              write(rel, text[:match.start()] + new + text[match.end():])
+          '''
+          if old_rep not in patch:
+              raise RuntimeError('ADR-0058 patch helper shape changed unexpectedly')
+          patch = patch.replace(old_rep, new_rep, 1)
+
+          Path('tools/apply_adr0058.py').write_text(patch, encoding='utf-8')
+          PY
+          python3 tools/apply_adr0058.py
+          rm -f tools/apply_adr0058.py tools/apply_adr0058.py.gz.b64
+          rm -f .github/workflows/adr0058-apply.yml
+
+      - name: Normalize accidentally UTF-16 source files
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/editor-native/model/tile_palette_projection.cpp')
+          raw = path.read_bytes()
+          if b'\x00' in raw:
+              path.write_text(raw.decode('utf-16-le'), encoding='utf-8', newline='\n')
+          PY
+
+      - name: Install Linux graphics dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libgl1-mesa-dev libasound2-dev
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build focused tests
+        run: cmake --build build --target entity_origin_adr0058_test sprite_pivot_adr0057_test -j 2
+
+      - name: Run focused tests
+        run: ctest --test-dir build --output-on-failure -R 'entity_origin_adr0058_test|sprite_pivot_adr0057_test'
+
+      - name: Commit implementation
+        shell: bash
+        run: |
+          git config user.name "ArtCade CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(editor): entity origin and collider-only geometry (ADR-0058)"
+          git push origin HEAD:feat/adr-0058-entity-origin
