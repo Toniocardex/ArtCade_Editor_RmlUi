@@ -36,15 +36,16 @@ jobs:
           encoded = Path('tools/apply_adr0058.py.gz.b64').read_text().strip()
           patch = gzip.decompress(base64.b64decode(encoded)).decode('utf-8')
 
-          # The header contains both a forward declaration and a friend
-          # declaration for this command. Anchor the replacement to the forward
-          # declaration so the patch remains deterministic.
+          # Keep patch anchors aligned with the current branch formatting.
           patch = patch.replace(
               'rep("src/editor-native/model/project_document.h",\n"class SetBoxColliderModeCommand;\\n",',
               'rep("src/editor-native/model/project_document.h",\n"\\nclass SetBoxColliderModeCommand;\\n",')
           patch = patch.replace(
               '"class SetBoxColliderModeCommand;\\nclass SetInstanceBoxColliderOffsetOverrideCommand;\\nclass SetInstanceOriginFromColliderAnchorCommand;\\n")',
               '"\\nclass SetBoxColliderModeCommand;\\nclass SetInstanceBoxColliderOffsetOverrideCommand;\\nclass SetInstanceOriginFromColliderAnchorCommand;\\n")')
+          patch = patch.replace(
+              'bool ProjectDocument::addBoxCollider(const std::string& objectTypeId,\\n                                       BoxCollider2DComponent component) {',
+              'bool ProjectDocument::addBoxCollider(const std::string& objectTypeId,\\n                                     BoxCollider2DComponent component) {')
 
           Path('tools/apply_adr0058.py').write_text(patch, encoding='utf-8')
           PY
