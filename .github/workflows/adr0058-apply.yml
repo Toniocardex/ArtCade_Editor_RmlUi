@@ -85,6 +85,18 @@ jobs:
           rm -f tools/apply_adr0058.py tools/apply_adr0058.py.gz.b64
           rm -f .github/workflows/adr0058-apply.yml
 
+      - name: Normalize accidentally UTF-16 source files
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/editor-native/model/tile_palette_projection.cpp')
+          raw = path.read_bytes()
+          if b'\x00' in raw:
+              path.write_text(raw.decode('utf-16-le'), encoding='utf-8', newline='\n')
+          PY
+
       - name: Install Linux graphics dependencies
         run: |
           sudo apt-get update
