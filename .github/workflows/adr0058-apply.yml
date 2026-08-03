@@ -36,7 +36,6 @@ jobs:
           encoded = Path('tools/apply_adr0058.py.gz.b64').read_text().strip()
           patch = gzip.decompress(base64.b64decode(encoded)).decode('utf-8')
 
-          # Keep the forward-declaration anchor distinct from the friend entry.
           patch = patch.replace(
               'rep("src/editor-native/model/project_document.h",\n"class SetBoxColliderModeCommand;\\n",',
               'rep("src/editor-native/model/project_document.h",\n"\\nclass SetBoxColliderModeCommand;\\n",')
@@ -44,67 +43,14 @@ jobs:
               '"class SetBoxColliderModeCommand;\\nclass SetInstanceBoxColliderOffsetOverrideCommand;\\nclass SetInstanceOriginFromColliderAnchorCommand;\\n")',
               '"\\nclass SetBoxColliderModeCommand;\\nclass SetInstanceBoxColliderOffsetOverrideCommand;\\nclass SetInstanceOriginFromColliderAnchorCommand;\\n")')
 
-          # ADR-0057 already extended the current-format instance loop. Replace
-          # the obsolete ADR-0058 patch operation with an additive insertion
-          # after the existing sprite-pivot validation.
           current_format_start = patch.index(
               'rep("vendor/artcade-runtime/src/core/project-current-format.cpp",\n'
               '"""        for (const SceneInstanceDef &instance : scene.instances) {')
           current_format_end = patch.index('\n\n# Snapshot/picking', current_format_start)
-          current_format_patch = r'''rep("vendor/artcade-runtime/src/core/project-current-format.cpp",
-"""            if (instance.spritePresentationOverride
-                && instance.spritePresentationOverride->pivot) {
-                if (!typeIt->second.spritePresentation) {
-                    error_message = "Scene \\"" + scene_id
-                        + "\\" instance has a sprite pivot override without Object Type "
-                          "Sprite Presentation.";
-                    return false;
-                }
-                if (!isValidNormalizedPivot(*instance.spritePresentationOverride->pivot)) {
-                    error_message = "Scene \\"" + scene_id
-                        + "\\" instance spritePresentationOverride.pivot must be finite "
-                          "in [0, 1].";
-                    return false;
-                }
-            }
-        }
-""",
-"""            if (instance.spritePresentationOverride
-                && instance.spritePresentationOverride->pivot) {
-                if (!typeIt->second.spritePresentation) {
-                    error_message = "Scene \\"" + scene_id
-                        + "\\" instance has a sprite pivot override without Object Type "
-                          "Sprite Presentation.";
-                    return false;
-                }
-                if (!isValidNormalizedPivot(*instance.spritePresentationOverride->pivot)) {
-                    error_message = "Scene \\"" + scene_id
-                        + "\\" instance spritePresentationOverride.pivot must be finite "
-                          "in [0, 1].";
-                    return false;
-                }
-            }
-            if (instance.boxCollider2DOverride) {
-                if (boxCollider2DOverrideEmpty(*instance.boxCollider2DOverride)
-                    || !typeIt->second.boxCollider2D
-                    || !instance.boxCollider2DOverride->offset
-                    || !std::isfinite(instance.boxCollider2DOverride->offset->x)
-                    || !std::isfinite(instance.boxCollider2DOverride->offset->y)) {
-                    error_message =
-                        "Scene instance BoxCollider2D override is invalid.";
-                    return false;
-                }
-            }
-        }
-""")'''
-          patch = (
-              patch[:current_format_start]
-              + current_format_patch
-              + patch[current_format_end:])
+          current_format_patch = base64.b64decode(
+              'cmVwKCJ2ZW5kb3IvYXJ0Y2FkZS1ydW50aW1lL3NyYy9jb3JlL3Byb2plY3QtY3VycmVudC1mb3JtYXQuY3BwIiwKIiIiICAgICAgICAgICAgaWYgKGluc3RhbmNlLnNwcml0ZVByZXNlbnRhdGlvbk92ZXJyaWRlCiAgICAgICAgICAgICAgICAmJiBpbnN0YW5jZS5zcHJpdGVQcmVzZW50YXRpb25PdmVycmlkZS0+cGl2b3QpIHsKICAgICAgICAgICAgICAgIGlmICghdHlwZUl0LT5zZWNvbmQuc3ByaXRlUHJlc2VudGF0aW9uKSB7CiAgICAgICAgICAgICAgICAgICAgZXJyb3JfbWVzc2FnZSA9ICJTY2VuZSBcXCIiICsgc2NlbmVfaWQKICAgICAgICAgICAgICAgICAgICAgICAgKyAiXFwiIGluc3RhbmNlIGhhcyBhIHNwcml0ZSBwaXZvdCBvdmVycmlkZSB3aXRob3V0IE9iamVjdCBUeXBlICIKICAgICAgICAgICAgICAgICAgICAgICAgICAiU3ByaXRlIFByZXNlbnRhdGlvbi4iOwogICAgICAgICAgICAgICAgICAgIHJldHVybiBmYWxzZTsKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgIGlmICghaXNWYWxpZE5vcm1hbGl6ZWRQaXZvdCgqaW5zdGFuY2Uuc3ByaXRlUHJlc2VudGF0aW9uT3ZlcnJpZGUtPnBpdm90KSkgewogICAgICAgICAgICAgICAgICAgIGVycm9yX21lc3NhZ2UgPSAiU2NlbmUgXFwiIiArIHNjZW5lX2lkCiAgICAgICAgICAgICAgICAgICAgICAgICsgIlxcIiBpbnN0YW5jZSBzcHJpdGVQcmVzZW50YXRpb25PdmVycmlkZS5waXZvdCBtdXN0IGJlIGZpbml0ZSAiCiAgICAgICAgICAgICAgICAgICAgICAgICAgImluIFswLCAxXS4iOwogICAgICAgICAgICAgICAgICAgIHJldHVybiBmYWxzZTsKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgfQogICAgICAgIH0KIiIiLAoiIiIgICAgICAgICAgICBpZiAoaW5zdGFuY2Uuc3ByaXRlUHJlc2VudGF0aW9uT3ZlcnJpZGUKICAgICAgICAgICAgICAgICYmIGluc3RhbmNlLnNwcml0ZVByZXNlbnRhdGlvbk92ZXJyaWRlLT5waXZvdCkgewogICAgICAgICAgICAgICAgaWYgKCF0eXBlSXQtPnNlY29uZC5zcHJpdGVQcmVzZW50YXRpb24pIHsKICAgICAgICAgICAgICAgICAgICBlcnJvcl9tZXNzYWdlID0gIlNjZW5lIFxcIiIgKyBzY2VuZV9pZAogICAgICAgICAgICAgICAgICAgICAgICArICJcXCIgaW5zdGFuY2UgaGFzIGEgc3ByaXRlIHBpdm90IG92ZXJyaWRlIHdpdGhvdXQgT2JqZWN0IFR5cGUgIgogICAgICAgICAgICAgICAgICAgICAgICAgICJTcHJpdGUgUHJlc2VudGF0aW9uLiI7CiAgICAgICAgICAgICAgICAgICAgcmV0dXJuIGZhbHNlOwogICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgaWYgKCFpc1ZhbGlkTm9ybWFsaXplZFBpdm90KCppbnN0YW5jZS5zcHJpdGVQcmVzZW50YXRpb25PdmVycmlkZS0+cGl2b3QpKSB7CiAgICAgICAgICAgICAgICAgICAgZXJyb3JfbWVzc2FnZSA9ICJTY2VuZSBcXCIiICsgc2NlbmVfaWQKICAgICAgICAgICAgICAgICAgICAgICAgKyAiXFwiIGluc3RhbmNlIHNwcml0ZVByZXNlbnRhdGlvbk92ZXJyaWRlLnBpdm90IG11c3QgYmUgZmluaXRlICIKICAgICAgICAgICAgICAgICAgICAgICAgICAiaW4gWzAsIDFdLiI7CiAgICAgICAgICAgICAgICAgICAgcmV0dXJuIGZhbHNlOwogICAgICAgICAgICAgICAgfQogICAgICAgICAgICB9CiAgICAgICAgICAgIGlmIChpbnN0YW5jZS5ib3hDb2xsaWRlcjJET3ZlcnJpZGUpIHsKICAgICAgICAgICAgICAgIGlmIChib3hDb2xsaWRlcjJET3ZlcnJpZGVFbXB0eSgqaW5zdGFuY2UuYm94Q29sbGlkZXIyRE92ZXJyaWRlKQogICAgICAgICAgICAgICAgICAgIHx8ICF0eXBlSXQtPnNlY29uZC5ib3hDb2xsaWRlcjJECiAgICAgICAgICAgICAgICAgICAgfHwgIWluc3RhbmNlLmJveENvbGxpZGVyMkRPdmVycmlkZS0+b2Zmc2V0CiAgICAgICAgICAgICAgICAgICAgfHwgIXN0ZDo6aXNmaW5pdGUoaW5zdGFuY2UuYm94Q29sbGlkZXIyRE92ZXJyaWRlLT5vZmZzZXQtPngpCiAgICAgICAgICAgICAgICAgICAgfHwgIXN0ZDo6aXNmaW5pdGUoaW5zdGFuY2UuYm94Q29sbGlkZXIyRE92ZXJyaWRlLT5vZmZzZXQtPnkpKSB7CiAgICAgICAgICAgICAgICAgICAgZXJyb3JfbWVzc2FnZSA9CiAgICAgICAgICAgICAgICAgICAgICAgICJTY2VuZSBpbnN0YW5jZSBCb3hDb2xsaWRlcjJEIG92ZXJyaWRlIGlzIGludmFsaWQuIjsKICAgICAgICAgICAgICAgICAgICByZXR1cm4gZmFsc2U7CiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgIH0KICAgICAgICB9CiIiIik=').decode('utf-8')
+          patch = patch[:current_format_start] + current_format_patch + patch[current_format_end:]
 
-          # Exact replacement remains the first choice. When the only drift is
-          # indentation or line wrapping, accept one unique whitespace-flexible
-          # match. Semantic or ambiguous drift still fails closed.
           old_rep = '''def rep(rel, old, new):
               text = read(rel)
               n = text.count(old)
