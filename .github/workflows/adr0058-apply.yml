@@ -8,6 +8,10 @@ on:
       - tools/apply_adr0058.py.gz.b64
       - .github/workflows/adr0058-apply.yml
       - tests/entity-origin-adr0058-test.cpp
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
