@@ -40,8 +40,8 @@ struct SceneFrameEntity {
 struct SceneFrameSprite {
     EntityId entityId = INVALID_ENTITY;
     AssetId assetId;
-    SceneFrameRect destination;   // unrotated destination rect
-    Vec2 origin;                  // DrawTexturePro origin (typically half size)
+    SceneFrameRect destination;   // unrotated destination rect (top-left + size)
+    Vec2 origin;                  // DrawTexturePro origin (pivot * size)
     bool visible = false;
     bool selected = false;
     SceneFrameRect source;
@@ -54,6 +54,9 @@ struct SceneFrameSprite {
     // See SceneFrameEntity::visibleInGame — the owning instance's root
     // visibility, independent of this component's own `visible`.
     bool visibleInGame = true;
+    // ADR-0057: oriented visual (center = geometry.visualCenter). Picking,
+    // outline, and AABB must use this — never destination-center for sprites.
+    SceneFrameTransform2D visualTransform{};
 };
 
 struct SceneFrameTilemapCell {

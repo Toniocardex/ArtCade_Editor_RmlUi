@@ -17,6 +17,8 @@ bool isNumericCommit(const std::string& action) {
         "commit-transform-position-x", "commit-transform-position-y",
         "commit-transform-rotation", "commit-transform-scale-x", "commit-transform-scale-y",
         "commit-animator-speed",
+        "commit-sprite-speed",
+        "commit-sprite-pivot-x", "commit-sprite-pivot-y",
         "commit-box-offset-x", "commit-box-offset-y",
         "commit-box-size-x", "commit-box-size-y",
         "commit-mover-dir-x", "commit-mover-dir-y", "commit-mover-speed",

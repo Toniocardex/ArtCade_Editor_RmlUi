@@ -3621,6 +3621,74 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
             coordinator_.execute(ClearInstanceSpriteOverrideCommand{
                 coordinator_.state().activeSceneId, selected});
         }
+    } else if (action == "set-sprite-pivot-preset"
+               || action == "commit-sprite-pivot-x"
+               || action == "commit-sprite-pivot-y"
+               || action == "override-sprite-pivot"
+               || action == "reset-sprite-pivot") {
+        const SceneId& sceneId = coordinator_.state().activeSceneId;
+        const bool otOnly = coordinator_.selection().selectedObjectTypeId.has_value();
+        const SceneInstanceDef* inst = otOnly
+            ? nullptr
+            : coordinator_.document().findInstanceInScene(sceneId, selected);
+        const EntityDef* type = nullptr;
+        if (otOnly) {
+            type = coordinator_.document().findObjectType(
+                *coordinator_.selection().selectedObjectTypeId);
+        } else if (inst) {
+            type = coordinator_.document().findObjectType(inst->objectTypeId);
+        }
+        if (!type || !type->spritePresentation) {
+            coordinator_.logError("Object Type has no Sprite");
+        } else if (action == "override-sprite-pivot") {
+            overrideInstanceSpritePivot(coordinator_);
+        } else if (action == "reset-sprite-pivot") {
+            setInstanceSpritePivotOverride(coordinator_, std::nullopt);
+        } else {
+            Vec2 pivot = type->spritePresentation->pivot;
+            if (inst && inst->spritePresentationOverride
+                && inst->spritePresentationOverride->pivot) {
+                pivot = *inst->spritePresentationOverride->pivot;
+            }
+            bool ok = true;
+            if (action == "set-sprite-pivot-preset") {
+                const auto comma = arg.find(',');
+                const std::optional<float> x = comma == std::string::npos
+                    ? std::nullopt : parseNumberField(arg.substr(0, comma));
+                const std::optional<float> y = comma == std::string::npos
+                    ? std::nullopt : parseNumberField(arg.substr(comma + 1));
+                if (!x || !y) {
+                    coordinator_.logError("Sprite pivot preset is invalid");
+                    ok = false;
+                } else {
+                    pivot = Vec2{*x, *y};
+                }
+            } else if (action == "commit-sprite-pivot-x") {
+                const std::optional<float> parsed = parseNumberField(value);
+                if (!parsed) {
+                    coordinator_.logError("Sprite pivot X is not a number");
+                    ok = false;
+                } else {
+                    pivot.x = *parsed;
+                }
+            } else if (action == "commit-sprite-pivot-y") {
+                const std::optional<float> parsed = parseNumberField(value);
+                if (!parsed) {
+                    coordinator_.logError("Sprite pivot Y is not a number");
+                    ok = false;
+                } else {
+                    pivot.y = *parsed;
+                }
+            }
+            if (ok) {
+                const bool instanceOverride = inst && inst->spritePresentationOverride
+                    && inst->spritePresentationOverride->pivot.has_value();
+                if (otOnly || !instanceOverride)
+                    setObjectTypeSpritePivot(coordinator_, pivot);
+                else
+                    setInstanceSpritePivotOverride(coordinator_, pivot);
+            }
+        }
     } else if (action == "reset-animator-override") {
         coordinator_.execute(ClearInstanceAnimatorOverrideCommand{
             coordinator_.state().activeSceneId, selected});

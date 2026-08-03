@@ -49,6 +49,37 @@ private:
     bool captured_ = false;
 };
 
+// ADR-0057 — Object Type Sprite Presentation pivot.
+class SetObjectTypeSpritePivotCommand final : public EditorCommand {
+public:
+    SetObjectTypeSpritePivotCommand(ObjectTypeId objectTypeId, Vec2 pivot);
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "SetObjectTypeSpritePivot"; }
+private:
+    ObjectTypeId objectTypeId_;
+    Vec2 next_{};
+    Vec2 previous_{};
+    bool captured_ = false;
+};
+
+// ADR-0057 — sparse instance pivot override (nullopt = reset pivot only).
+class SetInstanceSpritePivotOverrideCommand final : public EditorCommand {
+public:
+    SetInstanceSpritePivotOverrideCommand(SceneId sceneId, EntityId entityId,
+                                          std::optional<Vec2> pivotOverride);
+    EditorOperationResult apply(ProjectDocument& document) override;
+    EditorOperationResult undo(ProjectDocument& document) override;
+    const char* name() const override { return "SetInstanceSpritePivotOverride"; }
+private:
+    SceneId sceneId_;
+    EntityId entityId_ = INVALID_ENTITY;
+    std::optional<Vec2> next_;
+    std::optional<Vec2> previous_;
+    bool captured_ = false;
+    bool lockChecked_ = false;
+};
+
 class AddSpriteRendererToObjectTypeCommand final : public EditorCommand {
 public:
     explicit AddSpriteRendererToObjectTypeCommand(ObjectTypeId objectTypeId);

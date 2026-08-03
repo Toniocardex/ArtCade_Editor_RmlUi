@@ -125,8 +125,29 @@ std::optional<InstanceTransformGeometry> resolveInstanceTransformGeometry(
 
     InstanceTransformGeometry out;
     out.unscaledSize = Vec2{kDefaultUnscaled, kDefaultUnscaled};
-    out.transform = projectTransform(inst->transform, out.unscaledSize);
+    out.effectivePivot = {0.5f, 0.5f};
     out.supportsScale = caps.canScale;
+
+    for (const SceneFrameSprite& sprite : frame.sprites) {
+        if (sprite.entityId != entityId || !sprite.visible || sprite.assetId.empty())
+            continue;
+        out.transform = sprite.visualTransform;
+        const float sx = std::max(std::abs(inst->transform.scale.x), kMinAuthoringScale);
+        const float sy = std::max(std::abs(inst->transform.scale.y), kMinAuthoringScale);
+        if (sprite.visualTransform.size.x > 0.f && sprite.visualTransform.size.y > 0.f) {
+            out.unscaledSize = Vec2{
+                sprite.visualTransform.size.x / sx,
+                sprite.visualTransform.size.y / sy,
+            };
+            out.effectivePivot = Vec2{
+                sprite.origin.x / sprite.visualTransform.size.x,
+                sprite.origin.y / sprite.visualTransform.size.y,
+            };
+        }
+        return out;
+    }
+
+    out.transform = projectTransform(inst->transform, out.unscaledSize);
     return out;
 }
 
@@ -361,15 +382,21 @@ Transform resizeTransformFromHandle(
         scale = Vec2{w / unscaled.x, h / unscaled.y};
 
         out.scale = scale;
-        out.position = Vec2{(left + right) * 0.5f, (top + bottom) * 0.5f};
+        // ADR-0057 B6: entity origin stays at the captured effective pivot.
+        out.position = Vec2{
+            left + state.effectivePivot.x * w,
+            top + state.effectivePivot.y * h,
+        };
     };
 
-    const SceneFrameTransform2D originalGeom =
-        projectTransform(state.originalTransform, unscaled);
-    const float origLeft = originalGeom.center.x - originalGeom.size.x * 0.5f;
-    const float origTop = originalGeom.center.y - originalGeom.size.y * 0.5f;
-    const float origRight = originalGeom.center.x + originalGeom.size.x * 0.5f;
-    const float origBottom = originalGeom.center.y + originalGeom.size.y * 0.5f;
+    const float origW = unscaled.x * std::abs(state.originalTransform.scale.x);
+    const float origH = unscaled.y * std::abs(state.originalTransform.scale.y);
+    const float origLeft =
+        state.originalTransform.position.x - state.effectivePivot.x * origW;
+    const float origTop =
+        state.originalTransform.position.y - state.effectivePivot.y * origH;
+    const float origRight = origLeft + origW;
+    const float origBottom = origTop + origH;
 
     switch (state.handle) {
     case TransformHandle::CornerBR:
@@ -434,6 +461,7 @@ TransformInteractionState beginTransformInteraction(
     state.previewTransform = authored;
     state.startMouseWorld = mouseWorld;
     state.unscaledSize = geometry.unscaledSize;
+    state.effectivePivot = geometry.effectivePivot;
 
     if (handle != TransformHandle::Body && handle != TransformHandle::None) {
         const TransformHandle opp = oppositeHandle(handle);

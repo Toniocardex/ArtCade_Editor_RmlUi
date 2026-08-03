@@ -3,8 +3,10 @@
 #include "editor-native/model/numeric_validation.h"
 #include "editor-native/model/project_document.h"
 #include "editor-native/model/sprite_render_view.h"
+#include "core/sprite-presentation-resolve.h"
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace ArtCade::EditorNative {
@@ -111,14 +113,21 @@ bool equal(const SpritePresentationSource& lhs, const SpritePresentationSource& 
     return true;
 }
 
+bool nearlyEqualPivot(Vec2 a, Vec2 b) {
+    return std::fabs(a.x - b.x) <= 1e-5f && std::fabs(a.y - b.y) <= 1e-5f;
+}
+
 bool equal(const SpritePresentationComponent& lhs, const SpritePresentationComponent& rhs) {
-    return lhs.visible == rhs.visible && equal(lhs.source, rhs.source);
+    return lhs.visible == rhs.visible && equal(lhs.source, rhs.source)
+        && nearlyEqualPivot(lhs.pivot, rhs.pivot);
 }
 
 bool equal(const SpritePresentationOverride& lhs, const SpritePresentationOverride& rhs) {
     return lhs.visible == rhs.visible
         && lhs.source.has_value() == rhs.source.has_value()
-        && (!lhs.source || equal(*lhs.source, *rhs.source));
+        && (!lhs.source || equal(*lhs.source, *rhs.source))
+        && lhs.pivot.has_value() == rhs.pivot.has_value()
+        && (!lhs.pivot || nearlyEqualPivot(*lhs.pivot, *rhs.pivot));
 }
 
 EditorOperationResult validateSpriteSource(const ProjectDocument& document,
@@ -181,16 +190,24 @@ EditorOperationResult SetObjectTypeSpritePresentationCommand::apply(ProjectDocum
     ProjectDoc staged = document.data();
     EntityDef& stagedType = staged.objectTypes.at(objectTypeId_);
     stagedType.spritePresentation = next_;
-    if (removesAnimation) {
+    // ADR-0057 §19.1: removing Sprite Presentation clears incompatible
+    // instance presentation overrides (including pivot) atomically.
+    if (!next_) {
+        for (auto& [_, scene] : staged.scenes) {
+            for (SceneInstanceDef& instance : scene.instances) {
+                if (instance.objectTypeId == objectTypeId_)
+                    instance.spritePresentationOverride.reset();
+            }
+        }
+    } else if (removesAnimation) {
         for (auto& [_, scene] : staged.scenes) {
             for (SceneInstanceDef& instance : scene.instances) {
                 if (instance.objectTypeId != objectTypeId_ || !instance.spritePresentationOverride
                     || !instance.spritePresentationOverride->source) continue;
                 if (isAnimationSource(*instance.spritePresentationOverride->source)) {
                     instance.spritePresentationOverride->source.reset();
-                    if (!instance.spritePresentationOverride->visible) {
+                    if (spritePresentationOverrideEmpty(*instance.spritePresentationOverride))
                         instance.spritePresentationOverride.reset();
-                    }
                 }
             }
         }
@@ -258,6 +275,87 @@ EditorOperationResult SetInstanceSpritePresentationOverrideCommand::undo(Project
     if (!instance) return EditorOperationResult::failure("Cannot restore Sprite override");
     instance->spritePresentationOverride = previous_;
     document.commitStagedCommand(std::move(staged));
+    return EditorOperationResult::success(
+        kPresentationInvalidation,
+        DomainChange::componentChanged(sceneId_, entityId_, ComponentKind::SpritePresentation));
+}
+
+SetObjectTypeSpritePivotCommand::SetObjectTypeSpritePivotCommand(ObjectTypeId objectTypeId,
+                                                                 Vec2 pivot)
+    : objectTypeId_(std::move(objectTypeId)), next_(pivot) {}
+
+EditorOperationResult SetObjectTypeSpritePivotCommand::apply(ProjectDocument& document) {
+    const EntityDef* type = document.findObjectType(objectTypeId_);
+    if (!type) return EditorOperationResult::failure("Unknown object type: " + objectTypeId_);
+    if (!type->spritePresentation)
+        return EditorOperationResult::failure("Object Type has no Sprite");
+    if (!isValidNormalizedPivot(next_))
+        return EditorOperationResult::failure("Sprite pivot must be finite in [0, 1]");
+    if (nearlyEqualPivot(type->spritePresentation->pivot, next_))
+        return EditorOperationResult::success(EditorInvalidation::None);
+    if (!captured_) {
+        previous_ = type->spritePresentation->pivot;
+        captured_ = true;
+    }
+    if (!document.setObjectTypeSpritePivot(objectTypeId_, next_))
+        return EditorOperationResult::failure("Failed to set Sprite pivot");
+    return EditorOperationResult::success(
+        kPresentationInvalidation,
+        changed(objectTypeId_, ComponentKind::SpritePresentation));
+}
+
+EditorOperationResult SetObjectTypeSpritePivotCommand::undo(ProjectDocument& document) {
+    if (!captured_ || !document.setObjectTypeSpritePivot(objectTypeId_, previous_))
+        return EditorOperationResult::failure("Cannot restore Sprite pivot");
+    return EditorOperationResult::success(
+        kPresentationInvalidation,
+        changed(objectTypeId_, ComponentKind::SpritePresentation));
+}
+
+SetInstanceSpritePivotOverrideCommand::SetInstanceSpritePivotOverrideCommand(
+    SceneId sceneId, EntityId entityId, std::optional<Vec2> pivotOverride)
+    : sceneId_(std::move(sceneId)), entityId_(entityId), next_(std::move(pivotOverride)) {}
+
+EditorOperationResult SetInstanceSpritePivotOverrideCommand::apply(ProjectDocument& document) {
+    const SceneInstanceDef* instance = selectedInstance(document, sceneId_, entityId_);
+    if (!instance) return EditorOperationResult::failure("Selected instance is missing");
+    const EntityDef* type = document.findObjectType(instance->objectTypeId);
+    if (!type || !type->spritePresentation)
+        return EditorOperationResult::failure("Object Type has no Sprite");
+    if (next_ && !isValidNormalizedPivot(*next_))
+        return EditorOperationResult::failure("Sprite pivot must be finite in [0, 1]");
+
+    const std::optional<Vec2> current =
+        instance->spritePresentationOverride
+            ? instance->spritePresentationOverride->pivot
+            : std::nullopt;
+    if (current.has_value() == next_.has_value()
+        && (!next_ || nearlyEqualPivot(*current, *next_))) {
+        return EditorOperationResult::success(EditorInvalidation::None);
+    }
+
+    // Layer lock checked only on first apply (ADR-0057 B9 / §18.3).
+    if (!lockChecked_) {
+        if (document.isInstanceLayerLocked(sceneId_, *instance))
+            return EditorOperationResult::failure("Cannot override Sprite pivot: layer is locked");
+        lockChecked_ = true;
+    }
+    if (!captured_) {
+        previous_ = current;
+        captured_ = true;
+    }
+    if (!document.setInstanceSpritePivotOverride(sceneId_, entityId_, next_))
+        return EditorOperationResult::failure("Failed to set Sprite pivot override");
+    return EditorOperationResult::success(
+        kPresentationInvalidation,
+        DomainChange::componentChanged(sceneId_, entityId_, ComponentKind::SpritePresentation));
+}
+
+EditorOperationResult SetInstanceSpritePivotOverrideCommand::undo(ProjectDocument& document) {
+    if (!captured_
+        || !document.setInstanceSpritePivotOverride(sceneId_, entityId_, previous_)) {
+        return EditorOperationResult::failure("Cannot restore Sprite pivot override");
+    }
     return EditorOperationResult::success(
         kPresentationInvalidation,
         DomainChange::componentChanged(sceneId_, entityId_, ComponentKind::SpritePresentation));

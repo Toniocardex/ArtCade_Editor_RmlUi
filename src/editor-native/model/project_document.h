@@ -35,6 +35,8 @@ class RemoveSceneLayerCommand;
 class SetEntityLayerCommand;
 class SetLayerLockedCommand;
 class SetSceneLayerParallaxCommand;
+class SetObjectTypeSpritePivotCommand;
+class SetInstanceSpritePivotOverrideCommand;
 class AddPlatformerControllerCommand;
 class RemovePlatformerControllerCommand;
 class SetPlatformerValueCommand;
@@ -224,6 +226,8 @@ private:
     friend class AddSpriteRendererToObjectTypeCommand;
     friend class SetObjectTypeSpritePresentationCommand;
     friend class SetInstanceSpritePresentationOverrideCommand;
+    friend class SetObjectTypeSpritePivotCommand;
+    friend class SetInstanceSpritePivotOverrideCommand;
     friend class RemoveSpriteRendererFromObjectTypeCommand;
     friend class SetObjectTypeSpriteSourceCommand;
     friend class AddSpriteAnimatorToObjectTypeCommand;
@@ -420,6 +424,11 @@ private:
      *  canonical defaults. Rejects missing scene/layer and non-finite factors. */
     bool setSceneLayerParallax(const SceneId& sceneId, const std::string& layerId,
                                LayerParallax parallax);
+    /** ADR-0057: set Object Type Sprite Presentation pivot (presentation required). */
+    bool setObjectTypeSpritePivot(const ObjectTypeId& objectTypeId, Vec2 pivot);
+    /** ADR-0057: set/reset sparse instance pivot override; erases empty override. */
+    bool setInstanceSpritePivotOverride(const SceneId& sceneId, EntityId entityId,
+                                        std::optional<Vec2> pivotOverride);
     bool createInstance(const SceneId& sceneId, SceneInstanceDef instance);
     bool insertInstance(const SceneId& sceneId, std::size_t index, SceneInstanceDef instance);
     bool deleteInstance(const SceneId& sceneId, EntityId id);

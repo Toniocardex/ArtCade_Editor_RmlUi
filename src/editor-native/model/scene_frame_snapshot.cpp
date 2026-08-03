@@ -7,6 +7,7 @@
 #include "editor-native/model/sprite_render_view.h"
 #include "editor-native/model/text_layout_math.h"
 #include "editor-native/model/tilemap_render_view.h"
+#include "core/sprite-visual-geometry.h"
 #include "core/text-component-format.h"
 
 // RU-03: the runtime's own SceneFrameSnapshot/RenderableEntitySnapshot
@@ -62,12 +63,29 @@ WorldRect aabbWorldRect(const SceneFrameRect& dest, float rotationRadians) {
     return WorldRect{aabb.x, aabb.y, aabb.width, aabb.height};
 }
 
+WorldRect aabbOfVisual(const SceneFrameTransform2D& xf) {
+    const TransformAabb aabb = aabbOfTransform(xf);
+    return WorldRect{aabb.x, aabb.y, aabb.width, aabb.height};
+}
+
 SceneFrameTransform2D visualFromRect(const SceneFrameRect& dest, float rotationRadians) {
     return SceneFrameTransform2D{
         Vec2{dest.x + dest.width * 0.5f, dest.y + dest.height * 0.5f},
         Vec2{dest.width, dest.height},
         rotationRadians,
     };
+}
+
+SceneFrameTransform2D visualFromGeometry(const SpriteVisualGeometry& geo) {
+    return SceneFrameTransform2D{geo.visualCenter, geo.size, geo.rotationRadians};
+}
+
+void fillSpriteFromGeometry(SceneFrameSprite& sprite, const SpriteVisualGeometry& geo) {
+    sprite.destination = SceneFrameRect{
+        geo.unrotatedTopLeft.x, geo.unrotatedTopLeft.y, geo.size.x, geo.size.y};
+    sprite.origin = geo.originPixels;
+    sprite.visualTransform = visualFromGeometry(geo);
+    sprite.rotationRadians = geo.rotationRadians;
 }
 
 float left(const WorldRect& rect) { return rect.x; }
@@ -136,13 +154,26 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
         snapshot.entities.push_back(entityEntry);
         const SpriteRenderView sprite = resolveSpriteRenderer(document, sceneId, inst.id);
         if (sprite.present && !sprite.assetId.empty()) {
-            SceneFrameSprite spriteEntry{
-                inst.id, sprite.assetId, bounds,
-                Vec2{bounds.width * 0.5f, bounds.height * 0.5f},
-                sprite.visible, selected,
-                SceneFrameRect{sprite.sourceRect.x, sprite.sourceRect.y,
-                               sprite.sourceRect.w, sprite.sourceRect.h},
-                sprite.hasSourceRect, xf.rotationRadians};
+            // ADR-0057 B5: Edit keeps the unscaled 32×32 extent; pivot only
+            // moves the rectangle origin around Transform.position.
+            const SpriteVisualGeometry geo = resolveSpriteVisualGeometry(
+                effectiveTransform.position,
+                effectiveTransform.rotation,
+                effectiveTransform.scale,
+                Vec2{kDefaultSpriteExtent, kDefaultSpriteExtent},
+                sprite.pivot,
+                /*flipX=*/false,
+                /*flipY=*/false);
+            SceneFrameSprite spriteEntry;
+            spriteEntry.entityId = inst.id;
+            spriteEntry.assetId = sprite.assetId;
+            fillSpriteFromGeometry(spriteEntry, geo);
+            spriteEntry.visible = sprite.visible;
+            spriteEntry.selected = selected;
+            spriteEntry.source = SceneFrameRect{
+                sprite.sourceRect.x, sprite.sourceRect.y,
+                sprite.sourceRect.w, sprite.sourceRect.h};
+            spriteEntry.hasSource = sprite.hasSourceRect;
             spriteEntry.visibleInGame = inst.visible;
             snapshot.sprites.push_back(spriteEntry);
         }
@@ -261,30 +292,42 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const PlaySession& session) {
         tilemapById.emplace(tilemap.entityId, &tilemap);
     }
 
-    const auto emitSprite = [&](const ArtCade::RenderableEntitySnapshot& entity,
-                                const SceneFrameRect& bounds, float rotationRadians) {
+    const auto emitSprite = [&](const ArtCade::RenderableEntitySnapshot& entity) {
         const AssetId resolvedAssetId = entity.spriteFrame.assetId.empty()
             ? entity.sprite.spriteAssetId : entity.spriteFrame.assetId;
         if (resolvedAssetId.empty()) return;
         const bool hasSource = AppRender::sprite_frame_has_pixels(entity.spriteFrame.frame);
-        snapshot.sprites.push_back(SceneFrameSprite{
-            entity.id,
-            resolvedAssetId,
-            bounds,
-            Vec2{bounds.width * 0.5f, bounds.height * 0.5f},
-            /*visible=*/true,
-            false,
-            hasSource
-                ? SceneFrameRect{static_cast<float>(entity.spriteFrame.frame.x),
-                                 static_cast<float>(entity.spriteFrame.frame.y),
-                                 static_cast<float>(entity.spriteFrame.frame.w),
-                                 static_cast<float>(entity.spriteFrame.frame.h)}
-                : SceneFrameRect{},
-            hasSource,
-            rotationRadians,
+        // Play uses the current frame pixel size (ADR-0057 B5); pivot from the
+        // materialised SpriteComponent (presentation resolver at spawn).
+        const Vec2 unscaled = hasSource
+            ? Vec2{static_cast<float>(entity.spriteFrame.frame.w),
+                   static_cast<float>(entity.spriteFrame.frame.h)}
+            : Vec2{kDefaultSpriteExtent, kDefaultSpriteExtent};
+        const SpriteVisualGeometry geo = resolveSpriteVisualGeometry(
+            entity.transform.position,
+            entity.transform.rotation,
+            entity.transform.scale,
+            unscaled,
+            entity.sprite.pivot,
             entity.sprite.flipX,
-            entity.sprite.flipY,
-        });
+            entity.sprite.flipY);
+        SceneFrameSprite spriteEntry;
+        spriteEntry.entityId = entity.id;
+        spriteEntry.assetId = resolvedAssetId;
+        fillSpriteFromGeometry(spriteEntry, geo);
+        spriteEntry.visible = true;
+        spriteEntry.selected = false;
+        if (hasSource) {
+            spriteEntry.source = SceneFrameRect{
+                static_cast<float>(entity.spriteFrame.frame.x),
+                static_cast<float>(entity.spriteFrame.frame.y),
+                static_cast<float>(entity.spriteFrame.frame.w),
+                static_cast<float>(entity.spriteFrame.frame.h)};
+        }
+        spriteEntry.hasSource = hasSource;
+        spriteEntry.flipX = entity.sprite.flipX;
+        spriteEntry.flipY = entity.sprite.flipY;
+        snapshot.sprites.push_back(spriteEntry);
     };
 
     const auto emitTilemap = [&](const PlayTilemap& tilemap, Vec2 origin) {
@@ -329,7 +372,7 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const PlaySession& session) {
             snapshot.entities.push_back(SceneFrameEntity{
                 rend->id, std::string{}, rend->sprite.fillColor, bounds, false,
                 xf.rotationRadians});
-            emitSprite(*rend, bounds, xf.rotationRadians);
+            emitSprite(*rend);
             if (showTilemap) emitTilemap(*tilemap, rend->transform.position);
             if (rend->text) {
                 SceneFrameText entry;
@@ -381,7 +424,7 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const PlaySession& session) {
         snapshot.entities.push_back(SceneFrameEntity{
             entity.id, std::string{}, entity.sprite.fillColor, bounds, false,
             xf.rotationRadians});
-        emitSprite(entity, bounds, xf.rotationRadians);
+        emitSprite(entity);
         if (const auto tmIt = tilemapById.find(entity.id); tmIt != tilemapById.end()) {
             emitTilemap(*tmIt->second, entity.transform.position);
         }
@@ -411,15 +454,18 @@ EntityId pickEntityAt(const SceneFrameSnapshot& frame, ScenePickPoint point) {
     // back) and returning the first hit mirrors that draw order exactly.
     for (auto it = frame.entities.rbegin(); it != frame.entities.rend(); ++it) {
         const EntityId id = it->entityId;
+        bool hasVisibleSpriteHitTarget = false;
         for (const SceneFrameSprite& sprite : frame.sprites) {
             if (sprite.entityId != id) continue;
-            if (sprite.visible
-                && transformContainsPoint(
-                    visualFromRect(sprite.destination, sprite.rotationRadians), point.world)) {
-                return id;
+            if (sprite.visible && !sprite.assetId.empty()) {
+                hasVisibleSpriteHitTarget = true;
+                if (transformContainsPoint(sprite.visualTransform, point.world)) {
+                    return id;
+                }
             }
             break;   // one SpriteRenderer per entity
         }
+        if (hasVisibleSpriteHitTarget) continue; // ADR-0057 B4: no placeholder second hit
         bool hasPopulatedTilemap = false;
         for (const SceneFrameTilemap& tilemap : frame.tilemaps) {
             if (tilemap.entityId != id) continue;
@@ -490,7 +536,12 @@ void applyDragPreviewOffset(SceneFrameSnapshot& snapshot, EntityId entity, Vec2 
         if (e.entityId == entity) { e.bounds.x += delta.x; e.bounds.y += delta.y; }
     }
     for (SceneFrameSprite& s : snapshot.sprites) {
-        if (s.entityId == entity) { s.destination.x += delta.x; s.destination.y += delta.y; }
+        if (s.entityId == entity) {
+            s.destination.x += delta.x;
+            s.destination.y += delta.y;
+            s.visualTransform.center.x += delta.x;
+            s.visualTransform.center.y += delta.y;
+        }
     }
     for (SceneFrameCollider& col : snapshot.colliders) {
         if (col.entityId == entity) { col.worldBounds.x += delta.x; col.worldBounds.y += delta.y; }
@@ -521,7 +572,7 @@ std::optional<WorldRect> editorBoundsForEntity(const SceneFrameSnapshot& frame,
     std::optional<WorldRect> bounds;
     for (const SceneFrameSprite& sprite : frame.sprites) {
         if (sprite.entityId != entityId || !sprite.visible || sprite.assetId.empty()) continue;
-        const WorldRect rect = aabbWorldRect(sprite.destination, sprite.rotationRadians);
+        const WorldRect rect = aabbOfVisual(sprite.visualTransform);
         if (!finiteRect(rect)) continue;
         bounds = bounds ? unite(*bounds, rect) : rect;
     }

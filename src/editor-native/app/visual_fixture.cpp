@@ -15,17 +15,19 @@
 namespace ArtCade::EditorNative {
 namespace {
 
-EntityDef makeObjectType(const std::string& name, const AssetId& imageAssetId) {
+EntityDef makeObjectType(const std::string& name, const AssetId& imageAssetId,
+                         Vec2 pivot = {0.5f, 0.5f}) {
     EntityDef type;
     type.name = name;
     type.className = name;
-    // A SpriteRendererComponent with an empty imageAssetId is "no static
-    // image" (types.h) — Play and exported builds share the same gameplay
-    // render pass (scene_entities_pass.cpp), which draws nothing for a
-    // renderable with no sprite sheet; there is no missing-texture
-    // placeholder there. An actual image asset is required for the fixture
-    // to render as a real drawable in either context.
-    type.spriteRenderer = SpriteRendererComponent{imageAssetId, true};
+    // ADR-0057: Sprite Presentation owns the pivot. An actual image asset is
+    // required so Scene View / Play draw a real sprite (no missing-texture
+    // placeholder in the shared render pass).
+    SpritePresentationComponent presentation;
+    presentation.visible = true;
+    presentation.source = SpritePresentationImage{imageAssetId};
+    presentation.pivot = pivot;
+    type.spritePresentation = std::move(presentation);
     type.boxCollider2D = BoxCollider2DComponent{
         {0.f, 0.f}, {32.f, 32.f}, true, BoxColliderMode::Trigger};
     return type;
@@ -144,18 +146,21 @@ std::string writeFixtureSheet(const std::filesystem::path& projectPath) {
 
 ProjectDoc makeVisualFixtureProject() {
     ProjectDoc doc;
+    doc.formatVersion = 13;
     doc.projectName = "ArtCade Visual Fixture";
 
     // Declared before the object types so Player/Coin can reference it as
     // their static sprite — see makeObjectType's comment for why an actual
-    // asset (not just a SpriteRendererComponent) is required to render.
+    // asset is required to render.
     ImageAssetDef sheet;
     sheet.assetId = "fixture-sheet";
     sheet.name = "Design System Sheet";
     sheet.sourcePath = "assets/design-system-sheet.png";
     doc.imageAssets.push_back(sheet);
 
-    EntityDef player = makeObjectType("Player", sheet.assetId);
+    // ADR-0057 B10: non-central OT pivot so Scene View marker/outline leave
+    // the geometric center of the destination rect.
+    EntityDef player = makeObjectType("Player", sheet.assetId, {0.5f, 1.f});
     LogicBoardDef board;
     board.id = "logic:Player";
     board.rules.push_back(makeKeyRule());
@@ -165,7 +170,7 @@ ProjectDoc makeVisualFixtureProject() {
     board.rules.push_back(makeCollectRule());
     player.logicBoard = board;
     doc.objectTypes.emplace("Player", player);
-    doc.objectTypes.emplace("Coin", makeObjectType("Coin", sheet.assetId));
+    doc.objectTypes.emplace("Coin", makeObjectType("Coin", sheet.assetId, {0.f, 0.f}));
     // Minimal Tilemap host for --shot-escape (tool → Escape). Painting needs a
     // selected instance with TilemapComponent on an unlocked layer; without it
     // Rectangle never arms and Escape is decorative.

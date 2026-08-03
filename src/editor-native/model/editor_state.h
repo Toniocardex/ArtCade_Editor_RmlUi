@@ -62,6 +62,14 @@ struct EditorSceneViewState {
     float gridCellSize = SceneGridDefaults::kCellSize;
 };
 
+// ADR-0057: read-only pivot context for the animation preview canvas.
+// Never authored here — mirrors the effective Sprite Presentation pivot.
+struct SpriteAnimationPivotPreview {
+    bool available = false;
+    Vec2 effectivePivot = {0.5f, 0.5f};
+    bool fromInstanceOverride = false;
+};
+
 struct SpriteAnimationEditorState {
     std::optional<AssetId> openAssetId;
     std::optional<std::string> selectedClipId;
@@ -85,6 +93,7 @@ struct SpriteAnimationEditorState {
     float previewElapsed = 0.0f;
     float previewSpeed = 1.0f;   // workspace-only multiplier
     std::size_t previewFrameIndex = 0;
+    SpriteAnimationPivotPreview pivotPreview{};
 };
 
 // Workspace state for the Tileset Editor. pendingSlicing is the live-edited

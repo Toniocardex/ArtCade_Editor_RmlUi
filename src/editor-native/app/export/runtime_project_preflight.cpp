@@ -3,6 +3,7 @@
 #include "editor-native/model/project_io.h"
 #include "editor-native/model/sprite_render_view.h"
 #include "editor-native/model/tilemap_validation.h"
+#include "core/project-json-upgrade.h"
 #include "core/text-component-format.h"
 #include "project-current-format.h"
 
@@ -268,7 +269,24 @@ RuntimeProjectPreflightResult prepareRuntimeProjectSnapshot(
     bool parseOk = true;
     try { parsed = nlohmann::json::parse(serialized.value); }
     catch (...) { parseOk = false; }
-    if (!parseOk || !ProjectJson::validate_current_project_json(parsed, validationError)) {
+    if (!parseOk) {
+        result.diagnostics.push_back(makeExportError(
+            ExportDiagnosticCode::RuntimeValidationFailed,
+            "canonical loader rejected the project [serialize produced invalid JSON]"));
+        return result;
+    }
+
+    // ADR-0057 B1: same load order as editor deserialize / AssetLoader —
+    // upgrade (v12→v13 or v13 no-op) before strict current-format validation.
+    const ProjectJson::ProjectJsonUpgradeResult upgraded =
+        ProjectJson::upgradeProjectJsonToCurrent(parsed);
+    if (!upgraded.ok) {
+        result.diagnostics.push_back(makeExportError(
+            ExportDiagnosticCode::RuntimeValidationFailed,
+            "canonical loader rejected the project [" + upgraded.error + "]"));
+        return result;
+    }
+    if (!ProjectJson::validate_current_project_json(upgraded.root, validationError)) {
         result.diagnostics.push_back(makeExportError(
             ExportDiagnosticCode::RuntimeValidationFailed,
             "canonical loader rejected the project"
@@ -277,7 +295,8 @@ RuntimeProjectPreflightResult prepareRuntimeProjectSnapshot(
         return result;
     }
 
-    result.canonicalProjectJson = serialized.value;
+    result.canonicalProjectJson =
+        upgraded.changed ? upgraded.root.dump(2) : serialized.value;
     result.ok = true;
     return result;
 }

@@ -18,8 +18,10 @@
 #include "core/entity-json.h"
 #include "core/project-current-format.h"
 #include "core/project-global-variables-format.h"
+#include "core/project-json-upgrade.h"
 #include "core/project-meta-json.h"
 #include "core/scene-json.h"
+#include "core/sprite-presentation-resolve.h"
 #include "core/text-component-format.h"
 
 #include <nlohmann/json.hpp>
@@ -47,7 +49,7 @@ namespace {
 // carry no mirrored display name; provenance is derived and validated.
 // v7: Object-Type-owned ordered Script attachments. Project JSON still stores
 // metadata only; source text remains in project-relative .lua files.
-constexpr int kCurrentSchemaVersion = 12;
+constexpr int kCurrentSchemaVersion = 13;
 
 } // namespace
 
@@ -422,7 +424,18 @@ bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
             delta.source = readSpritePresentationSource(
                 *source, "scenes[].instances[].spritePresentationOverride.source");
         }
-        out.spritePresentationOverride = std::move(delta);
+        if (const nlohmann::json* pivotValue = optionalObject(
+                *spriteValue, "pivot",
+                "scenes[].instances[].spritePresentationOverride.pivot")) {
+            const Vec2 pivot = readVec2(*pivotValue);
+            if (!isValidNormalizedPivot(pivot)) {
+                invalidField("scenes[].instances[].spritePresentationOverride.pivot",
+                             "finite Vec2 in [0, 1]");
+            }
+            delta.pivot = pivot;
+        }
+        if (!spritePresentationOverrideEmpty(delta))
+            out.spritePresentationOverride = std::move(delta);
     }
     AssetId foldedRendererAnimationAssetId;
     if (const nlohmann::json* srValue = optionalObject(
@@ -850,6 +863,7 @@ nlohmann::json instanceToJson(const SceneInstanceDef& instance) {
         nlohmann::json delta = nlohmann::json::object();
         if (deltaValue.visible) delta["visible"] = *deltaValue.visible;
         if (deltaValue.source) delta["source"] = spritePresentationSourceToJson(*deltaValue.source);
+        if (deltaValue.pivot) delta["pivot"] = vec2ToJson(*deltaValue.pivot);
         if (!delta.empty()) json["spritePresentationOverride"] = std::move(delta);
     }
     if (!instance.spritePresentationOverride && instance.spriteRendererOverride.has_value()) {
@@ -965,6 +979,7 @@ nlohmann::json objectTypeToJson(const std::string& id, const EntityDef& def) {
         json["spritePresentation"] = nlohmann::json{
             {"visible", presentation->visible},
             {"source", spritePresentationSourceToJson(presentation->source)},
+            {"pivot", vec2ToJson(presentation->pivot)},
         };
     }
     if (def.boxCollider2D.has_value()) {
@@ -1697,8 +1712,19 @@ DeserializeResult deserializeCanonical(const nlohmann::json& root) {
 
 DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
     try {
-    const nlohmann::json root = nlohmann::json::parse(source.begin(), source.end());
+    nlohmann::json root = nlohmann::json::parse(source.begin(), source.end());
     if (!root.is_object()) invalidField("$", "object");
+
+    // ADR-0057: upgrade v12→v13 before the strict current-format gate. Other
+    // versions (including missing/malformed) keep the historical error path
+    // below so malformed-present fields still surface their specific reasons.
+    if (root.contains("formatVersion") && root["formatVersion"].is_number_integer()
+        && root["formatVersion"].get<int>() == 12) {
+        const ProjectJson::ProjectJsonUpgradeResult upgraded =
+            ProjectJson::upgradeProjectJsonToCurrent(root);
+        if (!upgraded.ok) return DeserializeResult::failure(upgraded.error);
+        root = upgraded.root;
+    }
 
     ProjectDoc doc;
     doc.projectName = readString(root, "projectName", "project_name", "Untitled");
@@ -1715,9 +1741,6 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
     doc.formatVersion = readAliasedNumber<int>(
         root, "formatVersion", "format_version", 0, "formatVersion");
 
-    // ADR-0048: alpha schema v12 is deliberately strict and has no legacy
-    // import path. Reject before any fallback parser can materialise obsolete
-    // fields into memory.
     if (doc.formatVersion != kCurrentSchemaVersion) {
         return DeserializeResult::failure("Unsupported project schema version");
     }
@@ -1774,6 +1797,18 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                 }
                 presentation.source = readSpritePresentationSource(
                     *source, "objectTypes[].spritePresentation.source");
+                const nlohmann::json* pivotValue = optionalObject(
+                    *presentationValue, "pivot",
+                    "objectTypes[].spritePresentation.pivot");
+                if (!pivotValue) {
+                    return DeserializeResult::failure(
+                        "SpritePresentation requires a pivot");
+                }
+                presentation.pivot = readVec2(*pivotValue);
+                if (!isValidNormalizedPivot(presentation.pivot)) {
+                    invalidField("objectTypes[].spritePresentation.pivot",
+                                 "finite Vec2 in [0, 1]");
+                }
                 def.spritePresentation = std::move(presentation);
             }
             if (const nlohmann::json* spriteValue = optionalObject(
@@ -2445,6 +2480,10 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
             }
         }
         if (type.spritePresentation) {
+            if (!isValidNormalizedPivot(type.spritePresentation->pivot)) {
+                return DeserializeResult::failure(
+                    "Object Type Sprite pivot must be finite in [0, 1]");
+            }
             const SpritePresentationSource& source = type.spritePresentation->source;
             if (const auto* image = std::get_if<SpritePresentationImage>(&source)) {
                 if (!image->imageAssetId.empty() && !document.hasImageAsset(image->imageAssetId)) {

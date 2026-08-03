@@ -86,7 +86,8 @@ std::vector<CollisionShape> convert_profile_shapes(
     if (frame.w <= 0) frame.w = 32;
     if (frame.h <= 0) frame.h = 32;
 
-    const Vec2 pivot = sprite.pivotFromAsset ? Vec2{0.5f, 0.5f} : sprite.pivot;
+    // ADR-0057: current-format runtime never consults pivotFromAsset.
+    const Vec2 pivot = sprite.pivot;
 
     for (const CollisionShape& src : profileShapes) {
         if (!src.enabled) continue;

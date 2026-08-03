@@ -7,6 +7,7 @@
 #include "scene-json.h"
 #include "project-meta-json.h"
 #include "project-current-format.h"
+#include "project-json-upgrade.h"
 #include <nlohmann/json.hpp>
 #include <filesystem>
 #include <fstream>
@@ -213,6 +214,14 @@ bool AssetLoader::parseProjectJson(const std::string& path, ProjectDoc& out) {
     catch (...) { return false; }
 
     std::string validation_error;
+    // ADR-0057: upgrade v12→v13 before strict validation; other versions reject.
+    if (j.contains("formatVersion") && j["formatVersion"].is_number_integer()
+        && j["formatVersion"].get<int>() == 12) {
+        const ProjectJson::ProjectJsonUpgradeResult upgraded =
+            ProjectJson::upgradeProjectJsonToCurrent(j);
+        if (!upgraded.ok) return false;
+        j = upgraded.root;
+    }
     if (!ProjectJson::validate_current_project_json(j, validation_error)) return false;
 
     ProjectJson::read_project_header(j, out);
@@ -290,8 +299,6 @@ bool AssetLoader::parseProjectJson(const std::string& path, ProjectDoc& out) {
                 manifestIndex_.addFontEntry(asset.assetId, asset.sourcePath);
         }
     }
-
-    resolveSpritePivotsFromImageAssets(out);
 
     return true;
 }

@@ -1,6 +1,7 @@
 #include "editor-native/model/sprite_render_view.h"
 
 #include "editor-native/model/project_document.h"
+#include "core/sprite-presentation-resolve.h"
 
 namespace ArtCade::EditorNative {
 
@@ -41,24 +42,24 @@ ResolvedSpriteOwnership resolveSpriteOwnership(
     const EntityDef& objectType, const SceneInstanceDef& instance) {
     ResolvedSpriteOwnership resolved;
 
-    // v10 has one persistent source. The renderer/animator pair returned here
-    // is a derived projection used by existing Edit and runtime draw paths.
+    // ADR-0057: one shared presentation resolver for visible/source/pivot.
+    // The renderer/animator pair returned here is a derived projection.
     if (objectType.spritePresentation) {
-        SpritePresentationComponent presentation = *objectType.spritePresentation;
+        const EffectiveSpritePresentation effective =
+            resolveEffectiveSpritePresentation(objectType, instance);
         ComponentOrigin origin = ComponentOrigin::EntityDefinition;
         if (instance.spritePresentationOverride) {
             const SpritePresentationOverride& delta = *instance.spritePresentationOverride;
-            if (delta.visible) presentation.visible = *delta.visible;
-            if (delta.source) presentation.source = *delta.source;
-            if (delta.visible || delta.source) origin = ComponentOrigin::InstanceOverride;
+            if (delta.visible || delta.source || delta.pivot)
+                origin = ComponentOrigin::InstanceOverride;
         }
 
         SpriteRendererComponent renderer;
-        renderer.visible = presentation.visible;
-        if (const auto* image = std::get_if<SpritePresentationImage>(&presentation.source)) {
+        renderer.visible = effective.visible;
+        if (const auto* image = std::get_if<SpritePresentationImage>(&effective.source)) {
             renderer.imageAssetId = image->imageAssetId;
         } else if (const auto* animation =
-                       std::get_if<SpritePresentationAnimation>(&presentation.source)) {
+                       std::get_if<SpritePresentationAnimation>(&effective.source)) {
             resolved.animator = SpriteAnimatorComponent{
                 animation->animationAssetId, animation->defaultClipId,
                 animation->autoPlay, animation->playbackSpeed};
@@ -239,6 +240,16 @@ SpriteRenderView resolveSpriteRenderer(const ProjectDocument& document,
     view.animatorInvalid = draw.animatorInvalid;
     view.diagnosticCode = draw.diagnosticCode;
     view.diagnosticMessage = draw.diagnosticMessage;
+    if (objectType && objectType->spritePresentation) {
+        const EffectiveSpritePresentation effective =
+            resolveEffectiveSpritePresentation(*objectType, *instance);
+        view.pivot = effective.pivot;
+        view.pivotOrigin =
+            (instance->spritePresentationOverride
+             && instance->spritePresentationOverride->pivot)
+                ? ComponentOrigin::InstanceOverride
+                : ComponentOrigin::EntityDefinition;
+    }
     return view;
 }
 

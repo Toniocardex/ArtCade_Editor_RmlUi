@@ -502,7 +502,7 @@ int main() {
         }
 
         std::string preV12 = serialized.value;
-        const std::string currentSchema = "\"formatVersion\": 12";
+        const std::string currentSchema = "\"formatVersion\": 13";
         const std::size_t schemaAt = preV12.find(currentSchema);
         CHECK(schemaAt != std::string::npos);
         if (schemaAt != std::string::npos) {
@@ -588,7 +588,7 @@ int main() {
 
         const SerializeResult serialized = ProjectSerializer::serialize(ProjectDocument{doc});
         CHECK(serialized.ok);
-        CHECK(serialized.value.find("\"formatVersion\": 12") != std::string::npos);
+        CHECK(serialized.value.find("\"formatVersion\": 13") != std::string::npos);
 
         const DeserializeResult deserialized = ProjectSerializer::deserialize(serialized.value);
         CHECK(deserialized.ok);
@@ -4201,8 +4201,12 @@ int main() {
         f.entities.push_back(SceneFrameEntity{1, "P", {}, SceneFrameRect{0, 0, 50, 50}, false});
         f.entities.push_back(SceneFrameEntity{3, "S3", {}, SceneFrameRect{10, 10, 50, 50}, false});
         f.entities.push_back(SceneFrameEntity{2, "S2", {}, SceneFrameRect{10, 10, 50, 50}, false});
-        f.sprites.push_back(SceneFrameSprite{2, "img", SceneFrameRect{10, 10, 50, 50}, {}, true, false});
-        f.sprites.push_back(SceneFrameSprite{3, "img", SceneFrameRect{10, 10, 50, 50}, {}, false, false});
+        SceneFrameSprite s2{2, "img", SceneFrameRect{10, 10, 50, 50}, {}, true, false};
+        s2.visualTransform = SceneFrameTransform2D{{35.f, 35.f}, {50.f, 50.f}, 0.f};
+        SceneFrameSprite s3{3, "img", SceneFrameRect{10, 10, 50, 50}, {}, false, false};
+        s3.visualTransform = SceneFrameTransform2D{{35.f, 35.f}, {50.f, 50.f}, 0.f};
+        f.sprites.push_back(s2);
+        f.sprites.push_back(s3);
         CHECK(pickEntityAt(f, Vec2{20.f, 20.f}) == 2);   // sprite over placeholder
         CHECK(pickEntityAt(f, Vec2{5.f, 5.f}) == 1);     // invisible sprite ignored
     }
@@ -4225,8 +4229,12 @@ int main() {
         f.worldSize = Vec2{100.f, 100.f};
         f.entities.push_back(SceneFrameEntity{1, "P", {}, SceneFrameRect{0, 0, 10, 10}, false});
         f.entities.push_back(SceneFrameEntity{2, "Q", {}, SceneFrameRect{70, 70, 10, 10}, false});
-        f.sprites.push_back(SceneFrameSprite{1, "img", SceneFrameRect{20, 0, 10, 10}, {}, true, false});
-        f.sprites.push_back(SceneFrameSprite{1, "hidden", SceneFrameRect{-100, -100, 10, 10}, {}, false, false});
+        SceneFrameSprite visibleSprite{1, "img", SceneFrameRect{20, 0, 10, 10}, {}, true, false};
+        visibleSprite.visualTransform = SceneFrameTransform2D{{25.f, 5.f}, {10.f, 10.f}, 0.f};
+        SceneFrameSprite hiddenSprite{1, "hidden", SceneFrameRect{-100, -100, 10, 10}, {}, false, false};
+        hiddenSprite.visualTransform = SceneFrameTransform2D{{-95.f, -95.f}, {10.f, 10.f}, 0.f};
+        f.sprites.push_back(visibleSprite);
+        f.sprites.push_back(hiddenSprite);
         f.colliders.push_back(SceneFrameCollider{
             1, WorldRect{0, 20, 10, 10}, true, BoxColliderMode::Solid, false});
 
@@ -4255,7 +4263,9 @@ int main() {
             1, "tiles-img",
             {SceneFrameTilemapCell{SceneFrameRect{0, 0, 32, 32}, SceneFrameRect{0, 0, 16, 16}}},
             false});
-        f.sprites.push_back(SceneFrameSprite{2, "img", SceneFrameRect{10, 10, 10, 10}, {}, true, false});
+        SceneFrameSprite heroSprite{2, "img", SceneFrameRect{10, 10, 10, 10}, {}, true, false};
+        heroSprite.visualTransform = SceneFrameTransform2D{{15.f, 15.f}, {10.f, 10.f}, 0.f};
+        f.sprites.push_back(heroSprite);
         CHECK(pickEntityAt(f, Vec2{5.f, 5.f}) == 1);      // hits the tile, not just the placeholder
         CHECK(pickEntityAt(f, Vec2{15.f, 15.f}) == 2);    // sprite entity, later in render order, wins
         CHECK(pickEntityAt(f, Vec2{500.f, 500.f}) == INVALID_ENTITY);
@@ -4301,7 +4311,9 @@ int main() {
         f.hasScene = true;
         f.entities.push_back(SceneFrameEntity{1, "TM", {}, SceneFrameRect{10, 10, 5, 5}, true});
         f.entities.push_back(SceneFrameEntity{2, "Other", {}, SceneFrameRect{0, 0, 5, 5}, false});
-        f.sprites.push_back(SceneFrameSprite{1, "img", SceneFrameRect{10, 10, 5, 5}, {}, true, true});
+        SceneFrameSprite dragSprite{1, "img", SceneFrameRect{10, 10, 5, 5}, {}, true, true};
+        dragSprite.visualTransform = SceneFrameTransform2D{{12.5f, 12.5f}, {5.f, 5.f}, 0.f};
+        f.sprites.push_back(dragSprite);
         f.colliders.push_back(SceneFrameCollider{1, WorldRect{10, 10, 5, 5},
                                                   true, BoxColliderMode::Solid, true});
         f.tilemaps.push_back(SceneFrameTilemap{
@@ -5551,7 +5563,7 @@ int main() {
     {
         // Preserve opacity when resetting parallax to defaults.
         ProjectDoc data;
-        data.formatVersion = 12;
+        data.formatVersion = 13;
         data.projectName = "ParallaxOpacity";
         SceneDef scene;
         scene.id = "s";
@@ -5589,7 +5601,7 @@ int main() {
     {
         // Remove with explicit default entry: undo restores the entry.
         ProjectDoc data;
-        data.formatVersion = 12;
+        data.formatVersion = 13;
         data.projectName = "ParallaxSparse";
         SceneDef scene;
         scene.id = "s";
@@ -5649,7 +5661,7 @@ int main() {
     {
         // Orphan layerSettings key rejected by validate().
         ProjectDoc data;
-        data.formatVersion = 12;
+        data.formatVersion = 13;
         data.projectName = "Orphan";
         SceneDef scene;
         scene.id = "s";
@@ -5667,7 +5679,7 @@ int main() {
         // Writer preserves every SceneLayerSettings field; multi-layer factors;
         // empty sparse map is omitted; raw NaN parallax is rejected pre-read.
         ProjectDoc data;
-        data.formatVersion = 12;
+        data.formatVersion = 13;
         data.projectName = "ParallaxFull";
         SceneDef scene;
         scene.id = "s";

@@ -484,6 +484,33 @@ EditorOperationResult EditorCoordinator::apply(const OpenSpriteAnimationEditorIn
     editor.previewElapsed = 0.f;
     editor.previewSpeed = 1.f;
     editor.previewFrameIndex = 0;
+    // ADR-0057: optional read-only pivot preview from selection context.
+    editor.pivotPreview = {};
+    if (state_.selection.selectedObjectTypeId) {
+        if (const EntityDef* type =
+                document_.findObjectType(*state_.selection.selectedObjectTypeId)) {
+            if (type->spritePresentation) {
+                editor.pivotPreview.available = true;
+                editor.pivotPreview.effectivePivot = type->spritePresentation->pivot;
+            }
+        }
+    } else if (state_.selection.primaryEntity != INVALID_ENTITY) {
+        if (const SceneInstanceDef* inst = document_.findInstanceInScene(
+                state_.activeSceneId, state_.selection.primaryEntity)) {
+            if (const EntityDef* type = document_.findObjectType(inst->objectTypeId)) {
+                if (type->spritePresentation) {
+                    editor.pivotPreview.available = true;
+                    editor.pivotPreview.effectivePivot = type->spritePresentation->pivot;
+                    if (inst->spritePresentationOverride
+                        && inst->spritePresentationOverride->pivot) {
+                        editor.pivotPreview.effectivePivot =
+                            *inst->spritePresentationOverride->pivot;
+                        editor.pivotPreview.fromInstanceOverride = true;
+                    }
+                }
+            }
+        }
+    }
     const EditorInvalidation inv = EditorInvalidation::Viewport | EditorInvalidation::Toolbar;
     accumulate(inv);
     return EditorOperationResult::success(inv);

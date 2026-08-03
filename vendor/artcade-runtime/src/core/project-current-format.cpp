@@ -1,8 +1,11 @@
 #include "project-current-format.h"
 #include "project-global-variables-format.h"
+#include "entity-json.h"
+#include "sprite-presentation-resolve.h"
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <unordered_set>
 
 namespace ArtCade::ProjectJson {
@@ -137,6 +140,13 @@ bool validate_current_project_document(const ProjectDoc &document, std::string &
             error_message = "Object Type names must be unique.";
             return false;
         }
+        // ADR-0057: materialised Object Type presentations carry a valid pivot.
+        if (object_type.spritePresentation
+            && !isValidNormalizedPivot(object_type.spritePresentation->pivot)) {
+            error_message = "Object Type \"" + object_type_id
+                + "\" spritePresentation.pivot must be finite in [0, 1].";
+            return false;
+        }
     }
     for (const auto &[scene_id, scene] : document.scenes) {
         if (scene_id != scene.id) {
@@ -147,10 +157,26 @@ bool validate_current_project_document(const ProjectDoc &document, std::string &
             return false;
         }
         for (const SceneInstanceDef &instance : scene.instances) {
-            if (document.objectTypes.find(instance.objectTypeId) == document.objectTypes.end()) {
+            const auto typeIt = document.objectTypes.find(instance.objectTypeId);
+            if (typeIt == document.objectTypes.end()) {
                 error_message = "Scene \"" + scene_id
                     + "\" references a missing Object Type \"" + instance.objectTypeId + "\".";
                 return false;
+            }
+            if (instance.spritePresentationOverride
+                && instance.spritePresentationOverride->pivot) {
+                if (!typeIt->second.spritePresentation) {
+                    error_message = "Scene \"" + scene_id
+                        + "\" instance has a sprite pivot override without Object Type "
+                          "Sprite Presentation.";
+                    return false;
+                }
+                if (!isValidNormalizedPivot(*instance.spritePresentationOverride->pivot)) {
+                    error_message = "Scene \"" + scene_id
+                        + "\" instance spritePresentationOverride.pivot must be finite "
+                          "in [0, 1].";
+                    return false;
+                }
             }
         }
     }
@@ -287,6 +313,28 @@ bool validate_current_project_json(const nlohmann::json &root, std::string &erro
                     }
                     has_camera_target = true;
                 }
+                // ADR-0057: optional instance pivot override must be normalized.
+                if (raw_instance.contains("spritePresentationOverride")
+                    && raw_instance["spritePresentationOverride"].is_object()) {
+                    const auto& overrideJson = raw_instance["spritePresentationOverride"];
+                    if (overrideJson.contains("pivot")) {
+                        const auto& pivot = overrideJson["pivot"];
+                        if (!pivot.is_object() || !pivot.contains("x") || !pivot.contains("y")
+                            || !pivot["x"].is_number() || !pivot["y"].is_number()) {
+                            error_message = "Scene \"" + scene_id
+                                + "\" instance pivot override must be {x,y} numbers.";
+                            return false;
+                        }
+                        const float x = pivot["x"].get<float>();
+                        const float y = pivot["y"].get<float>();
+                        if (!std::isfinite(x) || !std::isfinite(y)
+                            || x < 0.f || x > 1.f || y < 0.f || y > 1.f) {
+                            error_message = "Scene \"" + scene_id
+                                + "\" instance pivot override must be finite in [0, 1].";
+                            return false;
+                        }
+                    }
+                }
                 SceneInstanceDef instance;
                 instance.id = raw_instance["id"].get<EntityId>();
                 instance.objectTypeId = raw_instance["objectTypeId"].get<std::string>();
@@ -316,6 +364,8 @@ bool validate_current_project_json(const nlohmann::json &root, std::string &erro
         }
         document.scenes.emplace(scene_id, std::move(scene));
     }
+    // ADR-0057: OT spritePresentation.pivot required when presentation exists.
+    if (!validate_object_type_presentation_json(root, error_message)) return false;
     return validate_current_project_document(document, error_message);
 }
 

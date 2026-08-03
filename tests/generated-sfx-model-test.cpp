@@ -129,7 +129,7 @@ int main() {
     CHECK(serialized.value.find("\"generatorVersion\": 2") != std::string::npos);
     const DeserializeResult decoded = ProjectSerializer::deserialize(serialized.value);
     CHECK(decoded.ok);
-    CHECK(decoded.value.data().formatVersion == 12);
+    CHECK(decoded.value.data().formatVersion == 13);
     CHECK(ProjectValidator::validate(decoded.value).ok);
     // Guarded: a reader that drops the whole catalog used to crash the suite
     // here instead of failing it, which cost the rest of these checks too.

@@ -75,6 +75,27 @@ bool imageHasDerivedAnimation(const EditorCoordinator& coordinator, const AssetI
     return false;
 }
 
+// ADR-0057 preset labels (exact nine-point grid).
+const char* pivotPresetLabel(Vec2 pivot) {
+    struct Preset { float x; float y; const char* label; };
+    static constexpr Preset kPresets[] = {
+        {0.f, 0.f, "Top Left"}, {0.5f, 0.f, "Top Center"}, {1.f, 0.f, "Top Right"},
+        {0.f, 0.5f, "Mid Left"}, {0.5f, 0.5f, "Center"}, {1.f, 0.5f, "Mid Right"},
+        {0.f, 1.f, "Bot Left"}, {0.5f, 1.f, "Bot Center"}, {1.f, 1.f, "Bot Right"},
+    };
+    for (const Preset& p : kPresets) {
+        if (std::fabs(pivot.x - p.x) <= 1e-4f && std::fabs(pivot.y - p.y) <= 1e-4f)
+            return p.label;
+    }
+    return "Custom";
+}
+
+std::string pivotPresetArg(float x, float y) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%g,%g", static_cast<double>(x), static_cast<double>(y));
+    return buf;
+}
+
 // An editable property row. Disabled (read-only) while Play freezes the document.
 std::string field(const char* label, const char* action, const std::string& value,
                   bool disabled, const char* id = nullptr) {
@@ -92,6 +113,61 @@ std::string field(const char* label, const char* action, const std::string& valu
     if (disabled) row += " disabled=\"disabled\"";
     row += "/></div>";
     return row;
+}
+
+std::string spritePivotAuthoringHtml(Vec2 pivot, bool instanceOverride, bool disabled,
+                                     bool showOverrideButton, bool showResetButton) {
+    std::string html;
+    html += "<div class=\"prop-row\"><span class=\"prop-label\">Pivot</span>";
+    if (instanceOverride) {
+        html += "<span class=\"comp-badge override\">INSTANCE OVERRIDE</span>";
+    } else {
+        html += "<span class=\"prop-readonly\">Inherited: "
+              + escapeRml(pivotPresetLabel(pivot)) + "</span>";
+    }
+    html += "</div>";
+    html += "<div class=\"type-owned-note\">The pivot is the point of the sprite placed "
+            "at the entity's Position. Rotation and scale occur around this point. "
+            "It affects rendering only; colliders and gameplay coordinates do not move.</div>";
+
+    if (instanceOverride || !showOverrideButton) {
+        static constexpr struct { float x; float y; const char* label; } kGrid[] = {
+            {0.f, 0.f, "TL"}, {0.5f, 0.f, "TC"}, {1.f, 0.f, "TR"},
+            {0.f, 0.5f, "ML"}, {0.5f, 0.5f, "C"}, {1.f, 0.5f, "MR"},
+            {0.f, 1.f, "BL"}, {0.5f, 1.f, "BC"}, {1.f, 1.f, "BR"},
+        };
+        html += "<div class=\"pivot-preset-grid\">";
+        for (const auto& cell : kGrid) {
+            const bool selected = std::fabs(pivot.x - cell.x) <= 1e-4f
+                && std::fabs(pivot.y - cell.y) <= 1e-4f;
+            html += "<button class=\"panel-btn";
+            if (selected) html += " selected";
+            if (disabled) html += " disabled";
+            html += "\" data-action=\"set-sprite-pivot-preset\" data-arg=\""
+                  + pivotPresetArg(cell.x, cell.y) + "\">" + cell.label + "</button>";
+        }
+        html += "</div>";
+        html += field("X", "commit-sprite-pivot-x", num(pivot.x), disabled, "inspector-pivot-x");
+        html += field("Y", "commit-sprite-pivot-y", num(pivot.y), disabled, "inspector-pivot-y");
+        if (!instanceOverride) {
+            html += "<button class=\"panel-btn";
+            if (disabled) html += " disabled";
+            html += "\" data-action=\"set-sprite-pivot-preset\" data-arg=\"0.5,0.5\">"
+                    "Reset to Center</button>";
+        }
+    }
+
+    if (showOverrideButton && !instanceOverride) {
+        html += "<button class=\"panel-btn";
+        if (disabled) html += " disabled";
+        html += "\" data-action=\"override-sprite-pivot\">Override Pivot</button>";
+    }
+    if (showResetButton && instanceOverride) {
+        html += "<button class=\"panel-btn";
+        if (disabled) html += " disabled";
+        html += "\" data-action=\"reset-sprite-pivot\">Reset to Object Type</button>";
+    }
+    return html;
 }
 
 // Like field(), with a trailing unit suffix (e.g. "wu") shown after the input.
@@ -681,6 +757,17 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                     "<span class=\"prop-meta-value\">" + escapeRml(typeId) + "</span></div>";
             html += "<div class=\"prop-row\"><span class=\"prop-label\">Instances here</span>"
                     "<span class=\"prop-readonly\">" + std::to_string(sceneCount) + "</span></div>";
+            if (type->spritePresentation) {
+                html += header("sprite", isSectionCollapsed("sprite"),
+                               "" UI_ICON_RENAME "", "Sprite", "TYPE", "type",
+                               "remove-sprite-renderer", playing);
+                html += spritePivotAuthoringHtml(
+                    type->spritePresentation->pivot,
+                    /*instanceOverride=*/false,
+                    playing,
+                    /*showOverrideButton=*/false,
+                    /*showResetButton=*/false);
+            }
             html += header("object-type-components", isSectionCollapsed("object-type-components"),
                            "" UI_ICON_OBJECT "", "Components", "TYPE", "type", "", playing);
             const bool hasDriver = type->linearMover || type->topDownController
@@ -1369,6 +1456,20 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
                     "<button class=\"" + btn + "\" data-action=\"toggle-sprite-autoplay\">"
                     + (animator.autoPlay ? std::string("On") : std::string("Off"))
                     + "</button></div>";
+        }
+        if (unifiedSprite && type->spritePresentation) {
+            const SpriteRenderView spriteView =
+                resolveSpriteRenderer(coordinator.document(),
+                                      coordinator.state().activeSceneId, selected);
+            const bool pivotOverridden = inst->spritePresentationOverride
+                && inst->spritePresentationOverride->pivot.has_value();
+            // OT pivot is independent of layer lock; instance override is not.
+            const bool pivotDisabled = playing
+                || (pivotOverridden && instanceDisabled);
+            html += spritePivotAuthoringHtml(
+                spriteView.pivot, pivotOverridden, pivotDisabled,
+                /*showOverrideButton=*/true,
+                /*showResetButton=*/true);
         }
         if ((unifiedSprite && inst->spritePresentationOverride)
             || (!unifiedSprite && inst->spriteRendererOverride)) {

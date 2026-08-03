@@ -2,6 +2,7 @@ build/
 .vs/
 .vscode/
 .claude/
+.cursor/rules/no-unsolicited-edits.mdc
 *.user
 *.suo
 compile_commands.json

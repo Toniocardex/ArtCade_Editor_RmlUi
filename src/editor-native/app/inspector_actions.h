@@ -39,6 +39,14 @@ EditorOperationResult setSpriteDefaultClip(EditorCoordinator& coordinator,
 EditorOperationResult setSpriteAutoPlay(EditorCoordinator& coordinator, bool autoPlay);
 EditorOperationResult setSpritePlaybackSpeed(EditorCoordinator& coordinator, float speed);
 
+/** ADR-0057: set Object Type Sprite Presentation pivot. */
+EditorOperationResult setObjectTypeSpritePivot(EditorCoordinator& coordinator, Vec2 pivot);
+/** ADR-0057: set sparse instance pivot override (nullopt resets pivot only). */
+EditorOperationResult setInstanceSpritePivotOverride(EditorCoordinator& coordinator,
+                                                     std::optional<Vec2> pivot);
+/** ADR-0057: begin instance pivot override from the current effective value. */
+EditorOperationResult overrideInstanceSpritePivot(EditorCoordinator& coordinator);
+
 /** Move the selected entity's editor bounds inside the active scene. */
 EditorOperationResult bringSelectedEntityIntoScene(EditorCoordinator& coordinator);
 

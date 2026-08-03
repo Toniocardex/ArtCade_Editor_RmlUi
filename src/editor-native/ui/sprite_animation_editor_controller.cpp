@@ -294,8 +294,18 @@ void SpriteAnimationEditorController::refresh() {
         // Static markup on purpose: play state is reflected through the "active"
         // class in updateSpriteAnimationPlayhead(), so a Once clip finishing
         // mid-typing never triggers a SetInnerRML rebuild (focus steal).
-        html += "<div class=\"anim-panel-title anim-preview-title\">Preview</div>"
-                "<div id=\"animation-preview-canvas\" class=\"anim-preview-canvas\"></div>"
+        html += "<div class=\"anim-panel-title anim-preview-title\">Preview</div>";
+        if (state.pivotPreview.available) {
+            html += "<div class=\"type-owned-note\">Preview Pivot (read-only): "
+                  + std::to_string(state.pivotPreview.effectivePivot.x).substr(0, 5)
+                  + ", "
+                  + std::to_string(state.pivotPreview.effectivePivot.y).substr(0, 5)
+                  + " — Source: "
+                  + (state.pivotPreview.fromInstanceOverride
+                         ? "Instance Override" : "Object Type")
+                  + "</div>";
+        }
+        html += "<div id=\"animation-preview-canvas\" class=\"anim-preview-canvas\"></div>"
                 "<div class=\"anim-transport\">"
                 "<button class=\"panel-btn\" data-action=\"step-animation-preview\""
                 " data-arg=\"-1\" title=\"Previous frame\"><span class=\"icon\">" UI_ICON_PREVIOUS "</span></button>"

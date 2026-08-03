@@ -215,7 +215,7 @@ int main() {
 
     const auto serialized = ProjectSerializer::serialize(coordinator.document());
     CHECK(serialized.ok);
-    CHECK(serialized.value.find("\"formatVersion\": 12") != std::string::npos);
+    CHECK(serialized.value.find("\"formatVersion\": 13") != std::string::npos);
     CHECK(serialized.value.find("\"scriptAssets\"") != std::string::npos);
     const auto decoded = ProjectSerializer::deserialize(serialized.value);
     CHECK(decoded.ok);

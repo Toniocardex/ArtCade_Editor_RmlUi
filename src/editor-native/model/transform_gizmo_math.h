@@ -38,6 +38,8 @@ struct TransformInteractionState {
     Vec2 startMouseWorld{};
     Vec2 fixedAnchorWorld{};
     Vec2 unscaledSize{32.f, 32.f};
+    // ADR-0057: captured at gesture begin; immutable for the resize.
+    Vec2 effectivePivot{0.5f, 0.5f};
 };
 
 inline void cancelTransformInteraction(TransformInteractionState& state) {
@@ -71,6 +73,8 @@ struct InstanceTransformGeometry {
     SceneFrameTransform2D transform;
     Vec2 unscaledSize{32.f, 32.f};
     bool supportsScale = false;
+    // Visual effective pivot (includes flip) used by resize anchoring.
+    Vec2 effectivePivot{0.5f, 0.5f};
 };
 
 std::optional<InstanceTransformGeometry> resolveInstanceTransformGeometry(

@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <unordered_map>
 
 using namespace ArtCade;
 
@@ -67,6 +68,27 @@ int main() {
         expect(e.spriteAnimator->animationAssetId == "hero.anim", "animation: animator asset id");
         expect(e.spriteAnimator->defaultClipId.empty(), "animation: empty defaultClipId preserved");
         expect(!e.spritePresentation.has_value(), "animation: presentation cleared");
+        expect(!e.sprite.pivotFromAsset, "animation: pivotFromAsset cleared");
+        expect(e.sprite.pivot.x == 0.5f && e.sprite.pivot.y == 0.5f,
+               "animation: default center pivot from presentation");
+    }
+
+    // ADR-0057: OT Bottom Center pivot survives materialize + class prototypes.
+    {
+        EntityDef type = makeAnimationType("idle");
+        type.spritePresentation->pivot = {0.5f, 1.f};
+        SceneInstanceDef inst = makeInstance();
+        const EntityDef e = materializeInstance(type, inst, assets);
+        expect(e.sprite.pivot.x == 0.5f && e.sprite.pivot.y == 1.f,
+               "bottom-center: materialize pivot");
+        expect(!e.sprite.pivotFromAsset, "bottom-center: pivotFromAsset false");
+
+        std::unordered_map<std::string, EntityDef> prototypes;
+        std::unordered_map<std::string, EntityDef> objectTypes;
+        objectTypes.emplace("Hero", type);
+        rebuildClassPrototypes(prototypes, objectTypes, {});
+        expect(prototypes["Hero"].sprite.pivot.y == 1.f,
+               "bottom-center: class prototype pivot");
     }
 
     // Image source unchanged.

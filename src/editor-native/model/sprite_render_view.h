@@ -88,6 +88,9 @@ struct SpriteRenderView {
     AssetId         animationAssetId;
     AnimationFrameRect sourceRect{};
     bool            hasSourceRect = false;
+    // ADR-0057: effective Sprite Presentation pivot (never asset metadata).
+    Vec2            pivot = {0.5f, 0.5f};
+    ComponentOrigin pivotOrigin = ComponentOrigin::None;
     ComponentOrigin origin  = ComponentOrigin::None;
     bool            animatorInvalid = false;
     std::string     diagnosticCode;

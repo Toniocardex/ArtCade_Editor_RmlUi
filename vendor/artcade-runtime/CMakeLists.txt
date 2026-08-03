@@ -127,6 +127,8 @@ add_library(artcade-core STATIC
     src/core/logic-number-expression.cpp
     src/core/color-hex.cpp
     src/core/text-component-format.cpp
+    src/core/sprite-presentation-resolve.cpp
+    src/core/sprite-visual-geometry.cpp
 )
 target_include_directories(artcade-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core
@@ -147,6 +149,7 @@ target_link_libraries(artcade-object-type-materialize PUBLIC artcade-core)
 
 add_library(artcade-project-json STATIC
     src/core/project-current-format.cpp
+    src/core/project-json-upgrade.cpp
     src/core/project-global-variables-format.cpp
     src/core/json-primitives.cpp
     src/core/collision-json.cpp

@@ -706,6 +706,22 @@
     font-size: 10dp;
 }
 
+/* ADR-0057: 3×3 Sprite pivot presets in the Inspector. */
+.pivot-preset-grid {
+    display: block;
+    margin: 0 0 6dp 0;
+}
+.pivot-preset-grid .panel-btn {
+    display: inline-block;
+    width: 36dp;
+    margin: 0 2dp 2dp 0;
+    padding: 0;
+    text-align: center;
+}
+.pivot-preset-grid .panel-btn.selected {
+    font-weight: 600;
+}
+
 /* -- Tile Palette sheet (workspace dock under Scene View) ------------------
    One transparent hole: raylib paints the whole tileset sheet into it after
    RmlUi renders (same pattern as the Scene View viewport and the Tileset

@@ -549,6 +549,8 @@ using SpritePresentationSource = std::variant<
 struct SpritePresentationComponent {
     bool                     visible = true;
     SpritePresentationSource source = SpritePresentationNone{};
+    // ADR-0057: normalized visual origin placed at Transform.position.
+    Vec2                     pivot = {0.5f, 0.5f};
 };
 
 // A source override replaces the complete source alternative. This prevents
@@ -556,7 +558,14 @@ struct SpritePresentationComponent {
 struct SpritePresentationOverride {
     std::optional<bool>                     visible;
     std::optional<SpritePresentationSource> source;
+    // ADR-0057: sparse per-instance replacement of the Object Type pivot.
+    std::optional<Vec2>                     pivot;
 };
+
+/** True when no sparse presentation override fields remain (ADR-0057). */
+inline bool spritePresentationOverrideEmpty(const SpritePresentationOverride& value) {
+    return !value.visible && !value.source && !value.pivot;
+}
 
 using TileId = std::string;
 

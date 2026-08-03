@@ -35,6 +35,9 @@ artcade_editor_core_suite(editor_actions_shortcut_test
 artcade_editor_core_suite(sprite_animation_test
     sprite-animation-test.cpp)
 
+artcade_editor_core_suite(sprite_pivot_adr0057_test
+    sprite-pivot-adr0057-test.cpp)
+
 artcade_editor_core_suite(tileset_tilemap_test
     tileset-tilemap-test.cpp)
 
@@ -207,6 +210,7 @@ add_custom_target(artcade-editor-tests
         editor_core_test
         editor_actions_shortcut_test
         sprite_animation_test
+        sprite_pivot_adr0057_test
         tileset_tilemap_test
         generated_sfx_model_test
         script_asset_test

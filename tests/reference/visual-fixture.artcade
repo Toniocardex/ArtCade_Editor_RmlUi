@@ -2,7 +2,7 @@
   "activeSceneId": "scene-1",
   "audioAssets": [],
   "fontAssets": [],
-  "formatVersion": 12,
+  "formatVersion": 13,
   "generatedSfx": [],
   "globalVariables": [
     {
@@ -232,6 +232,10 @@
       },
       "name": "Player",
       "spritePresentation": {
+        "pivot": {
+          "x": 0.5,
+          "y": 1.0
+        },
         "source": {
           "assetId": "fixture-sheet",
           "kind": "image"
@@ -256,6 +260,10 @@
       "id": "Coin",
       "name": "Coin",
       "spritePresentation": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0
+        },
         "source": {
           "assetId": "fixture-sheet",
           "kind": "image"
@@ -746,7 +754,7 @@
       }
     }
   },
-  "schemaVersion": 12,
+  "schemaVersion": 13,
   "scriptAssets": [],
   "spriteAnimationAssets": [
     {

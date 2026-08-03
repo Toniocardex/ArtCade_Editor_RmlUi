@@ -179,7 +179,7 @@ std::optional<SceneFrameRect> tilemapCellBounds(const SceneFrameSnapshot& frame,
 }
 
 void drawMissingSprite(const SceneFrameSprite& sprite, float zoom) {
-    const SceneFrameTransform2D xf = visualOf(sprite.destination, sprite.rotationRadians);
+    const SceneFrameTransform2D& xf = sprite.visualTransform;
     const float degrees = sprite.rotationRadians * kRadToDeg;
     const Vector2 origin{sprite.origin.x, sprite.origin.y};
     DrawRectanglePro(pivotDestination(sprite.destination, origin), origin, degrees,
@@ -442,7 +442,7 @@ void SceneView::render(const SceneFrameSnapshot& frame,
                     || sprite.assetId.empty()) {
                     continue;
                 }
-                outline = visualOf(sprite.destination, sprite.rotationRadians);
+                outline = sprite.visualTransform;
                 matchedContent = true;
                 break;
             }
@@ -459,6 +459,27 @@ void SceneView::render(const SceneFrameSnapshot& frame,
             outline.size.x += 6.f;
             outline.size.y += 6.f;
             drawOrientedOutline(outline, 2.f / cam.zoom, Color{59, 130, 246, 255});
+
+            // ADR-0057: non-draggable marker at Transform.position (sprite pivot).
+            for (const SceneFrameSprite& sprite : frame.sprites) {
+                if (sprite.entityId != entity.entityId || !sprite.visible
+                    || sprite.assetId.empty()) {
+                    continue;
+                }
+                const Vector2 pivotWorld{
+                    sprite.destination.x + sprite.origin.x,
+                    sprite.destination.y + sprite.origin.y,
+                };
+                const float r = 3.5f / cam.zoom;
+                DrawCircleV(pivotWorld, r, Color{250, 204, 21, 230});
+                DrawLineEx({pivotWorld.x - r * 2.f, pivotWorld.y},
+                           {pivotWorld.x + r * 2.f, pivotWorld.y},
+                           1.2f / cam.zoom, Color{250, 204, 21, 200});
+                DrawLineEx({pivotWorld.x, pivotWorld.y - r * 2.f},
+                           {pivotWorld.x, pivotWorld.y + r * 2.f},
+                           1.2f / cam.zoom, Color{250, 204, 21, 200});
+                break;
+            }
         }
     }
 

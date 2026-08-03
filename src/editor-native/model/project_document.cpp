@@ -5,6 +5,7 @@
 #include "editor-native/model/path_confinement.h"
 #include "editor-native/model/project_defaults.h"
 
+#include "core/sprite-presentation-resolve.h"
 #include "sprite-animation-core.h"
 
 #include <algorithm>
@@ -418,6 +419,34 @@ bool ProjectDocument::setSceneLayerParallax(const SceneId& sceneId,
         scene->layerSettings.erase(layerId);
     else
         scene->layerSettings[layerId] = settings;
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::setObjectTypeSpritePivot(const ObjectTypeId& objectTypeId, Vec2 pivot) {
+    if (!isValidNormalizedPivot(pivot)) return false;
+    const auto it = doc_.objectTypes.find(objectTypeId);
+    if (it == doc_.objectTypes.end() || !it->second.spritePresentation) return false;
+    it->second.spritePresentation->pivot = pivot;
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::setInstanceSpritePivotOverride(const SceneId& sceneId, EntityId entityId,
+                                                     std::optional<Vec2> pivotOverride) {
+    if (pivotOverride && !isValidNormalizedPivot(*pivotOverride)) return false;
+    SceneInstanceDef* instance = mutableInstanceInScene(sceneId, entityId);
+    if (!instance) return false;
+    const EntityDef* type = findObjectType(instance->objectTypeId);
+    if (!type || !type->spritePresentation) return false;
+
+    SpritePresentationOverride delta =
+        instance->spritePresentationOverride.value_or(SpritePresentationOverride{});
+    delta.pivot = pivotOverride;
+    if (spritePresentationOverrideEmpty(delta))
+        instance->spritePresentationOverride.reset();
+    else
+        instance->spritePresentationOverride = std::move(delta);
     markDirty();
     return true;
 }

@@ -1,5 +1,7 @@
 #include "object-type-materialize.h"
 
+#include "sprite-presentation-resolve.h"
+
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -96,20 +98,17 @@ EntityDef materializeInstance(
     // Tilemap is scene-instance authority (ADR-0001/ADR-0040), so this
     // transient runtime mirror never inherits from the Object Type.
     e.tilemap = instance.tilemap;
-    if (e.spritePresentation) {
-        SpritePresentationComponent presentation = *e.spritePresentation;
-        if (instance.spritePresentationOverride) {
-            const SpritePresentationOverride& delta = *instance.spritePresentationOverride;
-            if (delta.visible) presentation.visible = *delta.visible;
-            if (delta.source) presentation.source = *delta.source;
-        }
+    // ADR-0057: one effective presentation (incl. pivot) before dropping it.
+    const EffectiveSpritePresentation effective =
+        resolveEffectiveSpritePresentation(typeProto, instance);
+    if (effective.present) {
         SpriteRendererComponent renderer;
-        renderer.visible = presentation.visible;
+        renderer.visible = effective.visible;
         e.spriteAnimator.reset();
-        if (const auto* image = std::get_if<SpritePresentationImage>(&presentation.source)) {
+        if (const auto* image = std::get_if<SpritePresentationImage>(&effective.source)) {
             renderer.imageAssetId = image->imageAssetId;
         } else if (const auto* animation =
-                       std::get_if<SpritePresentationAnimation>(&presentation.source)) {
+                       std::get_if<SpritePresentationAnimation>(&effective.source)) {
             // ADR-0010: Animation already names its draw sheet on the asset.
             // Populate the runtime renderer here so Play/export do not depend
             // on defaultClipId or maybePlaySpawnClip for a drawable sheet.
@@ -120,6 +119,8 @@ EntityDef materializeInstance(
                 animation->autoPlay, animation->playbackSpeed};
         }
         e.spriteRenderer = std::move(renderer);
+        e.sprite.pivotFromAsset = false;
+        e.sprite.pivot = effective.pivot;
         e.spritePresentation.reset();
     }
     if (instance.spriteRendererOverride) {
@@ -215,6 +216,13 @@ void rebuildClassPrototypes(
     for (const auto& [typeId, def] : objectTypes) {
         EntityDef copy = def;
         copy.className = typeId;
+        // ADR-0057: dynamic spawn uses Object Type pivot only (no instance).
+        const EffectiveSpritePresentation effective =
+            resolveEffectiveSpritePresentation(def);
+        if (effective.present) {
+            copy.sprite.pivotFromAsset = false;
+            copy.sprite.pivot = effective.pivot;
+        }
         // ADR-0014: spawn templates carry the derived body so spawnFromClass
         // matches scene-load materialisation.
         copy.collisionBody = materializeBoxCollider2D(copy);
@@ -229,25 +237,6 @@ void rebuildClassPrototypes(
             out[def.className] = std::move(copy);
         }
     }
-}
-
-void resolveSpritePivotsFromImageAssets(ProjectDoc& doc) {
-    if (doc.imageAssets.empty()) return;
-
-    std::unordered_map<std::string, Vec2> pivotByPath;
-    for (const ImageAssetDef& ad : doc.imageAssets)
-        pivotByPath[ad.assetId] = ad.defaultPivot;
-
-    const auto apply = [&](EntityDef& e) {
-        if (!e.sprite.pivotFromAsset) return;
-        const auto it = pivotByPath.find(e.sprite.spriteAssetId);
-        e.sprite.pivot = it != pivotByPath.end() ? it->second : Vec2{0.5f, 0.5f};
-    };
-
-    for (auto& [_, e] : doc.entities)
-        apply(e);
-    for (auto& [_, t] : doc.objectTypes)
-        apply(t);
 }
 
 } // namespace ArtCade

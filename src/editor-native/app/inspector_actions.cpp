@@ -131,7 +131,7 @@ EditorOperationResult setSpriteRendererVisible(EditorCoordinator& coordinator, b
             SpritePresentationOverride{});
         if (visible == type->spritePresentation->visible) delta.visible.reset();
         else delta.visible = visible;
-        if (!delta.visible && !delta.source) {
+        if (spritePresentationOverrideEmpty(delta)) {
             return coordinator.execute(SetInstanceSpritePresentationOverrideCommand{
                 sceneId, id, std::nullopt});
         }
@@ -238,6 +238,37 @@ EditorOperationResult setSpritePlaybackSpeed(EditorCoordinator& coordinator, flo
     std::get<SpritePresentationAnimation>(next.source).playbackSpeed = speed;
     return coordinator.execute(SetObjectTypeSpritePresentationCommand{
         objectTypeId, std::move(next)});
+}
+
+EditorOperationResult setObjectTypeSpritePivot(EditorCoordinator& coordinator, Vec2 pivot) {
+    std::string objectTypeId;
+    if (!selectedObjectType(coordinator, objectTypeId))
+        return fail(coordinator, "No selected Object Type");
+    return coordinator.execute(SetObjectTypeSpritePivotCommand{objectTypeId, pivot});
+}
+
+EditorOperationResult setInstanceSpritePivotOverride(EditorCoordinator& coordinator,
+                                                     std::optional<Vec2> pivot) {
+    SceneId sceneId; EntityId id;
+    if (!selectedTarget(coordinator, sceneId, id))
+        return fail(coordinator, "No selected entity");
+    return coordinator.execute(SetInstanceSpritePivotOverrideCommand{sceneId, id, pivot});
+}
+
+EditorOperationResult overrideInstanceSpritePivot(EditorCoordinator& coordinator) {
+    SceneId sceneId; EntityId id;
+    if (!selectedTarget(coordinator, sceneId, id))
+        return fail(coordinator, "No selected entity");
+    const SceneInstanceDef* instance =
+        coordinator.document().findInstanceInScene(sceneId, id);
+    const EntityDef* type = instance
+        ? coordinator.document().findObjectType(instance->objectTypeId) : nullptr;
+    if (!instance || !type || !type->spritePresentation)
+        return fail(coordinator, "Object Type has no Sprite");
+    if (instance->spritePresentationOverride && instance->spritePresentationOverride->pivot)
+        return EditorOperationResult::success(EditorInvalidation::None);
+    return coordinator.execute(SetInstanceSpritePivotOverrideCommand{
+        sceneId, id, type->spritePresentation->pivot});
 }
 
 EditorOperationResult bringSelectedEntityIntoScene(EditorCoordinator& coordinator) {

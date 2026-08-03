@@ -66,7 +66,11 @@ bool read_scene_instance(const nlohmann::json& instanceJson, SceneInstanceDef& o
                 delta.source = SpritePresentationNone{};
             }
         }
-        out.spritePresentationOverride = std::move(delta);
+        // ADR-0057: sparse instance pivot override.
+        if (value.contains("pivot"))
+            delta.pivot = read_vec2(value["pivot"], Vec2{0.5f, 0.5f});
+        if (!spritePresentationOverrideEmpty(delta))
+            out.spritePresentationOverride = std::move(delta);
     }
     if (instanceJson.contains("spriteRendererOverride")
         && instanceJson["spriteRendererOverride"].is_object()) {

@@ -7,6 +7,7 @@
 #include "text-component-format.h"
 #include "../modules/logic-core/include/logic-core.h"
 
+#include <cmath>
 #include <unordered_set>
 
 namespace ArtCade::ProjectJson {
@@ -215,6 +216,10 @@ void read_entity_components(const nlohmann::json& entityJson, EntityDef& out) {
                     source.value("autoPlay", true), source.value("playbackSpeed", 1.f)};
             }
         }
+        // ADR-0057: pivot required on v13 Object Type presentations (validator);
+        // readers default to center when absent for defensive materialization.
+        if (value.contains("pivot"))
+            presentation.pivot = read_vec2(value["pivot"], presentation.pivot);
         out.spritePresentation = std::move(presentation);
     }
     if (entityJson.contains("spriteRenderer")
@@ -475,6 +480,32 @@ bool validate_object_type_presentation_json(const nlohmann::json& doc,
         }
         return true;
     };
+    const auto requireNormalizedPivot = [&](const nlohmann::json& presentation,
+                                            const std::string& context,
+                                            bool required) -> bool {
+        if (!presentation.contains("pivot")) {
+            if (required) {
+                error_message = context + " spritePresentation.pivot is required.";
+                return false;
+            }
+            return true;
+        }
+        const auto& pivot = presentation["pivot"];
+        if (!pivot.is_object() || !pivot.contains("x") || !pivot.contains("y")
+            || !pivot["x"].is_number() || !pivot["y"].is_number()) {
+            error_message = context + " spritePresentation.pivot must be {x,y} numbers.";
+            return false;
+        }
+        const float x = pivot["x"].get<float>();
+        const float y = pivot["y"].get<float>();
+        if (!std::isfinite(x) || !std::isfinite(y) || x < 0.f || x > 1.f
+            || y < 0.f || y > 1.f) {
+            error_message = context
+                + " spritePresentation.pivot must be finite in [0, 1].";
+            return false;
+        }
+        return true;
+    };
     const auto validateType = [&](const std::string& mapKey,
                                   const nlohmann::json& rawType) -> bool {
         if (!rawType.is_object()) return true;
@@ -488,6 +519,12 @@ bool validate_object_type_presentation_json(const nlohmann::json& doc,
                 || !requireColor(rawType["gauge"], "bgColorHex", context)) {
                 return false;
             }
+        }
+        // ADR-0057: Object Type Sprite Presentation requires an explicit pivot.
+        if (rawType.contains("spritePresentation")
+            && rawType["spritePresentation"].is_object()) {
+            if (!requireNormalizedPivot(rawType["spritePresentation"], context, true))
+                return false;
         }
         return true;
     };

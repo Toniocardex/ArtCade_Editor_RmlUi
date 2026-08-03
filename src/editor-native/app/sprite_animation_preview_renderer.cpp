@@ -284,13 +284,19 @@ void renderSpriteAnimationClipPreview(
             static_cast<float>(frame->x), static_cast<float>(frame->y),
             static_cast<float>(frame->width), static_cast<float>(frame->height),
         };
-        const Rectangle dest{
-            previewRect.x + (previewRect.width  - frame->width  * scale) * 0.5f,
-            previewRect.y + (previewRect.height - frame->height * scale) * 0.5f,
-            frame->width * scale,
-            frame->height * scale,
-        };
-        DrawTexturePro(resource->texture, source, dest, Vector2{0.f, 0.f}, 0.f, WHITE);
+        // ADR-0057: keep one preview anchor fixed; every frame shares the same
+        // effective pivot (or center when opened without entity context).
+        const Vec2 pivot = editorState.pivotPreview.available
+            ? editorState.pivotPreview.effectivePivot
+            : Vec2{0.5f, 0.5f};
+        const float destW = frame->width * scale;
+        const float destH = frame->height * scale;
+        const float anchorX = previewRect.x + previewRect.width * 0.5f;
+        const float anchorY = previewRect.y + previewRect.height * 0.5f;
+        const Vector2 origin{pivot.x * destW, pivot.y * destH};
+        const Rectangle dest{anchorX, anchorY, destW, destH};
+        DrawTexturePro(resource->texture, source, dest, origin, 0.f, WHITE);
+        DrawCircleV(Vector2{anchorX, anchorY}, 3.f, Color{250, 204, 21, 220});
     }
     const std::string readout =
         std::to_string(index + 1) + " / " + std::to_string(clip->frameIds.size());
