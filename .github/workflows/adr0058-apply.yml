@@ -44,6 +44,64 @@ jobs:
               '"class SetBoxColliderModeCommand;\\nclass SetInstanceBoxColliderOffsetOverrideCommand;\\nclass SetInstanceOriginFromColliderAnchorCommand;\\n")',
               '"\\nclass SetBoxColliderModeCommand;\\nclass SetInstanceBoxColliderOffsetOverrideCommand;\\nclass SetInstanceOriginFromColliderAnchorCommand;\\n")')
 
+          # ADR-0057 already extended the current-format instance loop. Replace
+          # the obsolete ADR-0058 patch operation with an additive insertion
+          # after the existing sprite-pivot validation.
+          current_format_start = patch.index(
+              'rep("vendor/artcade-runtime/src/core/project-current-format.cpp",\n'
+              '"""        for (const SceneInstanceDef &instance : scene.instances) {')
+          current_format_end = patch.index('\n\n# Snapshot/picking', current_format_start)
+          current_format_patch = r'''rep("vendor/artcade-runtime/src/core/project-current-format.cpp",
+"""            if (instance.spritePresentationOverride
+                && instance.spritePresentationOverride->pivot) {
+                if (!typeIt->second.spritePresentation) {
+                    error_message = "Scene \\"" + scene_id
+                        + "\\" instance has a sprite pivot override without Object Type "
+                          "Sprite Presentation.";
+                    return false;
+                }
+                if (!isValidNormalizedPivot(*instance.spritePresentationOverride->pivot)) {
+                    error_message = "Scene \\"" + scene_id
+                        + "\\" instance spritePresentationOverride.pivot must be finite "
+                          "in [0, 1].";
+                    return false;
+                }
+            }
+        }
+""",
+"""            if (instance.spritePresentationOverride
+                && instance.spritePresentationOverride->pivot) {
+                if (!typeIt->second.spritePresentation) {
+                    error_message = "Scene \\"" + scene_id
+                        + "\\" instance has a sprite pivot override without Object Type "
+                          "Sprite Presentation.";
+                    return false;
+                }
+                if (!isValidNormalizedPivot(*instance.spritePresentationOverride->pivot)) {
+                    error_message = "Scene \\"" + scene_id
+                        + "\\" instance spritePresentationOverride.pivot must be finite "
+                          "in [0, 1].";
+                    return false;
+                }
+            }
+            if (instance.boxCollider2DOverride) {
+                if (boxCollider2DOverrideEmpty(*instance.boxCollider2DOverride)
+                    || !typeIt->second.boxCollider2D
+                    || !instance.boxCollider2DOverride->offset
+                    || !std::isfinite(instance.boxCollider2DOverride->offset->x)
+                    || !std::isfinite(instance.boxCollider2DOverride->offset->y)) {
+                    error_message =
+                        "Scene instance BoxCollider2D override is invalid.";
+                    return false;
+                }
+            }
+        }
+""")'''
+          patch = (
+              patch[:current_format_start]
+              + current_format_patch
+              + patch[current_format_end:])
+
           # Exact replacement remains the first choice. When the only drift is
           # indentation or line wrapping, accept one unique whitespace-flexible
           # match. Semantic or ambiguous drift still fails closed.
