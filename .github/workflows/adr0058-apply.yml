@@ -85,6 +85,13 @@ jobs:
           rm -f tools/apply_adr0058.py tools/apply_adr0058.py.gz.b64
           rm -f .github/workflows/adr0058-apply.yml
 
+      - name: Install Linux graphics dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libgl1-mesa-dev libasound2-dev
+
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 
