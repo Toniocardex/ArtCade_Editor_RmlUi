@@ -29,11 +29,24 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY'
-          import base64, gzip
+          import base64
+          import gzip
           from pathlib import Path
+
           encoded = Path('tools/apply_adr0058.py.gz.b64').read_text().strip()
-          Path('tools/apply_adr0058.py').write_bytes(
-              gzip.decompress(base64.b64decode(encoded)))
+          patch = gzip.decompress(base64.b64decode(encoded)).decode('utf-8')
+
+          # The header contains both a forward declaration and a friend
+          # declaration for this command. Anchor the replacement to the forward
+          # declaration so the patch remains deterministic.
+          patch = patch.replace(
+              'rep("src/editor-native/model/project_document.h",\n"class SetBoxColliderModeCommand;\\n",',
+              'rep("src/editor-native/model/project_document.h",\n"\\nclass SetBoxColliderModeCommand;\\n",')
+          patch = patch.replace(
+              '"class SetBoxColliderModeCommand;\\nclass SetInstanceBoxColliderOffsetOverrideCommand;\\nclass SetInstanceOriginFromColliderAnchorCommand;\\n")',
+              '"\\nclass SetBoxColliderModeCommand;\\nclass SetInstanceBoxColliderOffsetOverrideCommand;\\nclass SetInstanceOriginFromColliderAnchorCommand;\\n")')
+
+          Path('tools/apply_adr0058.py').write_text(patch, encoding='utf-8')
           PY
           python3 tools/apply_adr0058.py
           rm -f tools/apply_adr0058.py tools/apply_adr0058.py.gz.b64
