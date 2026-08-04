@@ -59,6 +59,10 @@ struct SceneFrameSprite {
     // ADR-0057: oriented visual (center = geometry.visualCenter). Picking,
     // outline, and AABB must use this — never destination-center for sprites.
     SceneFrameTransform2D visualTransform{};
+    // Entity Origin expressed inside visualTransform. Normally the effective
+    // Sprite Pivot; after an Edit-only alpha crop it may lie outside [0, 1].
+    // This derived value never replaces the authored Sprite Pivot.
+    Vec2 visualPivot{0.5f, 0.5f};
 };
 
 struct SceneFrameTilemapCell {

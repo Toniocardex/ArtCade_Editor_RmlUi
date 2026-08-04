@@ -211,6 +211,16 @@ void applyWindowIcon(const std::filesystem::path& resourceRoot) {
     UnloadImage(icon);
 }
 
+void applyOpaqueSpriteAuthoringGeometry(SceneFrameSnapshot& frame,
+                                        TextureCache& textures) {
+    for (SceneFrameSprite& sprite : frame.sprites) {
+        if (!sprite.visible || sprite.assetId.empty()) continue;
+        const std::optional<SpriteOpaqueBounds> bounds = textures.opaqueBoundsFor(sprite);
+        if (!bounds) continue; // unavailable/empty image: explicit full-frame fallback
+        applyOpaqueSpriteGeometry(sprite, bounds->source, bounds->opaque);
+    }
+}
+
 } // namespace
 
 int EditorApp::run(int argc, char** argv) {
@@ -1613,6 +1623,14 @@ int EditorApp::run(int argc, char** argv) {
             }
         }
 
+        // Sprite source paths are relative to the loaded project; with no project
+        // open yet (a new/Untitled project) they fall back to executable resources.
+        // Resolve before viewport input because alpha-tight picking/gizmo geometry
+        // consumes the same decoded texture authority as rendering.
+        const std::filesystem::path assetRoot = projectSession.assetRoot(resourceRoot);
+        const auto& textureRequests =
+            textureRequestCatalog.forDocument(coordinator.document(), assetRoot);
+
         const ViewportRect visibleRect = viewportRectFromDocument(host.document());
         // Includes the Tile Palette dock's footprint even when it's eating
         // space from the bottom of #viewport, so the camera keeps anchoring on
@@ -1699,8 +1717,22 @@ int EditorApp::run(int argc, char** argv) {
                 if (fitActiveScene()) coordinator.markSceneViewInitialized(editScene);
             }
             // Escape is owned by EditorActionDispatcher (EscapeOwner) above.
-            routeViewportPickDrag(coordinator, projection, rml, transformInteraction,
-                                  contextMenuHit);
+            SceneTransformPreview inputPreview{};
+            const SceneTransformPreview* inputPreviewPtr = nullptr;
+            if (transformInteraction.active) {
+                inputPreview.entityId = transformInteraction.entityId;
+                inputPreview.transform = transformInteraction.previewTransform;
+                inputPreviewPtr = &inputPreview;
+            }
+            SceneFrameSnapshot inputFrame = collectSceneFrameSnapshot(
+                coordinator.document(), editScene,
+                coordinator.selection().primaryEntity,
+                coordinator.sceneView(editScene).hiddenLayerIds,
+                inputPreviewPtr);
+            textureCache.prepare(inputFrame.sprites, textureRequests);
+            applyOpaqueSpriteAuthoringGeometry(inputFrame, textureCache);
+            routeViewportPickDrag(coordinator, projection, rml, inputFrame,
+                                  transformInteraction, contextMenuHit);
             routeViewportContextMenu(coordinator, ui, projection, rml, contextClick,
                                      pendingContextSpawn, contextMenuHit);
             routeViewportTilemapPaint(coordinator, projection, rml);
@@ -1725,15 +1757,9 @@ int EditorApp::run(int argc, char** argv) {
             ui.showViewportPointerReadout(pointerReadout);
         }
 
-        // Sprite source paths are relative to the loaded project; with no project
-        // open yet (a new/Untitled project) they fall back to the executable resources.
-        const std::filesystem::path assetRoot =
-            projectSession.assetRoot(resourceRoot);
         // Play draws the same image assets as Edit (GameplaySession loads
         // straight from the document, no unsaved-snapshot divergence like
-        // Scripts have) - one shared texture request source for both.
-        const auto& textureRequests =
-            textureRequestCatalog.forDocument(coordinator.document(), assetRoot);
+        // Scripts have) - textureRequests above is shared by both.
         if (!coordinator.isPlaying() && animationEditorOpen) {
             routeSpriteAnimationCanvasInput(
                 coordinator, animationInputRect, rml, textureCache, textureRequests);
@@ -2056,6 +2082,9 @@ int EditorApp::run(int argc, char** argv) {
             // Play the runtime scene must always render regardless of workspace UI.
             if (playSession || (!animationAsset && !tilesetAsset)) {
                 textureCache.prepare(snapshot.sprites, snapshot.tilemaps, textureRequests);
+                if (!playSession) {
+                    applyOpaqueSpriteAuthoringGeometry(snapshot, textureCache);
+                }
                 textFontCache.prepare(snapshot.texts, assetRoot);
                 const SceneGridDefinition displayGrid = viewportDisplayGrid(
                     coordinator.document(), coordinator.state(), active);

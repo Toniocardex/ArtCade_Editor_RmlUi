@@ -6,6 +6,15 @@
 **Scope:** Canonical sprite-pivot authoring for Object Types and optional EntityInstance overrides; static and animated sprite alignment; shared runtime/editor geometry; persistence, migration, commands, Inspector UX, Scene View bounds, picking, and transform-gizmo parity.  
 **Out of scope:** Per-asset runtime pivot fallback, per-animation pivot, per-clip pivot, per-frame pivot, trimmed-frame metadata, entity/physics origin authoring, child transforms, sockets/image-point authoring, runtime Logic mutation of pivot, and a dedicated draggable Pivot tool.
 
+**Accepted amendment (2026-08-04) — alpha-tight Edit authoring bounds:** the
+rendered sprite rectangle and canonical Sprite Pivot remain unchanged. Scene View
+derives manipulation geometry from the smallest non-transparent pixel rectangle
+inside the current source frame. Outline, picking, and transform gizmo consume
+that same derived rectangle. The derived Entity Origin location within it may be
+outside `[0, 1]`; it is not a second pivot authority and is never persisted.
+Missing/undecodable or fully transparent pixels fall back explicitly to the full
+rendered frame. Play and exported rendering are unchanged.
+
 ---
 
 ## 1. Context
@@ -137,6 +146,10 @@ Editor and runtime consume the same pure presentation resolver. They must not in
 ### 3.4 One shared geometry formula
 
 Runtime rendering, editor rendering, bounds, picking, outlines, and transform gizmos consume one pure sprite-geometry projection. Duplicated pivot math is prohibited.
+
+The Edit-only alpha-tight rectangle is a derived crop of that projection, using
+the decoded source image plus the current source rectangle as its sole authority.
+It changes neither destination rendering nor the authored pivot.
 
 ### 3.5 Animation does not own alignment
 
@@ -1274,7 +1287,7 @@ Rejected because render, bounds, and picking would diverge.
 
 ### Trade-offs
 
-- tightly trimmed frames require coherent source canvases until trim metadata exists;
+- alpha-tight Edit bounds require a decoded source image; the documented full-frame fallback applies when pixels are unavailable or empty;
 - Scene View and gizmo need pivot-aware geometry;
 - projects require v13 migration;
 - visual hinges do not become physics hinges.

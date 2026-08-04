@@ -85,6 +85,7 @@ void fillSpriteFromGeometry(SceneFrameSprite& sprite, const SpriteVisualGeometry
         geo.unrotatedTopLeft.x, geo.unrotatedTopLeft.y, geo.size.x, geo.size.y};
     sprite.origin = geo.originPixels;
     sprite.visualTransform = visualFromGeometry(geo);
+    sprite.visualPivot = geo.effectivePivot;
     sprite.rotationRadians = geo.rotationRadians;
 }
 

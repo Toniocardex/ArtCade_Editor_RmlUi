@@ -39,7 +39,8 @@ inline void routeGlobalEscape(EditorCoordinator& coordinator) {
     routeGlobalEscape(coordinator, unused);
 }
 void routeViewportPickDrag(EditorCoordinator& coordinator, const SceneViewportProjection& projection,
-                           const RmlInputResult& rml, TransformInteractionState& transform,
+                           const RmlInputResult& rml, const SceneFrameSnapshot& frame,
+                           TransformInteractionState& transform,
                            bool contextMenuHit);
 void routeViewportContextMenu(EditorCoordinator& coordinator, EditorUi& ui,
                               const SceneViewportProjection& projection, const RmlInputResult& rml,

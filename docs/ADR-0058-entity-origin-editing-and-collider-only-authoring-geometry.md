@@ -6,6 +6,11 @@
 **Scope:** Scene View authoring geometry priority for entities without a drawable sprite; collider-aware picking, outline, and transform gizmo; Entity Origin marker for every selected instance; sparse per-instance `BoxCollider2D` offset override; atomic Edit Origin commands that preserve world-space collision masks.
 **Out of scope:** Changing `SpritePresentation.pivot` semantics; inventing a generic `EntityPivot` / `PivotManager`; per-instance collider size override (unless a later ADR proves need); physics-origin authoring distinct from `Transform.position`; sockets / image points; child transforms; runtime Logic mutation of origin or collider offset; draggable Pivot tool as a separate persistent tool mode beyond Edit Origin gesture; redesign of sprite unscaled size (ADR-0057 B5).
 
+**Amendment compatibility (2026-08-04):** ADR-0057 now derives alpha-tight
+sprite authoring bounds in Edit. This does not redesign the rendered sprite size
+or pivot semantics. A drawable sprite still has priority over the collider; its
+primary bounds are the alpha-tight ADR-0057 manipulation rectangle.
+
 ---
 
 ## 1. Context
@@ -200,7 +205,7 @@ Semantics:
 
 | Source | `bounds` | `effectivePivot` (resize) | Notes |
 |---|---|---|---|
-| Sprite | ADR-0057 `visualTransform` | sprite effective pivot | unchanged from ADR-0057 |
+| Sprite | ADR-0057 alpha-tight Edit `visualTransform` | Entity Origin derived inside the tight rect | sprite remains primary; authored pivot unchanged |
 | Tilemap | populated cell union (unrotated, current contract) | center of that union unless a later ADR says otherwise | scale policy unchanged |
 | Collider | effective BoxCollider2D world geometry | relative position of `Transform.position` inside collider bounds | primary fix for invisible solids |
 | TextOrGauge | world text/gauge bounds | center (or documented anchor) | scale may remain disabled as today when text/gauge-only |
@@ -544,6 +549,7 @@ Slices 2–3 already fix most invisible-solid UX **without** new persistent data
 - Collider-only instance: outline, pick, and gizmo use collider bounds; placeholder is not primary
 - Visible = Off + no sprite + enabled collider: Edit still picks/outlines collider; Play draws no sprite
 - Sprite present: sprite remains higher priority than collider for gizmo/outline/pick
+- Sprite transparent padding: outline, pick, and gizmo use one alpha-tight rectangle; rendering remains full-frame
 - Populated tilemap without sprite: tilemap remains above collider
 - editorBoundsForEntity containment still accounts for collider (and sprite when present)
 - Origin marker drawn at Transform.position for collider-only and sprite entities

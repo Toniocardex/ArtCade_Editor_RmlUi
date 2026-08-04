@@ -9,6 +9,7 @@
 #include "editor-native/model/project_document.h"
 #include "editor-native/model/project_io.h"
 #include "editor-native/model/scene_frame_snapshot.h"
+#include "editor-native/model/sprite_opaque_geometry.h"
 #include "editor-native/model/transform_gizmo_math.h"
 #include "core/object-type-materialize.h"
 #include "core/project-current-format.h"
@@ -219,6 +220,45 @@ int main() {
             resizeTransformFromHandle(interaction, Vec2{148.f, 184.f}, false, nullptr);
         CHECK(near(resized.position.y, 200.f));
         CHECK(near(resized.scale.x, 2.f));
+
+        // Accepted amendment: Edit manipulation follows opaque pixels inside
+        // the current frame while rendering and authored pivot stay unchanged.
+        std::vector<std::uint8_t> alpha(8u * 8u, 0u);
+        for (int y = 1; y < 7; ++y) {
+            for (int x = 2; x < 6; ++x) alpha[static_cast<std::size_t>(y * 8 + x)] = 255u;
+        }
+        const SpritePixelRect source{0, 0, 8, 8};
+        const auto opaque = computeOpaqueSpritePixelBounds(alpha.data(), 8, 8, source);
+        CHECK(opaque.has_value());
+        CHECK(opaque->x == 2 && opaque->y == 1);
+        CHECK(opaque->width == 4 && opaque->height == 6);
+
+        SceneFrameSnapshot tightFrame = frame;
+        applyOpaqueSpriteGeometry(tightFrame.sprites.front(), source, *opaque);
+        const SceneFrameSprite& tight = tightFrame.sprites.front();
+        CHECK(near(tight.destination.x, 84.f)); // rendering remains full-frame
+        CHECK(near(tight.destination.y, 168.f));
+        CHECK(near(tight.visualTransform.size.x, 16.f));
+        CHECK(near(tight.visualTransform.size.y, 24.f));
+        CHECK(near(tight.visualPivot.x, 0.5f));
+        CHECK(near(tight.visualPivot.y, 28.f / 24.f));
+        CHECK(pickEntityAt(tightFrame, Vec2{100.f, 184.f}) == kHero);
+        CHECK(pickEntityAt(tightFrame, Vec2{86.f, 169.f}) == INVALID_ENTITY);
+
+        const auto tightGeometry = resolveInstanceTransformGeometry(
+            document, tightFrame, kSceneA, kHero);
+        CHECK(tightGeometry.has_value());
+        CHECK(near(tightGeometry->transform.size.x, 16.f));
+        TransformInteractionState tightInteraction = beginTransformInteraction(
+            kSceneA, kHero, TransformHandle::Body, authored, *tightGeometry,
+            tightGeometry->transform.center);
+        const SceneFrameTransform2D tightPreview =
+            projectTransformInteractionGeometry(tightInteraction);
+        CHECK(near(tightPreview.center.x, tightGeometry->transform.center.x));
+        CHECK(near(tightPreview.center.y, tightGeometry->transform.center.y));
+
+        std::fill(alpha.begin(), alpha.end(), 0u);
+        CHECK(!computeOpaqueSpritePixelBounds(alpha.data(), 8, 8, source));
     }
 
     // --- empty() includes pivot ---

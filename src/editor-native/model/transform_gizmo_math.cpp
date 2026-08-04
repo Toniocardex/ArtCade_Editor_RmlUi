@@ -159,10 +159,7 @@ std::optional<InstanceTransformGeometry> resolveInstanceTransformGeometry(
                 sprite.visualTransform.size.x / sx,
                 sprite.visualTransform.size.y / sy,
             };
-            out.effectivePivot = Vec2{
-                sprite.origin.x / sprite.visualTransform.size.x,
-                sprite.origin.y / sprite.visualTransform.size.y,
-            };
+            out.effectivePivot = sprite.visualPivot;
         }
         return out;
     }

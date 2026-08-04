@@ -25,6 +25,7 @@ add_library(artcade-editor-core STATIC
     editor-native/model/scene_frame_snapshot.cpp
     editor-native/model/text_layout_math.cpp
     editor-native/model/sprite_render_view.cpp
+    editor-native/model/sprite_opaque_geometry.cpp
     editor-native/model/sprite_animation_references.cpp
     editor-native/model/logic_component_references.cpp
     editor-native/model/sprite_animation_slicing.cpp

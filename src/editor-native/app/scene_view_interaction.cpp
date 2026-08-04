@@ -259,7 +259,8 @@ void updateTransformPreview(TransformInteractionState& transform,
 // Edit-mode pick + transform gizmo: handle hit-test before entity pick; release
 // commits one SetEntityTransformCommand. Motion is a local preview only.
 void routeViewportPickDrag(EditorCoordinator& coordinator, const SceneViewportProjection& projection,
-                           const RmlInputResult& rml, TransformInteractionState& transform,
+                           const RmlInputResult& rml, const SceneFrameSnapshot& frame,
+                           TransformInteractionState& transform,
                            bool contextMenuHit) {
     if (coordinator.state().activeTool != EditorTool::Select) {
         cancelTransformInteraction(transform);
@@ -282,9 +283,6 @@ void routeViewportPickDrag(EditorCoordinator& coordinator, const SceneViewportPr
         }
     }
     const SceneId active = coordinator.state().activeSceneId;
-    const SceneFrameSnapshot frame = collectSceneFrameSnapshot(
-        coordinator.document(), active, coordinator.selection().primaryEntity,
-        coordinator.sceneView(active).hiddenLayerIds);
     const SceneViewCamera& cam = projection.camera;
     const Vec2 mouse{static_cast<float>(GetMouseX()), static_cast<float>(GetMouseY())};
 

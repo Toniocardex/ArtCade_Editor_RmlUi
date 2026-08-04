@@ -502,10 +502,14 @@ void SceneView::render(const SceneFrameSnapshot& frame,
                 }
                 if (textGaugeBounds) outline = visualOf(*textGaugeBounds, 0.f);
             }
-            // Inflate slightly in local space for a readable pad around the visual.
-            outline.size.x += 6.f;
-            outline.size.y += 6.f;
-            drawOrientedOutline(outline, 2.f / cam.zoom, Color{59, 130, 246, 255});
+            // The transform gizmo already owns the selected visual boundary.
+            // Drawing the padded selection outline as well creates a second,
+            // apparently detached box around small alpha-tight sprites.
+            if (!(gizmo && gizmo->visible)) {
+                outline.size.x += 6.f;
+                outline.size.y += 6.f;
+                drawOrientedOutline(outline, 2.f / cam.zoom, Color{59, 130, 246, 255});
+            }
 
             // ADR-0058: every selected Edit instance exposes the sole Entity Origin.
             {
