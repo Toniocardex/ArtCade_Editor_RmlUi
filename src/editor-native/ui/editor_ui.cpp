@@ -3752,6 +3752,24 @@ bool EditorUi::handleInspectorAction(const std::string& action, const std::strin
         bringSelectedEntityIntoScene(coordinator_);
     } else if (action == "add-box-collider") {
         addBoxCollider(coordinator_);
+    } else if (action == "set-entity-origin-anchor") {
+        ColliderAnchorX x = ColliderAnchorX::Center;
+        ColliderAnchorY y = ColliderAnchorY::Middle;
+        bool valid = true;
+        if (arg == "tl") { x = ColliderAnchorX::Left; y = ColliderAnchorY::Top; }
+        else if (arg == "tc") { x = ColliderAnchorX::Center; y = ColliderAnchorY::Top; }
+        else if (arg == "tr") { x = ColliderAnchorX::Right; y = ColliderAnchorY::Top; }
+        else if (arg == "ml") { x = ColliderAnchorX::Left; y = ColliderAnchorY::Middle; }
+        else if (arg == "c") { x = ColliderAnchorX::Center; y = ColliderAnchorY::Middle; }
+        else if (arg == "mr") { x = ColliderAnchorX::Right; y = ColliderAnchorY::Middle; }
+        else if (arg == "bl") { x = ColliderAnchorX::Left; y = ColliderAnchorY::Bottom; }
+        else if (arg == "bc") { x = ColliderAnchorX::Center; y = ColliderAnchorY::Bottom; }
+        else if (arg == "br") { x = ColliderAnchorX::Right; y = ColliderAnchorY::Bottom; }
+        else valid = false;
+        if (valid) setEntityOriginFromColliderAnchor(coordinator_, x, y);
+        else coordinator_.logError("Unknown Entity Origin anchor");
+    } else if (action == "reset-instance-collider-offset") {
+        resetInstanceBoxColliderOffset(coordinator_);
     } else if (action == "remove-box-collider") {
         removeBoxCollider(coordinator_);
     } else if (action == "toggle-box-enabled") {

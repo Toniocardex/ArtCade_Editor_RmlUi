@@ -178,6 +178,21 @@ bool validate_current_project_document(const ProjectDoc &document, std::string &
                     return false;
                 }
             }
+            if (instance.boxCollider2DOverride) {
+                if (!typeIt->second.boxCollider2D) {
+                    error_message = "Scene \"" + scene_id
+                        + "\" instance has a BoxCollider2D override without Object Type capability.";
+                    return false;
+                }
+                if (boxCollider2DOverrideEmpty(*instance.boxCollider2DOverride)
+                    || !instance.boxCollider2DOverride->offset
+                    || !std::isfinite(instance.boxCollider2DOverride->offset->x)
+                    || !std::isfinite(instance.boxCollider2DOverride->offset->y)) {
+                    error_message = "Scene \"" + scene_id
+                        + "\" instance BoxCollider2D override must contain a finite offset.";
+                    return false;
+                }
+            }
         }
     }
     return true;
@@ -241,6 +256,9 @@ bool validate_current_project_json(const nlohmann::json &root, std::string &erro
         EntityDef type;
         type.className = id;
         type.name = name;
+        if (raw_type.contains("boxCollider2D") && raw_type["boxCollider2D"].is_object()) {
+            type.boxCollider2D = BoxCollider2DComponent{};
+        }
         document.objectTypes.emplace(id, std::move(type));
     }
     for (const auto &[scene_id, raw_scene] : root["scenes"].items()) {
@@ -335,10 +353,35 @@ bool validate_current_project_json(const nlohmann::json &root, std::string &erro
                         }
                     }
                 }
+                std::optional<BoxCollider2DOverride> colliderOverride;
+                if (raw_instance.contains("boxCollider2DOverride")) {
+                    const auto& overrideJson = raw_instance["boxCollider2DOverride"];
+                    if (!overrideJson.is_object() || overrideJson.size() != 1
+                        || !overrideJson.contains("offset")) {
+                        error_message = "Scene \"" + scene_id
+                            + "\" instance BoxCollider2D override must contain only offset.";
+                        return false;
+                    }
+                    const auto& offset = overrideJson["offset"];
+                    if (!offset.is_object() || !offset.contains("x") || !offset.contains("y")
+                        || !offset["x"].is_number() || !offset["y"].is_number()) {
+                        error_message = "Scene \"" + scene_id
+                            + "\" instance collider offset must be {x,y} numbers.";
+                        return false;
+                    }
+                    Vec2 value{offset["x"].get<float>(), offset["y"].get<float>()};
+                    if (!std::isfinite(value.x) || !std::isfinite(value.y)) {
+                        error_message = "Scene \"" + scene_id
+                            + "\" instance collider offset must be finite.";
+                        return false;
+                    }
+                    colliderOverride = BoxCollider2DOverride{value};
+                }
                 SceneInstanceDef instance;
                 instance.id = raw_instance["id"].get<EntityId>();
                 instance.objectTypeId = raw_instance["objectTypeId"].get<std::string>();
                 instance.layerId = raw_instance["layerId"].get<std::string>();
+                instance.boxCollider2DOverride = std::move(colliderOverride);
                 scene.instances.push_back(std::move(instance));
             }
         }

@@ -351,6 +351,24 @@ EditorOperationResult setBoxColliderMode(EditorCoordinator& coordinator, BoxColl
     return coordinator.execute(SetBoxColliderModeCommand{objectTypeId, mode});
 }
 
+EditorOperationResult setEntityOriginFromColliderAnchor(
+    EditorCoordinator& coordinator, ColliderAnchorX x, ColliderAnchorY y) {
+    SceneId sceneId; EntityId id;
+    if (!selectedTarget(coordinator, sceneId, id)) {
+        return fail(coordinator, "No selected instance");
+    }
+    return coordinator.execute(SetInstanceOriginFromColliderAnchorCommand{sceneId, id, x, y});
+}
+
+EditorOperationResult resetInstanceBoxColliderOffset(EditorCoordinator& coordinator) {
+    SceneId sceneId; EntityId id;
+    if (!selectedTarget(coordinator, sceneId, id)) {
+        return fail(coordinator, "No selected instance");
+    }
+    return coordinator.execute(SetInstanceBoxColliderOffsetOverrideCommand{
+        sceneId, id, std::nullopt});
+}
+
 EditorOperationResult addLinearMover(EditorCoordinator& coordinator) {
     std::string objectTypeId;
     if (!selectedObjectType(coordinator, objectTypeId)) {

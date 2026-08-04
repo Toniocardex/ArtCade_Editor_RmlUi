@@ -3,19 +3,19 @@
   "templateVersion": 1,
   "target": "windows-x64",
   "engineVersion": "2.0.0",
-  "runtimeBuildId": "71009b3",
+  "runtimeBuildId": "08405cd",
   "platformerGroundSupport": "ADR-0052",
   "projectFormat": {
-    "minimum": 11,
-    "maximum": 11
+    "minimum": 12,
+    "maximum": 14
   },
   "entryPoint": "game.exe",
   "supportsEncryptedArtcade": true,
   "assetKeyId": "artcade-dev-key-v1",
   "files": {
     "game.exe": {
-      "size": 4195328,
-      "sha256": "516384df3b9199aaf1c78973e363959c8467539c977a8a6f75ac2071ce5f9602"
+      "size": 4196864,
+      "sha256": "5a4fa2cf5b605ba00c4702425a4af1a8c90e1cfc4721780ba6fd7010cf8d30d7"
     }
   }
 }

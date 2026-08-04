@@ -38,6 +38,9 @@ artcade_editor_core_suite(sprite_animation_test
 artcade_editor_core_suite(sprite_pivot_adr0057_test
     sprite-pivot-adr0057-test.cpp)
 
+artcade_editor_core_suite(collider_origin_adr0058_test
+    collider-origin-adr0058-test.cpp)
+
 artcade_editor_core_suite(tileset_tilemap_test
     tileset-tilemap-test.cpp)
 
@@ -140,6 +143,16 @@ if(MSVC)
     target_link_options(inspector_layer_parallax_routing_test PRIVATE /STACK:16777216)
 endif()
 
+# ADR-0058: real Entity Origin 3x3 preset markup + router + Play disabling.
+artcade_test(inspector_collider_origin_routing_test
+    inspector-collider-origin-routing-test.cpp
+    artcade-editor-ui)
+target_compile_definitions(inspector_collider_origin_routing_test PRIVATE
+    ARTCADE_UI_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/src/editor-native/resources/ui")
+if(MSVC)
+    target_link_options(inspector_collider_origin_routing_test PRIVATE /STACK:16777216)
+endif()
+
 # ADR-0035: Logic Board WHEN trigger-type catalog arrow-key highlight,
 # Enter-commit, Escape-close, and its hasOpenContextMenu() gap fix — same
 # real-element/listener discipline as inspector_layer_dropdown_keyboard_test.
@@ -211,6 +224,7 @@ add_custom_target(artcade-editor-tests
         editor_actions_shortcut_test
         sprite_animation_test
         sprite_pivot_adr0057_test
+        collider_origin_adr0058_test
         tileset_tilemap_test
         generated_sfx_model_test
         script_asset_test
@@ -225,6 +239,7 @@ add_custom_target(artcade-editor-tests
         inspector_object_variables_routing_test
         inspector_layer_dropdown_keyboard_test
         inspector_layer_parallax_routing_test
+        inspector_collider_origin_routing_test
         logic_board_dropdown_keyboard_test
         inspector_text_font_picker_test
         sfx_synthesizer_test

@@ -502,7 +502,7 @@ int main() {
         }
 
         std::string preV12 = serialized.value;
-        const std::string currentSchema = "\"formatVersion\": 13";
+        const std::string currentSchema = "\"formatVersion\": 14";
         const std::size_t schemaAt = preV12.find(currentSchema);
         CHECK(schemaAt != std::string::npos);
         if (schemaAt != std::string::npos) {
@@ -588,7 +588,7 @@ int main() {
 
         const SerializeResult serialized = ProjectSerializer::serialize(ProjectDocument{doc});
         CHECK(serialized.ok);
-        CHECK(serialized.value.find("\"formatVersion\": 13") != std::string::npos);
+        CHECK(serialized.value.find("\"formatVersion\": 14") != std::string::npos);
 
         const DeserializeResult deserialized = ProjectSerializer::deserialize(serialized.value);
         CHECK(deserialized.ok);
@@ -5563,7 +5563,7 @@ int main() {
     {
         // Preserve opacity when resetting parallax to defaults.
         ProjectDoc data;
-        data.formatVersion = 13;
+        data.formatVersion = 14;
         data.projectName = "ParallaxOpacity";
         SceneDef scene;
         scene.id = "s";
@@ -5601,7 +5601,7 @@ int main() {
     {
         // Remove with explicit default entry: undo restores the entry.
         ProjectDoc data;
-        data.formatVersion = 13;
+        data.formatVersion = 14;
         data.projectName = "ParallaxSparse";
         SceneDef scene;
         scene.id = "s";
@@ -5661,7 +5661,7 @@ int main() {
     {
         // Orphan layerSettings key rejected by validate().
         ProjectDoc data;
-        data.formatVersion = 13;
+        data.formatVersion = 14;
         data.projectName = "Orphan";
         SceneDef scene;
         scene.id = "s";
@@ -5679,7 +5679,7 @@ int main() {
         // Writer preserves every SceneLayerSettings field; multi-layer factors;
         // empty sparse map is omitted; raw NaN parallax is rejected pre-read.
         ProjectDoc data;
-        data.formatVersion = 13;
+        data.formatVersion = 14;
         data.projectName = "ParallaxFull";
         SceneDef scene;
         scene.id = "s";
@@ -6944,7 +6944,8 @@ int main() {
         tm.tilesetAssetId = "tiles-1";
         CHECK(sprite.execute(AddTilemapComponentCommand{kSceneA, kHero, tm}).ok);
         CHECK(resolveTransformGizmoCapabilities(sprite.document(), kSceneA, kHero).canMove);
-        CHECK(!resolveTransformGizmoCapabilities(sprite.document(), kSceneA, kHero).canScale);
+        // An empty Tilemap is not primary geometry; placeholder stays scalable.
+        CHECK(resolveTransformGizmoCapabilities(sprite.document(), kSceneA, kHero).canScale);
 
         // Sprite present → scale enabled
         EditorCoordinator withSprite{makeSpriteDoc()};

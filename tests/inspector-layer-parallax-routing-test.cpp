@@ -85,7 +85,7 @@ ProjectDoc makeParallaxProject() {
     // Mirror makeDoc() shape so Play's canonical AssetLoader accepts the
     // package; layer-bg is locked to cover ADR-0056 "locked still editable".
     ProjectDoc doc;
-    doc.formatVersion = 13;
+    doc.formatVersion = 14;
     doc.projectName = "Layer Parallax Routing";
     doc.activeSceneId = "scene-1";
 

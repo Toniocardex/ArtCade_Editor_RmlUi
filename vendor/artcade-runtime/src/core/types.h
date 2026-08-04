@@ -567,6 +567,17 @@ inline bool spritePresentationOverrideEmpty(const SpritePresentationOverride& va
     return !value.visible && !value.source && !value.pivot;
 }
 
+// ADR-0058: sparse, per-instance collider authoring. The Object Type remains
+// authoritative for capability, size, mode and enabled; an instance may only
+// move the collider relative to its Entity Origin.
+struct BoxCollider2DOverride {
+    std::optional<Vec2> offset;
+};
+
+inline bool boxCollider2DOverrideEmpty(const BoxCollider2DOverride& value) {
+    return !value.offset;
+}
+
 using TileId = std::string;
 
 // Per-cell transform, shaped for the spec's already-planned flip/rotate
@@ -767,6 +778,7 @@ struct SceneInstanceDef {
     bool        visible      = true;
     std::string layerId;      // render layer id ("" = default layer)
     std::optional<SpritePresentationOverride> spritePresentationOverride;
+    std::optional<BoxCollider2DOverride>       boxCollider2DOverride;
     // Deprecated v9 authoring input. Migration clears these fields.
     std::optional<SpriteRendererOverride> spriteRendererOverride;
     std::optional<SpriteAnimatorOverride> spriteAnimatorOverride;

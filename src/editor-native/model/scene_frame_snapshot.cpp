@@ -151,6 +151,7 @@ SceneFrameSnapshot collectSceneFrameSnapshot(const ProjectDocument& document,
             inst.id, document.instanceDisplayName(sceneId, inst.id),
             fill ? *fill : Vec3{0.47f, 0.49f, 0.52f}, bounds, selected, xf.rotationRadians};
         entityEntry.visibleInGame = inst.visible;
+        entityEntry.entityOrigin = effectiveTransform.position;
         snapshot.entities.push_back(entityEntry);
         const SpriteRenderView sprite = resolveSpriteRenderer(document, sceneId, inst.id);
         if (sprite.present && !sprite.assetId.empty()) {
@@ -475,6 +476,24 @@ EntityId pickEntityAt(const SceneFrameSnapshot& frame, ScenePickPoint point) {
             }
             break;   // one Tilemap component per entity
         }
+        // A populated Tilemap's hit area is exactly its painted cells, just
+        // checked above - a click inside the entity's placeholder box but
+        // outside every cell (e.g. a gap in a sparse tilemap, or anywhere
+        // once cells extend past the placeholder) must miss rather than fall
+        // back to the placeholder, or the placeholder would stay a second,
+        // disconnected hit target over content that already owns the area.
+        if (hasPopulatedTilemap) continue;
+        bool hasEnabledCollider = false;
+        for (const SceneFrameCollider& collider : frame.colliders) {
+            if (collider.entityId != id || !collider.enabled) continue;
+            hasEnabledCollider = true;
+            const SceneFrameRect bounds{
+                collider.worldBounds.x, collider.worldBounds.y,
+                collider.worldBounds.width, collider.worldBounds.height};
+            if (rectContains(bounds, point.world)) return id;
+            break;
+        }
+        if (hasEnabledCollider) continue;
         bool hasWorldText = false;
         for (const SceneFrameText& text : frame.texts) {
             if (text.entityId != id) continue;
@@ -497,13 +516,6 @@ EntityId pickEntityAt(const SceneFrameSnapshot& frame, ScenePickPoint point) {
                 if (rectContains(bounds, point.world)) return id;
             }
         }
-        // A populated Tilemap's hit area is exactly its painted cells, just
-        // checked above - a click inside the entity's placeholder box but
-        // outside every cell (e.g. a gap in a sparse tilemap, or anywhere
-        // once cells extend past the placeholder) must miss rather than fall
-        // back to the placeholder, or the placeholder would stay a second,
-        // disconnected hit target over content that already owns the area.
-        if (hasPopulatedTilemap) continue;
         if (hasWorldText) {
             // Text/gauge-only (or with invisible sprite): do not fall back to
             // the 32×32 placeholder when presentation visuals exist.
@@ -533,7 +545,10 @@ EntityId pickEntityAt(const SceneFrameSnapshot& frame, ScenePickPoint point) {
 
 void applyDragPreviewOffset(SceneFrameSnapshot& snapshot, EntityId entity, Vec2 delta) {
     for (SceneFrameEntity& e : snapshot.entities) {
-        if (e.entityId == entity) { e.bounds.x += delta.x; e.bounds.y += delta.y; }
+        if (e.entityId == entity) {
+            e.bounds.x += delta.x; e.bounds.y += delta.y;
+            e.entityOrigin.x += delta.x; e.entityOrigin.y += delta.y;
+        }
     }
     for (SceneFrameSprite& s : snapshot.sprites) {
         if (s.entityId == entity) {

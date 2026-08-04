@@ -34,7 +34,7 @@ int g_failed = 0;
 
 ProjectDoc makeDoc() {
     ProjectDoc doc;
-    doc.formatVersion = 13;
+    doc.formatVersion = 14;
     doc.projectName = "spike";
     doc.activeSceneId = kSceneA; // persisted gameplay start scene, not editor focus
 
@@ -75,7 +75,7 @@ ProjectDoc makeDoc() {
 
 ProjectDoc makeReplacementDoc() {
     ProjectDoc doc;
-    doc.formatVersion = 13;
+    doc.formatVersion = 14;
     doc.projectName = "replacement";
     doc.activeSceneId = "scene-replacement";
 
@@ -177,7 +177,7 @@ ProjectDoc makeTopDownDoc(float speed) {
 
 ProjectDoc makeEmptyDoc() {
     ProjectDoc doc;
-    doc.formatVersion = 13;
+    doc.formatVersion = 14;
     doc.projectName = "empty";
     doc.activeSceneId = "missing";
     return doc;

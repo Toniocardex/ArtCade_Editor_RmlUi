@@ -2,6 +2,8 @@
 
 #include "editor-native/model/project_document.h"
 #include "editor-native/model/sprite_render_view.h"
+#include "core/box-collider-resolve.h"
+#include "editor-native/model/text_layout_math.h"
 #include "editor-native/view/scene_grid.h"
 
 #include <algorithm>
@@ -91,19 +93,34 @@ TransformGizmoCapabilities resolveTransformGizmoCapabilities(
 
     caps.canMove = true;
 
-    if (inst->tilemap.has_value()) return caps; // scale no
     if (!rotationIsEffectivelyZero(inst->transform.rotation)) return caps;
 
     const EntityDef* type = document.findObjectType(inst->objectTypeId);
     const SpriteRenderView sprite = resolveSpriteRenderer(document, sceneId, entityId);
     const bool hasSprite = sprite.present && !sprite.assetId.empty();
-    const bool hasCollider = type && type->boxCollider2D && type->boxCollider2D->enabled;
+    if (hasSprite) { caps.canScale = true; return caps; }
+    bool hasPopulatedTilemap = false;
+    if (inst->tilemap) {
+        for (const TilemapChunk& chunk : inst->tilemap->chunks) {
+            if (std::any_of(chunk.cells.begin(), chunk.cells.end(),
+                    [](const TilemapCell& cell) { return cell.has_value(); })) {
+                hasPopulatedTilemap = true;
+                break;
+            }
+        }
+    }
+    if (hasPopulatedTilemap) return caps;
+    const EffectiveBoxCollider2D effectiveCollider = type
+        ? resolveEffectiveBoxCollider2D(*type, *inst) : EffectiveBoxCollider2D{};
+    const bool hasCollider = effectiveCollider.present && effectiveCollider.value.enabled;
     const bool hasText = type && type->text
+        && !type->text->screenSpace
         && (!type->text->text.empty() || !type->text->bindKey.empty());
     const bool hasGauge = type && type->gauge
+        && !type->gauge->screenSpace
         && type->gauge->width > 0.f && type->gauge->height > 0.f;
 
-    if (!hasSprite && !hasCollider && (hasText || hasGauge)) return caps;
+    if (!hasCollider && (hasText || hasGauge)) return caps;
 
     caps.canScale = true;
     return caps;
@@ -118,6 +135,7 @@ std::optional<InstanceTransformGeometry> resolveInstanceTransformGeometry(
 
     const SceneInstanceDef* inst = document.findInstanceInScene(sceneId, entityId);
     if (!inst) return std::nullopt;
+    const EntityDef* type = document.findObjectType(inst->objectTypeId);
 
     const TransformGizmoCapabilities caps =
         resolveTransformGizmoCapabilities(document, sceneId, entityId);
@@ -127,11 +145,13 @@ std::optional<InstanceTransformGeometry> resolveInstanceTransformGeometry(
     out.unscaledSize = Vec2{kDefaultUnscaled, kDefaultUnscaled};
     out.effectivePivot = {0.5f, 0.5f};
     out.supportsScale = caps.canScale;
+    out.entityOrigin = inst->transform.position;
 
     for (const SceneFrameSprite& sprite : frame.sprites) {
         if (sprite.entityId != entityId || !sprite.visible || sprite.assetId.empty())
             continue;
         out.transform = sprite.visualTransform;
+        out.source = InstanceTransformGeometry::Source::Sprite;
         const float sx = std::max(std::abs(inst->transform.scale.x), kMinAuthoringScale);
         const float sy = std::max(std::abs(inst->transform.scale.y), kMinAuthoringScale);
         if (sprite.visualTransform.size.x > 0.f && sprite.visualTransform.size.y > 0.f) {
@@ -147,7 +167,74 @@ std::optional<InstanceTransformGeometry> resolveInstanceTransformGeometry(
         return out;
     }
 
+    for (const SceneFrameTilemap& tilemap : frame.tilemaps) {
+        if (tilemap.entityId != entityId || tilemap.cells.empty()) continue;
+        float x0 = tilemap.cells.front().destination.x;
+        float y0 = tilemap.cells.front().destination.y;
+        float x1 = x0 + tilemap.cells.front().destination.width;
+        float y1 = y0 + tilemap.cells.front().destination.height;
+        for (const SceneFrameTilemapCell& cell : tilemap.cells) {
+            x0 = std::min(x0, cell.destination.x);
+            y0 = std::min(y0, cell.destination.y);
+            x1 = std::max(x1, cell.destination.x + cell.destination.width);
+            y1 = std::max(y1, cell.destination.y + cell.destination.height);
+        }
+        out.source = InstanceTransformGeometry::Source::Tilemap;
+        out.transform = {{(x0 + x1) * 0.5f, (y0 + y1) * 0.5f}, {x1 - x0, y1 - y0}, 0.f};
+        out.supportsScale = false;
+        return out;
+    }
+
+    for (const SceneFrameCollider& collider : frame.colliders) {
+        if (collider.entityId != entityId || !collider.enabled) continue;
+        const WorldRect& b = collider.worldBounds;
+        out.source = InstanceTransformGeometry::Source::BoxCollider2D;
+        out.transform = {{b.x + b.width * 0.5f, b.y + b.height * 0.5f},
+                         {b.width, b.height}, 0.f};
+        const EffectiveBoxCollider2D effective = type
+            ? resolveEffectiveBoxCollider2D(*type, *inst) : EffectiveBoxCollider2D{};
+        if (effective.present) out.unscaledSize = effective.value.size;
+        if (b.width > 0.f && b.height > 0.f) {
+            out.effectivePivot = {(inst->transform.position.x - b.x) / b.width,
+                                  (inst->transform.position.y - b.y) / b.height};
+        }
+        return out;
+    }
+
+    std::optional<SceneFrameRect> textGaugeBounds;
+    const auto uniteRect = [&](SceneFrameRect value) {
+        if (!textGaugeBounds) { textGaugeBounds = value; return; }
+        const float x0 = std::min(textGaugeBounds->x, value.x);
+        const float y0 = std::min(textGaugeBounds->y, value.y);
+        const float x1 = std::max(textGaugeBounds->x + textGaugeBounds->width,
+                                  value.x + value.width);
+        const float y1 = std::max(textGaugeBounds->y + textGaugeBounds->height,
+                                  value.y + value.height);
+        textGaugeBounds = SceneFrameRect{x0, y0, x1 - x0, y1 - y0};
+    };
+    for (const SceneFrameText& text : frame.texts) {
+        if (text.entityId == entityId && !text.screenSpace && !text.displayText.empty()) {
+            uniteRect(estimateSceneFrameTextLayout(text).bounds);
+        }
+    }
+    for (const SceneFrameGauge& gauge : frame.gauges) {
+        if (gauge.entityId == entityId && !gauge.screenSpace
+            && gauge.width > 0.f && gauge.height > 0.f) {
+            uniteRect({gauge.anchorPosition.x, gauge.anchorPosition.y,
+                       gauge.width, gauge.height});
+        }
+    }
+    if (textGaugeBounds) {
+        out.source = InstanceTransformGeometry::Source::TextOrGauge;
+        out.transform = {{textGaugeBounds->x + textGaugeBounds->width * 0.5f,
+                          textGaugeBounds->y + textGaugeBounds->height * 0.5f},
+                         {textGaugeBounds->width, textGaugeBounds->height}, 0.f};
+        out.supportsScale = false;
+        return out;
+    }
+
     out.transform = projectTransform(inst->transform, out.unscaledSize);
+    out.source = InstanceTransformGeometry::Source::Placeholder;
     return out;
 }
 

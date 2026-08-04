@@ -35,6 +35,8 @@ struct SceneFrameEntity {
     // own inEditMode-dims/actual-gameplay-hides split. Never a hard omission
     // here; that would make the entity impossible to select while editing.
     bool visibleInGame = true;
+    // ADR-0058: sole authored Entity Origin, independent of visual geometry.
+    Vec2 entityOrigin{};
 };
 
 struct SceneFrameSprite {

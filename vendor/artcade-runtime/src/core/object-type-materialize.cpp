@@ -1,6 +1,7 @@
 #include "object-type-materialize.h"
 
 #include "sprite-presentation-resolve.h"
+#include "box-collider-resolve.h"
 
 #include <algorithm>
 #include <cmath>
@@ -98,6 +99,12 @@ EntityDef materializeInstance(
     // Tilemap is scene-instance authority (ADR-0001/ADR-0040), so this
     // transient runtime mirror never inherits from the Object Type.
     e.tilemap = instance.tilemap;
+    // ADR-0058: materialise the same effective collider the editor previews.
+    // An override alone can never create a capability.
+    const EffectiveBoxCollider2D effectiveCollider =
+        resolveEffectiveBoxCollider2D(typeProto, instance);
+    if (effectiveCollider.present) e.boxCollider2D = effectiveCollider.value;
+    else e.boxCollider2D.reset();
     // ADR-0057: one effective presentation (incl. pivot) before dropping it.
     const EffectiveSpritePresentation effective =
         resolveEffectiveSpritePresentation(typeProto, instance);

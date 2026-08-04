@@ -72,6 +72,17 @@ bool read_scene_instance(const nlohmann::json& instanceJson, SceneInstanceDef& o
         if (!spritePresentationOverrideEmpty(delta))
             out.spritePresentationOverride = std::move(delta);
     }
+    if (instanceJson.contains("boxCollider2DOverride")
+        && instanceJson["boxCollider2DOverride"].is_object()) {
+        const auto& value = instanceJson["boxCollider2DOverride"];
+        BoxCollider2DOverride delta;
+        if (value.contains("offset") && value["offset"].is_object()) {
+            delta.offset = read_vec2(value["offset"], Vec2{});
+        }
+        if (!boxCollider2DOverrideEmpty(delta)) {
+            out.boxCollider2DOverride = std::move(delta);
+        }
+    }
     if (instanceJson.contains("spriteRendererOverride")
         && instanceJson["spriteRendererOverride"].is_object()) {
         const auto& value = instanceJson["spriteRendererOverride"];

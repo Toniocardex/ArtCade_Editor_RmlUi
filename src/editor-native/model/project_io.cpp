@@ -49,7 +49,7 @@ namespace {
 // carry no mirrored display name; provenance is derived and validated.
 // v7: Object-Type-owned ordered Script attachments. Project JSON still stores
 // metadata only; source text remains in project-relative .lua files.
-constexpr int kCurrentSchemaVersion = 13;
+constexpr int kCurrentSchemaVersion = ProjectJson::kCurrentProjectFormatVersion;
 
 } // namespace
 
@@ -436,6 +436,26 @@ bool readInstance(const nlohmann::json& value, SceneInstanceDef& out) {
         }
         if (!spritePresentationOverrideEmpty(delta))
             out.spritePresentationOverride = std::move(delta);
+    }
+    if (const nlohmann::json* colliderValue = optionalObject(
+            value, "boxCollider2DOverride",
+            "scenes[].instances[].boxCollider2DOverride")) {
+        BoxCollider2DOverride delta;
+        if (const nlohmann::json* offsetValue = optionalObject(
+                *colliderValue, "offset",
+                "scenes[].instances[].boxCollider2DOverride.offset")) {
+            const Vec2 offset = readVec2(*offsetValue);
+            if (!NumericValidation::isFinite(offset)) {
+                invalidField("scenes[].instances[].boxCollider2DOverride.offset",
+                             "finite Vec2");
+            }
+            delta.offset = offset;
+        }
+        if (boxCollider2DOverrideEmpty(delta)) {
+            invalidField("scenes[].instances[].boxCollider2DOverride",
+                         "non-empty sparse override");
+        }
+        out.boxCollider2DOverride = std::move(delta);
     }
     AssetId foldedRendererAnimationAssetId;
     if (const nlohmann::json* srValue = optionalObject(
@@ -865,6 +885,14 @@ nlohmann::json instanceToJson(const SceneInstanceDef& instance) {
         if (deltaValue.source) delta["source"] = spritePresentationSourceToJson(*deltaValue.source);
         if (deltaValue.pivot) delta["pivot"] = vec2ToJson(*deltaValue.pivot);
         if (!delta.empty()) json["spritePresentationOverride"] = std::move(delta);
+    }
+    if (instance.boxCollider2DOverride.has_value()
+        && !boxCollider2DOverrideEmpty(*instance.boxCollider2DOverride)) {
+        nlohmann::json delta = nlohmann::json::object();
+        if (instance.boxCollider2DOverride->offset) {
+            delta["offset"] = vec2ToJson(*instance.boxCollider2DOverride->offset);
+        }
+        json["boxCollider2DOverride"] = std::move(delta);
     }
     if (!instance.spritePresentationOverride && instance.spriteRendererOverride.has_value()) {
         const SpriteRendererOverride& deltaValue = *instance.spriteRendererOverride;
@@ -1692,6 +1720,17 @@ DeserializeResult deserializeCanonical(const nlohmann::json& root) {
     for (const auto& [sceneId, scene] : doc.scenes) {
         EntityId cameraTargetId = INVALID_ENTITY;
         for (const SceneInstanceDef& instance : scene.instances) {
+            const auto typeIt = doc.objectTypes.find(instance.objectTypeId);
+            if (instance.boxCollider2DOverride) {
+                if (typeIt == doc.objectTypes.end() || !typeIt->second.boxCollider2D) {
+                    return DeserializeResult::failure(
+                        "BoxCollider2D override requires the Object Type capability");
+                }
+                if (!NumericValidation::isValid(*instance.boxCollider2DOverride)) {
+                    return DeserializeResult::failure(
+                        "BoxCollider2D override must contain a finite offset");
+                }
+            }
             if (!instance.cameraTarget) continue;
             if (!NumericValidation::isValid(*instance.cameraTarget)) {
                 return DeserializeResult::failure("CameraTarget has invalid values");
@@ -1719,7 +1758,8 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
     // versions (including missing/malformed) keep the historical error path
     // below so malformed-present fields still surface their specific reasons.
     if (root.contains("formatVersion") && root["formatVersion"].is_number_integer()
-        && root["formatVersion"].get<int>() == 12) {
+        && (root["formatVersion"].get<int>() == 12
+            || root["formatVersion"].get<int>() == 13)) {
         const ProjectJson::ProjectJsonUpgradeResult upgraded =
             ProjectJson::upgradeProjectJsonToCurrent(root);
         if (!upgraded.ok) return DeserializeResult::failure(upgraded.error);
@@ -2259,6 +2299,21 @@ DeserializeResult ProjectSerializer::deserialize(std::string_view source) {
                     "Scene \"" + sceneId + "\" contains more than one CameraTarget");
             }
             cameraTargetId = instance.id;
+        }
+    }
+    for (const auto& [sceneId, scene] : doc.scenes) {
+        (void)sceneId;
+        for (const SceneInstanceDef& instance : scene.instances) {
+            if (!instance.boxCollider2DOverride) continue;
+            const auto typeIt = doc.objectTypes.find(instance.objectTypeId);
+            if (typeIt == doc.objectTypes.end() || !typeIt->second.boxCollider2D) {
+                return DeserializeResult::failure(
+                    "BoxCollider2D override requires the Object Type capability");
+            }
+            if (!NumericValidation::isValid(*instance.boxCollider2DOverride)) {
+                return DeserializeResult::failure(
+                    "BoxCollider2D override must contain a finite offset");
+            }
         }
     }
     normalizeInstanceVariableOverrides(doc);
@@ -2844,6 +2899,15 @@ DeserializeResult ProjectValidator::validate(ProjectDocument document) {
                 if (instance.spritePresentationOverride && !typeIt->second.spritePresentation) {
                     return DeserializeResult::failure(
                         "Sprite override requires the Object Type Sprite capability");
+                }
+                if (instance.boxCollider2DOverride && !typeIt->second.boxCollider2D) {
+                    return DeserializeResult::failure(
+                        "BoxCollider2D override requires the Object Type capability");
+                }
+                if (instance.boxCollider2DOverride
+                    && !NumericValidation::isValid(*instance.boxCollider2DOverride)) {
+                    return DeserializeResult::failure(
+                        "BoxCollider2D override must contain a finite offset");
                 }
                 if (instance.spritePresentationOverride
                     && instance.spritePresentationOverride->source) {

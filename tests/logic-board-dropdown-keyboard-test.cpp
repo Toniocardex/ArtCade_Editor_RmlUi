@@ -105,7 +105,7 @@ void pressKey(Rml::Element* element, Rml::Input::KeyIdentifier key) {
 
 ProjectDoc makeLogicBoardProject() {
     ProjectDoc doc;
-    doc.formatVersion = 13;
+    doc.formatVersion = 14;
     doc.projectName = "Logic Board Dropdown Keyboard";
 
     EntityDef hero;

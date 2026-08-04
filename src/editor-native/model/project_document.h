@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace ArtCade::EditorNative {
@@ -62,6 +63,8 @@ class SetScriptAttachmentEnabledCommand;
 class SetBoxColliderOffsetCommand;
 class SetBoxColliderSizeCommand;
 class SetBoxColliderModeCommand;
+class SetInstanceOriginFromColliderAnchorCommand;
+class SetInstanceBoxColliderOffsetOverrideCommand;
 class RenameSceneCommand;
 class SetSceneSizeCommand;
 class SetSceneViewportSizeCommand;
@@ -256,6 +259,8 @@ private:
     friend class SetBoxColliderOffsetCommand;
     friend class SetBoxColliderSizeCommand;
     friend class SetBoxColliderModeCommand;
+    friend class SetInstanceOriginFromColliderAnchorCommand;
+    friend class SetInstanceBoxColliderOffsetOverrideCommand;
     friend class SetLinearMoverDirectionCommand;
     friend class SetLinearMoverSpeedCommand;
     friend class AddTopDownControllerCommand;
@@ -446,6 +451,13 @@ private:
     // BoxCollider2D is authored on the object type only; instances never store it.
     bool addBoxCollider(const std::string& objectTypeId, BoxCollider2DComponent component);
     bool removeBoxCollider(const std::string& objectTypeId);
+    bool restoreBoxColliderAndOverrides(
+        const std::string& objectTypeId,
+        BoxCollider2DComponent component,
+        const std::vector<std::tuple<SceneId, EntityId, BoxCollider2DOverride>>& overrides);
+    bool setInstanceOriginAndBoxColliderOverride(
+        const SceneId& sceneId, EntityId id, Vec2 position,
+        std::optional<BoxCollider2DOverride> overrideValue);
     bool setBoxColliderOffset(const std::string& objectTypeId, Vec2 offset);
     bool setBoxColliderSize(const std::string& objectTypeId, Vec2 size);
     bool setBoxColliderEnabled(const std::string& objectTypeId, bool enabled);

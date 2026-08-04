@@ -99,7 +99,7 @@ void pressKey(Rml::Element* element, Rml::Input::KeyIdentifier key) {
 
 ProjectDoc makeTwoLayerProject() {
     ProjectDoc doc;
-    doc.formatVersion = 13;
+    doc.formatVersion = 14;
     doc.projectName = "Layer Dropdown Keyboard";
 
     EntityDef hero;

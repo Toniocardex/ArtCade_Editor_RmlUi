@@ -604,6 +604,49 @@ bool ProjectDocument::removeBoxCollider(const std::string& objectTypeId) {
     auto it = doc_.objectTypes.find(objectTypeId);
     if (it == doc_.objectTypes.end() || !it->second.boxCollider2D.has_value()) return false;
     it->second.boxCollider2D.reset();
+    for (auto& [sceneId, scene] : doc_.scenes) {
+        (void)sceneId;
+        for (SceneInstanceDef& instance : scene.instances) {
+            if (instance.objectTypeId == objectTypeId) {
+                instance.boxCollider2DOverride.reset();
+            }
+        }
+    }
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::restoreBoxColliderAndOverrides(
+    const std::string& objectTypeId,
+    BoxCollider2DComponent component,
+    const std::vector<std::tuple<SceneId, EntityId, BoxCollider2DOverride>>& overrides) {
+    if (!NumericValidation::isValid(component)) return false;
+    auto typeIt = doc_.objectTypes.find(objectTypeId);
+    if (typeIt == doc_.objectTypes.end() || typeIt->second.boxCollider2D) return false;
+    for (const auto& [sceneId, id, value] : overrides) {
+        if (!NumericValidation::isValid(value)) return false;
+        SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
+        if (!instance || instance->objectTypeId != objectTypeId) return false;
+    }
+    typeIt->second.boxCollider2D = component;
+    for (const auto& [sceneId, id, value] : overrides) {
+        mutableInstanceInScene(sceneId, id)->boxCollider2DOverride = value;
+    }
+    markDirty();
+    return true;
+}
+
+bool ProjectDocument::setInstanceOriginAndBoxColliderOverride(
+    const SceneId& sceneId, EntityId id, Vec2 position,
+    std::optional<BoxCollider2DOverride> overrideValue) {
+    if (!NumericValidation::isFinite(position)) return false;
+    if (overrideValue && !NumericValidation::isValid(*overrideValue)) return false;
+    SceneInstanceDef* instance = mutableInstanceInScene(sceneId, id);
+    if (!instance) return false;
+    const EntityDef* type = findObjectType(instance->objectTypeId);
+    if (!type || !type->boxCollider2D) return false;
+    instance->transform.position = position;
+    instance->boxCollider2DOverride = std::move(overrideValue);
     markDirty();
     return true;
 }

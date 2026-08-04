@@ -13,6 +13,7 @@
 #include "editor-native/ui/editor_ui.h"
 #include "editor-native/ui/ui_markup.h"
 #include "core/text-component-format.h"
+#include "core/box-collider-resolve.h"
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -245,7 +246,7 @@ bool knownSection(std::string_view id) {
     static constexpr std::string_view ids[] = {
         "project", "general", "appearance", "world-bounds", "game-view", "layers", "diagnostics",
         "identity", "object-type-components", "transform", "sprite", "sprite-renderer", "sprite-animator",
-        "tilemap", "camera-target", "scripts", "box-collider", "linear-mover", "top-down-controller",
+        "tilemap", "camera-target", "scripts", "entity-origin", "box-collider", "linear-mover", "top-down-controller",
         "platformer-controller", "auto-destroy", "text", "gauge", "object-variables",
     };
     for (std::string_view known : ids) if (known == id) return true;
@@ -1698,6 +1699,44 @@ void InspectorPanel::refresh(Rml::ElementDocument* document,
             html += "<button class=\"panel-btn";
             if (playing) html += " disabled";
             html += "\" data-action=\"create-script\">Create Script Asset</button>";
+        }
+    }
+
+    // -- Entity Origin (ADR-0058; friendly per-instance collider alignment) --
+    const EffectiveBoxCollider2D effectiveCollider = type
+        ? resolveEffectiveBoxCollider2D(*type, *inst) : EffectiveBoxCollider2D{};
+    if (effectiveCollider.present && effectiveCollider.value.enabled) {
+        const bool offsetOverride = inst->boxCollider2DOverride
+            && inst->boxCollider2DOverride->offset.has_value();
+        html += header("entity-origin", isSectionCollapsed("entity-origin"),
+                       "" UI_ICON_SPATIAL "", "Entity Origin", "", "", "", instanceDisabled);
+        html += "<div class=\"prop-row\"><span class=\"prop-label\">Collider alignment</span>";
+        if (offsetOverride) {
+            html += "<span class=\"comp-badge override\">INSTANCE OVERRIDE</span>";
+        } else {
+            html += "<span class=\"prop-readonly\">Inherited from Object Type</span>";
+        }
+        html += "</div>";
+        html += "<div class=\"type-owned-note\">Choose where the entity's Position sits on "
+                "the collision shape. The shape stays exactly where it is.</div>";
+        static constexpr struct { const char* arg; const char* label; const char* title; } kAnchors[] = {
+            {"tl", "TL", "Top left"}, {"tc", "TC", "Top center"}, {"tr", "TR", "Top right"},
+            {"ml", "ML", "Middle left"}, {"c", "C", "Center"}, {"mr", "MR", "Middle right"},
+            {"bl", "BL", "Bottom left"}, {"bc", "BC", "Bottom center"}, {"br", "BR", "Bottom right"},
+        };
+        html += "<div class=\"pivot-preset-grid\">";
+        for (const auto& anchor : kAnchors) {
+            html += "<button class=\"panel-btn";
+            if (instanceDisabled) html += " disabled";
+            html += "\" title=\"" + std::string(anchor.title)
+                + "\" data-action=\"set-entity-origin-anchor\" data-arg=\""
+                + anchor.arg + "\">" + anchor.label + "</button>";
+        }
+        html += "</div>";
+        if (offsetOverride) {
+            html += "<button class=\"panel-btn";
+            if (instanceDisabled) html += " disabled";
+            html += "\" data-action=\"reset-instance-collider-offset\">Reset alignment</button>";
         }
     }
 

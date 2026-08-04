@@ -128,6 +128,7 @@ add_library(artcade-core STATIC
     src/core/color-hex.cpp
     src/core/text-component-format.cpp
     src/core/sprite-presentation-resolve.cpp
+    src/core/box-collider-resolve.cpp
     src/core/sprite-visual-geometry.cpp
 )
 target_include_directories(artcade-core PUBLIC

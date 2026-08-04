@@ -145,7 +145,7 @@ std::string fieldValue(Rml::Element* element) {
 
 ProjectDoc makeObjectVariablesProject(double healthValue = 100.0) {
     ProjectDoc doc;
-    doc.formatVersion = 13;
+    doc.formatVersion = 14;
     doc.projectName = "Inspector Object Variables";
 
     EntityDef hero;

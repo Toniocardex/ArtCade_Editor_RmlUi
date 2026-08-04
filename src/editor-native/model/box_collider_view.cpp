@@ -1,6 +1,7 @@
 #include "editor-native/model/box_collider_view.h"
 
 #include "editor-native/model/project_document.h"
+#include "core/box-collider-resolve.h"
 
 namespace ArtCade::EditorNative {
 
@@ -16,8 +17,11 @@ std::vector<SceneFrameCollider> collectBoxColliderBounds(
     const auto& types = document.data().objectTypes;
     for (const SceneInstanceDef& instance : scene->instances) {
         const auto typeIt = types.find(instance.objectTypeId);
-        if (typeIt == types.end() || !typeIt->second.boxCollider2D) continue;
-        const BoxCollider2DComponent& collider = *typeIt->second.boxCollider2D;
+        if (typeIt == types.end()) continue;
+        const EffectiveBoxCollider2D effective =
+            resolveEffectiveBoxCollider2D(typeIt->second, instance);
+        if (!effective.present) continue;
+        const BoxCollider2DComponent& collider = effective.value;
         if (!collider.enabled) continue;
         const Transform& xf =
             (preview && preview->entityId == instance.id) ? preview->transform

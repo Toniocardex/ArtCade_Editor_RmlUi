@@ -87,7 +87,7 @@ void click(Rml::Element* element) {
 
 ProjectDoc makeTextFontProject() {
     ProjectDoc doc;
-    doc.formatVersion = 13;
+    doc.formatVersion = 14;
     doc.projectName = "Text Font Picker";
 
     doc.fontAssets.push_back(FontAssetDef{"font-ui", "UI Font", "fonts/ui.ttf", 32, {}});

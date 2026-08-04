@@ -146,7 +146,7 @@ std::string writeFixtureSheet(const std::filesystem::path& projectPath) {
 
 ProjectDoc makeVisualFixtureProject() {
     ProjectDoc doc;
-    doc.formatVersion = 13;
+    doc.formatVersion = 14;
     doc.projectName = "ArtCade Visual Fixture";
 
     // Declared before the object types so Player/Coin can reference it as

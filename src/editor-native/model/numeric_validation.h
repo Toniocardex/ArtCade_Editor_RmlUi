@@ -52,6 +52,10 @@ inline bool isValid(const BoxCollider2DComponent& component) {
     return isFinite(component.offset) && isPositive(component.size);
 }
 
+inline bool isValid(const BoxCollider2DOverride& overrideValue) {
+    return overrideValue.offset && isFinite(*overrideValue.offset);
+}
+
 inline bool isValid(const LinearMoverComponent& component) {
     return isFinite(Vec2{component.directionX, component.directionY})
         && isNonNegative(component.speed);

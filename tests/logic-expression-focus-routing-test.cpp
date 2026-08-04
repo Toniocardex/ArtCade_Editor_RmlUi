@@ -146,7 +146,7 @@ std::string completionText(Rml::Element* root) {
 
 ProjectDoc makeProjectWithSetPosition() {
     ProjectDoc doc;
-    doc.formatVersion = 13;
+    doc.formatVersion = 14;
     doc.projectName = "Expression Focus";
 
     EntityDef hero;

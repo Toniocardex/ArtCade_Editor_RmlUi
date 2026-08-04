@@ -144,9 +144,17 @@ bool hasGaugeVisual(const SceneFrameSnapshot& frame, EntityId entityId) {
     return false;
 }
 
+bool hasColliderVisual(const SceneFrameSnapshot& frame, EntityId entityId) {
+    for (const SceneFrameCollider& collider : frame.colliders) {
+        if (collider.entityId == entityId && collider.enabled) return true;
+    }
+    return false;
+}
+
 bool hasPresentationVisual(const SceneFrameSnapshot& frame, EntityId entityId) {
     return hasVisibleSprite(frame, entityId)
         || hasVisibleTilemapCells(frame, entityId)
+        || hasColliderVisual(frame, entityId)
         || hasTextVisual(frame, entityId)
         || hasGaugeVisual(frame, entityId);
 }
@@ -312,11 +320,12 @@ void SceneView::render(const SceneFrameSnapshot& frame,
         const bool hasTilemap = hasVisibleTilemapCells(frame, entity.entityId);
         const bool hasText = hasTextVisual(frame, entity.entityId);
         const bool hasGauge = hasGaugeVisual(frame, entity.entityId);
+        const bool hasCollider = hasColliderVisual(frame, entity.entityId);
         const unsigned char dimAlpha = entity.visibleInGame
             ? static_cast<unsigned char>(255)
             : static_cast<unsigned char>(255.f * kInvisibleInGameDimAlpha);
         const Color tint{255, 255, 255, dimAlpha};
-        if (!hasSprite && !hasTilemap && !hasText && !hasGauge) {
+        if (!hasSprite && !hasTilemap && !hasCollider && !hasText && !hasGauge) {
             const SceneFrameTransform2D xf = visualOf(entity.bounds, entity.rotationRadians);
             const float degrees = entity.rotationRadians * kRadToDeg;
             const Vector2 origin{entity.bounds.width * 0.5f, entity.bounds.height * 0.5f};
@@ -453,23 +462,54 @@ void SceneView::render(const SceneFrameSnapshot& frame,
                 if (const std::optional<SceneFrameRect> tilemapBounds =
                         tilemapCellBounds(frame, entity.entityId)) {
                     outline = visualOf(*tilemapBounds, 0.f);
+                    matchedContent = true;
                 }
+            }
+            if (!matchedContent) {
+                for (const SceneFrameCollider& collider : frame.colliders) {
+                    if (collider.entityId != entity.entityId || !collider.enabled) continue;
+                    const WorldRect& b = collider.worldBounds;
+                    outline = SceneFrameTransform2D{
+                        {b.x + b.width * 0.5f, b.y + b.height * 0.5f},
+                        {b.width, b.height}, 0.f};
+                    matchedContent = true;
+                    break;
+                }
+            }
+            if (!matchedContent) {
+                std::optional<SceneFrameRect> textGaugeBounds;
+                const auto addBounds = [&](SceneFrameRect value) {
+                    if (!textGaugeBounds) { textGaugeBounds = value; return; }
+                    const float x0 = std::min(textGaugeBounds->x, value.x);
+                    const float y0 = std::min(textGaugeBounds->y, value.y);
+                    const float x1 = std::max(textGaugeBounds->x + textGaugeBounds->width,
+                                              value.x + value.width);
+                    const float y1 = std::max(textGaugeBounds->y + textGaugeBounds->height,
+                                              value.y + value.height);
+                    textGaugeBounds = {x0, y0, x1 - x0, y1 - y0};
+                };
+                for (const SceneFrameText& text : frame.texts) {
+                    if (text.entityId != entity.entityId || text.screenSpace
+                        || text.displayText.empty()) continue;
+                    const Font& glyphFont = resolveTextFont(fonts, canvasFont, text.fontPath);
+                    addBounds(layoutSceneFrameText(text, glyphFont).bounds);
+                }
+                for (const SceneFrameGauge& gauge : frame.gauges) {
+                    if (gauge.entityId != entity.entityId || gauge.screenSpace
+                        || gauge.width <= 0.f || gauge.height <= 0.f) continue;
+                    addBounds({gauge.anchorPosition.x, gauge.anchorPosition.y,
+                               gauge.width, gauge.height});
+                }
+                if (textGaugeBounds) outline = visualOf(*textGaugeBounds, 0.f);
             }
             // Inflate slightly in local space for a readable pad around the visual.
             outline.size.x += 6.f;
             outline.size.y += 6.f;
             drawOrientedOutline(outline, 2.f / cam.zoom, Color{59, 130, 246, 255});
 
-            // ADR-0057: non-draggable marker at Transform.position (sprite pivot).
-            for (const SceneFrameSprite& sprite : frame.sprites) {
-                if (sprite.entityId != entity.entityId || !sprite.visible
-                    || sprite.assetId.empty()) {
-                    continue;
-                }
-                const Vector2 pivotWorld{
-                    sprite.destination.x + sprite.origin.x,
-                    sprite.destination.y + sprite.origin.y,
-                };
+            // ADR-0058: every selected Edit instance exposes the sole Entity Origin.
+            {
+                const Vector2 pivotWorld{entity.entityOrigin.x, entity.entityOrigin.y};
                 const float r = 3.5f / cam.zoom;
                 DrawCircleV(pivotWorld, r, Color{250, 204, 21, 230});
                 DrawLineEx({pivotWorld.x - r * 2.f, pivotWorld.y},
@@ -478,7 +518,6 @@ void SceneView::render(const SceneFrameSnapshot& frame,
                 DrawLineEx({pivotWorld.x, pivotWorld.y - r * 2.f},
                            {pivotWorld.x, pivotWorld.y + r * 2.f},
                            1.2f / cam.zoom, Color{250, 204, 21, 200});
-                break;
             }
         }
     }

@@ -70,7 +70,10 @@ TransformGizmoCapabilities resolveTransformGizmoCapabilities(
     EntityId entityId);
 
 struct InstanceTransformGeometry {
+    enum class Source { Sprite, Tilemap, BoxCollider2D, TextOrGauge, Placeholder };
+    Source source = Source::Placeholder;
     SceneFrameTransform2D transform;
+    Vec2 entityOrigin{};
     Vec2 unscaledSize{32.f, 32.f};
     bool supportsScale = false;
     // Visual effective pivot (includes flip) used by resize anchoring.

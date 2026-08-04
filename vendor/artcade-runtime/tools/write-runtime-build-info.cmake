@@ -19,8 +19,8 @@ set(_json "{
   \"engineVersion\": \"2.0.0\",
   \"runtimeBuildId\": \"${RUNTIME_BUILD_ID}\",
   \"platformerGroundSupport\": \"${PLATFORMER_GROUND_SUPPORT}\",
-  \"projectFormatMin\": 11,
-  \"projectFormatMax\": 11,
+  \"projectFormatMin\": 12,
+  \"projectFormatMax\": 14,
   \"assetKeyId\": \"${ASSET_KEY_ID}\"
 }
 ")

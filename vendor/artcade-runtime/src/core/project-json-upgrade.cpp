@@ -46,7 +46,7 @@ ProjectJsonUpgradeResult upgradeProjectJsonToCurrent(const nlohmann::json& sourc
         return result;
     }
 
-    const int version = readFormatVersion(source);
+    int version = readFormatVersion(source);
     if (version < 0) {
         result.error = "Project formatVersion is missing or invalid";
         return result;
@@ -59,11 +59,22 @@ ProjectJsonUpgradeResult upgradeProjectJsonToCurrent(const nlohmann::json& sourc
         return result;
     }
 
-    if (version == 12 && kCurrentProjectFormatVersion == 13) {
-        result.root = source;
+    result.root = source;
+    if (version == 12) {
         upgradeObjectTypePresentationsV12ToV13(result.root);
         result.root["formatVersion"] = 13;
         result.root["schemaVersion"] = 13;
+        version = 13;
+    }
+
+    // ADR-0058 adds a sparse optional field. Existing v13 documents require
+    // no data rewrite beyond advancing the schema marker.
+    if (version == 13) {
+        result.root["formatVersion"] = 14;
+        result.root["schemaVersion"] = 14;
+        version = 14;
+    }
+    if (version == kCurrentProjectFormatVersion) {
         result.ok = true;
         result.changed = true;
         return result;

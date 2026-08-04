@@ -2,6 +2,7 @@
 
 #include "core/types.h"
 #include "editor-native/commands/editor_operation_result.h"
+#include "editor-native/model/collider_origin_math.h"
 
 namespace ArtCade::EditorNative {
 
@@ -56,6 +57,9 @@ EditorOperationResult setBoxColliderOffset(EditorCoordinator& coordinator, Vec2 
 EditorOperationResult setBoxColliderSize(EditorCoordinator& coordinator, Vec2 size);
 EditorOperationResult setBoxColliderEnabled(EditorCoordinator& coordinator, bool enabled);
 EditorOperationResult setBoxColliderMode(EditorCoordinator& coordinator, BoxColliderMode mode);
+EditorOperationResult setEntityOriginFromColliderAnchor(
+    EditorCoordinator& coordinator, ColliderAnchorX x, ColliderAnchorY y);
+EditorOperationResult resetInstanceBoxColliderOffset(EditorCoordinator& coordinator);
 
 EditorOperationResult addLinearMover(EditorCoordinator& coordinator);
 EditorOperationResult removeLinearMover(EditorCoordinator& coordinator);

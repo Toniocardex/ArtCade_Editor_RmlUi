@@ -63,7 +63,7 @@ int main() {
         const auto upgraded = ProjectJson::upgradeProjectJsonToCurrent(root);
         CHECK(upgraded.ok);
         CHECK(upgraded.changed);
-        CHECK(upgraded.root["formatVersion"] == 13);
+        CHECK(upgraded.root["formatVersion"] == 14);
         CHECK(upgraded.root["objectTypes"][0]["spritePresentation"]["pivot"]["x"] == 0.5);
         CHECK(upgraded.root["objectTypes"][0]["spritePresentation"]["pivot"]["y"] == 0.5);
 
@@ -74,9 +74,9 @@ int main() {
         const auto bad11 = ProjectJson::upgradeProjectJsonToCurrent(
             nlohmann::json{{"formatVersion", 11}});
         CHECK(!bad11.ok);
-        const auto bad14 = ProjectJson::upgradeProjectJsonToCurrent(
-            nlohmann::json{{"formatVersion", 14}});
-        CHECK(!bad14.ok);
+        const auto bad15 = ProjectJson::upgradeProjectJsonToCurrent(
+            nlohmann::json{{"formatVersion", 15}});
+        CHECK(!bad15.ok);
     }
 
     // --- Resolver: OT + override + class prototypes (dynamic spawn) ---
@@ -140,7 +140,7 @@ int main() {
     // --- Commands: OT pivot; reset instance pivot preserves source ---
     {
         ProjectDoc doc = makeDoc();
-        doc.formatVersion = 13;
+        doc.formatVersion = 14;
         doc.objectTypes["Hero"] = makeOtWithPivot("Hero", {0.5f, 0.5f});
         ImageAssetDef image;
         image.assetId = "img";
@@ -179,7 +179,7 @@ int main() {
     // --- Scene frame visualTransform + picking + gizmo capture ---
     {
         ProjectDoc doc = makeDoc();
-        doc.formatVersion = 13;
+        doc.formatVersion = 14;
         doc.objectTypes["Hero"] = makeOtWithPivot("Hero", {0.5f, 1.f});
         ImageAssetDef image;
         image.assetId = "img";
@@ -232,13 +232,13 @@ int main() {
     // --- Serialize current document emits format 13 + OT pivot ---
     {
         ProjectDoc doc = makeDoc();
-        doc.formatVersion = 13;
+        doc.formatVersion = 14;
         doc.objectTypes["Hero"] = makeOtWithPivot("Hero", {0.f, 1.f});
         ProjectDocument document{std::move(doc)};
         const SerializeResult saved = ProjectSerializer::serialize(document);
         CHECK(saved.ok);
-        CHECK(saved.value.find("\"formatVersion\": 13") != std::string::npos
-              || saved.value.find("\"formatVersion\":13") != std::string::npos);
+        CHECK(saved.value.find("\"formatVersion\": 14") != std::string::npos
+              || saved.value.find("\"formatVersion\":14") != std::string::npos);
         CHECK(saved.value.find("\"pivot\"") != std::string::npos);
     }
 
@@ -281,7 +281,7 @@ int main() {
         })json";
         const DeserializeResult loaded = ProjectSerializer::deserialize(kV12);
         CHECK(loaded.ok);
-        CHECK(loaded.value.data().formatVersion == 13);
+        CHECK(loaded.value.data().formatVersion == 14);
         const EntityDef* ot = loaded.value.findObjectType("Hero");
         CHECK(ot && ot->spritePresentation);
         CHECK(near(ot->spritePresentation->pivot.x, 0.5f));
@@ -290,7 +290,7 @@ int main() {
         const SerializeResult saved = ProjectSerializer::serialize(loaded.value);
         CHECK(saved.ok);
         const nlohmann::json savedRoot = nlohmann::json::parse(saved.value);
-        CHECK(savedRoot["formatVersion"] == 13);
+        CHECK(savedRoot["formatVersion"] == 14);
         std::string validationError;
         CHECK(ProjectJson::validate_current_project_json(savedRoot, validationError));
     }
@@ -377,7 +377,7 @@ int main() {
     // --- Remove Sprite Presentation erases instance overrides; Undo exact ---
     {
         ProjectDoc doc = makeDoc();
-        doc.formatVersion = 13;
+        doc.formatVersion = 14;
         doc.objectTypes["Hero"] = makeOtWithPivot("Hero", {0.5f, 1.f});
         ImageAssetDef image;
         image.assetId = "img";
@@ -412,7 +412,7 @@ int main() {
     // --- Play blocks pivot authoring at coordinator ---
     {
         ProjectDoc doc = makeDoc();
-        doc.formatVersion = 13;
+        doc.formatVersion = 14;
         doc.objectTypes["Hero"] = makeOtWithPivot("Hero", {0.5f, 0.5f});
         ImageAssetDef image;
         image.assetId = "img";
@@ -434,7 +434,7 @@ int main() {
     // --- Layer lock checked only on first apply of instance pivot override ---
     {
         ProjectDoc doc = makeDoc();
-        doc.formatVersion = 13;
+        doc.formatVersion = 14;
         doc.objectTypes["Hero"] = makeOtWithPivot("Hero", {0.5f, 0.5f});
         ImageAssetDef image;
         image.assetId = "img";
@@ -464,7 +464,7 @@ int main() {
     // --- Export preflight: upgrade-then-validate path (v13 no-op) ---
     {
         ProjectDoc doc = makeDoc();
-        doc.formatVersion = 13;
+        doc.formatVersion = 14;
         doc.objectTypes["Hero"] = makeOtWithPivot("Hero", {0.f, 1.f});
         ImageAssetDef image;
         image.assetId = "img";
