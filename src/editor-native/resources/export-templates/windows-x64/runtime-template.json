@@ -3,7 +3,7 @@
   "templateVersion": 1,
   "target": "windows-x64",
   "engineVersion": "2.0.0",
-  "runtimeBuildId": "08405cd",
+  "runtimeBuildId": "2316742",
   "platformerGroundSupport": "ADR-0052",
   "projectFormat": {
     "minimum": 12,
@@ -15,7 +15,7 @@
   "files": {
     "game.exe": {
       "size": 4196864,
-      "sha256": "5a4fa2cf5b605ba00c4702425a4af1a8c90e1cfc4721780ba6fd7010cf8d30d7"
+      "sha256": "f08d1cf061bd441af5d7b43feedab32bba77ad1b463034dc8ab9376897dccc87"
     }
   }
 }

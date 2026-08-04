@@ -2073,8 +2073,7 @@ int EditorApp::run(int argc, char** argv) {
                             SceneFrameTransform2D geom = geometry->transform;
                             if (transformInteraction.active
                                 && transformInteraction.entityId == selected) {
-                                geom = projectTransform(transformInteraction.previewTransform,
-                                                        transformInteraction.unscaledSize);
+                                geom = projectTransformInteractionGeometry(transformInteraction);
                             }
                             const Vec2 mouse{static_cast<float>(GetMouseX()),
                                              static_cast<float>(GetMouseY())};

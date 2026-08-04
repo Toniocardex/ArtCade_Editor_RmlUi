@@ -549,6 +549,7 @@ TransformInteractionState beginTransformInteraction(
     state.startMouseWorld = mouseWorld;
     state.unscaledSize = geometry.unscaledSize;
     state.effectivePivot = geometry.effectivePivot;
+    state.originalGeometry = geometry.transform;
 
     if (handle != TransformHandle::Body && handle != TransformHandle::None) {
         const TransformHandle opp = oppositeHandle(handle);
@@ -558,6 +559,45 @@ TransformInteractionState beginTransformInteraction(
         // horizontal centre — handleWorldPos already returns midpoints.
     }
     return state;
+}
+
+SceneFrameTransform2D projectTransformInteractionGeometry(
+    const TransformInteractionState& state) {
+    if (!state.active) return state.originalGeometry;
+
+    // Moving changes only the Entity Origin. Translating the already-resolved
+    // geometry preserves sprite pivots, collider offsets, and text/gauge bounds
+    // exactly, including on the initial mouse-down frame.
+    if (state.handle == TransformHandle::Body) {
+        SceneFrameTransform2D out = state.originalGeometry;
+        out.center.x += state.previewTransform.position.x - state.originalTransform.position.x;
+        out.center.y += state.previewTransform.position.y - state.originalTransform.position.y;
+        return out;
+    }
+
+    SceneFrameTransform2D out;
+    out.size = {
+        state.unscaledSize.x * std::abs(state.previewTransform.scale.x),
+        state.unscaledSize.y * std::abs(state.previewTransform.scale.y),
+    };
+    out.rotationRadians = state.originalGeometry.rotationRadians;
+
+    // Entity Origin is the effective pivot inside the resolved geometry. Keep
+    // that relation while the scale changes; collider geometry deliberately
+    // keeps rotation 0 because runtime collision bounds are axis-aligned.
+    const Vec2 localCenterOffset{
+        (0.5f - state.effectivePivot.x) * out.size.x,
+        (0.5f - state.effectivePivot.y) * out.size.y,
+    };
+    const float c = std::cos(out.rotationRadians);
+    const float s = std::sin(out.rotationRadians);
+    out.center = {
+        state.previewTransform.position.x
+            + localCenterOffset.x * c - localCenterOffset.y * s,
+        state.previewTransform.position.y
+            + localCenterOffset.x * s + localCenterOffset.y * c,
+    };
+    return out;
 }
 
 AuthoredTransformPatch transformPatchForRelease(const TransformInteractionState& state) {

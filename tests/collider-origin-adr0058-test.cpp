@@ -189,6 +189,26 @@ int main() {
         CHECK(pickEntityAt(frame, Vec2{1000.f, 1000.f}) == INVALID_ENTITY);
         CHECK(!frame.entities.empty());
         CHECK(near(frame.entities.front().entityOrigin.x, 100.f));
+
+        // Regression: mouse-down starts a Body preview immediately. The gizmo
+        // must remain on the effective collider instead of jumping to a
+        // centred placeholder around Entity Origin.
+        const Transform authored =
+            document.findInstanceInScene(kSceneA, kHero)->transform;
+        TransformInteractionState interaction = beginTransformInteraction(
+            kSceneA, kHero, TransformHandle::Body, authored, *geometry,
+            geometry->transform.center);
+        SceneFrameTransform2D preview =
+            projectTransformInteractionGeometry(interaction);
+        CHECK(near(preview.center.x, geometry->transform.center.x));
+        CHECK(near(preview.center.y, geometry->transform.center.y));
+        CHECK(near(preview.size.x, geometry->transform.size.x));
+        CHECK(near(preview.size.y, geometry->transform.size.y));
+
+        interaction.previewTransform.position = {112.f, 75.f};
+        preview = projectTransformInteractionGeometry(interaction);
+        CHECK(near(preview.center.x, geometry->transform.center.x + 12.f));
+        CHECK(near(preview.center.y, geometry->transform.center.y - 5.f));
     }
 
     return reportAndExit("collider-origin-adr0058-test");

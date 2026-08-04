@@ -40,6 +40,10 @@ struct TransformInteractionState {
     Vec2 unscaledSize{32.f, 32.f};
     // ADR-0057: captured at gesture begin; immutable for the resize.
     Vec2 effectivePivot{0.5f, 0.5f};
+    // The resolved visual/collider bounds at gesture begin. Preview rendering
+    // must preserve this geometry instead of falling back to a centred 32x32
+    // projection as soon as the mouse button goes down.
+    SceneFrameTransform2D originalGeometry{};
 };
 
 inline void cancelTransformInteraction(TransformInteractionState& state) {
@@ -133,6 +137,10 @@ TransformInteractionState beginTransformInteraction(
     const Transform& authored,
     const InstanceTransformGeometry& geometry,
     Vec2 mouseWorld);
+
+/** Project the current local preview without losing its resolved pivot/offset. */
+SceneFrameTransform2D projectTransformInteractionGeometry(
+    const TransformInteractionState& state);
 
 AuthoredTransformPatch transformPatchForRelease(
     const TransformInteractionState& state);
